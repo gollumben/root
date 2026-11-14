@@ -70,12 +70,6 @@ namespace cling {
     ///\brief Optimization level.
     unsigned OptLevel : 2;
 
-    ///\brief Offset into the input line to enable the setting of the
-    /// code completion point.
-    /// -1 diasables code completion.
-    ///
-    int CodeCompletionOffset = -1;
-
     CompilationOptions() {
       DeclarationExtraction = 0;
       EnableShadowing = 0;
@@ -86,40 +80,34 @@ namespace cling {
       CodeGeneration = 1;
       CodeGenerationForModule = 0;
       IgnorePromptDiags = 0;
-      OptLevel = 2;
+      OptLevel = 1;
       CheckPointerValidity = 1;
     }
 
     bool operator==(CompilationOptions Other) const {
-      return
-        DeclarationExtraction == Other.DeclarationExtraction &&
-        EnableShadowing       == Other.EnableShadowing &&
-        ValuePrinting         == Other.ValuePrinting &&
-        ResultEvaluation      == Other.ResultEvaluation &&
-        DynamicScoping        == Other.DynamicScoping &&
-        Debug                 == Other.Debug &&
-        CodeGeneration        == Other.CodeGeneration &&
-        CodeGenerationForModule == Other.CodeGenerationForModule &&
-        IgnorePromptDiags     == Other.IgnorePromptDiags &&
-        CheckPointerValidity  == Other.CheckPointerValidity &&
-        OptLevel              == Other.OptLevel &&
-        CodeCompletionOffset  == Other.CodeCompletionOffset;
+      return DeclarationExtraction == Other.DeclarationExtraction &&
+             EnableShadowing == Other.EnableShadowing &&
+             ValuePrinting == Other.ValuePrinting &&
+             ResultEvaluation == Other.ResultEvaluation &&
+             DynamicScoping == Other.DynamicScoping && Debug == Other.Debug &&
+             CodeGeneration == Other.CodeGeneration &&
+             CodeGenerationForModule == Other.CodeGenerationForModule &&
+             IgnorePromptDiags == Other.IgnorePromptDiags &&
+             CheckPointerValidity == Other.CheckPointerValidity &&
+             OptLevel == Other.OptLevel;
     }
 
     bool operator!=(CompilationOptions Other) const {
-      return
-        DeclarationExtraction != Other.DeclarationExtraction ||
-        EnableShadowing       != Other.EnableShadowing ||
-        ValuePrinting         != Other.ValuePrinting ||
-        ResultEvaluation      != Other.ResultEvaluation ||
-        DynamicScoping        != Other.DynamicScoping ||
-        Debug                 != Other.Debug ||
-        CodeGeneration        != Other.CodeGeneration ||
-        CodeGenerationForModule != Other.CodeGenerationForModule ||
-        IgnorePromptDiags     != Other.IgnorePromptDiags ||
-        CheckPointerValidity  != Other.CheckPointerValidity ||
-        OptLevel              != Other.OptLevel ||
-        CodeCompletionOffset  != Other.CodeCompletionOffset;
+      return DeclarationExtraction != Other.DeclarationExtraction ||
+             EnableShadowing != Other.EnableShadowing ||
+             ValuePrinting != Other.ValuePrinting ||
+             ResultEvaluation != Other.ResultEvaluation ||
+             DynamicScoping != Other.DynamicScoping || Debug != Other.Debug ||
+             CodeGeneration != Other.CodeGeneration ||
+             CodeGenerationForModule != Other.CodeGenerationForModule ||
+             IgnorePromptDiags != Other.IgnorePromptDiags ||
+             CheckPointerValidity != Other.CheckPointerValidity ||
+             OptLevel != Other.OptLevel;
     }
   };
 } // end namespace cling

@@ -11,10 +11,9 @@
 #include <TCollection.h>
 #include <TCanvas.h>
 #include <TROOT.h>
-#include <snprintf.h>
+#include <TVirtualX.h>
 
-ClassImp(CanvSave);
-
+#include <cstdio>
 
 CanvSave::CanvSave(const TGWindow *p, const TGWindow *main, UInt_t w,
                    UInt_t h, UInt_t options) :
@@ -149,11 +148,11 @@ void CanvSave::CloseWindow()
    delete this;
 }
 
-Bool_t CanvSave::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
+Bool_t CanvSave::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2)
 {
    //------------------------------------------------------------
    //
-   //     ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
+   //     ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2)
    //
    //   Processes information from GUI items of the panel
    //

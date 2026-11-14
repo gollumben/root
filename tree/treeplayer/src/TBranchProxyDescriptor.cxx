@@ -24,9 +24,8 @@
 
 #include "TTreeFormula.h"
 #include "TFormLeafInfo.h"
-#include <ctype.h>
+#include <cctype>
 
-ClassImp(ROOT::Internal::TBranchProxyDescriptor);
 
 namespace ROOT {
 namespace Internal {
@@ -37,9 +36,9 @@ namespace Internal {
    TBranchProxyDescriptor::TBranchProxyDescriptor(const char *dataname,
                                                   const char *type,
                                                   const char *branchname,
-                                                  Bool_t split,
-                                                  Bool_t skipped,
-                                                  Bool_t isleaflist) :
+                                                  bool split,
+                                                  bool skipped,
+                                                  bool isleaflist) :
       TNamed(dataname,type),fBranchName(branchname),fIsSplit(split),fBranchIsSkipped(skipped),fIsLeafList(isleaflist)
    {
       fDataName = GetName();
@@ -83,8 +82,7 @@ namespace Internal {
    ////////////////////////////////////////////////////////////////////////////////
    /// Return true if this description is the 'same' as the other description.
 
-   Bool_t TBranchProxyDescriptor::IsEquivalent(const TBranchProxyDescriptor *other,
-                                               Bool_t inClass)
+   bool TBranchProxyDescriptor::IsEquivalent(const TBranchProxyDescriptor *other, bool inClass)
    {
       if ( !other ) return false;
       if ( other == this ) return true;
@@ -105,7 +103,7 @@ namespace Internal {
    ////////////////////////////////////////////////////////////////////////////////
    /// Return true if the branch is split
 
-   Bool_t TBranchProxyDescriptor::IsSplit() const
+   bool TBranchProxyDescriptor::IsSplit() const
    {
       return fIsSplit;
    }

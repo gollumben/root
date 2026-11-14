@@ -44,8 +44,8 @@ namespace Math {
 
    class GSLMultiRootBaseSolver;
 
-   /** @defgroup MultiRoot  Multidimensional ROOT finding 
-       Classes for finding the roots of a multi-dimensional system. 
+   /** @defgroup MultiRoot  Multidimensional ROOT finding
+       Classes for finding the roots of a multi-dimensional system.
        @ingroup NumAlgo
    */
 
@@ -133,17 +133,16 @@ namespace Math {
       after having remived the GSL prefix (gsl_multiroot_fsolver).
       Default algorithm  is "hybrids" (without derivative).
     */
-    GSLMultiRootFinder(const char * name = 0);
+    GSLMultiRootFinder(const char * name = nullptr);
 
     /// destructor
     virtual ~GSLMultiRootFinder();
 
- private:
-    // usually copying is non trivial, so we make this unaccessible
-    GSLMultiRootFinder(const GSLMultiRootFinder &);
-    GSLMultiRootFinder & operator = (const GSLMultiRootFinder &);
-
- public:
+    // usually copying is non trivial, so we delete this
+    GSLMultiRootFinder(const GSLMultiRootFinder &) = delete;
+    GSLMultiRootFinder & operator = (const GSLMultiRootFinder &) = delete;
+    GSLMultiRootFinder(GSLMultiRootFinder &&) = delete;
+    GSLMultiRootFinder & operator = (GSLMultiRootFinder &&) = delete;
 
     /// set the type for an algorithm without derivatives
     void SetType(EType type) {
@@ -274,7 +273,7 @@ namespace Math {
 
  private:
 
-    int fIter;           // current numer of iterations
+    int fIter;           // current number of iterations
     int fStatus;         // current status
     int fPrintLevel;     // print level
 
@@ -285,7 +284,7 @@ namespace Math {
     bool fUseDerivAlgo; // algorithm using derivative
 
     GSLMultiRootBaseSolver * fSolver;
-    std::vector<ROOT::Math::IMultiGenFunction *> fFunctions;   //! transient Vector of the functions
+    std::vector<ROOT::Math::IMultiGenFunction *> fFunctions;   ///<! transient Vector of the functions
 
 
  };

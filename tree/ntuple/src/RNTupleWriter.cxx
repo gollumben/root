@@ -1,0 +1,245 @@
+/// \file RNTupleReader.cxx
+/// \author Jakob Blomer <jblomer@cern.ch>
+/// \date 2024-02-20
+
+/*************************************************************************
+ * Copyright (C) 1995-2024, Rene Brun and Fons Rademakers.               *
+ * All rights reserved.                                                  *
+ *                                                                       *
+ * For the licensing terms see $ROOTSYS/LICENSE.                         *
+ * For the list of contributors see $ROOTSYS/README/CREDITS.             *
+ *************************************************************************/
+
+#include <ROOT/RNTupleWriter.hxx>
+
+#include <ROOT/RLogger.hxx>
+#include <ROOT/RNTupleAttrWriting.hxx>
+#include <ROOT/RNTupleImtTaskScheduler.hxx>
+#include <ROOT/RNTupleFillContext.hxx>
+#include <ROOT/RNTupleMetrics.hxx>
+#include <ROOT/RNTupleModel.hxx>
+#include <ROOT/RNTupleUtils.hxx>
+#include <ROOT/RNTupleWriteOptions.hxx>
+#include <ROOT/RPageSinkBuf.hxx>
+#include <ROOT/RPageStorage.hxx>
+#include <ROOT/RPageStorageFile.hxx>
+#include <ROOT/RFile.hxx>
+
+#include <TFile.h>
+#include <TROOT.h>
+
+#include <utility>
+
+static bool IsReservedRNTupleAttrSetName(std::string_view name)
+{
+   return ROOT::StartsWith(name, "__");
+}
+
+ROOT::RNTupleWriter::RNTupleWriter(std::unique_ptr<ROOT::RNTupleModel> model,
+                                   std::unique_ptr<ROOT::Internal::RPageSink> sink)
+   : fFillContext(std::move(model), std::move(sink)), fMetrics("RNTupleWriter", fFillContext.fSink->GetNTupleName())
+{
+#ifdef R__USE_IMT
+   if (IsImplicitMTEnabled() &&
+       fFillContext.fSink->GetWriteOptions().GetUseImplicitMT() != ROOT::RNTupleWriteOptions::EImplicitMT::kOff) {
+      fFillContext.fZipTasks = std::make_unique<ROOT::Experimental::Internal::RNTupleImtTaskScheduler>();
+      fFillContext.fSink->SetTaskScheduler(fFillContext.fZipTasks.get());
+   }
+#endif
+   // Observe directly the sink's metrics to avoid an additional prefix from the fill context.
+   fMetrics.ObserveMetrics(fFillContext.fSink->GetMetrics());
+}
+
+ROOT::RNTupleWriter::~RNTupleWriter()
+{
+   try {
+      CommitDataset();
+   } catch (const RException &err) {
+      R__LOG_ERROR(ROOT::Internal::NTupleLog()) << "failure committing ntuple: " << err.what();
+   }
+}
+
+std::unique_ptr<ROOT::RNTupleWriter> ROOT::RNTupleWriter::Create(std::unique_ptr<ROOT::RNTupleModel> model,
+                                                                 std::unique_ptr<Internal::RPageSink> sink,
+                                                                 const ROOT::RNTupleWriteOptions &options)
+{
+   if (model->GetRegisteredSubfieldNames().size() > 0) {
+      throw RException(R__FAIL("cannot create an RNTupleWriter from a model with registered subfields"));
+   }
+   for (const auto &field : model->GetConstFieldZero()) {
+      if (field.GetTraits() & ROOT::RFieldBase::kTraitEmulatedField)
+         throw RException(
+            R__FAIL("creating a RNTupleWriter from a model containing emulated fields is currently unsupported."));
+   }
+   if (options.GetUseBufferedWrite()) {
+      sink = std::make_unique<Internal::RPageSinkBuf>(std::move(sink));
+   }
+   return std::unique_ptr<RNTupleWriter>(new RNTupleWriter(std::move(model), std::move(sink)));
+}
+
+std::unique_ptr<ROOT::RNTupleWriter>
+ROOT::RNTupleWriter::Recreate(std::unique_ptr<ROOT::RNTupleModel> model, std::string_view ntupleName,
+                              std::string_view storage, const ROOT::RNTupleWriteOptions &options)
+{
+   auto sink = Internal::RPagePersistentSink::Create(ntupleName, storage, options);
+   return Create(std::move(model), std::move(sink), options);
+}
+
+std::unique_ptr<ROOT::RNTupleWriter>
+ROOT::RNTupleWriter::Recreate(std::initializer_list<std::pair<std::string_view, std::string_view>> fields,
+                              std::string_view ntupleName, std::string_view storage,
+                              const ROOT::RNTupleWriteOptions &options)
+{
+   auto sink = Internal::RPagePersistentSink::Create(ntupleName, storage, options);
+   auto model = ROOT::RNTupleModel::Create();
+   for (const auto &fieldDesc : fields) {
+      std::string typeName(fieldDesc.first);
+      std::string fieldName(fieldDesc.second);
+      auto field = ROOT::RFieldBase::Create(fieldName, typeName);
+      model->AddField(field.Unwrap());
+   }
+   return Create(std::move(model), std::move(sink), options);
+}
+
+std::unique_ptr<ROOT::RNTupleWriter>
+ROOT::RNTupleWriter::Append(std::unique_ptr<ROOT::RNTupleModel> model, std::string_view ntupleName,
+                            TDirectory &fileOrDirectory, const ROOT::RNTupleWriteOptions &options)
+{
+   auto file = fileOrDirectory.GetFile();
+   if (!file) {
+      throw RException(R__FAIL("RNTupleWriter only supports writing to a ROOT file. Cannot write into a directory "
+                               "that is not backed by a file"));
+   }
+   if (!file->IsBinary()) {
+      throw RException(R__FAIL("RNTupleWriter only supports writing to a ROOT file. Cannot write into " +
+                               std::string(file->GetName())));
+   }
+   if (!file->IsWritable()) {
+      throw RException(R__FAIL("The file '" + std::string(file->GetName()) +
+                               "' given to RNTupleWriter is not writable. Open it with 'UPDATE' or 'RECREATE' "
+                               "if you want to write into it."));
+   }
+
+   auto sink = std::make_unique<Internal::RPageSinkFile>(ntupleName, fileOrDirectory, options);
+   return Create(std::move(model), std::move(sink), options);
+}
+
+void ROOT::RNTupleWriter::CommitCluster()
+{
+   FlushCluster();
+}
+
+void ROOT::RNTupleWriter::CommitCluster(bool commitClusterGroup)
+{
+   FlushCluster();
+   if (commitClusterGroup) {
+      CommitClusterGroup();
+   } else if (fFillContext.fSink->GetWriteOptions().GetClusterGroupPageThreshold() > 0 &&
+              !fFlagHasWarnedAboutClusterGroupCommitConflict) {
+      R__LOG_WARNING(ROOT::Internal::NTupleLog())
+         << "CommitCluster(false) is used while automatically committing cluster groups is active "
+            "(cluster group page threshold > 0). A cluster group may still be committed.";
+      fFlagHasWarnedAboutClusterGroupCommitConflict = true;
+   }
+}
+
+void ROOT::RNTupleWriter::CommitClusterGroup()
+{
+   fFillContext.fSink->CommitClusterGroup();
+   fLastCommittedClusterGroup = GetNEntries();
+}
+
+ROOT::RNTupleModel &ROOT::RNTupleWriter::GetUpdatableModel()
+{
+   if (fFillContext.fModel->IsExpired()) {
+      throw RException(R__FAIL("invalid attempt to update expired model"));
+   }
+   return *fFillContext.fModel;
+}
+
+void ROOT::RNTupleWriter::CommitDataset()
+{
+   if (fFillContext.GetModel().IsExpired())
+      return;
+
+   CommitCluster(true /* commitClusterGroup */);
+
+   // Commit attributes
+   for (auto &attrSet : fAttributeSets) {
+      CloseAttributeSetImpl(*attrSet);
+   }
+
+   fFillContext.fSink->CommitDataset();
+   fFillContext.fModel->Expire();
+}
+
+std::unique_ptr<ROOT::RNTupleWriter>
+ROOT::Internal::CreateRNTupleWriter(std::unique_ptr<ROOT::RNTupleModel> model,
+                                    std::unique_ptr<ROOT::Internal::RPageSink> sink)
+{
+   return std::unique_ptr<ROOT::RNTupleWriter>(new ROOT::RNTupleWriter(std::move(model), std::move(sink)));
+}
+
+std::unique_ptr<ROOT::RNTupleWriter> ROOT::RNTupleWriter::Append(std::unique_ptr<ROOT::RNTupleModel> model,
+                                                                 std::string_view ntupleName, ROOT::RFile &file,
+                                                                 const ROOT::RNTupleWriteOptions &options)
+{
+   auto [ntupleDir, ntupleBasename] = ROOT::Detail::DecomposePath(ntupleName);
+   auto sink = std::make_unique<ROOT::Internal::RPageSinkFile>(ntupleBasename, file, ntupleDir, options);
+   return ROOT::RNTupleWriter::Create(std::move(model), std::move(sink), options);
+}
+
+ROOT::RNTupleAttrSetWriterHandle
+ROOT::RNTupleWriter::CreateAttributeSet(std::unique_ptr<ROOT::RNTupleModel> model, std::string_view name,
+                                        const ROOT::RNTupleWriteOptions *optsPtr)
+{
+   if (IsReservedRNTupleAttrSetName(name)) {
+      throw ROOT::RException(R__FAIL("Cannot create Attribute Set named \"" + std::string(name) +
+                                     "\": names starting with '__' are reserved for internal use."));
+   }
+
+   if (name.empty())
+      throw ROOT::RException(R__FAIL("cannot create an Attribute Set with an empty name"));
+
+   const RNTupleWriteOptions &opts = optsPtr != nullptr ? *optsPtr : fFillContext.fSink->GetWriteOptions();
+   auto attrSink = fFillContext.fSink->CloneAsHidden(name, opts);
+
+   std::string nameStr{name};
+   auto attrSet = RNTupleAttrSetWriter::Create(fFillContext, std::move(attrSink), std::move(model));
+
+   // check for duplicates
+   auto existingIt = std::find_if(fAttributeSets.begin(), fAttributeSets.end(),
+                                  [&nameStr](const auto &set) { return set->GetDescriptor().GetName() == nameStr; });
+   if (existingIt != fAttributeSets.end())
+      throw ROOT::RException(R__FAIL(std::string("attempted to create an Attribute Set named '") + nameStr +
+                                     "', but one already exists with that name"));
+
+   auto &addedSet = fAttributeSets.emplace_back(std::move(attrSet));
+   return RNTupleAttrSetWriterHandle{addedSet};
+}
+
+void ROOT::RNTupleWriter::CloseAttributeSetImpl(ROOT::RNTupleAttrSetWriter &attrSet)
+{
+   auto attrAnchorInfo = attrSet.Commit();
+   fFillContext.fSink->CommitAttributeSet(attrSet.GetDescriptor().GetName(), attrAnchorInfo);
+}
+
+void ROOT::RNTupleWriter::CloseAttributeSet(ROOT::RNTupleAttrSetWriterHandle handle)
+{
+   auto writer = handle.fWriter.lock();
+   if (writer) {
+      throw ROOT::RException(R__FAIL("Tried to close an invalid AttributeSetWriter"));
+   }
+
+   CloseAttributeSetImpl(*writer);
+
+   auto &attrSets = fAttributeSets;
+   for (auto it = attrSets.begin(), end = attrSets.end(); it != end; ++it) {
+      if (it->get() == writer.get()) {
+         attrSets.erase(it);
+         return;
+      }
+   }
+   // We must have erased the attribute set.
+   R__ASSERT(false);
+}

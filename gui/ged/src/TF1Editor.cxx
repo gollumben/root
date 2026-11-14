@@ -31,7 +31,6 @@ GUI for TF1 attributes and parameters.
 #include "TVirtualPad.h"
 
 
-ClassImp(TF1Editor);
 
 enum ETF1Wid {
    kTF1_TIT,  kTF1_NPX,
@@ -209,10 +208,7 @@ void TF1Editor::DoSliderXMoved()
 {
    if (fAvoidSignal) return;
 
-   TVirtualPad *save = 0;
-   save = gPad;
-   gPad = fGedEditor->GetPad();
-   fGedEditor->GetPad()->cd();
+   TVirtualPad::TContext ctxt(fGedEditor->GetPad(), kTRUE);
 
    fF1->SetNpx((Int_t)fNXpoints->GetNumber());
    TAxis *x = fF1->GetHistogram()->GetXaxis();
@@ -242,7 +238,6 @@ void TF1Editor::DoSliderXMoved()
       fClient->NeedRedraw(fSldMinX,kTRUE);
       fClient->NeedRedraw(fSldMaxX,kTRUE);
    }
-   if(save) gPad = save;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -252,10 +247,7 @@ void TF1Editor::DoSliderXPressed()
 {
    if (fAvoidSignal || (fDrawMode->GetState() == kButtonDown)) return;
 
-   TVirtualPad *save = 0;
-   save = gPad;
-   gPad = fGedEditor->GetPad();
-   fGedEditor->GetPad()->cd();
+   TVirtualPad::TContext ctxt(fGedEditor->GetPad(), kTRUE);
 
    fF1->SetNpx((Int_t)fNXpoints->GetNumber());
    TAxis *x = fF1->GetHistogram()->GetXaxis();
@@ -273,9 +265,6 @@ void TF1Editor::DoSliderXPressed()
    fClient->NeedRedraw(fSldMinX,kTRUE);
    fClient->NeedRedraw(fSldMaxX,kTRUE);
    Update();
-
-   if(save) gPad = save;
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -285,10 +274,7 @@ void TF1Editor::DoSliderXReleased()
 {
    if (fAvoidSignal || (fDrawMode->GetState() == kButtonDown)) return;
 
-   TVirtualPad *save = 0;
-   save = gPad;
-   gPad = fGedEditor->GetPad();
-   fGedEditor->GetPad()->cd();
+   TVirtualPad::TContext ctxt(fGedEditor->GetPad(), kTRUE);
 
    fF1->SetNpx((Int_t)fNXpoints->GetNumber());
    TAxis *x = fF1->GetHistogram()->GetXaxis();
@@ -306,8 +292,6 @@ void TF1Editor::DoSliderXReleased()
    fClient->NeedRedraw(fSldMinX,kTRUE);
    fClient->NeedRedraw(fSldMaxX,kTRUE);
    Update();
-
-   if(save) gPad = save;
 }
 
 

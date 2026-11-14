@@ -59,14 +59,7 @@ namespace Roots {
    public:
 
       Bisection();
-      virtual ~Bisection();
-
-   private:
-      // usually copying is non trivial, so we make this unaccessible
-
-      Bisection(const Bisection &);
-      Bisection & operator = (const Bisection &);
-
+      ~Bisection() override;
    };
 
 //________________________________________________________________________________________________________
@@ -81,13 +74,7 @@ namespace Roots {
    public:
 
       FalsePos();
-      virtual ~FalsePos();
-
-   private:
-      // usually copying is non trivial, so we make this unaccessible
-      FalsePos(const FalsePos &);
-      FalsePos & operator = (const FalsePos &);
-
+      ~FalsePos() override;
    };
 
 
@@ -106,13 +93,7 @@ namespace Roots {
    public:
 
       Brent();
-      virtual ~Brent();
-
-   private:
-      // usually copying is non trivial, so we make this unaccessible
-      Brent(const Brent &);
-      Brent & operator = (const Brent &);
-
+      ~Brent() override;
    };
 
 
@@ -134,13 +115,7 @@ namespace Roots {
    public:
 
       Newton();
-      virtual ~Newton();
-
-   private:
-      // usually copying is non trivial, so we make this unaccessible
-      Newton(const Newton &);
-      Newton & operator = (const Newton &);
-
+      ~Newton() override;
    };
 
 
@@ -157,13 +132,7 @@ namespace Roots {
    public:
 
       Secant();
-      virtual ~Secant();
-
-   private:
-      // usually copying is non trivial, so we make this unaccessible
-      Secant(const Secant &);
-      Secant & operator = (const Secant &);
-
+      ~Secant() override;
    };
 
 //________________________________________________________________________________________________________
@@ -180,13 +149,7 @@ namespace Roots {
    public:
 
       Steffenson();
-      virtual ~Steffenson();
-
-   private:
-      // usually copying is non trivial, so we make this unaccessible
-      Steffenson(const Steffenson &);
-      Steffenson & operator = (const Steffenson &);
-
+      ~Steffenson() override;
    };
 
 

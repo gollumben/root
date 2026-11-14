@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate Data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodPDEFoam                                                         *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      The PDEFoam method is an extension of the PDERS method, which divides     *
@@ -29,7 +29,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodPDEFoam
@@ -83,10 +83,10 @@ namespace TMVA {
 
       virtual ~MethodPDEFoam( void );
 
-      virtual Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets );
+      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets ) override;
 
       // training methods
-      void Train( void );
+      void Train( void ) override;
       void TrainMonoTargetRegression( void );    // Regression output: one value
       void TrainMultiTargetRegression( void );   // Regression output: any number of values
       void TrainSeparatedClassification( void ); // Classification: one foam for Sig, one for Bg
@@ -96,11 +96,11 @@ namespace TMVA {
       using MethodBase::ReadWeightsFromStream;
 
       // write weights to stream
-      void AddWeightsXMLTo( void* parent ) const;
+      void AddWeightsXMLTo( void* parent ) const override;
 
       // read weights from stream
-      void ReadWeightsFromStream( std::istream & i );
-      void ReadWeightsFromXML   ( void* wghtnode );
+      void ReadWeightsFromStream( std::istream & i ) override;
+      void ReadWeightsFromXML   ( void* wghtnode ) override;
 
       // write/read pure foams to/from file
       void WriteFoamsToFile() const;
@@ -108,19 +108,19 @@ namespace TMVA {
       PDEFoam* ReadClonedFoamFromFile(TFile*, const TString&);
 
       // calculate the MVA value
-      Double_t GetMvaValue( Double_t* err = 0, Double_t* errUpper = 0 );
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
 
       // calculate multiclass MVA values
-      const std::vector<Float_t>& GetMulticlassValues();
+      const std::vector<Float_t>& GetMulticlassValues() override;
 
       // regression procedure
-      virtual const std::vector<Float_t>& GetRegressionValues();
+      const std::vector<Float_t>& GetRegressionValues() override;
 
       // reset the method
-      virtual void Reset();
+      void Reset() override;
 
       // ranking of input variables
-      const Ranking* CreateRanking();
+      const Ranking* CreateRanking() override;
 
       // get number of cuts in every dimension, starting at cell
       void GetNCuts(PDEFoamCell *cell, std::vector<UInt_t> &nCuts);
@@ -135,10 +135,10 @@ namespace TMVA {
    protected:
 
       // make ROOT-independent C++ class for classifier response (classifier-specific implementation)
-      void MakeClassSpecific( std::ostream&, const TString& ) const;
+      void MakeClassSpecific( std::ostream&, const TString& ) const override;
 
       // get help message text
-      void GetHelpMessage() const;
+      void GetHelpMessage() const override;
 
       // calculate the error on the Mva value
       Double_t CalculateMVAError();
@@ -164,9 +164,9 @@ namespace TMVA {
    private:
 
       // the option handling methods
-      void DeclareOptions();
-      void DeclareCompatibilityOptions();
-      void ProcessOptions();
+      void DeclareOptions() override;
+      void DeclareCompatibilityOptions() override;
+      void ProcessOptions() override;
 
       // nice output
       void PrintCoefficients( void );
@@ -175,41 +175,41 @@ namespace TMVA {
       template<typename T> T Sqr(T x) const { return x*x; }
 
       // options to be used
-      Bool_t        fSigBgSeparated;  // Separate Sig and Bg, or not
-      Float_t       fFrac;            // Fraction used for calc of Xmin, Xmax
-      Float_t       fDiscrErrCut;     // cut on discriminant error
-      Float_t       fVolFrac;         // volume fraction (used for density calculation during buildup)
-      Int_t         fnCells;          // Number of Cells  (1000)
-      Int_t         fnActiveCells;    // Number of active cells
-      Int_t         fnSampl;          // Number of MC events per cell in build-up (1000)
-      Int_t         fnBin;            // Number of bins in build-up (100)
-      Int_t         fEvPerBin;        // Maximum events (equiv.) per bin in build-up (1000)
+      Bool_t        fSigBgSeparated;  ///< Separate Sig and Bg, or not
+      Float_t       fFrac;            ///< Fraction used for calc of Xmin, Xmax
+      Float_t       fDiscrErrCut;     ///< cut on discriminant error
+      Float_t       fVolFrac;         ///< volume fraction (used for density calculation during buildup)
+      Int_t         fnCells;          ///< Number of Cells  (1000)
+      Int_t         fnActiveCells;    ///< Number of active cells
+      Int_t         fnSampl;          ///< Number of MC events per cell in build-up (1000)
+      Int_t         fnBin;            ///< Number of bins in build-up (100)
+      Int_t         fEvPerBin;        ///< Maximum events (equiv.) per bin in build-up (1000)
 
-      Bool_t        fCompress;        // compress foam output file
-      Bool_t        fMultiTargetRegression; // do regression on multiple targets
-      UInt_t        fNmin;            // minimal number of events in cell necessary to split cell"
-      Bool_t        fCutNmin;         // Keep for bw compatibility: Grabbing cell with maximal RMS to split next (TFoam default)
-      UInt_t        fMaxDepth;        // maximum depth of cell tree
+      Bool_t        fCompress;        ///< compress foam output file
+      Bool_t        fMultiTargetRegression; ///< do regression on multiple targets
+      UInt_t        fNmin;            ///< minimal number of events in cell necessary to split cell"
+      Bool_t        fCutNmin;         ///< Keep for bw compatibility: Grabbing cell with maximal RMS to split next (TFoam default)
+      UInt_t        fMaxDepth;        ///< maximum depth of cell tree
 
-      TString       fKernelStr;       // Kernel for GetMvaValue() (option string)
-      EKernel       fKernel;          // Kernel for GetMvaValue()
-      PDEFoamKernelBase *fKernelEstimator;// Kernel estimator
-      TString       fTargetSelectionStr; // method of selecting the target (only mulit target regr.)
-      ETargetSelection fTargetSelection; // method of selecting the target (only mulit target regr.)
-      Bool_t        fFillFoamWithOrigWeights; // fill the foam with boost weights
-      Bool_t        fUseYesNoCell;    // return -1 or 1 for bg or signal like event
-      TString       fDTLogic;         // use DT algorithm to split cells
-      EDTSeparation fDTSeparation;    // enum which specifies the separation to use for the DT logic
-      Bool_t        fPeekMax;         // BACKWARDS COMPATIBILITY: peek up cell with max. driver integral for split
+      TString       fKernelStr;       ///< Kernel for GetMvaValue() (option string)
+      EKernel       fKernel;          ///< Kernel for GetMvaValue()
+      PDEFoamKernelBase *fKernelEstimator; ///< Kernel estimator
+      TString       fTargetSelectionStr;   ///< method of selecting the target (only mulit target regr.)
+      ETargetSelection fTargetSelection;   ///< method of selecting the target (only mulit target regr.)
+      Bool_t        fFillFoamWithOrigWeights; ///< fill the foam with boost weights
+      Bool_t        fUseYesNoCell;    ///< return -1 or 1 for bg or signal like event
+      TString       fDTLogic;         ///< use DT algorithm to split cells
+      EDTSeparation fDTSeparation;    ///< enum which specifies the separation to use for the DT logic
+      Bool_t        fPeekMax;         ///< BACKWARDS COMPATIBILITY: peek up cell with max. driver integral for split
 
-      std::vector<Float_t> fXmin, fXmax; // range for histograms and foams
+      std::vector<Float_t> fXmin, fXmax; ///< range for histograms and foams
 
-      std::vector<PDEFoam*> fFoam;    // grown PDEFoams
+      std::vector<PDEFoam*> fFoam;    ///< grown PDEFoams
 
       // default initialisation called by all constructors
-      void Init( void );
+      void Init( void ) override;
 
-      ClassDef(MethodPDEFoam,0); // Multi-dimensional probability density estimator using TFoam (PDE-Foam)
+      ClassDefOverride(MethodPDEFoam,0); // Multi-dimensional probability density estimator using TFoam (PDE-Foam)
    };
 
 } // namespace TMVA

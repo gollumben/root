@@ -19,44 +19,41 @@ private:
 
    std::string fNX;
    std::string fNY;
-   std::vector<size_t> fShape;
+   std::vector<Dim> fShape;
 
 public:
    ROperator_Relu(){}
    ROperator_Relu(std::string nameX, std::string nameY):
-      fNX(UTILITY::Clean_name(nameX)), fNY(UTILITY::Clean_name(nameY)){}
-
-   std::vector<ETensorType> TypeInference(std::vector<ETensorType> input){
-      return input;
-   }
-
-   std::vector<std::vector<size_t>> ShapeInference(std::vector<std::vector<size_t>> input){
-      auto ret = input; //suggest copy to compiler
-      return ret;
-   }
-
-   void Initialize(RModel& model){
-      if (model.CheckIfTensorAlreadyExist(fNX) == false){   //input must be a graph input, or already initialized intermediate tensor
-         throw std::runtime_error("TMVA SOFIE Relu Op Input Tensor is not found in model");
+      fNX(UTILITY::Clean_name(nameX)), fNY(UTILITY::Clean_name(nameY)){
+         fInputTensorNames = { fNX };
+         fOutputTensorNames = { fNY };
       }
-      fShape = model.GetTensorShape(fNX);
+
+   void Initialize(RModel& model) override {
+      if (model.CheckIfTensorAlreadyExist(fNX) == false){   //input must be a graph input, or already initialized intermediate tensor
+         throw std::runtime_error("TMVA SOFIE Relu Op Input Tensor " + fNX + " is not found in model");
+      }
+
+      fShape = model.GetDimTensorShape(fNX);
+
       model.AddIntermediateTensor(fNY, model.GetTensorType(fNX), fShape);
+      if (model.Verbose()) {
+         std::cout << "Relu : " << fNX << " -> " << fNY << " " << ConvertDimShapeToString(fShape) << std::endl;
+      }
    }
 
 
-   std::string Generate(std::string OpName){
+   std::string Generate(std::string OpName) override {
       OpName = "op_" + OpName;
-      if (fShape.empty()){
-         throw std::runtime_error("TMVA SOFIE Transpose Relu called to Generate without being initialized first");
+      if (fShape.empty()) {
+         throw std::runtime_error("TMVA SOFIE Operator Relu called to Generate without being initialized first");
       }
       std::stringstream out;
-      int length = 1;
-      for(auto& i: fShape){
-         length *= i;
-      }
-      out << "\t" << "for (int id = 0; id < " << length << " ; id++){\n";
-      out << "\t\t" << "tensor_" << fNY << "[id] = ((tensor_" << fNX << "[id] > 0 )? tensor_" << fNX << "[id] : 0);\n";
-      out << "\t}\n";
+      auto length = ConvertDimShapeToLength(fShape);
+      out << "\n//------ RELU\n";
+      out << SP << "for (int id = 0; id < " << length << " ; id++){\n";
+      out << SP << SP << "tensor_" << fNY << "[id] = ((tensor_" << fNX << "[id] > 0 )? tensor_" << fNX << "[id] : 0);\n";
+      out << SP << "}\n";
       return out.str();
    }
 

@@ -8,7 +8,7 @@
 // Class to compute 95% CL limits
 //
 // adapted from the mclimit code from Tom Junk (CLs method)
-// see http://root.cern.ch/root/doc/TomJunk.pdf
+// see http://root.cern/root/doc/TomJunk.pdf
 // see http://cern.ch/thomasj/searchlimits/ecl.html
 // see: Tom Junk,NIM A434, p. 435-443, 1999
 //
@@ -23,15 +23,12 @@
 //  Alex Read, "Modified Frequentist Analysis of Search Results (The CLs Method)"
 //  CERN 2000-005 (30 May 2000)
 //
-// see note about: "Should I use TRolke, TFeldmanCousins, TLimit?"
-//  in the TRolke class description.
-//
 ///////////////////////////////////////////////////////////////////////////
 
 /** \class TLimit
+    \legacy{TLimit, Consider switching to RooStats.}
     \ingroup Hist
- Algorithm to compute 95% C.L. limits using the Likelihood ratio
- semi-bayesian method.
+ Algorithm to compute 95% CL limits using the Likelihood ratio semi-bayesian method.
 
  Implemented by C. Delaere from the mclimit code written by Tom Junk [HEP-EX/9902006].
  See [http://cern.ch/thomasj/searchlimits/ecl.html](http://cern.ch/thomasj/searchlimits/ecl.html) for more details.
@@ -78,6 +75,8 @@
  infile->Close();
 ~~~
  More information can still be found on [this page](http://cern.ch/aleph-proj-alphapp/doc/tlimit.html)
+ \see https://doi.org/10.1088/0954-3899/28/10/313, https://cds.cern.ch/record/451614/files/open-2000-205.pdf
+ \note see note about: "Should I use TRolke, TFeldmanCousins, TLimit?" in the TRolke class description.
  */
 
 #include "TLimit.h"
@@ -93,9 +92,8 @@
 #include "TIterator.h"
 #include "TObjString.h"
 #include "TClassTable.h"
-#include "Riostream.h"
 
-ClassImp(TLimit);
+#include <iostream>
 
 TArrayD *TLimit::fgTable = new TArrayD(0);
 TOrdCollection *TLimit::fgSystNames = new TOrdCollection();
@@ -232,11 +230,11 @@ bool TLimit::Fluctuate(TLimitDataSource * input, TLimitDataSource * output,
    if (init) {
       // create a "map" with the systematics names
       TIter errornames = input->GetErrorNames()->MakeIterator();
-      TObjArray *listofnames = 0;
+      TObjArray *listofnames = nullptr;
       delete fgSystNames;
       fgSystNames = new TOrdCollection();
       while ((listofnames = ((TObjArray *) errornames.Next()))) {
-         TObjString *name = 0;
+         TObjString *name = nullptr;
          TIter loniter = listofnames->MakeIterator();
          while ((name = (TObjString *) loniter.Next()))
             if ((fgSystNames->IndexOf(name)) < 0)
@@ -249,7 +247,7 @@ bool TLimit::Fluctuate(TLimitDataSource * input, TLimitDataSource * output,
    output = (TLimitDataSource*)(input->Clone());
    // if there are no systematics, just returns the input as "fluctuated" output
    if ((fgSystNames->GetSize() <= 0)&&(!stat)) {
-      return 0;
+      return false;
    }
    // if there are only stat, just fluctuate stats.
    if (fgSystNames->GetSize() <= 0) {
@@ -261,15 +259,15 @@ bool TLimit::Fluctuate(TLimitDataSource * input, TLimitDataSource * output,
             for(int i=1; i<=newsignal->GetNbinsX(); i++) {
                newsignal->SetBinContent(i,oldsignal->GetBinContent(i)+generator->Gaus(0,oldsignal->GetBinError(i)));
             }
-         newsignal->SetDirectory(0);
+         newsignal->SetDirectory(nullptr);
          TH1 *newbackground = (TH1*)(output->GetBackground()->At(channel));
          TH1 *oldbackground = (TH1*)(input->GetBackground()->At(channel));
          if(stat)
             for(int i=1; i<=newbackground->GetNbinsX(); i++)
                newbackground->SetBinContent(i,oldbackground->GetBinContent(i)+generator->Gaus(0,oldbackground->GetBinError(i)));
-         newbackground->SetDirectory(0);
+         newbackground->SetDirectory(nullptr);
       }
-      return 1;
+      return true;
    }
    // Find a choice for the random variation and
    // re-toss all random numbers if any background or signal
@@ -317,7 +315,7 @@ bool TLimit::Fluctuate(TLimitDataSource * input, TLimitDataSource * output,
          for(int i=1; i<=newsignal->GetNbinsX(); i++)
             newsignal->SetBinContent(i,oldsignal->GetBinContent(i));
       newsignal->Scale(1 + serrf[channel]);
-      newsignal->SetDirectory(0);
+      newsignal->SetDirectory(nullptr);
       TH1 *newbackground = (TH1*)(output->GetBackground()->At(channel));
       TH1 *oldbackground = (TH1*)(input->GetBackground()->At(channel));
       if(stat)
@@ -327,11 +325,11 @@ bool TLimit::Fluctuate(TLimitDataSource * input, TLimitDataSource * output,
          for(int i=1; i<=newbackground->GetNbinsX(); i++)
             newbackground->SetBinContent(i,oldbackground->GetBinContent(i));
       newbackground->Scale(1 + berrf[channel]);
-      newbackground->SetDirectory(0);
+      newbackground->SetDirectory(nullptr);
    }
    delete[] serrf;
    delete[] berrf;
-   return 1;
+   return true;
 }
 
 TConfidenceLevel *TLimit::ComputeLimit(TH1* s, TH1* b, TH1* d,

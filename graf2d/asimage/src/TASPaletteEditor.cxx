@@ -32,7 +32,8 @@ It is called by a pull down menu item of TASImage.
 #include "RConfigure.h"
 #include "TVirtualX.h"
 #include "strlcpy.h"
-#include "snprintf.h"
+
+#include <cstdio>
 
 #ifdef R__HAS_COCOA
 #   define X_DISPLAY_MISSING 1
@@ -45,8 +46,8 @@ It is called by a pull down menu item of TASImage.
 #ifndef WIN32
 #   include <afterbase.h>
 #else
-#   include <win32/config.h>
-#   include <win32/afterbase.h>
+#   define X_DISPLAY_MISSING 1
+#   include <afterbase.h>
 #endif
 #   include <afterimage.h>
 extern "C" {
@@ -57,36 +58,37 @@ extern "C" {
 static const char *gFileTypes[] = {
    "ROOT palette file",  "*.pal.root",
    "ASCII palette file", "*.pal.txt",
-   0,                    0
+   nullptr,              nullptr
 };
 
-static UShort_t gRedRainbow[12] = {
+constexpr size_t kNRainbowElems = 10;
+
+static UShort_t gRedRainbow[kNRainbowElems] = {
    0x0000, 0x7000, 0x0000, 0x0000, 0x0000,
    0xffff, 0xffff, 0x7000, 0x8000, 0xffff
 };
-static UShort_t gGreenRainbow[12] = {
+static UShort_t gGreenRainbow[kNRainbowElems] = {
    0x0000, 0x0000, 0x0000, 0xffff, 0xffff,
    0xffff, 0x0000, 0x0000, 0x8000, 0xffff
 };
-static UShort_t gBlueRainbow[12] = {
+static UShort_t gBlueRainbow[kNRainbowElems] = {
    0x0000, 0x7000, 0xffff, 0xffff, 0x0000,
    0x0000, 0x0000, 0x0000, 0xa000, 0xffff
 };
 
 
-ClassImp(TASPaletteEditor);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Palette editor constructor.
 /// The palette editor allows the editing of the color palette of the image.
 
 TASPaletteEditor::TASPaletteEditor(TAttImage *attImage, UInt_t w, UInt_t h)
-   : TPaletteEditor(attImage, w, h), TGMainFrame(0, w, h)
+   : TPaletteEditor(attImage, w, h), TGMainFrame(nullptr, w, h)
 {
    SetLayoutManager(new TGXYLayout(this));
-   fHisto        = 0;
-   fLimitLine[0] = 0;
-   fLimitLine[1] = 0;
+   fHisto        = nullptr;
+   fLimitLine[0] = nullptr;
+   fLimitLine[1] = nullptr;
    fRampFactor   = 0;
    fImagePad     = gPad;
 
@@ -398,8 +400,7 @@ void TASPaletteEditor::InsertNewPalette(TImagePalette *newPalette)
 {
    // first remove all palettes in the list which are behind the
    // current palette
-   TObject *obj;
-   while ((obj = fPaletteList->After(fPalette)) != 0)
+   while (auto obj = fPaletteList->After(fPalette))
       delete fPaletteList->Remove(obj);
 
    // add new palette and make it to the current palette
@@ -427,31 +428,27 @@ void TASPaletteEditor::Save()
 
    new TGFileDialog(gClient->GetRoot(), this, kFDSave, &fi);
    overwr = fi.fOverwrite;
-   if (fi.fFilename == 0)
+   if (!fi.fFilename)
       return;
 
-   if (strcmp(".pal.txt", fi.fFilename + strlen(fi.fFilename) - 8) == 0) {
+   TString fn = fi.fFilename;
+
+   if (fn.EndsWith(".pal.txt")) {
       // write into an ASCII file
-      FILE *fl = fopen(fi.fFilename, "w");
-      if (!fl) return;
+      FILE *fl = fopen(fn.Data(), "w");
+      if (!fl)
+         return;
       fprintf(fl, "%u\n", fPalette->fNumPoints);
       for (Int_t pt = 0; pt < Int_t(fPalette->fNumPoints); pt++)
-         fprintf(fl, "%10.9f %04hx %04hx %04hx %04hx\n",
-                 fPalette->fPoints[pt],
-                 fPalette->fColorRed[pt],
-                 fPalette->fColorGreen[pt],
-                 fPalette->fColorBlue[pt],
-                 fPalette->fColorAlpha[pt] );
+         fprintf(fl, "%10.9f %04hx %04hx %04hx %04hx\n", fPalette->fPoints[pt], fPalette->fColorRed[pt],
+                 fPalette->fColorGreen[pt], fPalette->fColorBlue[pt], fPalette->fColorAlpha[pt]);
       fclose(fl);
    } else {
       // write into a ROOT file
-      char fn[512];
-      if (strcmp(".pal.root", fi.fFilename + strlen(fi.fFilename) - 9) != 0)
-         snprintf(fn,512, "%s%s", fi.fFilename, ".pal.root");
-      else
-         strlcpy(fn, fi.fFilename,512);
+      if (!fn.EndsWith(".pal.root"))
+         fn.Append(".pal.root");
 
-      gROOT->ProcessLine(Form("gROOT->SaveObjectAs((TASPaletteEditor*)0x%zx,\"%s\",\"%s\");",(size_t)this,fn,"q"));
+      gROOT->SaveObjectAs(fPalette, fn.Data(), "q");
    }
 }
 
@@ -465,45 +462,44 @@ void TASPaletteEditor::Open()
    fi.fFileTypes = gFileTypes;
 
    new TGFileDialog(gClient->GetRoot(), this, kFDOpen, &fi);
-   if (fi.fFilename == 0)
+   if (!fi.fFilename)
       return;
 
-   TImagePalette *newPalette;
+   TString fn = fi.fFilename;
 
-   if (strcmp(".pal.txt", fi.fFilename + strlen(fi.fFilename) - 8) == 0) {
-      FILE *fl = fopen(fi.fFilename, "r");
-      if (!fl) return;
-      UInt_t numPoints;
-      // coverity [Calling risky function : FALSE]
-      if (fscanf(fl, "%u\n", &numPoints)) {;}
+   TImagePalette *newPalette = nullptr;
+
+   if (fn.EndsWith(".pal.txt")) {
+      FILE *fl = fopen(fn.Data(), "r");
+      if (!fl)
+         return;
+      UInt_t numPoints = 0;
+      if (fscanf(fl, "%u\n", &numPoints) != 1)
+         Error("Open", "Failure reading num points from %s", fn.Data());
       newPalette = new TImagePalette(numPoints);
-      for (Int_t pt = 0; pt < Int_t(numPoints); pt++)
-         // coverity [Calling risky function : FALSE]
-         if (fscanf(fl, "%lf %hx %hx %hx %hx\n",
-                newPalette->fPoints + pt,
-                newPalette->fColorRed + pt,
-                newPalette->fColorGreen + pt,
-                newPalette->fColorBlue + pt,
-                    newPalette->fColorAlpha + pt )) {;}
-             fclose(fl);
+      for (UInt_t pt = 0; pt < numPoints; pt++) {
+         if (fscanf(fl, "%lf %hx %hx %hx %hx\n", newPalette->fPoints + pt, newPalette->fColorRed + pt,
+                    newPalette->fColorGreen + pt, newPalette->fColorBlue + pt, newPalette->fColorAlpha + pt) != 5)
+            Error("Open", "Failure reading point %u from %s", pt, fn.Data());
+      }
+      fclose(fl);
    } else {
       // read from a ROOT file
-      char fn[512];
-      if (strcmp(".pal.root", fi.fFilename + strlen(fi.fFilename) - 9) != 0)
-         snprintf(fn,512, "%s%s", fi.fFilename, ".pal.root");
-      else
-         strlcpy(fn, fi.fFilename,512);
+      if (!fn.EndsWith(".pal.root"))
+         fn.Append(".pal.root");
+
       TDirectory *dirsav = gDirectory;
 
-      TFile *fsave = new TFile(fn, "READ");
-      if (!fsave->IsOpen()) {
+      auto fsave = TFile::Open(fn.Data(), "READ");
+      if (!fsave || !fsave->IsOpen()) {
          delete fsave;
          return;
       }
 
-      newPalette = (TImagePalette*)fsave->Get("TImagePalette");
+      newPalette = (TImagePalette *)fsave->Get("TImagePalette");
       delete fsave;
-      if (dirsav) dirsav->cd();
+      if (dirsav)
+         dirsav->cd();
       if (!newPalette)
          return;
    }
@@ -678,13 +674,11 @@ void TASPaletteEditor::NewPalette(Long_t id)
    if (id == 5) // empty entry
       return;
 
-   TImagePalette *newPalette;
-
    Double_t delta = fPalette->fPoints[fPalette->fNumPoints-2] - fPalette->fPoints[1];
-   UInt_t   numPt;
 
-   numPt = id == 0 ? 12 : 13;
-   newPalette = new TImagePalette(numPt);
+   UInt_t numPt = id == 0 ? kNRainbowElems + 2 : 13;
+   TImagePalette *newPalette = new TImagePalette(numPt);
+
    Int_t pt;
    for (pt = 1; pt < Int_t(numPt - 1); pt++) {
       newPalette->fPoints[pt] = fPalette->fPoints[1] + (pt - 1) * delta / (numPt - 3);
@@ -693,9 +687,9 @@ void TASPaletteEditor::NewPalette(Long_t id)
 
    switch (id) {
       case 0:  // rainbow
-         memcpy(newPalette->fColorRed + 1,   gRedRainbow,   12 * sizeof(UShort_t));
-         memcpy(newPalette->fColorGreen + 1, gGreenRainbow, 12 * sizeof(UShort_t));
-         memcpy(newPalette->fColorBlue + 1,  gBlueRainbow,  12 * sizeof(UShort_t));
+         memcpy(newPalette->fColorRed + 1,   gRedRainbow,   kNRainbowElems * sizeof(UShort_t));
+         memcpy(newPalette->fColorGreen + 1, gGreenRainbow, kNRainbowElems * sizeof(UShort_t));
+         memcpy(newPalette->fColorBlue + 1,  gBlueRainbow,  kNRainbowElems * sizeof(UShort_t));
          break;
 
       case 1:  // gray
@@ -897,36 +891,30 @@ void TASPaletteEditor::UpdateRange()
 
 void TASPaletteEditor::PaintPalette::Paint(Option_t *)
 {
-   // get geometry of pad
-   Int_t to_w = TMath::Abs(gPad->XtoPixel(gPad->GetX2()) -
-                           gPad->XtoPixel(gPad->GetX1()));
-   Int_t to_h = TMath::Abs(gPad->YtoPixel(gPad->GetY2()) -
-                           gPad->YtoPixel(gPad->GetY1()));
+   auto &pal = **fPalette;
 
    ASGradient grad;
+   grad.npoints = pal.fNumPoints - 2;
+   std::vector<ARGB32> color(grad.npoints);
+   std::vector<double> offset(grad.npoints);
 
-   grad.npoints = (*fPalette)->fNumPoints - 2;
-   grad.type = GRADIENT_Left2Right;
-   grad.color = new ARGB32[grad.npoints];
-   grad.offset = new double[grad.npoints];
    for (Int_t pt = 0; pt < grad.npoints; pt++) {
-      grad.offset[pt] = ((*fPalette)->fPoints[pt + 1] - (*fPalette)->fPoints[1]) /
-                        ((*fPalette)->fPoints[(*fPalette)->fNumPoints - 2] - (*fPalette)->fPoints[1]);
-      grad.color[pt] = (((ARGB32)((*fPalette)->fColorBlue[pt + 1]   & 0xff00)) >>  8) |
-                        (((ARGB32)((*fPalette)->fColorGreen[pt + 1] & 0xff00))      ) |
-                        (((ARGB32)((*fPalette)->fColorRed[pt + 1]   & 0xff00)) <<  8) |
-                        (((ARGB32)((*fPalette)->fColorAlpha[pt + 1] & 0xff00)) << 16);
+      offset[pt] = (pal.fPoints[pt + 1] - pal.fPoints[1]) /
+                   (pal.fPoints[pal.fNumPoints - 2] - pal.fPoints[1]);
+      color[pt] = (((ARGB32)(pal.fColorBlue[pt + 1]  & 0xff00)) >>  8) |
+                  (((ARGB32)(pal.fColorGreen[pt + 1] & 0xff00))      ) |
+                  (((ARGB32)(pal.fColorRed[pt + 1]   & 0xff00)) <<  8) |
+                  (((ARGB32)(pal.fColorAlpha[pt + 1] & 0xff00)) << 16);
    }
 
-   ASImage * grad_im = make_gradient((ASVisual*)TASImage::GetVisual(), &grad , to_w, to_h,
-                                     SCL_DO_COLOR, ASA_ARGB32, 0,
-                                     fAttImage->GetImageQuality());
-   delete [] grad.color;
-   delete [] grad.offset;
+   grad.color = color.data();
+   grad.offset = offset.data();
+   grad.type = GRADIENT_Left2Right;
 
-   Window_t wid = (Window_t)gVirtualX->GetWindowID(gPad->GetPixmapID());
-   TASImage::Image2Drawable(grad_im, wid, 0, 0);
-   destroy_asimage(&grad_im);
+   TASImage img;
+   img.SetImageQuality(fAttImage->GetImageQuality());
+   img.FromGradient(&grad, gPad->GetPadWidth(), gPad->GetPadHeight());
+   img.Paint("x"); // x mean expand to full pad
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -954,41 +942,31 @@ void TASPaletteEditor::LimitLine::Paint(Option_t *option)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void TASPaletteEditor::LimitLine::ExecuteEvent(Int_t event,
-                                               Int_t px, Int_t /*py*/)
+void TASPaletteEditor::LimitLine::ExecuteEvent(Int_t event, Int_t px, Int_t)
 {
-   static Int_t oldX;
-
    if (!gPad) return;
+
+   auto &parent = *gPad;
 
    switch(event) {
       case kMouseMotion:
-         gPad->SetCursor(kMove);
+         parent.SetCursor(kMove);
          break;
 
-      case kButton1Down:
-         gVirtualX->SetLineColor(-1);
-         TAttLine::Modify();  //Change line attributes only if necessary
-         oldX = gPad->XtoAbsPixel(fX1);
+      case kButton1Motion: {
+         Double_t xx[2], yy[2] = { GetY1(), GetY2() };
+         xx[0] = xx[1] = parent.AbsPixeltoX(px);
+         parent.PaintPolyLine(2, xx, yy, "iaspaletteline");
+         parent.UpdateAsync();
          break;
-
-      case kButton1Motion:
-         gVirtualX->DrawLine(oldX, gPad->YtoPixel(fY1), oldX, gPad->YtoPixel(fY2));
-         oldX = px;
-         gVirtualX->DrawLine(oldX, gPad->YtoPixel(fY1), oldX, gPad->YtoPixel(fY2));
-         gVirtualX->Update();
-         break;
-
+      }
       case kButton1Up:
-         gVirtualX->SetLineColor(-1);
-         TAttLine::Modify();  //Change line attributes only if necessary
-         fX1 = fX2 = gPad->AbsPixeltoX(oldX);
+         fX1 = fX2 = parent.AbsPixeltoX(px);
+         fY1 = parent.GetUymin();
+         fY2 = parent.GetUymax();
          fGui->UpdateRange();
-         gPad->Modified(kTRUE);
-         gPad->Update();
-         break;
-
-      default:
+         parent.Modified();
+         parent.UpdateAsync();
          break;
    }
 }

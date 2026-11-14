@@ -25,13 +25,13 @@
 
 // Routines for doing layout of HTML tables
 
+#include "TGHtml.h"
+
 #include <cstdlib>
 #include <cstring>
 #include <cctype>
 #include <cmath>
-
-#include "TGHtml.h"
-#include "snprintf.h"
+#include <cstdio>
 
 // Default values for various table style parameters
 
@@ -350,11 +350,11 @@ TGHtmlElement *TGHtml::FindEndNest(TGHtmlElement *sp, int en,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// pStart points to a <table>.  Compute the number of columns, the
+/// pStart points to a `<table>`.  Compute the number of columns, the
 /// minimum and maximum size for each column and the overall minimum
 /// and maximum size for this table and store these value in the
-/// pStart structure.  Return a pointer to the </table> element,
-/// or to NULL if there is no </table>.
+/// pStart structure.  Return a pointer to the `</table>` element,
+/// or to NULL if there is no `</table>`.
 ///
 /// The min and max size for column N (where the leftmost column has
 /// N==1) is pStart->fMinW[1] and pStart->fMaxW[1].  The pStart->fMinW[0]
@@ -364,11 +364,11 @@ TGHtmlElement *TGHtml::FindEndNest(TGHtmlElement *sp, int en,
 /// do not contain any cell padding, cell spacing or border width.
 /// Only pStart->fMinW[0] contains these extra spaces.
 ///
-/// The back references from </table>, </tr>, </td> and </th> back to
-/// the <table> markup are also filled in.  And for each <td> and <th>
+/// The back references from `</table>`, `</tr>`, `</td>` and `</th>` back to
+/// the `<table>` markup are also filled in.  And for each `<td>` and `<th>`
 /// markup, the pTable and pEnd fields are set to their proper values.
 ///
-/// pStart    - The <table> markup
+/// pStart    - The `<table>` markup
 /// lineWidth - Total width available to the table
 
 TGHtmlElement *TGHtml::TableDimensions(TGHtmlTable *pStart, int lineWidth)
@@ -670,7 +670,7 @@ TGHtmlElement *TGHtml::TableDimensions(TGHtmlTable *pStart, int lineWidth)
          }
       }
 
-      // Expand the minW[] of columns to accomodate "colspan=N" constraints.
+      // Expand the minW[] of columns to accommodate "colspan=N" constraints.
       // The minW[] is expanded up to the maxW[] first.  Then all the maxW[]s
       // are expanded in proportion to their sizes.  The same thing occurs
       // for reqW[]s.
@@ -773,7 +773,7 @@ TGHtmlElement *TGHtml::TableDimensions(TGHtmlTable *pStart, int lineWidth)
       requestedW += MAX(reqW[i], pStart->fMinW[i]);
    }
 
-   // Possibly widen or narrow the table to accomodate a "width=" attribute
+   // Possibly widen or narrow the table to accommodate a "width=" attribute
    z = pStart->MarkupArg("width", 0);
    if (z) {
       int len = strlen(z);
@@ -1181,7 +1181,7 @@ TGHtmlElement *TGHtmlLayoutContext::TableLayout(TGHtmlTable *pTable)
    // and in total..
    pEnd1 = fHtml->TableDimensions(pTable, lineWidth);
 
-   // If we don't have enough horizontal space to accomodate the minimum table
+   // If we don't have enough horizontal space to accommodate the minimum table
    // width, then try to move down past some obstruction (such as an
    // <IMG ALIGN=LEFT>) to give us more room.
 

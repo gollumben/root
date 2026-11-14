@@ -21,7 +21,6 @@ equidistant or placed with value monotonically increasing from lower left corner
 of bounding box.
 */
 
-ClassImp(TEveProjectionAxes);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -75,7 +74,7 @@ void TEveProjectionAxes::ComputeBBox()
    static const TEveException eH("TEveProjectionManager::ComputeBBox ");
 
    BBoxZero();
-   if(fManager == 0 || fManager->GetBBox() == 0)
+   if(fManager == nullptr || fManager->GetBBox() == nullptr)
       return;
 
    for (Int_t i=0; i<6; ++i)

@@ -41,16 +41,15 @@ Internal struct Polygon_t holds only indices into the master vertex
 array in TEvePolygonSetProjected.
 */
 
-ClassImp(TEvePolygonSetProjected);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
 TEvePolygonSetProjected::TEvePolygonSetProjected(const char* n, const char* t) :
    TEveShape(n, t),
-   fBuff(0),
+   fBuff(nullptr),
    fNPnts(0),
-   fPnts(0)
+   fPnts(nullptr)
 {
 }
 
@@ -107,7 +106,7 @@ void TEvePolygonSetProjected::SetDepthLocal(Float_t d)
 
 void TEvePolygonSetProjected::UpdateProjection()
 {
-   if (fBuff == 0) return;
+   if (fBuff == nullptr) return;
 
    // drop polygons and projected/reduced points
    fPols.clear();

@@ -15,7 +15,8 @@
 #include "TError.h"
 #include "TLeafElement.h"
 
-ClassImp(TTreeFormulaManager);
+#include <cmath>
+
 
    /** \class TTreeFormulaManager
    Used to coordinate one or more TTreeFormula objects.
@@ -30,17 +31,17 @@ ClassImp(TTreeFormulaManager);
 TTreeFormulaManager::TTreeFormulaManager() : TObject()
 {
    fMultiplicity = 0;
-   fMultiVarDim = kFALSE;
-   fNeedSync = kFALSE;
+   fMultiVarDim = false;
+   fNeedSync = false;
    fNdata = 1;
 
    for (Int_t i = 0; i < kMAXFORMDIM + 1; i++) {
-      fVarDims[i] = 0;
+      fVarDims[i] = nullptr;
       fCumulUsedSizes[i] = 1;
       fUsedSizes[i] = 1;
       fVirtUsedSizes[i] = 1;
    }
-   fCumulUsedVarDims = 0;
+   fCumulUsedVarDims = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -50,7 +51,7 @@ TTreeFormulaManager::~TTreeFormulaManager()
 {
    for (int l = 0; l < kMAXFORMDIM; l++) {
       if (fVarDims[l]) delete fVarDims[l];
-      fVarDims[l] = 0;
+      fVarDims[l] = nullptr;
    }
    if (fCumulUsedVarDims) delete fCumulUsedVarDims;
 }
@@ -87,7 +88,7 @@ void TTreeFormulaManager::Add(TTreeFormula *adding)
 
    fFormulas.Add(adding);
    adding->fManager = this;
-   fNeedSync = kTRUE;
+   fNeedSync = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -112,14 +113,14 @@ void TTreeFormulaManager::CancelDimension(Int_t virt_dim)
 
 void TTreeFormulaManager::EnableMultiVarDims()
 {
-   fMultiVarDim = kTRUE;
+   fMultiVarDim = true;
    if (!fCumulUsedVarDims) fCumulUsedVarDims = new TArrayI;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Return number of available instances in the formulas.
 
-Int_t TTreeFormulaManager::GetNdata(Bool_t forceLoadDim)
+Int_t TTreeFormulaManager::GetNdata(bool forceLoadDim)
 {
    Int_t k;
 
@@ -133,7 +134,7 @@ Int_t TTreeFormulaManager::GetNdata(Bool_t forceLoadDim)
 
    // Reset the registers.
    for (k = 0; k <= kMAXFORMDIM; k++) {
-      fUsedSizes[k] = TMath::Abs(fVirtUsedSizes[k]);
+      fUsedSizes[k] = std::abs(fVirtUsedSizes[k]);
       if (fVarDims[k]) {
          for (Int_t i0 = 0; i0 < fVarDims[k]->GetSize(); i0++) {
             fVarDims[k]->AddAt(0, i0);
@@ -146,7 +147,7 @@ Int_t TTreeFormulaManager::GetNdata(Bool_t forceLoadDim)
       }
    }
 
-   TTreeFormula *current = 0;
+   TTreeFormula *current = nullptr;
 
    Int_t size = fFormulas.GetLast() + 1;
 
@@ -216,12 +217,12 @@ Int_t TTreeFormulaManager::GetNdata(Bool_t forceLoadDim)
 ////////////////////////////////////////////////////////////////////////////////
 /// Synchronize all the formulae.
 
-Bool_t TTreeFormulaManager::Sync()
+bool TTreeFormulaManager::Sync()
 {
    if (!fNeedSync) return true;
 
-   TTreeFormula *current = 0;
-   Bool_t hasCast = kFALSE;
+   TTreeFormula *current = nullptr;
+   bool hasCast = false;
 
    fMultiplicity = 0;
    // We do not use an intermediary variable because ResetDimensions
@@ -254,7 +255,7 @@ Bool_t TTreeFormulaManager::Sync()
       if (fUsedSizes[k - 1] >= 0) {
          fCumulUsedSizes[k - 1] = fUsedSizes[k - 1] * fCumulUsedSizes[k];
       } else {
-         fCumulUsedSizes[k - 1] = -TMath::Abs(fCumulUsedSizes[k]);
+         fCumulUsedSizes[k - 1] = -std::abs(fCumulUsedSizes[k]);
       }
    }
 
@@ -277,7 +278,7 @@ Bool_t TTreeFormulaManager::Sync()
    case 2: fNdata = fCumulUsedSizes[0]; break;
    default: fNdata = 0;
    }
-   fNeedSync = kFALSE;
+   fNeedSync = false;
 
    return true;
 }
@@ -308,8 +309,8 @@ void TTreeFormulaManager::UpdateFormulaLeaves()
 void TTreeFormulaManager::UpdateUsedSize(Int_t &virt_dim, Int_t vsize)
 {
    if (vsize < 0)
-      fVirtUsedSizes[virt_dim] = -1 * TMath::Abs(fVirtUsedSizes[virt_dim]);
-   else if (TMath::Abs(fVirtUsedSizes[virt_dim]) == 1 || (vsize < TMath::Abs(fVirtUsedSizes[virt_dim]))) {
+      fVirtUsedSizes[virt_dim] = -1 * std::abs(fVirtUsedSizes[virt_dim]);
+   else if (std::abs(fVirtUsedSizes[virt_dim]) == 1 || (vsize < std::abs(fVirtUsedSizes[virt_dim]))) {
       // Absolute values represent the min of all real dimensions
       // that are known.  The fact that it is negatif indicates
       // that one of the leaf has a variable size for this

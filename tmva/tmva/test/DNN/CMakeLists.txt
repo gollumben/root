@@ -12,89 +12,88 @@
 set(Libraries TMVA)
 
 #--- CUDA tests. ---------------------------
-if (CUDA_FOUND AND tmva-gpu)
+if (tmva-gpu)
 
   include_directories(${CUDA_INCLUDE_DIRS})
 
 
-  #if using CUDA_ADD_EXECUTABLE CUDA_LIBRARIES are added automatically
-  SET(DNN_CUDA_LIBRARIES ${CUDA_CUBLAS_LIBRARIES} ${CUDNN_LIBRARIES} )
+  SET(DNN_CUDA_LIBRARIES ${CUDA_CUBLAS_LIBRARIES} )
 
-  list(APPEND Libraries ${DNN_CUDA_LIBRARIES})
+  list(APPEND Libraries ${DNN_CUDA_LIBRARIES} CUDA::cuda_driver CUDA::cudart)
 
   # DNN - Activation Functions Cuda
-  CUDA_ADD_EXECUTABLE(testActivationFunctionsCuda TestActivationFunctionsCuda.cxx)
+  add_executable(testActivationFunctionsCuda TestActivationFunctionsCuda.cxx)
   TARGET_LINK_LIBRARIES(testActivationFunctionsCuda ${Libraries} )
-  ROOT_ADD_TEST(TMVA-DNN-ActivationFunctionsCuda COMMAND testActivationFunctionsCuda)
+  ROOT_ADD_TEST(TMVA-DNN-ActivationFunctionsCuda COMMAND testActivationFunctionsCuda RESOURCE_LOCK GPU)
 
   # DNN - Loss Functions Cuda
-  CUDA_ADD_EXECUTABLE(testLossFunctionsCuda TestLossFunctionsCuda.cxx)
+  add_executable(testLossFunctionsCuda TestLossFunctionsCuda.cxx)
   TARGET_LINK_LIBRARIES(testLossFunctionsCuda ${Libraries} )
-  ROOT_ADD_TEST(TMVA-DNN-LossFunctionsCuda COMMAND testLossFunctionsCuda)
+  ROOT_ADD_TEST(TMVA-DNN-LossFunctionsCuda COMMAND testLossFunctionsCuda RESOURCE_LOCK GPU)
 
   # DNN - Derivatives Cuda
-  CUDA_ADD_EXECUTABLE(testDerivativesCuda TestDerivativesCuda.cxx)
+  add_executable(testDerivativesCuda TestDerivativesCuda.cxx)
   TARGET_LINK_LIBRARIES(testDerivativesCuda ${Libraries} )
-  ROOT_ADD_TEST(TMVA-DNN-DerivativesCuda COMMAND testDerivativesCuda)
+  ROOT_ADD_TEST(TMVA-DNN-DerivativesCuda COMMAND testDerivativesCuda RESOURCE_LOCK GPU)
 
   # DNN - Backpropagation Cuda
-  CUDA_ADD_EXECUTABLE(testBackpropagationCuda TestBackpropagationCuda.cxx)
+  add_executable(testBackpropagationCuda TestBackpropagationCuda.cxx)
   TARGET_LINK_LIBRARIES(testBackpropagationCuda ${Libraries})
-  ROOT_ADD_TEST(TMVA-DNN-BackpropagationCuda COMMAND testBackpropagationCuda)
+  ROOT_ADD_TEST(TMVA-DNN-BackpropagationCuda COMMAND testBackpropagationCuda RESOURCE_LOCK GPU)
 
   # DNN - Backpropagation DL Cuda
-  CUDA_ADD_EXECUTABLE(testBackpropagationDLCuda TestBackpropagationDLCuda.cxx )
+  add_executable(testBackpropagationDLCuda TestBackpropagationDLCuda.cxx )
   TARGET_LINK_LIBRARIES(testBackpropagationDLCuda ${Libraries} )
-  ROOT_ADD_TEST(TMVA-DNN-Backpropagation-DLCuda COMMAND testBackpropagationDLCuda)
+  ROOT_ADD_TEST(TMVA-DNN-Backpropagation-DLCuda COMMAND testBackpropagationDLCuda RESOURCE_LOCK GPU)
 
   # DNN - Batch normalization Cuda
-  CUDA_ADD_EXECUTABLE(testBatchNormalizationCuda TestBatchNormalizationCuda.cxx )
+  add_executable(testBatchNormalizationCuda TestBatchNormalizationCuda.cxx )
   TARGET_LINK_LIBRARIES(testBatchNormalizationCuda ${Libraries})
-  ROOT_ADD_TEST(TMVA-DNN-BatchNormalization-Cuda COMMAND testBatchNormalizationCuda)
+  ROOT_ADD_TEST(TMVA-DNN-BatchNormalization-Cuda COMMAND testBatchNormalizationCuda RESOURCE_LOCK GPU)
 
 
 
 
   # DNN - Minimization Cuda
-  CUDA_ADD_EXECUTABLE(testMinimizationCuda TestMinimizationCuda.cxx)
+  add_executable(testMinimizationCuda TestMinimizationCuda.cxx)
   TARGET_LINK_LIBRARIES(testMinimizationCuda ${Libraries}  )
-  ROOT_ADD_TEST(TMVA-DNN-MinimizationCuda COMMAND testMinimizationCuda)
+  ROOT_ADD_TEST(TMVA-DNN-MinimizationCuda COMMAND testMinimizationCuda RESOURCE_LOCK GPU)
 
   # DNN - Arithmetic Cuda
-  CUDA_ADD_EXECUTABLE(testArithmeticCuda TestMatrixArithmeticCuda.cxx)
+  add_executable(testArithmeticCuda TestMatrixArithmeticCuda.cxx)
   TARGET_LINK_LIBRARIES(testArithmeticCuda ${Libraries} )
-  ROOT_ADD_TEST(TMVA-DNN-ArithmeticCuda COMMAND testArithmeticCuda)
+  ROOT_ADD_TEST(TMVA-DNN-ArithmeticCuda COMMAND testArithmeticCuda RESOURCE_LOCK GPU)
 
   # DNN - DataLoader Cuda
-  CUDA_ADD_EXECUTABLE(testDataLoaderCuda TestDataLoaderCuda.cxx)
-  TARGET_LINK_LIBRARIES(testDataLoaderCuda ${Libraries} )
-  ROOT_ADD_TEST(TMVA-DNN-DataLoaderCuda COMMAND testDataLoaderCuda)
+  add_executable(testDataLoaderCuda TestDataLoaderCuda.cxx)
+  TARGET_LINK_LIBRARIES(testDataLoaderCuda ${Libraries})
+  ROOT_ADD_TEST(TMVA-DNN-DataLoaderCuda COMMAND testDataLoaderCuda RESOURCE_LOCK GPU)
 
 
   # DNN - Optimization GPU
 
-   CUDA_ADD_EXECUTABLE(testOptimizationCuda TestOptimizationCuda.cxx)
+   add_executable(testOptimizationCuda TestOptimizationCuda.cxx)
    TARGET_LINK_LIBRARIES(testOptimizationCuda ${Libraries}  )
-   ROOT_ADD_TEST(TMVA-DNN-Optimization-Cuda COMMAND testOptimizationCuda)
+   ROOT_ADD_TEST(TMVA-DNN-Optimization-Cuda COMMAND testOptimizationCuda RESOURCE_LOCK GPU)
 
 #Cuda tests using CUDNN
 if (tmva-cudnn)
 
    # DNN - Batch normalization Cudnn
-   CUDA_ADD_EXECUTABLE(testBatchNormalizationCudnn TestBatchNormalizationCudnn.cxx )
+   add_executable(testBatchNormalizationCudnn TestBatchNormalizationCudnn.cxx )
    TARGET_LINK_LIBRARIES(testBatchNormalizationCudnn ${Libraries})
-   ROOT_ADD_TEST(TMVA-DNN-BatchNormalization-Cudnn COMMAND testBatchNormalizationCudnn)
+   ROOT_ADD_TEST(TMVA-DNN-BatchNormalization-Cudnn COMMAND testBatchNormalizationCudnn RESOURCE_LOCK GPU)
 
    # DNN Optimization GPU Cudnn
 
-   CUDA_ADD_EXECUTABLE(testOptimizationCudnn TestOptimizationCudnn.cxx)
+   add_executable(testOptimizationCudnn TestOptimizationCudnn.cxx)
    TARGET_LINK_LIBRARIES(testOptimizationCudnn ${Libraries}  )
-   ROOT_ADD_TEST(TMVA-DNN-Optimization-Cudnn COMMAND testOptimizationCudnn)
+   ROOT_ADD_TEST(TMVA-DNN-Optimization-Cudnn COMMAND testOptimizationCudnn RESOURCE_LOCK GPU)
 
    # DNN - TensorDataLoader Cudnn
-   #CUDA_ADD_EXECUTABLE(testTensorDataLoaderCudnn TestTensorDataLoaderCudnn.cxx)
+   #add_executable(testTensorDataLoaderCudnn TestTensorDataLoaderCudnn.cxx)
    #TARGET_LINK_LIBRARIES(testTensorDataLoaderCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-   #ROOT_ADD_TEST(TMVA-DNN-TensorDataLoaderCudnn COMMAND testTensorDataLoaderCudnn)
+   #ROOT_ADD_TEST(TMVA-DNN-TensorDataLoaderCudnn COMMAND testTensorDataLoaderCudnn RESOURCE_LOCK GPU)
 
 endif()
 
@@ -144,7 +143,7 @@ ROOT_ADD_TEST(TMVA-DNN-MethodDL-SGD-Optimization-Cpu COMMAND testMethodDLSGDOpti
 
 # DNN - MethodDL Adam Optimization CPU
 ROOT_EXECUTABLE(testMethodDLAdamOptimizationCpu TestMethodDLAdamOptimizationCpu.cxx LIBRARIES ${Libraries})
-ROOT_ADD_TEST(TMVA-DNN-MethodDL-Adam-Optimization-Cpu COMMAND testMethodDLAdamOptimizationCpu)
+ROOT_ADD_TEST(TMVA-DNN-MethodDL-Adam-Optimization-Cpu COMMAND testMethodDLAdamOptimizationCpu TIMEOUT 1800)
 
 # DNN - MethodDL Adagrad Optimization CPU
 ROOT_EXECUTABLE(testMethodDLAdagradOptimizationCpu TestMethodDLAdagradOptimizationCpu.cxx LIBRARIES ${Libraries})
@@ -210,3 +209,6 @@ if ( reference-tests)
 #    ROOT_ADD_TEST(TMVA-DNN-Minimization COMMAND testMinimization)
 #  endif()
 endif()
+
+
+

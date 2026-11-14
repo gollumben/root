@@ -41,6 +41,7 @@ namespace ROOT {
 
      @ingroup GenVector
 
+     @see GenVector
   */
 
 class Boost {

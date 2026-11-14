@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodDL                                                              *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Deep Neural Network Method                                                *
@@ -22,7 +22,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodDL
@@ -110,10 +110,10 @@ private:
    using HostBufferImpl_t = typename ArchitectureImpl_t::HostBuffer_t;
 
    /*! The option handling methods */
-   void DeclareOptions();
-   void ProcessOptions();
+   void DeclareOptions() override;
+   void ProcessOptions() override;
 
-   void Init();
+   void Init() override;
 
    // Function to parse the layout of the input
    void ParseInputLayout();
@@ -174,7 +174,7 @@ private:
 
    // cudnn implementation needs this format
    /** Contains the batch size (no. of images in the batch), input depth (no. channels)
-    *  and furhter input dimensios of the data (image height, width ...)*/
+    *  and further input dimensions of the data (image height, width ...)*/
    std::vector<size_t> fInputShape;
 
    // The size of the batch, i.e. the number of images that are contained in the batch, is either set to be the depth
@@ -195,7 +195,7 @@ private:
    TString fErrorStrategy;              ///< The string defining the error strategy for training
    TString fTrainingStrategyString;     ///< The string defining the training strategy
    TString fWeightInitializationString; ///< The string defining the weight initialization method
-   TString fArchitectureString;         ///< The string defining the architecure: CPU or GPU
+   TString fArchitectureString;         ///< The string defining the architecture: CPU or GPU
    TString fNumValidationString;        ///< The string defining the number (or percentage) of training data used for validation
    bool fResume;
    bool fBuildNet;                     ///< Flag to control whether to build fNet, the stored network used for the evaluation
@@ -209,13 +209,13 @@ private:
    std::unique_ptr<DeepNetImpl_t> fNet;
 
 
-   ClassDef(MethodDL, 0);
+   ClassDefOverride(MethodDL, 0);
 
 protected:
    // provide a help message
-   void GetHelpMessage() const;
+   void GetHelpMessage() const override;
 
-   virtual std::vector<Double_t> GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t logProgress);
+   std::vector<Double_t> GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t logProgress) override;
 
 
 public:
@@ -233,23 +233,23 @@ public:
    KeyValueVector_t ParseKeyValueString(TString parseString, TString blockDelim, TString tokenDelim);
 
    /*! Check the type of analysis the deep learning network can do */
-   Bool_t HasAnalysisType(Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets);
+   Bool_t HasAnalysisType(Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets) override;
 
    /*! Methods for training the deep learning network */
-   void Train();
+   void Train() override;
 
-   Double_t GetMvaValue(Double_t *err = 0, Double_t *errUpper = 0);
-   virtual const std::vector<Float_t>& GetRegressionValues();
-   virtual const std::vector<Float_t>& GetMulticlassValues();
+   Double_t GetMvaValue(Double_t *err = nullptr, Double_t *errUpper = nullptr) override;
+   const std::vector<Float_t>& GetRegressionValues() override;
+   const std::vector<Float_t>& GetMulticlassValues() override;
 
    /*! Methods for writing and reading weights */
    using MethodBase::ReadWeightsFromStream;
-   void AddWeightsXMLTo(void *parent) const;
-   void ReadWeightsFromXML(void *wghtnode);
-   void ReadWeightsFromStream(std::istream &);
+   void AddWeightsXMLTo(void *parent) const override;
+   void ReadWeightsFromXML(void *wghtnode) override;
+   void ReadWeightsFromStream(std::istream &) override;
 
    /* Create ranking */
-   const Ranking *CreateRanking();
+   const Ranking *CreateRanking() override;
 
    /* Getters */
    size_t GetInputDepth()  const { return fInputShape[1]; }   //< no. of channels for an image

@@ -112,8 +112,6 @@ TGMyFrame::~TGMyFrame()
 #include <iostream>
 
 
-ClassImp(TGXYLayout);
-ClassImp(TGXYLayoutHints);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor. The x, y, w and h define the position of the widget in
@@ -138,32 +136,38 @@ TGXYLayoutHints::TGXYLayoutHints(Double_t x, Double_t y, Double_t w, Double_t h,
 
 void TGXYLayoutHints::SavePrimitive(std::ostream &out, Option_t * /*option = ""*/)
 {
-   TString flag = "";
+   TString flag;
    if (fFlag & kLRubberX) {
-      if (flag.Length() == 0)  flag  = "TGXYLayoutHints::kLRubberX";
-      else                     flag += " | TGXYLayoutHints::kLRubberX";
+      if (flag.Length() == 0)
+         flag = "TGXYLayoutHints::kLRubberX";
+      else
+         flag += " | TGXYLayoutHints::kLRubberX";
    }
    if (fFlag & kLRubberY) {
-      if  (flag.Length() == 0) flag  = "TGXYLayoutHints::kLRubberY";
-      else                      flag += " | TGXYLayoutHints::kLRubberY";
+      if (flag.Length() == 0)
+         flag = "TGXYLayoutHints::kLRubberY";
+      else
+         flag += " | TGXYLayoutHints::kLRubberY";
    }
    if (fFlag & kLRubberW) {
-      if (flag.Length() == 0) flag  = "TGXYLayoutHints::kLRubberW";
-      else                     flag += " | TGXYLayoutHints::kLRubberW";
+      if (flag.Length() == 0)
+         flag = "TGXYLayoutHints::kLRubberW";
+      else
+         flag += " | TGXYLayoutHints::kLRubberW";
    }
    if (fFlag & kLRubberH) {
-      if (flag.Length() == 0) flag  = "TGXYLayoutHints::kLRubberH";
-      else                     flag += " | TGXYLayoutHints::kLRubberH";
+      if (flag.Length() == 0)
+         flag = "TGXYLayoutHints::kLRubberH";
+      else
+         flag += " | TGXYLayoutHints::kLRubberH";
    }
 
-   out << ", new TGXYLayoutHints(" << GetX() << ", " << GetY() << ", "
-       << GetW() << ", " << GetH();
+   out << ", new TGXYLayoutHints(" << GetX() << ", " << GetY() << ", " << GetW() << ", " << GetH();
 
    if (!flag.Length())
       out << ")";
    else
       out << ", " << flag << ")";
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -306,5 +310,4 @@ TGDimension TGXYLayout::GetDefaultSize() const
 void TGXYLayout::SavePrimitive(std::ostream &out, Option_t * /*option = ""*/)
 {
    out << "new TGXYLayout(" << fMain->GetName() << ")";
-
 }

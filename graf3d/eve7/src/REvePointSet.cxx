@@ -43,10 +43,8 @@ REveProjectionManager class.
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
-REvePointSet::REvePointSet(const std::string& name, const std::string& title, Int_t n_points) :
-   REveElement(name, title),
-   TAttMarker(),
-   TAttBBox()
+REvePointSet::REvePointSet(const std::string &name, const std::string &title, Int_t n_points)
+   : REveElement(name, title), REveProjectable(), TAttMarker(), REveSecondarySelectable()
 {
    fMarkerStyle = 20;
 
@@ -61,12 +59,11 @@ REvePointSet::REvePointSet(const std::string& name, const std::string& title, In
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy constructor.
 
-REvePointSet::REvePointSet(const REvePointSet& e) :
-   REveElement(e),
-   REveProjectable(e),
-   TAttMarker(e),
-   TAttBBox(e)
+REvePointSet::REvePointSet(const REvePointSet &e)
+   : REveElement(e), REveProjectable(e), TAttMarker(e), REveSecondarySelectable()
 {
+   fAlwaysSecSelect = e.GetAlwaysSecSelect();
+   ClonePoints(e);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -208,10 +205,20 @@ TClass* REvePointSet::ProjectedClass(const REveProjection*) const
 
 Int_t REvePointSet::WriteCoreJson(nlohmann::json& j, Int_t rnr_offset)
 {
+   if (gEve->IsRCore())
+      REveRenderData::CalcTextureSize(fSize, 1, fTexX, fTexY);
+
    Int_t ret = REveElement::WriteCoreJson(j, rnr_offset);
 
+   if (gEve->IsRCore()) {
+      j["fSize"] = fSize;
+      j["fTexX"] = fTexX;
+      j["fTexY"] = fTexY;
+   }
    j["fMarkerSize"]  = GetMarkerSize();
    j["fMarkerColor"] = GetMarkerColor();
+   j["fMarkerStyle"] = GetMarkerStyle();
+   j["fSecondarySelect"] = fAlwaysSecSelect;
 
    return ret;
 }
@@ -223,8 +230,19 @@ void REvePointSet::BuildRenderData()
 {
    if (fSize > 0)
    {
-      fRenderData = std::make_unique<REveRenderData>("makeHit", 3*fSize);
-      fRenderData->PushV(&fPoints[0].fX, 3*fSize);
+      if (gEve->IsRCore()) {
+         fRenderData = std::make_unique<REveRenderData>("makeHit", 4*fTexX*fTexY, 6);
+         for (int i = 0; i < fSize; ++i) {
+            fRenderData->PushV(&fPoints[i].fX, 3);
+            fRenderData->PushV(0);
+         }
+         fRenderData->ResizeV(4 * fTexX * fTexY);
+      } else {
+         fRenderData = std::make_unique<REveRenderData>("makeHit", 3*fSize);
+         fRenderData->PushV(&fPoints[0].fX, 3*fSize);
+      }
+
+      REveElement::BuildRenderData();
    }
 }
 
@@ -233,15 +251,9 @@ void REvePointSet::BuildRenderData()
 
 void REvePointSet::ComputeBBox()
 {
-   if (fSize > 0) {
-      BBoxInit();
-      for (auto &p : fPoints)
-      {
-         BBoxCheckPoint(p.fX, p.fY, p.fZ);
-      }
-   } else {
-      BBoxZero();
-   }
+   BBoxInit();
+   for (Int_t i = 0; i < fSize; ++i)
+      BBoxCheckPoint(fPoints[i]);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -445,7 +457,7 @@ Bool_t REvePointSetArray::Fill(Double_t x, Double_t y, Double_t z, Double_t quan
       fLastBin = fNBins - 1;
    }
 
-   if (fBins[fLastBin] != 0)
+   if (fBins[fLastBin] != nullptr)
    {
       fBins[fLastBin]->SetNextPoint(x, y, z);
       return kTRUE;
@@ -524,11 +536,14 @@ void REvePointSetProjected::SetProjection(REveProjectionManager* proj,
 
 void REvePointSetProjected::SetDepthLocal(Float_t d)
 {
-   SetDepthCommon(d, this, fBBox);
+   SetDepthCommon(d, this);
 
    // XXXX rewrite
 
-   Int_t    n = fSize;
+   Int_t n = fSize;
+   if (n == 0)
+     return;
+
    Float_t *p = & fPoints[0].fZ;
    for (Int_t i = 0; i < n; ++i, p+=3)
       *p = fDepth;
@@ -542,13 +557,20 @@ void REvePointSetProjected::UpdateProjection()
 {
    REveProjection &proj = * fManager->GetProjection();
    REvePointSet   &ps   = * dynamic_cast<REvePointSet*>(fProjectable);
-   REveTrans      *tr   =   ps.PtrMainTrans(kFALSE);
+   REveTrans mt;
+   const REveTrans *tr = fManager->GetModelTrans(&ps, mt);
+
+   fAlwaysSecSelect = ps.GetAlwaysSecSelect();
 
    // XXXX rewrite
 
    Int_t n = ps.GetSize();
    Reset(n);
    fSize = n;
+
+   if (n == 0)
+     return;
+
    const Float_t *o = & ps.RefPoint(0).fX;
          Float_t *p = & fPoints[0].fX;
    for (Int_t i = 0; i < n; ++i, o+=3, p+=3)

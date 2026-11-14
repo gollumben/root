@@ -14,7 +14,6 @@
 #include "TPluginManager.h"
 #include "TSystem.h"
 
-ClassImp(TImage);
 
 /** \class TImage
 \ingroup BasicGraphics
@@ -34,14 +33,14 @@ methods are documented in that class.
 
 TImage *TImage::Create()
 {
-   static TPluginHandler *h = 0;
+   static TPluginHandler *h = nullptr;
 
    if (!h) {
       h = gROOT->GetPluginManager()->FindHandler("TImage");
-      if (!h) return 0;
+      if (!h) return nullptr;
       if (h->LoadPlugin() == -1) {
-         h = 0;   // try to reload plugin next time
-         return 0;
+         h = nullptr;   // try to reload plugin next time
+         return nullptr;
       }
    }
    TImage *img = (TImage *) h->ExecPlugin(0);
@@ -99,6 +98,12 @@ TImage::EImageFileTypes TImage::GetImageFileTypeFromFilename(const char* filenam
       return kXml;
    else if (sFilename.EndsWith(".anim.gif", TString::kIgnoreCase))
       return kAnimGif;
+   else if (sFilename.EndsWith(".html", TString::kIgnoreCase))
+      return kHtml;
+   else if (sFilename.EndsWith(".svg", TString::kIgnoreCase))
+      return kSvg;
+   else if (sFilename.EndsWith(".pdf", TString::kIgnoreCase))
+      return kPdf;
 
    return kUnknown;
 }
@@ -185,6 +190,17 @@ TImage *TImage::Open(char **data)
       img->SetName("XPM_image");
    }
    return img;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Draw text on specified pad, check pad clipping rules
+
+void TImage::DrawTextOnPad(TText *text, Int_t x, Int_t y, TVirtualPad *, Int_t, Int_t)
+{
+   // call simple DrawText to ensure minimal backward compatibility
+
+   DrawText(text, x, y);
 }
 
 

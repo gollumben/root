@@ -28,7 +28,6 @@
 #include "TH1.h"
 #include "THStack.h"
 
-ClassImp(TLegend);
 
 /** \class TLegend
 \ingroup BasicGraphics
@@ -121,7 +120,7 @@ The global attributes change the default values for the next created legends.
 Text attributes can be also changed individually on each legend entry:
 ~~~ {.cpp}
    TLegendEntry *le = leg->AddEntry(h1,"Histogram filled with random numbers","f");
-   le->SetTextColor(kBlue);;
+   le->SetTextColor(kBlue);
 ~~~
 
 Note that the `TPad` class has a method to build automatically a legend
@@ -187,7 +186,7 @@ The following example illustrate this facility. Only the width and height of the
 legend is specified in percentage of the pad size.
 
 Begin_Macro(source)
-../../../tutorials/hist/legendautoplaced.C
+../../../tutorials/hist/hist011_TH1_legend_autoplaced.C
 End_Macro
 
 */
@@ -200,10 +199,11 @@ End_Macro
 TLegend::TLegend(): TPave(0.3,0.15,0.3,0.15,4,"brNDC"),
                     TAttText(12,0,1,gStyle->GetLegendFont(),0)
 {
-   fPrimitives = 0;
+   fPrimitives = nullptr;
    SetDefaults();
    SetBorderSize(gStyle->GetLegendBorderSize());
    SetFillColor(gStyle->GetLegendFillColor());
+   SetFillStyle(gStyle->GetLegendFillStyle());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -225,8 +225,8 @@ TLegend::TLegend( Double_t x1, Double_t y1,Double_t x2, Double_t y2,
         :TPave(x1,y1,x2,y2,4,option), TAttText(12,0,1,gStyle->GetLegendFont(),0)
 {
    fPrimitives = new TList;
-   if ( header && strlen(header) > 0) {
-      TLegendEntry *headerEntry = new TLegendEntry( 0, header, "h" );
+   if (header && strlen(header) > 0) {
+      TLegendEntry *headerEntry = new TLegendEntry( nullptr, header, "h" );
       headerEntry->SetTextAlign(0);
       headerEntry->SetTextAngle(0);
       headerEntry->SetTextColor(0);
@@ -237,6 +237,7 @@ TLegend::TLegend( Double_t x1, Double_t y1,Double_t x2, Double_t y2,
    SetDefaults();
    SetBorderSize(gStyle->GetLegendBorderSize());
    SetFillColor(gStyle->GetLegendFillColor());
+   SetFillStyle(gStyle->GetLegendFillStyle());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -258,8 +259,8 @@ TLegend::TLegend( Double_t w, Double_t h, const char *header, Option_t *option)
         :TPave(w,h,w,h,4,option), TAttText(12,0,1,gStyle->GetLegendFont(),0)
 {
    fPrimitives = new TList;
-   if ( header && strlen(header) > 0) {
-      TLegendEntry *headerEntry = new TLegendEntry( 0, header, "h" );
+   if (header && strlen(header) > 0) {
+      TLegendEntry *headerEntry = new TLegendEntry(nullptr, header, "h");
       headerEntry->SetTextAlign(0);
       headerEntry->SetTextAngle(0);
       headerEntry->SetTextColor(0);
@@ -270,23 +271,16 @@ TLegend::TLegend( Double_t w, Double_t h, const char *header, Option_t *option)
    SetDefaults();
    SetBorderSize(gStyle->GetLegendBorderSize());
    SetFillColor(gStyle->GetLegendFillColor());
+   SetFillStyle(gStyle->GetLegendFillStyle());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy constructor.
 
-TLegend::TLegend( const TLegend &legend ) : TPave(legend), TAttText(legend),
-                                            fPrimitives(0)
+TLegend::TLegend(const TLegend &legend) : TPave(legend), TAttText(legend),
+                                           fPrimitives(nullptr)
 {
-  if (legend.fPrimitives) {
-      fPrimitives = new TList();
-      TListIter it(legend.fPrimitives);
-      while (TLegendEntry *e = (TLegendEntry *)it.Next()) {
-         TLegendEntry *newentry = new TLegendEntry(*e);
-         fPrimitives->Add(newentry);
-      }
-   }
-   ((TLegend&)legend).Copy(*this);
+   legend.TLegend::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -294,14 +288,8 @@ TLegend::TLegend( const TLegend &legend ) : TPave(legend), TAttText(legend),
 
 TLegend& TLegend::operator=(const TLegend &lg)
 {
-   if(this!=&lg) {
-      TPave::operator=(lg);
-      TAttText::operator=(lg);
-      fPrimitives=lg.fPrimitives;
-      fEntrySeparation=lg.fEntrySeparation;
-      fMargin=lg.fMargin;
-      fNColumns=lg.fNColumns;
-   }
+   if(this != &lg)
+      lg.TLegend::Copy(*this);
    return *this;
 }
 
@@ -310,9 +298,10 @@ TLegend& TLegend::operator=(const TLegend &lg)
 
 TLegend::~TLegend()
 {
-   if (fPrimitives) fPrimitives->Delete();
+   if (fPrimitives)
+      fPrimitives->Delete();
    delete fPrimitives;
-   fPrimitives = 0;
+   fPrimitives = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -354,7 +343,7 @@ TLegendEntry *TLegend::AddEntry(const char *name, const char *label, Option_t *o
 {
    if (!gPad) {
       Error("AddEntry", "need to create a canvas first");
-      return 0;
+      return nullptr;
    }
 
    TObject *obj = gPad->FindObject(name);
@@ -364,9 +353,8 @@ TLegendEntry *TLegend::AddEntry(const char *name, const char *label, Option_t *o
    if (!obj) {
       TList *lop = gPad->GetListOfPrimitives();
       if (lop) {
-         TObject *o=0;
          TIter next(lop);
-         while( (o=next()) ) {
+         while(auto o = next()) {
             if ( o->InheritsFrom(TMultiGraph::Class() ) ) {
                TList * grlist = ((TMultiGraph *)o)->GetListOfGraphs();
                obj = grlist->FindObject(name);
@@ -396,13 +384,26 @@ void TLegend::Clear( Option_t *)
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy this legend into "obj".
 
-void TLegend::Copy( TObject &obj ) const
+void TLegend::Copy(TObject &obj) const
 {
-   TPave::Copy(obj);
-   TAttText::Copy((TLegend&)obj);
-   ((TLegend&)obj).fEntrySeparation = fEntrySeparation;
-   ((TLegend&)obj).fMargin = fMargin;
-   ((TLegend&)obj).fNColumns = fNColumns;
+   auto &tgt = static_cast<TLegend &> (obj);
+   TPave::Copy(tgt);
+   TAttText::Copy(tgt);
+   tgt.fEntrySeparation = fEntrySeparation;
+   tgt.fMargin = fMargin;
+   tgt.fNColumns = fNColumns;
+
+   if (tgt.fPrimitives) {
+      tgt.fPrimitives->Delete();
+      delete tgt.fPrimitives;
+      tgt.fPrimitives = nullptr;
+   }
+   if (fPrimitives) {
+      tgt.fPrimitives = new TList();
+      TIter next(fPrimitives);
+      while (auto entry = (TLegendEntry *) next())
+         tgt.fPrimitives->Add(new TLegendEntry(*entry));
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -477,11 +478,12 @@ TLegendEntry *TLegend::GetEntry() const
 {
    if (!gPad) {
       Error("GetEntry", "need to create a canvas first");
-      return 0;
+      return nullptr;
    }
 
    Int_t nRows = GetNRows();
-   if ( nRows == 0 ) return 0;
+   if ( nRows == 0 )
+      return nullptr;
 
    Double_t ymouse = gPad->AbsPixeltoY(gPad->GetEventY())-fY1;
    Double_t yspace = (fY2 - fY1)/nRows;
@@ -503,9 +505,10 @@ TLegendEntry *TLegend::GetEntry() const
    Int_t nloops = TMath::Min(ix+(nColumns*(iy-1)), fPrimitives->GetSize());
 
    TIter next(fPrimitives);
-   TLegendEntry *entry = 0;
+   TLegendEntry *entry = nullptr;
 
-   for (Int_t i=1; i<= nloops; i++) entry = (TLegendEntry *)next();
+   for (Int_t i=1; i<= nloops; i++)
+      entry = (TLegendEntry *)next();
 
    return entry;
 }
@@ -516,15 +519,14 @@ TLegendEntry *TLegend::GetEntry() const
 
 const char *TLegend::GetHeader() const
 {
-   if ( !fPrimitives ) return 0;
+   if ( !fPrimitives ) return nullptr;
       TIter next(fPrimitives);
-   TLegendEntry *first;   // header is always the first entry
-   if ((  first = (TLegendEntry*)next()  )) {
+   if (auto first = (TLegendEntry*)next()) {
       TString opt = first->GetOption();
       opt.ToLower();
       if ( opt.Contains("h") ) return first->GetLabel();
    }
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -559,9 +561,9 @@ void TLegend::Paint( Option_t* option )
 {
    // The legend need to be placed automatically in some empty space
    if (fX1 == fX2 && fY1 == fY2) {
-      if (gPad->PlaceBox(this, fX1, fY1, fX1, fY1)) {
-         fY2 = fY2+fY1;
-         fX2 = fX2+fX1;
+      if (gPad && gPad->PlaceBox(this, fX1, fY1, fX1, fY1)) {
+         fY2 = fY2 + fY1;
+         fX2 = fX2 + fX1;
       } else {
          Warning("Paint", "Legend too large to be automatically placed; a default position is used");
          fX1 = 0.5;
@@ -587,7 +589,7 @@ Int_t TLegend::GetNRows() const
    if ( nEntries == 0 ) return 0;
 
    Int_t nRows;
-   if(GetHeader() != NULL) nRows = 1 + (Int_t) TMath::Ceil((Double_t) (nEntries-1)/fNColumns);
+   if(GetHeader() != nullptr) nRows = 1 + (Int_t) TMath::Ceil((Double_t) (nEntries-1)/fNColumns);
    else  nRows = (Int_t) TMath::Ceil((Double_t) nEntries/fNColumns);
 
    return nRows;
@@ -628,6 +630,7 @@ void TLegend::PaintPrimitives()
    Double_t y2 = fY2NDC;
    Double_t margin = fMargin*( x2-x1 )/fNColumns;
    Double_t boxw = margin*0.35;
+   Double_t barw = boxw*0.1*gStyle->GetEndErrorSize();
    Double_t yspace = (y2-y1)/nRows;
    Double_t yspace2 = yspace/2.;
    Double_t textsize = GetTextSize();
@@ -637,8 +640,7 @@ void TLegend::PaintPrimitives()
       textsize = GetTextSize();
    }
    Bool_t autosize = kFALSE;
-   Double_t* columnWidths = new Double_t[fNColumns];
-   memset(columnWidths, 0, fNColumns*sizeof(Double_t));
+   std::vector<Double_t> columnWidths(fNColumns, 0.);
 
    if ( textsize == 0 ) {
       autosize = kTRUE;
@@ -691,10 +693,10 @@ void TLegend::PaintPrimitives()
    // don't want to ruin initialisation of these variables later on
    {
       TIter next(fPrimitives);
-      TLegendEntry *entry;
       Int_t iColumn = 0;
-      memset(columnWidths, 0, fNColumns*sizeof(Double_t));
-      while (( entry = (TLegendEntry *)next() )) {
+      for (Int_t k = 0; k < fNColumns; ++k)
+         columnWidths[k] = 0.;
+      while (auto entry = (TLegendEntry *)next()) {
          TLatex entrytex( 0, 0, entry->GetLabel() );
          entrytex.SetNDC();
          Style_t tfont = entry->GetTextFont();
@@ -806,33 +808,43 @@ void TLegend::PaintPrimitives()
       // bar are drawn differently.
       Int_t endcaps  = 0; // no endcaps.
       if (eobj) { // eobj == nullptr for the legend header
-         TString eobjopt = eobj->GetDrawOption();
-         eobjopt.ToLower();
-         if (eobjopt.Contains("e1") && eobj->InheritsFrom(TH1::Class())) endcaps = 1; // a bar
+         if (opt.Contains("e1") && eobj->InheritsFrom(TH1::Class())) endcaps = 1; // a bar
          if (eobj->InheritsFrom(TGraph::Class())) {
             endcaps = 1; // a bar, default for TGraph
-            if (eobjopt.Contains("z"))  endcaps = 0; // no endcaps.
-            if (eobjopt.Contains(">"))  endcaps = 2; // empty arrow.
-            if (eobjopt.Contains("|>")) endcaps = 3; // filled arrow.
+            if (opt.Contains("z"))  endcaps = 0; // no endcaps.
+            if (opt.Contains(">"))  endcaps = 2; // empty arrow.
+            if (opt.Contains("|>")) endcaps = 3; // filled arrow.
          }
       }
-
+      float arrow_shift = 0.3;
+      if (endcaps == 3) arrow_shift = 0.2;
       // Draw fill pattern (in a box)
 
-      if ( opt.Contains("f")) {
+      if (opt.Contains("f")) {
          if (eobj && eobj->InheritsFrom(TAttFill::Class())) {
             dynamic_cast<TAttFill*>(eobj)->Copy(*entry);
+         }
+
+         // Case of exclusion graphs
+         Float_t wl = 1., wu = 1.;
+         if (eobj && eobj->InheritsFrom(TAttLine::Class())
+                  && eobj->InheritsFrom(TGraph::Class())) {
+            Int_t w = dynamic_cast<TAttLine*>(eobj)->GetLineWidth();
+            if (TMath::Abs(w)>99) {
+               if (w<0) wu = 0;
+               else     wl = 0;
+            }
          }
 
          // box total height is yspace*0.7
          entry->TAttFill::Modify();
          Double_t xf[4],yf[4];
          xf[0] = xsym - boxw;
-         yf[0] = ysym - yspace*0.35;
+         yf[0] = ysym - wl*yspace*0.35;
          xf[1] = xsym + boxw;
          yf[1] = yf[0];
          xf[2] = xf[1];
-         yf[2] = ysym + yspace*0.35;
+         yf[2] = ysym + wu*yspace*0.35;
          xf[3] = xf[0];
          yf[3] = yf[2];
          for (Int_t i=0;i<4;i++) {
@@ -845,148 +857,60 @@ void TLegend::PaintPrimitives()
       // Get Polymarker size
 
       Double_t symbolsize = 0.;
-      TMarker entrymarker( xsym, ysym, 0 );
+      TMarker entrymarker(xsym, ysym, 0);
+      TLine entryline; // here only for line attributes
+      entryline.SetBit(TLine::kLineNDC);
+      std::vector<Double_t> segmx, segmy;
 
-      if ( opt.Contains("p")) {
+
+      if (opt.Contains("p")) {
          if (eobj && eobj->InheritsFrom(TAttMarker::Class())) {
             dynamic_cast<TAttMarker*>(eobj)->Copy(*entry);
          }
          entrymarker.SetNDC();
          entry->TAttMarker::Copy(entrymarker);
-         if (entrymarker.GetMarkerStyle() >= 5 ) symbolsize = entrymarker.GetMarkerSize();
+         if (entrymarker.GetMarkerStyle() >= 5)
+            symbolsize = entrymarker.GetMarkerSize();
       }
 
-      // Draw line
+      auto add_segment = [&segmx,&segmy](Double_t sx1, Double_t sy1, Double_t sx2, Double_t sy2) {
+         segmx.emplace_back(sx1);
+         segmy.emplace_back(sy1);
+         segmx.emplace_back(sx2);
+         segmy.emplace_back(sy2);
+      };
 
-      if ( opt.Contains("l") || opt.Contains("f")) {
-
-         if (eobj && eobj->InheritsFrom(TAttLine::Class())) {
-            dynamic_cast<TAttLine*>(eobj)->Copy(*entry);
+      auto paint_segments = [&]() {
+         if (segmx.size() > 0) {
+            entry->TAttLine::Modify();
+            gPad->PaintSegmentsNDC(segmx.size()/2, segmx.data(), segmy.data());
+            segmx.clear();
+            segmy.clear();
          }
-         // line total length (in x) is margin*0.8
-         TLine entryline( xsym - boxw, ysym, xsym + boxw, ysym );
-         entryline.SetBit(TLine::kLineNDC);
-         entry->TAttLine::Copy(entryline);
-         // if the entry is filled, then surround the box with the line instead
-         if ( opt.Contains("f") && !opt.Contains("l")) {
-            entryline.PaintLineNDC( xsym - boxw, ysym + yspace*0.35,
-                                    xsym + boxw, ysym + yspace*0.35);
-            entryline.PaintLineNDC( xsym - boxw, ysym - yspace*0.35,
-                                    xsym + boxw, ysym - yspace*0.35);
-            entryline.PaintLineNDC( xsym + boxw, ysym - yspace*0.35,
-                                    xsym + boxw, ysym + yspace*0.35);
-            entryline.PaintLineNDC( xsym - boxw, ysym - yspace*0.35,
-                                    xsym - boxw, ysym + yspace*0.35);
-         } else {
-            entryline.Paint();
-            if (opt.Contains("e")) {
-               if ( !opt.Contains("p")) {
-                  entryline.PaintLineNDC( xsym, ysym - yspace*0.30,
-                                          xsym, ysym + yspace*0.30);
-               } else {
-                  Double_t sy  = (fY2NDC-fY1NDC)*((0.5*(gPad->PixeltoY(0) - gPad->PixeltoY(Int_t(symbolsize*8.))))/(fY2-fY1));
-                  TLine entryline1(xsym, ysym + sy, xsym, ysym + yspace*0.30);
-                  entryline1.SetBit(TLine::kLineNDC);
-                  entry->TAttLine::Copy(entryline1);
-                  entryline1.Paint();
-                  TLine entryline2(xsym, ysym - sy, xsym, ysym - yspace*0.30);
-                  entryline2.SetBit(TLine::kLineNDC);
-                  entry->TAttLine::Copy(entryline2);
-                  entryline2.Paint();
-               }
-               Double_t barw = boxw*0.1*gStyle->GetEndErrorSize();
-               if (endcaps == 1) {
-                  TLine entrytop1(xsym-barw, ysym + yspace*0.30, xsym+barw, ysym + yspace*0.30);
-                  entrytop1.SetBit(TLine::kLineNDC);
-                  entry->TAttLine::Copy(entrytop1);
-                  entrytop1.Paint();
-                  TLine entrytop2(xsym-barw, ysym - yspace*0.30, xsym+barw, ysym - yspace*0.30);
-                  entrytop2.SetBit(TLine::kLineNDC);
-                  entry->TAttLine::Copy(entrytop2);
-                  entrytop2.Paint();
-               } else if (endcaps == 2) {
-                  Double_t xe1[3] = {xsym-barw, xsym ,xsym+barw};
-                  Double_t ye1[3] = {ysym+yspace*0.20, ysym + yspace*0.30 ,ysym+yspace*0.20};
-                  TPolyLine ple1(3,xe1,ye1);
-                  ple1.SetBit(TLine::kLineNDC);
-                  entry->TAttLine::Copy(ple1);
-                  ple1.Paint();
-                  Double_t xe2[3] = {xsym-barw, xsym ,xsym+barw};
-                  Double_t ye2[3] = {ysym-yspace*0.20, ysym - yspace*0.30 ,ysym-yspace*0.20};
-                  TPolyLine ple2(3,xe2,ye2);
-                  ple2.SetBit(TLine::kLineNDC);
-                  entry->TAttLine::Copy(ple2);
-               } else if (endcaps == 3) {
-                  Double_t xe1[3] = {xsym-barw, xsym ,xsym+barw};
-                  Double_t ye1[3] = {ysym+yspace*0.20, ysym + yspace*0.30 ,ysym+yspace*0.20};
-                  Double_t xe2[3] = {xsym-barw, xsym ,xsym+barw};
-                  Double_t ye2[3] = {ysym-yspace*0.20, ysym - yspace*0.30 ,ysym-yspace*0.20};
-                  for (Int_t i=0;i<3;i++) {
-                     xe1[i] = gPad->GetX1() + xe1[i]*(gPad->GetX2()-gPad->GetX1());
-                     ye1[i] = gPad->GetY1() + ye1[i]*(gPad->GetY2()-gPad->GetY1());
-                     xe2[i] = gPad->GetX1() + xe2[i]*(gPad->GetX2()-gPad->GetX1());
-                     ye2[i] = gPad->GetY1() + ye2[i]*(gPad->GetY2()-gPad->GetY1());
-                  }
-                  TPolyLine ple1(3,xe1,ye1);
-                  ple1.SetFillColor(entry->GetLineColor());
-                  ple1.SetFillStyle(1001);
-                  ple1.Paint("f");
-                  TPolyLine ple2(3,xe2,ye2);
-                  ple2.SetFillColor(entry->GetLineColor());
-                  ple2.SetFillStyle(1001);
-                  ple2.Paint("f");
-               }
-            }
-         }
-      }
+      };
 
-      // Draw error only
-
-      if (opt.Contains("e") && !(opt.Contains("l") || opt.Contains("f"))) {
-         if (eobj && eobj->InheritsFrom(TAttLine::Class())) {
-            dynamic_cast<TAttLine*>(eobj)->Copy(*entry);
-         }
-         if ( !opt.Contains("p")) {
-            TLine entryline(xsym, ysym - yspace*0.30,
-                            xsym, ysym + yspace*0.30);
-            entryline.SetBit(TLine::kLineNDC);
-            entry->TAttLine::Copy(entryline);
-            entryline.Paint();
+      // Lambda function to draw error mark with end caps
+      auto draw_error_mark = [&]() {
+         if (!opt.Contains("p")) {
+            add_segment(xsym, ysym - yspace*arrow_shift, xsym, ysym + yspace*arrow_shift);
          } else {
             Double_t sy  = (fY2NDC-fY1NDC)*((0.5*(gPad->PixeltoY(0) - gPad->PixeltoY(Int_t(symbolsize*8.))))/(fY2-fY1));
-            TLine entryline1(xsym, ysym + sy, xsym, ysym + yspace*0.30);
-            entryline1.SetBit(TLine::kLineNDC);
-            entry->TAttLine::Copy(entryline1);
-            entryline1.Paint();
-            TLine entryline2(xsym, ysym - sy, xsym, ysym - yspace*0.30);
-            entryline2.SetBit(TLine::kLineNDC);
-            entry->TAttLine::Copy(entryline2);
-            entryline2.Paint();
+            add_segment(xsym, ysym + sy, xsym, ysym + yspace*arrow_shift);
+            add_segment(xsym, ysym - sy, xsym, ysym - yspace*arrow_shift);
          }
-         Double_t barw = boxw*0.1*gStyle->GetEndErrorSize();
          if (endcaps == 1) {
-            TLine entrytop1(xsym-barw, ysym + yspace*0.30, xsym+barw, ysym + yspace*0.30);
-            entrytop1.SetBit(TLine::kLineNDC);
-            entry->TAttLine::Copy(entrytop1);
-            entrytop1.Paint();
-            TLine entrytop2(xsym-barw, ysym - yspace*0.30, xsym+barw, ysym - yspace*0.30);
-            entrytop2.SetBit(TLine::kLineNDC);
-            entry->TAttLine::Copy(entrytop2);
-            entrytop2.Paint();
+            add_segment(xsym-barw, ysym + yspace*0.30, xsym+barw, ysym + yspace*0.30);
+            add_segment(xsym-barw, ysym - yspace*0.30, xsym+barw, ysym - yspace*0.30);
          } else if (endcaps == 2) {
-            Double_t xe1[3] = {xsym-barw, xsym ,xsym+barw};
-            Double_t ye1[3] = {ysym+yspace*0.20, ysym + yspace*0.30 ,ysym+yspace*0.20};
-            TPolyLine ple1(3,xe1,ye1);
-            ple1.SetBit(TLine::kLineNDC);
-            entry->TAttLine::Copy(ple1);
-            ple1.Paint();
-            Double_t xe2[3] = {xsym-barw, xsym ,xsym+barw};
-            Double_t ye2[3] = {ysym-yspace*0.20, ysym - yspace*0.30 ,ysym-yspace*0.20};
-            TPolyLine ple2(3,xe2,ye2);
-            ple2.SetBit(TLine::kLineNDC);
-            entry->TAttLine::Copy(ple2);
-            ple2.Paint();
+            add_segment(xsym-barw, ysym+yspace*0.20, xsym, ysym + yspace*0.30);
+            add_segment(xsym, ysym + yspace*0.30, xsym+barw, ysym+yspace*0.20);
+            add_segment(xsym-barw, ysym-yspace*0.20, xsym, ysym - yspace*0.30);
+            add_segment(xsym, ysym - yspace*0.30, xsym+barw,ysym-yspace*0.20);
          } else if (endcaps == 3) {
+            paint_segments(); // ensure all lines painted before filled areas
+            if (eobj && eobj->InheritsFrom(TAttFill::Class())) {
+               dynamic_cast<TAttFill*>(eobj)->Copy(*entry);
+            }
             Double_t xe1[3] = {xsym-barw, xsym ,xsym+barw};
             Double_t ye1[3] = {ysym+yspace*0.20, ysym + yspace*0.30 ,ysym+yspace*0.20};
             Double_t xe2[3] = {xsym-barw, xsym ,xsym+barw};
@@ -997,22 +921,67 @@ void TLegend::PaintPrimitives()
                xe2[i] = gPad->GetX1() + xe2[i]*(gPad->GetX2()-gPad->GetX1());
                ye2[i] = gPad->GetY1() + ye2[i]*(gPad->GetY2()-gPad->GetY1());
             }
+            int lc = entry->GetLineColor();
+            int lw = entry->GetLineWidth();
+            int fc = entry->GetFillColor();
+            int fs = entry->GetFillStyle();
+            if (fs==1) fs=1001;
+
             TPolyLine ple1(3,xe1,ye1);
-            ple1.SetFillColor(entry->GetLineColor());
-            ple1.SetFillStyle(1001);
+            ple1.SetLineColor(lc);
+            ple1.SetLineWidth(lw);
+            ple1.SetFillColor(fc);
+            ple1.SetFillStyle(fs);
             ple1.Paint("f");
+            ple1.Paint();
+
             TPolyLine ple2(3,xe2,ye2);
-            ple2.SetFillColor(entry->GetLineColor());
-            ple2.SetFillStyle(1001);
+            ple2.SetLineColor(lc);
+            ple2.SetLineWidth(lw);
+            ple2.SetFillColor(fc);
+            ple2.SetFillStyle(fs);
             ple2.Paint("f");
+            ple2.Paint();
          }
+      };
+
+      if (opt.Contains("l") || opt.Contains("f")) {
+         // Draw line
+
+         if (eobj && eobj->InheritsFrom(TAttLine::Class()))
+            dynamic_cast<TAttLine*>(eobj)->Copy(*entry);
+         // line total length (in x) is margin*0.8
+         // if the entry is filled, then surround the box with the line instead
+         if (opt.Contains("f") && !opt.Contains("l")) {
+            add_segment(xsym - boxw, ysym + yspace*0.35,
+                        xsym + boxw, ysym + yspace*0.35);
+            add_segment(xsym - boxw, ysym - yspace*0.35,
+                        xsym + boxw, ysym - yspace*0.35);
+            add_segment(xsym + boxw, ysym - yspace*0.35,
+                        xsym + boxw, ysym + yspace*0.35);
+            add_segment(xsym - boxw, ysym - yspace*0.35,
+                        xsym - boxw, ysym + yspace*0.35);
+         } else {
+            add_segment(xsym - boxw, ysym, xsym + boxw, ysym );
+            if (opt.Contains("e"))
+               draw_error_mark();
+         }
+      } else if (opt.Contains("e")) {
+         // Draw error only
+         if (eobj && eobj->InheritsFrom(TAttLine::Class()))
+            dynamic_cast<TAttLine*>(eobj)->Copy(*entry);
+
+         draw_error_mark();
       }
 
+      // paint segments if not yet done before
+      paint_segments();
+
       // Draw Polymarker
-      if ( opt.Contains("p"))  entrymarker.Paint();
+      if (opt.Contains("p"))
+         entrymarker.Paint();
    }
    SetTextSize(save_textsize);
-   delete [] columnWidths;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1030,9 +999,9 @@ void TLegend::Print( Option_t* option ) const
 void TLegend::RecursiveRemove(TObject *obj)
 {
    TIter next(fPrimitives);
-   TLegendEntry *entry;
-   while (( entry = (TLegendEntry *)next() )) {
-      if (entry->GetObject() == obj) entry->SetObject((TObject*)0);
+   while (auto entry = (TLegendEntry *)next()) {
+      if (entry->GetObject() == obj)
+         entry->SetObject((TObject *)nullptr);
    }
 }
 
@@ -1040,32 +1009,24 @@ void TLegend::RecursiveRemove(TObject *obj)
 /// Save this legend as C++ statements on output stream out
 /// to be used with the SaveAs .C option.
 
-void TLegend::SavePrimitive(std::ostream &out, Option_t* )
+void TLegend::SavePrimitive(std::ostream &out, Option_t *option)
 {
+   SavePrimitiveConstructor(out, Class(), "leg", GetSavePaveArgs("nullptr"));
 
-   out << "   " << std::endl;
-   char quote = '"';
-   if ( gROOT->ClassSaved( TLegend::Class() ) ) {
-      out << "   ";
-   } else {
-      out << "   TLegend *";
-   }
-   // note, we can always use NULL header, since its included in primitives
-   out << "leg = new TLegend("<<GetX1NDC()<<","<<GetY1NDC()<<","
-       <<GetX2NDC()<<","<<GetY2NDC()<<","
-       << "NULL" << "," <<quote<< fOption <<quote<<");" << std::endl;
-   if (fBorderSize != 4) {
-      out<<"   leg->SetBorderSize("<<fBorderSize<<");"<<std::endl;
-   }
-   SaveTextAttributes(out,"leg",12,0,1,42,0);
-   SaveLineAttributes(out,"leg",-1,-1,-1);
-   SaveFillAttributes(out,"leg",-1,-1);
-   if ( fPrimitives ) {
+   if (strcmp(GetName(), "TPave"))
+      out << "   leg->SetName(\"" << GetName() << "\");\n";
+   if (fBorderSize != 4)
+      out << "   leg->SetBorderSize(" << fBorderSize << ");\n";
+   SaveTextAttributes(out, "leg", 12, 0, 1, 42, 0);
+   SaveLineAttributes(out, "leg", -1, -1, -1);
+   SaveFillAttributes(out, "leg", -1, -1);
+   if (fPrimitives) {
       TIter next(fPrimitives);
-      TLegendEntry *entry;
-      while (( entry = (TLegendEntry *)next() )) entry->SaveEntry(out,"leg");
+      while (auto entry = static_cast<TLegendEntry *>(next()))
+         entry->SaveEntry(out, "leg");
    }
-   out << "   leg->Draw();"<<std::endl;
+
+   SavePrimitiveDraw(out, "leg", option);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1109,7 +1070,7 @@ void TLegend::SetHeader( const char *header, Option_t* option )
          return;
       }
    }
-   first = new TLegendEntry( 0, header, "h" );
+   first = new TLegendEntry( nullptr, header, "h" );
    opt = option;
    opt.ToLower();
    if ( opt.Contains("c") ) first->SetTextAlign(22);

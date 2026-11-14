@@ -40,9 +40,9 @@ TMethodCall                            (method call environment)
 #include "TDictAttributeMap.h"
 #include "TInterpreter.h"
 #include "TROOT.h"
+#include "TEnum.h"
 
 
-ClassImp(TDictionary);
 
 TDictionary::TDictionary(const TDictionary& dict):
    TNamed(dict),
@@ -92,6 +92,9 @@ TDictionary* TDictionary::GetDictionary(const char* name)
    if (auto* ret = (TDictionary*)gROOT->GetListOfTypes()->FindObject(name)) {
       if (auto *dtRet = dynamic_cast<TDataType*>(ret)) {
          if (dtRet->GetType() <= 0) {
+            // Not a numeric type. Is it a known enum?
+            if (auto e = TEnum::GetEnum(name))
+               return e;
             // Not a numeric type. Is it a known class?
             if (auto *clRet = TClass::GetClass(name, true))
                return clRet;
@@ -110,9 +113,10 @@ TDictionary* TDictionary::GetDictionary(const std::type_info &typeinfo)
    // Returns 0 if the type is unknown.
 
    EDataType datatype = TDataType::GetType(typeinfo);
-   TDictionary* ret = TDataType::GetDataType(datatype);
-   if (ret) return ret;
-
+   if (TDictionary* ret = TDataType::GetDataType(datatype))
+      return ret;
+   if (auto e = TEnum::GetEnum(typeinfo))
+      return e;
    return TClass::GetClass(typeinfo, true);
 }
 

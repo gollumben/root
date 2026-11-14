@@ -55,10 +55,12 @@ Here is the list of available options:
   - F: File browser
   - E: Text Editor
   - H: HTML browser C: Canvas I: I/O redirection
-  - P: Proof
   - G: GL viewer
 
 */
+
+#include <ROOT/RNTuple.hxx>
+#include <ROOT/RNTupleClassicBrowse.hxx>
 
 #include "TROOT.h"
 #include "TSystem.h"
@@ -72,7 +74,6 @@ Here is the list of available options:
 #include "TGLayout.h"
 #include "TGSplitter.h"
 #include "TGStatusBar.h"
-#include "Varargs.h"
 #include "TInterpreter.h"
 #include "TGFileDialog.h"
 #include "TObjString.h"
@@ -91,7 +92,10 @@ Here is the list of available options:
 #include "Getline.h"
 #include "TVirtualX.h"
 #include "strlcpy.h"
-#include "snprintf.h"
+
+#include <cstdio>
+
+#include <cstdarg>
 
 #ifdef WIN32
 #include <TWin32SplashThread.h>
@@ -110,7 +114,6 @@ static const char *gPluginFileTypes[] = {
 };
 
 
-ClassImp(TRootBrowser);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create browser with a specified width and height.
@@ -163,6 +166,11 @@ TRootBrowser::TRootBrowser(TBrowser *b, const char *name, Int_t x, Int_t y,
 
 void TRootBrowser::CreateBrowser(const char *name)
 {
+   static bool hasRNTupleBrowsing __attribute__((unused)) = []() {
+      ROOT::RNTuple::Class()->SetBrowse(ROOT::Internal::BrowseRNTuple);
+      return true;
+   }();
+
    // Create the actual interface.
 
    fVf = new TGVerticalFrame(this, 100, 100);
@@ -203,7 +211,6 @@ void TRootBrowser::CreateBrowser(const char *name)
    fMenuFile->AddSeparator();
    fMenuFile->AddEntry("New &Editor\tCtrl+E", kNewEditor);
    fMenuFile->AddEntry("New &Canvas\tCtrl+C", kNewCanvas);
-   fMenuFile->AddEntry("New &HTML\tCtrl+H", kNewHtml);
    fMenuFile->AddSeparator();
    fMenuExecPlugin = new TGPopupMenu(fClient->GetRoot());
    fMenuExecPlugin->AddEntry("&Macro...", kExecPluginMacro);
@@ -219,9 +226,6 @@ void TRootBrowser::CreateBrowser(const char *name)
                       "HandleMenu(Int_t)");
    fPreMenuFrame->AddFrame(fMenuBar, fLH2);
    fTopMenuFrame->AddFrame(fPreMenuFrame, fLH0);
-
-   if (!TClass::GetClass("TGHtmlBrowser"))
-      fMenuFile->DisableEntry(kNewHtml);
 
    fMenuFrame = new TGHorizontalFrame(fTopMenuFrame, 100, 20, kRaisedFrame);
    fTopMenuFrame->AddFrame(fMenuFrame, fLH5);
@@ -371,7 +375,7 @@ void TRootBrowser::BrowseObj(TObject *obj)
 {
    if (fActBrowser)
       fActBrowser->BrowseObj(obj);
-   Emit("BrowseObj(TObject*)", (Long_t)obj);
+   Emit("BrowseObj(TObject*)", (Longptr_t)obj);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -552,10 +556,10 @@ void TRootBrowser::EventInfo(Int_t event, Int_t px, Int_t py, TObject *selected)
 /// Execute a macro and embed the created frame in the tab "pos"
 /// and tab element "subpos".
 
-Long_t TRootBrowser::ExecPlugin(const char *name, const char *fname,
-                                const char *cmd, Int_t pos, Int_t subpos)
+Longptr_t TRootBrowser::ExecPlugin(const char *name, const char *fname,
+                                   const char *cmd, Int_t pos, Int_t subpos)
 {
-   Long_t retval = 0;
+   Longptr_t retval = 0;
    TBrowserPlugin *p;
    TString command, pname;
    if (cmd && strlen(cmd)) {
@@ -572,14 +576,24 @@ Long_t TRootBrowser::ExecPlugin(const char *name, const char *fname,
       p = new TBrowserPlugin(pname.Data(), command.Data(), pos, subpos);
    }
    else return 0;
-   if (IsWebGUI() && command.Contains("new TCanvas"))
+
+   Bool_t new_canvas = command.Contains("new TCanvas");
+   Bool_t is_web_canvas = strcmp(gEnv->GetValue("Canvas.Name", ""), "TWebCanvas") == 0;
+
+   if (IsWebGUI() && new_canvas && is_web_canvas)
       return gROOT->ProcessLine(command.Data());
+
+   if (new_canvas && is_web_canvas)
+      gEnv->SetValue("Canvas.Name", "TRootCanvas");
+
    StartEmbedding(pos, subpos);
    fPlugins.Add(p);
    retval = gROOT->ProcessLine(command.Data());
-   if (command.Contains("new TCanvas")) {
+   if (new_canvas) {
       pname = gPad->GetName();
       p->SetName(pname.Data());
+      if (is_web_canvas)
+         gEnv->SetValue("Canvas.Name", "TWebCanvas");
    }
    SetTabTitle(pname.Data(), pos, subpos);
    StopEmbedding();
@@ -721,19 +735,14 @@ void TRootBrowser::HandleMenu(Int_t id)
                   // Handle Help menu items...
       case kHelpAbout:
          {
-#ifdef R__UNIX
-            TString rootx = TROOT::GetBinDir() + "/root -a &";
-            gSystem->Exec(rootx);
-#else
 #ifdef WIN32
             new TWin32SplashThread(kTRUE);
 #else
             char str[32];
-            sprintf(str, "About ROOT %s...", gROOT->GetVersion());
+            snprintf(str, 32, "About ROOT %s...", gROOT->GetVersion());
             hd = new TRootHelpDialog(this, str, 600, 400);
             hd->SetText(gHelpAbout);
             hd->Popup();
-#endif
 #endif
          }
          break;
@@ -781,15 +790,7 @@ void TRootBrowser::HandleMenu(Int_t id)
          ExecPlugin(Form("Editor %d", eNr), "", cmd.Data(), 1);
          break;
       case kNewCanvas:
-         if (IsWebGUI())
-            gROOT->ProcessLine("new TCanvas()");
-         else
-            ExecPlugin("", "", "new TCanvas()", 1);
-         break;
-      case kNewHtml:
-         cmd.Form("new TGHtmlBrowser(\"%s\", gClient->GetRoot())",
-                  gEnv->GetValue("Browser.StartUrl", "http://root.cern.ch"));
-         ExecPlugin("HTML", "", cmd.Data(), 1);
+         ExecPlugin("", "", "new TCanvas()", 1);
          break;
       case kExecPluginMacro:
          {
@@ -853,7 +854,7 @@ void TRootBrowser::InitPlugins(Option_t *opt)
 
    // File Browser plugin
    if (strchr(opt, 'F')) {
-      cmd.Form("new TGFileBrowser(gClient->GetRoot(), (TBrowser *)0x%lx, 200, 500);", (ULong_t)fBrowser);
+      cmd.Form("new TGFileBrowser(gClient->GetRoot(), (TBrowser *)0x%zx, 200, 500);", (size_t)fBrowser);
       ExecPlugin("Files", 0, cmd.Data(), 0);
       ++fNbInitPlugins;
    }
@@ -869,19 +870,8 @@ void TRootBrowser::InitPlugins(Option_t *opt)
          ++fNbInitPlugins;
       }
 
-      // HTML plugin...
-      if (opt[i] == 'H') {
-         if (gSystem->Load("libGuiHtml") >= 0) {
-            cmd.Form("new TGHtmlBrowser(\"%s\", gClient->GetRoot());",
-                     gEnv->GetValue("Browser.StartUrl",
-                     "http://root.cern.ch/root/html/ClassIndex.html"));
-            ExecPlugin("HTML", 0, cmd.Data(), 1);
-            ++fNbInitPlugins;
-         }
-      }
-
       // Canvas plugin...
-      if ((opt[i] == 'C') && !IsWebGUI()) {
+      if (opt[i] == 'C') {
          cmd.Form("new TCanvas();");
          ExecPlugin("c1", 0, cmd.Data(), 1);
          ++fNbInitPlugins;
@@ -894,12 +884,6 @@ void TRootBrowser::InitPlugins(Option_t *opt)
          ++fNbInitPlugins;
       }
 
-      // PROOF plugin...
-      if (opt[i] == 'P') {
-         cmd.Form("new TSessionViewer();");
-         ExecPlugin("PROOF", 0, cmd.Data(), 1);
-         ++fNbInitPlugins;
-      }
    }
    // --- Right bottom area
 
@@ -1237,7 +1221,7 @@ void TRootBrowser::SwitchMenus(TGCompositeFrame  *from)
 
 void TRootBrowser::DoubleClicked(TObject *obj)
 {
-   Emit("DoubleClicked(TObject*)", (Long_t)obj);
+   Emit("DoubleClicked(TObject*)", (Longptr_t)obj);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1245,9 +1229,9 @@ void TRootBrowser::DoubleClicked(TObject *obj)
 
 void TRootBrowser::Checked(TObject *obj, Bool_t checked)
 {
-   Long_t args[2];
+   Longptr_t args[2];
 
-   args[0] = (Long_t)obj;
+   args[0] = (Longptr_t)obj;
    args[1] = checked;
 
    Emit("Checked(TObject*,Bool_t)", args);
@@ -1258,7 +1242,7 @@ void TRootBrowser::Checked(TObject *obj, Bool_t checked)
 
 void TRootBrowser::ExecuteDefaultAction(TObject *obj)
 {
-   Emit("ExecuteDefaultAction(TObject*)", (Long_t)obj);
+   Emit("ExecuteDefaultAction(TObject*)", (Longptr_t)obj);
 }
 
 

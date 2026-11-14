@@ -13,134 +13,130 @@ endif()
 
 # Test ROOT module
 ROOT_ADD_PYUNITTEST(pyroot_root_module root_module.py)
-
-# Test versions of Python dependencies
-if(NOT MSVC)
-    ROOT_ADD_PYUNITTEST(pyroot_dependency_versions dependency_versions.py)
-endif()
+ROOT_ADD_PYUNITTEST(pyroot_root_no_implicit_cppyy root_no_implicit_cppyy.py)
 
 # General pythonizations
 ROOT_ADD_PYUNITTEST(pyroot_pyz_pretty_printing pretty_printing.py)
 ROOT_ADD_PYUNITTEST(pyroot_pyz_array_interface array_interface.py PYTHON_DEPS numpy)
+ROOT_ADD_PYUNITTEST(uhi_plotting uhi_plotting.py GENERIC PYTHON_DEPS uhi numpy)
+ROOT_ADD_PYUNITTEST(uhi_indexing uhi_indexing.py GENERIC PYTHON_DEPS uhi numpy)
+ROOT_ADD_PYUNITTEST(uhi_serialization_json uhi_serialization_json.py GENERIC PYTHON_DEPS uhi numpy)
+if(Python3_VERSION VERSION_GREATER_EQUAL 3.9)
+    # Enable uhi testing helper for Python 3.9+
+    ROOT_ADD_PYUNITTEST(uhi_test_suite uhi_test_suite.py GENERIC PYTHON_DEPS uhi numpy)
+endif()
 
-# TObject and subclasses pythonisations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tobject_contains tobject_contains.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tobject_comparisonops tobject_comparisonops.py)
+# STL containers pythonizations (std::vector and std::set)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_stl stl.py)
 
-# TClass pythonisations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tclass_dynamiccast tclass_dynamiccast.py)
+# TObject and subclasses pythonizations (__contains__ and comparison operators)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tobject tobject.py)
 
-# TDirectory and subclasses pythonizations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tdirectory_attrsyntax tdirectory_attrsyntax.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tdirectoryfile_attrsyntax_get tdirectoryfile_attrsyntax_get.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tfile_attrsyntax_get_writeobject_open tfile_attrsyntax_get_writeobject_open.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tfile_constructor tfile_constructor.py)
+# TDirectory and TFile pythonizations (attr/item syntax, Get, WriteObject, Open,
+# constructor and context manager)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tdirectory_tfile tdirectory_tfile.py)
 
-# TTree and subclasses pythonizations
+# TTree and subclasses pythonizations (branch attr access, iteration and
+# SetBranchAddress). ttree_branch stays separate: it declares its own MyStruct,
+# which would clash with the TreeHelper.h definition used by the others.
 file(COPY TreeHelper.h DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-ROOT_ADD_PYUNITTEST(pyroot_pyz_ttree_branch_attr ttree_branch_attr.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_ttree_iterable ttree_iterable.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_ttree_setbranchaddress ttree_setbranchaddress.py PYTHON_DEPS numpy)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_ttree ttree.py PYTHON_DEPS numpy)
 ROOT_ADD_PYUNITTEST(pyroot_pyz_ttree_branch ttree_branch.py PYTHON_DEPS numpy)
 
+# TColor-related pythonizations (regression_20018 lives in tcolor.py)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tcolor tcolor.py)
+
+# TQObject::Connect with Python callables
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tqobject_connect tqobject_connect.py)
+
 # TH1 and subclasses pythonizations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_th1_operators th1_operators.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_th2 th2.py)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_th1 th1.py)
+# The above tests a deadlock. It should complete in about 1s. If we don't reduce the timeout, we need to wait 1500 s.
+set_tests_properties(pyunittests-bindings-pyroot-pythonizations-pyroot-pyz-th1 PROPERTIES TIMEOUT 30)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_th1_fillN th1_fillN.py PYTHON_DEPS numpy)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_th2_fillN th2_fillN.py PYTHON_DEPS numpy)
+# th1_addfunction, th2 and th3 merged into thist.py
+ROOT_ADD_PYUNITTEST(pyroot_pyz_thist thist.py)
 
-# TGraph, TGraph2D and error subclasses pythonizations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tgraph_getters tgraph_getters.py)
+# TCollection and subclasses pythonizations (len, list methods, operators, iteration)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tcollection tcollection.py)
 
-# TCollection and subclasses pythonizations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tcollection_len tcollection_len.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tcollection_listmethods tcollection_listmethods.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tcollection_operators tcollection_operators.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tcollection_iterable tcollection_iterable.py)
+# TSeqCollection and subclasses pythonizations (item access and list methods)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tseqcollection tseqcollection.py)
 
-# TSeqCollection and subclasses pythonizations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tseqcollection_itemaccess tseqcollection_itemaccess.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tseqcollection_listmethods tseqcollection_listmethods.py)
+# TArray and subclasses pythonizations (len and item access)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tarray tarray.py)
 
-# TIter pythonisations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_titer_iterator titer_iterator.py)
+# TVectorT pythonizations (len and item access)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tvectort tvectort.py)
 
-# TClonesArray pythonisations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tclonesarray_itemaccess tclonesarray_itemaccess.py)
+# TVector3 pythonizations (len and item access)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tvector3 tvector3.py)
 
-# TArray and subclasses pythonizations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tarray_len tarray_len.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tarray_getitem tarray_getitem.py)
+# TString pythonizations (len, str/repr, comparison operators and converter)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tstring tstring.py)
 
-# TVectorT pythonisations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tvectort_len tvectort_len.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tvectort_getitem tvectort_getitem.py)
+# TObjString pythonizations (len, str/repr and comparison operators)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tobjstring tobjstring.py)
 
-# TVector3 pythonisations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tvector3_len tvector3_len.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tvector3_getitem tvector3_getitem.py)
+# @pythonization decorator (kept standalone: it inspects the global set of
+# pythonized classes, so it must not share a process with other tests)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_decorator pythonization_decorator.py)
 
-# TString pythonisations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tstring_len tstring_len.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tstring_str_repr tstring_str_repr.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tstring_comparisonops tstring_comparisonops.py)
-
-# TString converter
-ROOT_ADD_PYUNITTEST(pyroot_conv_tstring tstring_converter.py)
-
-# TObjString pythonisations
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tobjstring_len tobjstring_len.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tobjstring_str_repr tobjstring_str_repr.py)
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tobjstring_comparisonops tobjstring_comparisonops.py)
+# Miscellaneous small pythonizations grouped in a single file to avoid paying the
+# Python-startup + import-ROOT overhead once per tiny test: TClass::DynamicCast,
+# TContext context manager, TComplex operators, TIter iteration, TGraph getters
+# and TParameter arithmetic instantiations.
+ROOT_ADD_PYUNITTEST(pyroot_pyz_misc misc_pyz.py)
 
 # RVec and subclasses pythonizations
 ROOT_ADD_PYUNITTEST(pyroot_pyz_rvec rvec.py)
-if(NOT MSVC OR win_broken_tests)
-    ROOT_ADD_PYUNITTEST(pyroot_pyz_rvec_asrvec rvec_asrvec.py PYTHON_DEPS numpy)
-endif()
+ROOT_ADD_PYUNITTEST(pyroot_pyz_rvec_asrvec rvec_asrvec.py PYTHON_DEPS numpy)
 
 # RDataFrame and subclasses pythonizations
 if (dataframe)
-    if(NOT MSVC OR win_broken_tests)
-        ROOT_ADD_PYUNITTEST(pyroot_pyz_rdataframe_asnumpy rdataframe_asnumpy.py PYTHON_DEPS numpy)
-        ROOT_ADD_PYUNITTEST(pyroot_pyz_rdataframe_makenumpy rdataframe_makenumpy.py PYTHON_DEPS numpy)
-    endif()
+    ROOT_ADD_PYUNITTEST(pyroot_pyz_rdataframe_makenumpy rdataframe_makenumpy.py PYTHON_DEPS numpy)
+    ROOT_ADD_PYUNITTEST(pyroot_pyz_rdataframe_asnumpy rdataframe_asnumpy.py PYTHON_DEPS numpy)
+    ROOT_ADD_PYUNITTEST(pyroot_pyz_rdataframe_histo_profile rdataframe_histo_profile.py)
 endif()
 
-# RTensor pythonizations
-if (dataframe AND tmva)
-    ROOT_ADD_PYUNITTEST(pyroot_pyz_rtensor rtensor.py PYTHON_DEPS numpy)
+# RDFDescription pythonization
+if (dataframe)
+    ROOT_ADD_PYUNITTEST(pyroot_rdfdescription rdfdescription.py)
+
+    ROOT_ADD_PYUNITTEST(pyroot_pyz_rdataframe_misc rdataframe_misc.py PYTHON_DEPS numpy)
 endif()
 
 # Passing Python callables to ROOT.TF
-ROOT_ADD_PYUNITTEST(pyroot_pyz_tf_pycallables tf_pycallables.py)
+ROOT_ADD_PYUNITTEST(pyroot_pyz_tf_pycallables tf_pycallables.py PYTHON_DEPS numpy)
 
 if(roofit)
-  # RooAbsCollection and subclasses pythonizations
-  ROOT_ADD_PYUNITTEST(pyroot_roofit_rooabscollection roofit/rooabscollection.py)
-  ROOT_ADD_PYUNITTEST(pyroot_roofit_rooarglist roofit/rooarglist.py)
-
-  # RooDataHist pythonisations
-  ROOT_ADD_PYUNITTEST(pyroot_roofit_roodatahist_ploton roofit/roodatahist_ploton.py)
-
-  # RooWorkspace pythonizations
-  ROOT_ADD_PYUNITTEST(pyroot_roofit_rooworkspace roofit/rooworkspace.py)
-  ROOT_ADD_PYUNITTEST(pyroot_roofit_rooabspdf_fitto roofit/rooabspdf_fitto.py)
-  ROOT_ADD_PYUNITTEST(pyroot_roofit_rooabsreal_ploton roofit/rooabsreal_ploton.py)
-
-  ROOT_ADD_PYUNITTEST(pyroot_roofit_roolinkedlist roofit/roolinkedlist.py)
+  ROOT_ADD_PYUNITTEST(pyroot_roofit roofit.py)
 endif()
 
 if (dataframe)
-    if(NOT MSVC OR win_broken_tests)
-        # std::string_view backport in CPyCppyy
-        ROOT_ADD_PYUNITTEST(pyroot_string_view_backport string_view_backport.py)
-
-        if(NOT (DEFINED ENV{ROOTTEST_IGNORE_NUMBA_PY2} AND PYTHON_VERSION_MAJOR_Development_Main EQUAL 2) AND NOT
-            (DEFINED ENV{ROOTTEST_IGNORE_NUMBA_PY3} AND PYTHON_VERSION_MAJOR_Development_Main EQUAL 3))
-            # Test wrapping Python callables for use in C++ using numba
-            ROOT_ADD_PYUNITTEST(pyroot_numbadeclare numbadeclare.py PYTHON_DEPS numba)
-        endif()
-    endif()
+    # Test wrapping Python callables for use in C++ using numba
+    ROOT_ADD_PYUNITTEST(pyroot_numbadeclare numbadeclare.py PYTHON_DEPS numba)
+    ROOT_ADD_PYUNITTEST(pyroot_rdf_filter_pyz rdf_filter_pyz.py PYTHON_DEPS numba)
+    ROOT_ADD_PYUNITTEST(pyroot_rdf_define_pyz rdf_define_pyz.py PYTHON_DEPS numba)
+    # std::string_view in CPyCppyy
+    ROOT_ADD_PYUNITTEST(pyroot_string_view string_view.py)
 endif()
 
-# TComplex pythonizations
-ROOT_ADD_PYUNITTEST(pyroot_tcomplex tcomplex_operators.py)
+# Tests with memory usage
+ROOT_ADD_PYUNITTEST(pyroot_memory memory.py)
+
+# ML dataloader tests
+if (dataframe)
+  ROOT_ADD_PYUNITTEST(ml_dataloader ml_dataloader.py PYTHON_DEPS numpy tensorflow torch)
+endif()
+
+ROOT_ADD_PYUNITTEST(regression_18441 regression_18441.py)
+
+ROOT_ADD_PYUNITTEST(regression_pickle_no_cppyy regression_pickle_no_cppyy.py)
+
+ROOT_ADD_PYUNITTEST(package_metadata package_metadata.py)
+
+ROOT_ADD_PYUNITTEST(regression_23728 regression_23728.py)
+
+ROOT_ADD_PYUNITTEST(pyroot_array_numpy_views array_conversions.py PYTHON_DEPS numpy)

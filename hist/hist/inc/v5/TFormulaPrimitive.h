@@ -49,27 +49,27 @@ public:
    typedef Double_t (TObject::*TFunc110)(Double_t,Double_t) const;
    typedef Double_t (TObject::*TFunc1110)(Double_t,Double_t,Double_t) const;
 protected:
-   static TObjArray * fgListOfFunction;                   //!list of global primitive formulas
+   static TObjArray * fgListOfFunction;                   ///<!list of global primitive formulas
    static Int_t       BuildBasicFormulas();               //build list of basic formulas
    union {
-      GenFuncG    fFuncG;                                 //!pointer to the TFormula generic function
-      GenFunc0    fFunc0;                                 //!pointer to the function
-      GenFunc10   fFunc10;                                //!pointer to the function
-      GenFunc110  fFunc110;                               //!pointer to the function
-      GenFunc1110 fFunc1110;                              //!pointer to the function
-      TFuncG      fTFuncG;                                //!pointer to the TFormula generic function
-      TFunc0      fTFunc0;                                //! pointer to member function
-      TFunc10     fTFunc10;                               //! pointer to member function
-      TFunc110    fTFunc110;                              //! pointer to member function
-      TFunc1110   fTFunc1110;                             //! pointer to member function
+      GenFuncG    fFuncG;                                 ///<!pointer to the TFormula generic function
+      GenFunc0    fFunc0;                                 ///<!pointer to the function
+      GenFunc10   fFunc10;                                ///<!pointer to the function
+      GenFunc110  fFunc110;                               ///<!pointer to the function
+      GenFunc1110 fFunc1110;                              ///<!pointer to the function
+      TFuncG      fTFuncG;                                ///<!pointer to the TFormula generic function
+      TFunc0      fTFunc0;                                ///<! pointer to member function
+      TFunc10     fTFunc10;                               ///<! pointer to member function
+      TFunc110    fTFunc110;                              ///<! pointer to member function
+      TFunc1110   fTFunc1110;                             ///<! pointer to member function
    };
    Int_t      fType;                                      //type of the function
    Int_t      fNArguments;                                //number of arguments
    Int_t      fNParameters;                               //number of parameters
    Bool_t     fIsStatic;                                  // indication if the function is static
 private:
-   TFormulaPrimitive(const TFormulaPrimitive&); // Not implemented
-   TFormulaPrimitive& operator=(const TFormulaPrimitive&); // Not implemented
+   TFormulaPrimitive(const TFormulaPrimitive&) = delete;
+   TFormulaPrimitive& operator=(const TFormulaPrimitive&) = delete;
 public:
    TFormulaPrimitive();
    TFormulaPrimitive(const char *name,const char *formula, GenFunc0 fpointer);
@@ -90,7 +90,7 @@ public:
    Double_t Eval(TObject *o,  Double_t *x);      //eval member function
    Double_t Eval(Double_t *x, Double_t *param);  //eval primitive parametric function
 
-   ClassDef(ROOT::v5::TFormulaPrimitive,0)  //The primitive formula
+   ClassDefOverride(ROOT::v5::TFormulaPrimitive,0)  //The primitive formula
 };
 
    } // end namespace v5

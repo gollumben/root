@@ -40,7 +40,7 @@ int testDerivation() {
 
 
   // Derivative of an IGenFunction
-  // Works when compiled c++, compiled ACLiC, interpreted by CINT
+  // Works when compiled c++, compiled ACLiC, interpreted by Cling
   ROOT::Math::Polynomial *f1 = new ROOT::Math::Polynomial(2);
 
   std::vector<double> p(3);
@@ -61,12 +61,12 @@ int testDerivation() {
   std::cout << "Result:       " << result << " +/- " << der->Error() << std::endl;
   std::cout << "Exact result: " << f1->Derivative(x0) << std::endl;
   std::cout << "EvalForward:  " << der->EvalForward(*f1, x0) << std::endl;
-  std::cout << "EvalBackward: " << der->EvalBackward(x0, step) << std::endl << std::endl;;
+  std::cout << "EvalBackward: " << der->EvalBackward(x0, step) << std::endl << std::endl;
   status += fabs(result-f1->Derivative(x0)) > ERRORLIMIT;
 
 
   // Derivative of a free function
-  // Works when compiled c++, compiled ACLiC, does not work when interpreted by CINT
+  // Works when compiled c++, compiled ACLiC, does not work when interpreted by Cling
   FP f2 = &myfunc;
   der->SetFunction(f2);
 
@@ -84,7 +84,7 @@ int testDerivation() {
 
 
   // Derivative of a free function wrapped in an IGenFunction
-  // Works when compiled c++, compiled ACLiC, does not work when interpreted by CINT
+  // Works when compiled c++, compiled ACLiC, does not work when interpreted by Cling
   ROOT::Math::Functor1D *f3 = new ROOT::Math::Functor1D (&myfunc2);
 
   std::cout << "Derivative of a free function wrapped in a Functor f(x) = x^(3/2) at x = 2" << std::endl;

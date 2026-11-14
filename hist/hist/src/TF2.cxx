@@ -16,13 +16,13 @@
 #include "TBuffer.h"
 #include "TH2.h"
 #include "TVirtualPad.h"
-#include <iostream>
 #include "TColor.h"
 #include "TVirtualFitter.h"
 #include "Math/IntegratorOptions.h"
-#include "snprintf.h"
 
-ClassImp(TF2);
+#include <iostream>
+#include <cstdio>
+
 
 /** \class TF2
     \ingroup Functions
@@ -39,7 +39,7 @@ The following types of functions can be created:
 
 Begin_Macro (source)
 {
-    TF2 *f2 = new TF2("f2","sin(x)*sin(y)/(x*y)",0,5,0,5);
+    auto f2 = new TF2("f2","sin(x)*sin(y)/(x*y)",0,5,0,5);
     f2->Draw();
 }
 End_Macro
@@ -58,7 +58,7 @@ Double_t func(Double_t *val, Double_t *par)
 
 void fplot()
 {
-   TF2 *f = new TF2("f",func,-1,1,-1,1);
+   auto f = new TF2("f",func,-1,1,-1,1);
    f->Draw("surf1");
 }
 ~~~~
@@ -80,13 +80,12 @@ See TF1 class for the list of functions formats
 ////////////////////////////////////////////////////////////////////////////////
 /// TF2 default constructor
 
-TF2::TF2(): TF1(),fYmin(0),fYmax(0),fNpy(100)
+TF2::TF2(): fYmin(0),fYmax(0),fNpy(100)
 {
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
-/// F2 constructor using a formula definition
+/// TF2 constructor using a formula definition and string option args
 ///
 /// See TFormula constructor for explanation of the formula syntax.
 ///
@@ -94,8 +93,9 @@ TF2::TF2(): TF1(),fYmin(0),fYmax(0),fNpy(100)
 /// the formula string is "fffffff" and "xxxx" and "yyyy" are the
 /// titles for the X and Y axis respectively.
 
-TF2::TF2(const char *name,const char *formula, Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Option_t * opt)
-   :TF1(name,formula,xmax,xmin,opt)
+TF2::TF2(const char *name, const char *formula, Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax,
+         Option_t *opt)
+   : TF1(name, formula, xmax, xmin, opt) // purposely swapped xmax, xmin to signal that TFormula may be 1D or 2D
 {
    if (ymin < ymax) {
       fYmin   = ymin;
@@ -117,9 +117,43 @@ TF2::TF2(const char *name,const char *formula, Double_t xmin, Double_t xmax, Dou
    }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// TF2 constructor using a formula definition and explicit option args
+///
+/// See TFormula constructor for explanation of the formula syntax.
+///
+/// If formula has the form "fffffff;xxxx;yyyy", it is assumed that
+/// the formula string is "fffffff" and "xxxx" and "yyyy" are the
+/// titles for the X and Y axis respectively.
+
+TF2::TF2(const char *name, const char *formula, Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax,
+         EAddToList addToGlobList, bool vectorize)
+   : TF1(name, formula, xmax, xmin, addToGlobList,
+         vectorize) // purposely swapped xmax, xmin to signal that TFormula may be 1D or 2D
+{
+   if (ymin < ymax) {
+      fYmin = ymin;
+      fYmax = ymax;
+   } else {
+      fYmin = ymax;
+      fYmax = ymin;
+   }
+   fNpx = 30;
+   fNpy = 30;
+   fContour.Set(0);
+   // accept 1-d formula
+   if (GetNdim() < 2)
+      fNdim = 2;
+   // dimension is obtained by TFormula
+   // accept cases where formula dim is less than 2
+   if (GetNdim() > 2 && xmin < xmax && ymin < ymax) {
+      Error("TF2", "function: %s/%s has dimension %d instead of 2", name, formula, GetNdim());
+      MakeZombie();
+   }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
-/// F2 constructor using a pointer to a compiled function
+/// TF2 constructor using a pointer to a compiled function
 ///
 /// npar is the number of free parameters used by the function
 ///
@@ -128,8 +162,38 @@ TF2::TF2(const char *name,const char *formula, Double_t xmin, Double_t xmax, Dou
 ///
 /// WARNING! A function created with this constructor cannot be Cloned.
 
-TF2::TF2(const char *name, Double_t (*fcn)(Double_t *, Double_t *), Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Int_t npar, Int_t ndim)
-      : TF1(name, fcn, xmin, xmax, npar,ndim)
+TF2::TF2(const char *name, Double_t (*fcn)(Double_t *, Double_t *), Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Int_t npar, Int_t ndim, EAddToList addToGlobList)
+      : TF1(name, fcn, xmin, xmax, npar, ndim, addToGlobList)
+{
+   fYmin   = ymin;
+   fYmax   = ymax;
+   fNpx    = 30;
+   fNpy    = 30;
+   fContour.Set(0);
+}
+
+TF2::TF2(const char *name, Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Int_t npar, Int_t ndim, EAddToList addToGlobList):
+   TF1(name, xmin, xmax, npar, ndim, addToGlobList)
+{
+   fYmin   = ymin;
+   fYmax   = ymax;
+   fNpx    = 30;
+   fNpy    = 30;
+   fContour.Set(0);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TF2 constructor using a pointer to a compiled function
+///
+/// npar is the number of free parameters used by the function
+///
+/// This constructor creates a function of type C when invoked
+/// with the normal C++ compiler.
+///
+/// WARNING! A function created with this constructor cannot be Cloned.
+
+TF2::TF2(const char *name, Double_t (*fcn)(const Double_t *, const Double_t *), Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Int_t npar, Int_t ndim, EAddToList addToGlobList)
+      : TF1(name, fcn, xmin, xmax, npar, ndim, addToGlobList)
 {
    fYmin   = ymin;
    fYmax   = ymax;
@@ -140,36 +204,15 @@ TF2::TF2(const char *name, Double_t (*fcn)(Double_t *, Double_t *), Double_t xmi
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// F2 constructor using a pointer to a compiled function
-///
-/// npar is the number of free parameters used by the function
-///
-/// This constructor creates a function of type C when invoked
-/// with the normal C++ compiler.
-///
-/// WARNING! A function created with this constructor cannot be Cloned.
-
-TF2::TF2(const char *name, Double_t (*fcn)(const Double_t *, const Double_t *), Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Int_t npar, Int_t ndim)
-      : TF1(name, fcn, xmin, xmax, npar,ndim)
-{
-   fYmin   = ymin;
-   fYmax   = ymax;
-   fNpx    = 30;
-   fNpy    = 30;
-   fContour.Set(0);
-
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// F2 constructor using a ParamFunctor,
+/// TF2 constructor using a ParamFunctor,
 ///          a functor class implementing operator() (double *, double *)
 ///
 /// npar is the number of free parameters used by the function
 ///
 /// WARNING! A function created with this constructor cannot be Cloned.
 
-TF2::TF2(const char *name, ROOT::Math::ParamFunctor f, Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Int_t npar, Int_t ndim)
-      : TF1(name, f, xmin, xmax, npar,ndim)
+TF2::TF2(const char *name, ROOT::Math::ParamFunctor f, Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Int_t npar, Int_t ndim, EAddToList addToGlobList)
+      : TF1(name, f, xmin, xmax, npar, ndim, addToGlobList)
 {
    fYmin   = ymin;
    fYmax   = ymax;
@@ -184,9 +227,8 @@ TF2::TF2(const char *name, ROOT::Math::ParamFunctor f, Double_t xmin, Double_t x
 
 TF2& TF2::operator=(const TF2 &rhs)
 {
-   if (this != &rhs) {
-      rhs.Copy(*this);
-   }
+   if (this != &rhs)
+      rhs.TF2::Copy(*this);
    return *this;
 }
 
@@ -202,7 +244,7 @@ TF2::~TF2()
 
 TF2::TF2(const TF2 &f2) : TF1()
 {
-   ((TF2&)f2).Copy(*this);
+   f2.TF2::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -340,7 +382,7 @@ Double_t TF2::GetContourLevel(Int_t level) const
 {
    if (level <0 || level >= fContour.fN) return 0;
    if (fContour.fArray[0] != -9999) return fContour.fArray[level];
-   if (fHistogram == 0) return 0;
+   if (fHistogram == nullptr) return 0;
    return fHistogram->GetContourLevel(level);
 }
 
@@ -369,7 +411,7 @@ Double_t TF2::FindMinMax(Double_t *x, Bool_t findmax) const
    Double_t rsign = (findmax) ? -1. : 1.;
    TF2 & function = const_cast<TF2&>(*this); // needed since EvalPar is not const
    Double_t xxmin = 0, yymin = 0, zzmin = 0;
-   if (x == NULL || ( (x!= NULL) && ( !TMath::Finite(x[0]) || !TMath::Finite(x[1]) ) ) ){
+   if (x == nullptr || ( (x!= nullptr) && ( !TMath::Finite(x[0]) || !TMath::Finite(x[1]) ) ) ){
       Double_t dx = (fXmax - fXmin)/fNpx;
       Double_t dy = (fYmax - fYmin)/fNpy;
       xxmin = fXmin;
@@ -623,16 +665,14 @@ void TF2::GetRange(Double_t &xmin, Double_t &ymin, Double_t &zmin, Double_t &xma
 
 Double_t TF2::GetSave(const Double_t *xx)
 {
-   //if (fNsave <= 0) return 0;
-   if (fSave.empty()) return 0;
-   Int_t fNsave = fSave.size();
-   Int_t np = fNsave - 6;
-   Double_t xmin = Double_t(fSave[np+0]);
-   Double_t xmax = Double_t(fSave[np+1]);
-   Double_t ymin = Double_t(fSave[np+2]);
-   Double_t ymax = Double_t(fSave[np+3]);
-   Int_t npx     = Int_t(fSave[np+4]);
-   Int_t npy     = Int_t(fSave[np+5]);
+   if (fSave.size() < 6) return 0;
+   Int_t nsave = fSave.size() - 6;
+   Double_t xmin = fSave[nsave+0];
+   Double_t xmax = fSave[nsave+1];
+   Double_t ymin = fSave[nsave+2];
+   Double_t ymax = fSave[nsave+3];
+   Int_t npx     = Int_t(fSave[nsave+4]);
+   Int_t npy     = Int_t(fSave[nsave+5]);
    Double_t x    = Double_t(xx[0]);
    Double_t dx   = (xmax-xmin)/npx;
    if (x < xmin || x > xmax) return 0;
@@ -643,8 +683,8 @@ Double_t TF2::GetSave(const Double_t *xx)
    if (dy <= 0) return 0;
 
    //we make a bilinear interpolation using the 4 points surrounding x,y
-   Int_t ibin    = Int_t((x-xmin)/dx);
-   Int_t jbin    = Int_t((y-ymin)/dy);
+   Int_t ibin    = TMath::Min(npx-1, Int_t((x-xmin)/dx));
+   Int_t jbin    = TMath::Min(npy-1, Int_t((y-ymin)/dy));
    Double_t xlow = xmin + ibin*dx;
    Double_t ylow = ymin + jbin*dy;
    Double_t t    = (x-xlow)/dx;
@@ -658,8 +698,29 @@ Double_t TF2::GetSave(const Double_t *xx)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Create the basic function objects
+
+void TF2::InitStandardFunctions()
+{
+   TF2 *f2;
+   R__LOCKGUARD(gROOTMutex);
+   if (!gROOT->GetListOfFunctions()->FindObject("xygaus")) {
+      f2 = new TF2("xygaus", "xygaus", -1, 1, -1, 1);
+      f2->SetParameters(1, 0, 1, 0, 1);
+      f2 = new TF2("bigaus", "bigaus", -1, 1, -1, 1);
+      f2->SetParameters(1, 0, 1, 0, 1, 0);
+      f2 = new TF2("xyexpo", "xyexpo", -1, 1, -1, 1);
+      f2->SetParameters(1, 0, 1, 1, 0, 1);
+      f2 = new TF2("xylandau", "xylandau", -1, 1, -1, 1);
+      f2->SetParameters(1, 0, 1, 1, 0, 1);
+      f2 = new TF2("xylandaun", "xylandaun", -1, 1, -1, 1);
+      f2->SetParameters(1, 0, 1, 1, 0, 1);
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Return Integral of a 2d function in range [ax,bx],[ay,by]
-/// with desired relative accuracy (default value of eps is 1.e-9)
+/// with desired relative accuracy (defined by eps)
 
 Double_t TF2::Integral(Double_t ax, Double_t bx, Double_t ay, Double_t by, Double_t epsrel)
 {
@@ -706,7 +767,7 @@ TH1* TF2::CreateHistogram()
 
    Double_t *parameters = GetParameters();
    TH2F* h = new TH2F("Func",(char*)GetTitle(),fNpx,fXmin,fXmax,fNpy,fYmin,fYmax);
-   h->SetDirectory(0);
+   h->SetDirectory(nullptr);
 
    InitArgs(xv,parameters);
    dx = (fXmax - fXmin)/Double_t(fNpx);
@@ -722,7 +783,7 @@ TH1* TF2::CreateHistogram()
    h->Fill(fXmin-1,fYmin-1,0);  //This call to force fNentries non zero
 
    Double_t *levels = fContour.GetArray();
-   if (levels && levels[0] == -9999) levels = 0;
+   if (levels && levels[0] == -9999) levels = nullptr;
    h->SetMinimum(fMinimum);
    h->SetMaximum(fMaximum);
    h->SetContour(fContour.fN, levels);
@@ -734,7 +795,7 @@ TH1* TF2::CreateHistogram()
    h->SetMarkerColor(GetMarkerColor());
    h->SetMarkerStyle(GetMarkerStyle());
    h->SetMarkerSize(GetMarkerSize());
-   h->SetStats(0);
+   h->SetStats(false);
 
    return h;
 }
@@ -755,7 +816,7 @@ void TF2::Paint(Option_t *option)
    if (!fHistogram) {
       fHistogram = new TH2F("Func",(char*)GetTitle(),fNpx,fXmin,fXmax,fNpy,fYmin,fYmax);
       if (!fHistogram) return;
-      fHistogram->SetDirectory(0);
+      fHistogram->SetDirectory(nullptr);
    }
    InitArgs(xv,parameters);
    dx = (fXmax - fXmin)/Double_t(fNpx);
@@ -772,7 +833,7 @@ void TF2::Paint(Option_t *option)
 
 //- Copy Function attributes to histogram attributes
    Double_t *levels = fContour.GetArray();
-   if (levels && levels[0] == -9999) levels = 0;
+   if (levels && levels[0] == -9999) levels = nullptr;
    fHistogram->SetMinimum(fMinimum);
    fHistogram->SetMaximum(fMaximum);
    fHistogram->SetContour(fContour.fN, levels);
@@ -784,7 +845,8 @@ void TF2::Paint(Option_t *option)
    fHistogram->SetMarkerColor(GetMarkerColor());
    fHistogram->SetMarkerStyle(GetMarkerStyle());
    fHistogram->SetMarkerSize(GetMarkerSize());
-   fHistogram->SetStats(0);
+   fHistogram->SetStats(false);
+   fHistogram->Sumw2(kFALSE);
 
 //-  Draw the histogram
    if (!gPad) return;
@@ -798,43 +860,55 @@ void TF2::Paint(Option_t *option)
 
 void TF2::Save(Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Double_t, Double_t)
 {
-   if (!fSave.empty()) fSave.clear();
-   //if (fSave != 0) {delete [] fSave; fSave = 0;}
-   Int_t nsave = (fNpx+1)*(fNpy+1);
-   Int_t fNsave = nsave+6;
-   if (fNsave <= 6) {fNsave=0; return;}
-   //fSave  = new Double_t[fNsave];
-   fSave.resize(fNsave);
-   Int_t i,j,k=0;
+   if (!fSave.empty())
+      fSave.clear();
+   Int_t npx = fNpx, npy = fNpy;
+   if ((npx < 2) || (npy < 2))
+      return;
    Double_t dx = (xmax-xmin)/fNpx;
    Double_t dy = (ymax-ymin)/fNpy;
    if (dx <= 0) {
       dx = (fXmax-fXmin)/fNpx;
-      xmin = fXmin +0.5*dx;
-      xmax = fXmax -0.5*dx;
+      npx--;
+      xmin = fXmin + 0.5*dx;
+      xmax = fXmax - 0.5*dx;
    }
    if (dy <= 0) {
       dy = (fYmax-fYmin)/fNpy;
-      ymin = fYmin +0.5*dy;
-      ymax = fYmax -0.5*dy;
+      npy--;
+      ymin = fYmin + 0.5*dy;
+      ymax = fYmax - 0.5*dy;
    }
+
+   Int_t nsave = (npx + 1) * (npy + 1);
+   fSave.resize(nsave + 6);
    Double_t xv[2];
    Double_t *parameters = GetParameters();
-   InitArgs(xv,parameters);
-   for (j=0;j<=fNpy;j++) {
+   InitArgs(xv, parameters);
+   for (Int_t j = 0, k = 0; j <= npy; j++) {
       xv[1]    = ymin + dy*j;
-      for (i=0;i<=fNpx;i++) {
+      for (Int_t i = 0; i <= npx; i++) {
          xv[0]    = xmin + dx*i;
-         fSave[k] = EvalPar(xv,parameters);
-         k++;
+         fSave[k++] = EvalPar(xv, parameters);
       }
    }
    fSave[nsave+0] = xmin;
    fSave[nsave+1] = xmax;
    fSave[nsave+2] = ymin;
    fSave[nsave+3] = ymax;
-   fSave[nsave+4] = fNpx;
-   fSave[nsave+5] = fNpy;
+   fSave[nsave+4] = npx;
+   fSave[nsave+5] = npy;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Restore value of function saved at point
+
+void TF2::SetSavedPoint(Int_t point, Double_t value)
+{
+   if (fSave.empty())
+      fSave.resize((fNpx + 1) * (fNpy + 1) + 6);
+   if (point >= 0 && point < (Int_t)fSave.size())
+      fSave[point] = value;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -842,73 +916,72 @@ void TF2::Save(Double_t xmin, Double_t xmax, Double_t ymin, Double_t ymax, Doubl
 
 void TF2::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
-   out<<"   "<<std::endl;
-   if (gROOT->ClassSaved(TF2::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TF2 *";
-   }
-   if (!fMethodCall) {
-      out<<GetName()<<" = new TF2("<<quote<<GetName()<<quote<<","<<quote<<GetTitle()<<quote<<","<<fXmin<<","<<fXmax<<","<<fYmin<<","<<fYmax<<");"<<std::endl;
-   } else {
-      out<<GetName()<<" = new TF2("<<quote<<GetName()<<quote<<","<<GetTitle()<<","<<fXmin<<","<<fXmax<<","<<fYmin<<","<<fYmax<<","<<GetNpar()<<");"<<std::endl;
+   TString f2Name = ProvideSaveName(option);
+   out << "   \n";
+   if (!fType)
+      out << "   TF2 *" << f2Name << " = new TF2(\"" << GetName() << "\", \""
+          << TString(GetTitle()).ReplaceSpecialCppChars() << "\", " << fXmin << "," << fXmax << "," << fYmin << ","
+          << fYmax << ");\n";
+   else {
+      out << "   TF2 *" << f2Name << " = new TF2(\"" << "*" << GetName() << "\", " << fXmin << "," << fXmax << ","
+          << fYmin << "," << fYmax << "," << GetNpar() << ");\n";
+      SavePrimitiveNameTitle(out, f2Name);
    }
 
-   if (GetFillColor() != 0) {
-      if (GetFillColor() > 228) {
-         TColor::SaveColor(out, GetFillColor());
-         out<<"   "<<GetName()<<"->SetFillColor(ci);" << std::endl;
-      } else
-         out<<"   "<<GetName()<<"->SetFillColor("<<GetFillColor()<<");"<<std::endl;
-   }
-   if (GetFillStyle() != 1001) {
-      out<<"   "<<GetName()<<"->SetFillStyle("<<GetFillStyle()<<");"<<std::endl;
-   }
-   if (GetMarkerColor() != 1) {
-      if (GetMarkerColor() > 228) {
-         TColor::SaveColor(out, GetMarkerColor());
-         out<<"   "<<GetName()<<"->SetMarkerColor(ci);" << std::endl;
-      } else
-         out<<"   "<<GetName()<<"->SetMarkerColor("<<GetMarkerColor()<<");"<<std::endl;
-   }
-   if (GetMarkerStyle() != 1) {
-      out<<"   "<<GetName()<<"->SetMarkerStyle("<<GetMarkerStyle()<<");"<<std::endl;
-   }
-   if (GetMarkerSize() != 1) {
-      out<<"   "<<GetName()<<"->SetMarkerSize("<<GetMarkerSize()<<");"<<std::endl;
-   }
-   if (GetLineColor() != 1) {
-      if (GetLineColor() > 228) {
-         TColor::SaveColor(out, GetLineColor());
-         out<<"   "<<GetName()<<"->SetLineColor(ci);" << std::endl;
-      } else
-         out<<"   "<<GetName()<<"->SetLineColor("<<GetLineColor()<<");"<<std::endl;
-   }
-   if (GetLineWidth() != 4) {
-      out<<"   "<<GetName()<<"->SetLineWidth("<<GetLineWidth()<<");"<<std::endl;
-   }
-   if (GetLineStyle() != 1) {
-      out<<"   "<<GetName()<<"->SetLineStyle("<<GetLineStyle()<<");"<<std::endl;
-   }
-   if (GetNpx() != 100) {
-      out<<"   "<<GetName()<<"->SetNpx("<<GetNpx()<<");"<<std::endl;
-   }
-   if (GetChisquare() != 0) {
-      out<<"   "<<GetName()<<"->SetChisquare("<<GetChisquare()<<");"<<std::endl;
-   }
+   if (GetNpx() != 30)
+      out << "   " << f2Name << "->SetNpx(" << GetNpx() << ");\n";
+   if (GetNpy() != 30)
+      out << "   " << f2Name << "->SetNpy(" << GetNpy() << ");\n";
+
+   if (GetChisquare() != 0)
+      out << "   " << f2Name << "->SetChisquare(" << GetChisquare() << ");\n";
+
    Double_t parmin, parmax;
-   for (Int_t i=0;i<GetNpar();i++) {
-      out<<"   "<<GetName()<<"->SetParameter("<<i<<","<<GetParameter(i)<<");"<<std::endl;
-      out<<"   "<<GetName()<<"->SetParError("<<i<<","<<GetParError(i)<<");"<<std::endl;
-      GetParLimits(i,parmin,parmax);
-      out<<"   "<<GetName()<<"->SetParLimits("<<i<<","<<parmin<<","<<parmax<<");"<<std::endl;
+   for (Int_t i = 0; i < GetNpar(); i++) {
+      out << "   " << f2Name << "->SetParameter(" << i << "," << GetParameter(i) << ");\n";
+      out << "   " << f2Name << "->SetParError(" << i << "," << GetParError(i) << ");\n";
+      GetParLimits(i, parmin, parmax);
+      out << "   " << f2Name << "->SetParLimits(" << i << "," << parmin << "," << parmax << ");\n";
    }
-   out<<"   "<<GetName()<<"->Draw("
-      <<quote<<option<<quote<<");"<<std::endl;
+
+   Bool_t saved = kFALSE;
+
+   if ((fType != EFType::kFormula) && ((Int_t) fSave.size() != ((GetNpx() + 1) * (GetNpy() + 1) + 6))) {
+      saved = kTRUE;
+      Save(fXmin, fXmax, fYmin, fYmax, 0, 0);
+   }
+
+   if (!fSave.empty()) {
+      TString vect = SavePrimitiveVector(out, f2Name, fSave.size(), fSave.data());
+      out << "   for (int n = 0; n < " << fSave.size() << "; n++)\n";
+      out << "      " << f2Name << "->SetSavedPoint(n, " << vect << "[n]);\n";
+   }
+
+   if (saved)
+      fSave.clear();
+
+   if (fContour.fN > 0) {
+      TString vectname;
+      if (fContour.fArray[0] != -9999)
+         vectname = SavePrimitiveVector(out, f2Name, fContour.fN, fContour.GetArray());
+      out << "   " << f2Name << "->SetContour(" << fContour.fN;
+      if (!vectname.IsNull())
+         out << ", " << vectname << ".data()";
+      out << ");\n";
+   }
+
+   SaveFillAttributes(out, f2Name, -1, 0);
+   SaveMarkerAttributes(out, f2Name, -1, -1, -1);
+   SaveLineAttributes(out, f2Name, -1, -1, -1);
+
+   if (fHistogram && !strstr(option, "same")) {
+      GetXaxis()->SaveAttributes(out, f2Name, "->GetXaxis()");
+      GetYaxis()->SaveAttributes(out, f2Name, "->GetYaxis()");
+      GetZaxis()->SaveAttributes(out, f2Name, "->GetZaxis()");
+   }
+
+   SavePrimitiveDraw(out, f2Name, option);
 }
-
-
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set the number and values of contour levels
@@ -1004,7 +1077,7 @@ void TF2::Streamer(TBuffer &R__b)
       R__b >> fNpy;
       R__b >> nlevels;
       if (R__v < 3) {
-         Float_t *contour = 0;
+         Float_t *contour = nullptr;
          Int_t n = R__b.ReadArray(contour);
          fContour.Set(n);
          for (Int_t i=0;i<n;i++) fContour.fArray[i] = contour[i];

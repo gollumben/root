@@ -59,6 +59,9 @@ protected:
    /// By default no-cache header is provided
    virtual void VerifyDefaultPageContent(std::shared_ptr<THttpCallArg> &arg) { arg->AddNoCacheHeader(); }
 
+   /// Method generate extra suffix for all kinds of loaded code
+   virtual std::string GetCodeVersion() { return ""; }
+
 public:
    virtual ~THttpWSHandler();
 
@@ -108,7 +111,7 @@ public:
 
    virtual Bool_t ProcessWS(THttpCallArg *arg) = 0;
 
-   ClassDef(THttpWSHandler, 0) // abstract class for handling websocket requests
+   ClassDefOverride(THttpWSHandler, 0) // abstract class for handling websocket requests
 };
 
 #endif

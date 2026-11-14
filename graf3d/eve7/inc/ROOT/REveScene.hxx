@@ -61,8 +61,6 @@ protected:
    Bool_t fHierarchical{kFALSE};           ///<!
 
    Bool_t fAcceptingChanges{kFALSE};       ///<!
-   Bool_t fChanged{kFALSE};                ///<!
-   // Changed or/and added.
    // XXXX can change to vector (element checks if already registered now).
    List_t  fChangedElements;               ///<!
    // For the following two have to re-think how the hierarchy will be handled.
@@ -80,43 +78,50 @@ protected:
 
    std::vector<SceneCommand> fCommands;   ///<!
 
+   bool fMandatory{true};
+   bool fIsOverlay{false};
    // void RetransHierarchicallyRecurse(REveElement* el, const REveTrans& tp);
 
 public:
    REveScene(const std::string &n = "REveScene", const std::string &t = "");
-   virtual ~REveScene();
+   ~REveScene() override;
 
+   Int_t WriteCoreJson(nlohmann::json &cj, Int_t rnr_offset) override;
    Bool_t SingleRnrState() const override { return kTRUE; }
 
    void   SetHierarchical(Bool_t h) { fHierarchical = h; }
    Bool_t GetHierarchical() const { return fHierarchical; }
 
-   void   Changed() { fChanged = kTRUE; } // AMT ??? depricated
-   Bool_t IsChanged() const;
+   bool IsChanged() const;
 
    Bool_t IsAcceptingChanges() const { return fAcceptingChanges; }
    void BeginAcceptingChanges();
    void SceneElementChanged(REveElement *element);
    void SceneElementRemoved(ElementId_t id);
    void EndAcceptingChanges();
-   void ProcessChanges();
 
    void StreamElements();
    void StreamJsonRecurse(REveElement *el, nlohmann::json &jobj);
 
-   // void   Repaint(Bool_t dropLogicals=kFALSE);
-   // void   RetransHierarchically();
-
-   // virtual void Paint(Option_t* option = "");
-
-   // void DestroyElementRenderers(REveElement* element);
-   // void DestroyElementRenderers(TObject* rnrObj);
    void StreamRepresentationChanges();
+
+   void StreamMotionChanges(nlohmann::json &arr);
    void SendChangesToSubscribers();
+   void ClearOutput();
+
+   /// Output of the last StreamElements() or StreamRepresentationChanges().
+   const std::string &GetOutputJson() const { return fOutputJson; }
+   const std::vector<char> &GetOutputBinary() const { return fOutputBinary; }
 
    Bool_t HasSubscribers() const { return !fSubscribers.empty(); }
    void AddSubscriber(std::unique_ptr<REveClient> &&sub);
    void RemoveSubscriber(unsigned int);
+
+   bool GetMandatory() { return fMandatory; }
+   void SetMandatory(bool x) { fMandatory = x; }
+
+   bool GetIsOverlay() { return fIsOverlay; }
+   void SetIsOverlay(bool x) { fIsOverlay = x; }
 
    void AddCommand(const std::string &name, const std::string &icon, const REveElement *element, const std::string &action);
 };
@@ -135,17 +140,13 @@ private:
 protected:
 public:
    REveSceneList(const std::string &n = "REveSceneList", const std::string &t = "");
-   virtual ~REveSceneList() {}
+   ~REveSceneList() override {}
 
    void DestroyScenes();
 
-   // void RepaintChangedScenes(Bool_t dropLogicals);
-   // void RepaintAllScenes(Bool_t dropLogicals);
-
-   // void DestroyElementRenderers(REveElement* element);
-   void AcceptChanges(bool);
+   void BeginAcceptingChanges();
+   void EndAcceptingChanges();
    bool AnyChanges() const;
-   void ProcessSceneChanges();
 };
 
 } // namespace Experimental

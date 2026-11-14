@@ -1,16 +1,45 @@
 # ROOT requirements for third-party Python packages
 
 # PyROOT: Interoperability with numpy arrays
+numpy
+pandas
+
+# TMVA: SOFIE
+onnx
+onnxscript
+packaging
+
 # TMVA: PyMVA interfaces
-numpy>=1.4.1
+scikit-learn
+tensorflow ; python_version < "3.14"
+torch
+xgboost
+
+# RDataLoader
+jax
 
 # PyROOT: ROOT.Numba.Declare decorator
-numba>=0.47.0
-cffi>=1.9.1
+numba
+cffi
 
 # Notebooks: ROOT C++ kernel
-notebook>=4.4.1
+IPython
+jupyter
 metakernel>=0.20.0
+notebook>=4.4.1
 
-# Distributed RDataFrame: Spark backend
-pyspark>=2.4
+# Distributed RDataFrame
+pyspark # Spark backend
+dask>=2022.08.1 # Dask backend
+distributed>=2022.08.1 # Dask backend
+
+# Unified Histogram Interface (UHI)
+uhi
+matplotlib
+mplhep
+
+# For testing
+nbconvert>=7.17.0
+pytest
+setuptools
+jsonschema # for RooFit HS3 validation (using HS3TestSuite)

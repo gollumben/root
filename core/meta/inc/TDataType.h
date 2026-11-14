@@ -23,7 +23,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "TDictionary.h"
-
+#include <cstddef>
 
 enum EDataType {
    kChar_t   = 1,  kUChar_t  = 11, kShort_t    = 2,  kUShort_t = 12,
@@ -44,8 +44,9 @@ enum EDataType {
 class TDataType : public TDictionary {
 
 private:
-   TypedefInfo_t    *fInfo;     //!pointer to CINT typedef info
-   Int_t             fSize;     //size of type
+   TypedefInfo_t    *fInfo;     ///<!pointer to CINT typedef info
+   Int_t             fSize;     // size of type
+   UInt_t            fAlignOf;  // alignment of type (0 if unknown)
    EDataType         fType;     //type id
    Long_t            fProperty; //The property information for the (potential) underlying class
    TString           fTrueName; //Qualified name of the (potential) underlying class, e.g. "MyClass*const*"
@@ -61,22 +62,24 @@ protected:
    TDataType& operator=(const TDataType&);
 
 public:
-   TDataType(TypedefInfo_t *info = 0);
+   TDataType(TypedefInfo_t *info = nullptr);
    TDataType(const char *typenam);
    virtual       ~TDataType();
    Int_t          Size() const;
+   /// Return the alignment of the type in bytes, or 0 if unknown.
+   std::size_t    GetAlignOf() const { return fAlignOf; }
    Int_t          GetType() const { return (Int_t)fType; }
    TString        GetTypeName();
    const char    *GetFullTypeName() const;
    const char    *AsString(void *buf) const;
-   Long_t         Property() const;
+   Long_t         Property() const override;
 
    static const char *GetTypeName(EDataType type);
    static TDataType  *GetDataType(EDataType type);
    static EDataType GetType(const std::type_info &typeinfo);
    static void AddBuiltins(TCollection* types);
 
-   ClassDef(TDataType,2)  //Basic data type descriptor
+   ClassDefOverride(TDataType,3)  //Basic data type descriptor
 };
 
 #endif

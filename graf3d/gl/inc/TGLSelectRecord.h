@@ -74,7 +74,17 @@ public:
 class TGLSelectRecord : public TGLSelectRecordBase
 {
 public:
-   enum ESecSelResult { kNone, kEnteringSelection, kLeavingSelection, kModifyingInternalSelection };
+   enum ESecSelResult {
+// clang++ <v20 (-Wshadow) complains about shadowing GuiTypes.h global variable kNone. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kNone,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
+      kEnteringSelection, kLeavingSelection, kModifyingInternalSelection };
 
 protected:
    // Secondary data (scene dependent) - use
@@ -94,12 +104,12 @@ public:
    TGLSelectRecord();
    TGLSelectRecord(UInt_t* data);
    TGLSelectRecord(const TGLSelectRecord& rec);
-   virtual ~TGLSelectRecord();
+   ~TGLSelectRecord() override;
 
    TGLSelectRecord& operator=(const TGLSelectRecord& rec);
 
-   virtual void Set(UInt_t* data);
-   virtual void Reset();
+   void Set(UInt_t* data) override;
+   void Reset() override;
 
    Bool_t             GetTransparent() const { return fTransparent; }
    TGLSceneInfo     * GetSceneInfo()   const { return fSceneInfo; }
@@ -128,7 +138,7 @@ public:
    static Bool_t AreSameSelectionWise(const TGLSelectRecord& r1,
                                       const TGLSelectRecord& r2);
 
-   ClassDef(TGLSelectRecord, 0) // Standard GL selection record.
+   ClassDefOverride(TGLSelectRecord, 0) // Standard GL selection record.
 };
 
 
@@ -146,17 +156,17 @@ public:
    TGLOvlSelectRecord();
    TGLOvlSelectRecord(UInt_t* data);
    TGLOvlSelectRecord(const TGLOvlSelectRecord& rec);
-   virtual ~TGLOvlSelectRecord();
+   ~TGLOvlSelectRecord() override;
 
    TGLOvlSelectRecord& operator=(const TGLOvlSelectRecord& rec);
 
-   virtual void Set(UInt_t* data);
-   virtual void Reset();
+   void Set(UInt_t* data) override;
+   void Reset() override;
 
    TGLOverlayElement* GetOvlElement() const { return fOvlElement; }
    void SetOvlElement(TGLOverlayElement* e) { fOvlElement = e; }
 
-   ClassDef(TGLOvlSelectRecord, 0) // Standard GL overlay-selection record.
+   ClassDefOverride(TGLOvlSelectRecord, 0) // Standard GL overlay-selection record.
 };
 
 #endif

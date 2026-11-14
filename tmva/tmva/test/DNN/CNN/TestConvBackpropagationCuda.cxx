@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  :                                                                       *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Testing Conv Net Backpropagation                                          *
@@ -21,7 +21,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 ////////////////////////////////////////////////////////////////////
@@ -103,7 +103,7 @@ int main()
       std::cerr << "ERROR - test2 failed " << std::endl;
       return -1;
    }
-   std::cout << ">>>>>>   Test2 :    OK !!!!" << std::endl;;
+   std::cout << ">>>>>>   Test2 :    OK !!!!" << std::endl;
     return 0;
 }
 

@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Classes: PDEFoamDecisionTreeDensity                                            *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Class PDEFoamDecisionTreeDensity is a class representing                  *
@@ -26,7 +26,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_PDEFoamDecisionTreeDensity
@@ -56,12 +56,12 @@ namespace TMVA
       virtual ~PDEFoamDecisionTreeDensity() {}
 
       // returns always 0
-      virtual Double_t Density(std::vector<Double_t> &Xarg, Double_t &event_density);
+      Double_t Density(std::vector<Double_t> &Xarg, Double_t &event_density) override;
 
       // fill histograms with events found in volume
       virtual void FillHistograms(TMVA::Volume&, std::vector<TH1D*>&, std::vector<TH1D*>&, std::vector<TH1D*>&, std::vector<TH1D*>&);
 
-      ClassDef(PDEFoamDecisionTreeDensity, 1) // Class for decision tree like PDEFoam density
+      ClassDefOverride(PDEFoamDecisionTreeDensity, 1) // Class for decision tree like PDEFoam density
          };  //end of PDEFoamDecisionTreeDensity
 
 }  // namespace TMVA

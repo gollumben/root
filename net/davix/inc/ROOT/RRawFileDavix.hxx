@@ -13,7 +13,7 @@
 #define ROOT_RRawFileDavix
 
 #include <ROOT/RRawFile.hxx>
-#include <ROOT/RStringView.hxx>
+#include <string_view>
 
 #include <cstddef>
 #include <cstdint>
@@ -46,7 +46,6 @@ public:
    RRawFileDavix(std::string_view url, RRawFile::ROptions options);
    ~RRawFileDavix();
    std::unique_ptr<RRawFile> Clone() const final;
-   int GetFeatures() const final { return kFeatureHasSize; }
 };
 
 } // namespace Internal

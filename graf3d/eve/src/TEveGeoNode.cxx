@@ -25,6 +25,7 @@
 #include "TBuffer3D.h"
 #include "TVirtualViewer3D.h"
 #include "TColor.h"
+#include "TEnv.h"
 #include "TFile.h"
 
 #include "TGeoShape.h"
@@ -41,7 +42,6 @@
 Wrapper for TGeoNode that allows it to be shown in GUI and controlled as a TEveElement.
 */
 
-ClassImp(TEveGeoNode);
 
 Int_t                 TEveGeoNode::fgCSGExportNSeg = 64;
 std::list<TGeoShape*> TEveGeoNode::fgTemporaryStore;
@@ -70,7 +70,7 @@ TEveGeoNode::TEveGeoNode(TGeoNode* node) :
    TObject(),
    fNode(node)
 {
-   // Hack!! Should use cint to retrieve TAttLine::fLineColor offset.
+   // Hack!! Should use Cling to retrieve TAttLine::fLineColor offset.
    char* l = (char*) dynamic_cast<TAttLine*>(node->GetVolume());
    SetMainColorPtr((Color_t*)(l + sizeof(void*)));
    SetMainTransparency(fNode->GetVolume()->GetTransparency());
@@ -121,7 +121,7 @@ void TEveGeoNode::ExpandIntoListTree(TGListTree* ltree,
    {
       TIter next(fNode->GetVolume()->GetNodes());
       TGeoNode* dnode;
-      while ((dnode = (TGeoNode*) next()) != 0)
+      while ((dnode = (TGeoNode*) next()) != nullptr)
       {
          TEveGeoNode* node_re = new TEveGeoNode(dnode);
          AddElement(node_re);
@@ -282,7 +282,7 @@ void TEveGeoNode::Save(const char* file, const char* name, Bool_t leafs_only)
 
 void TEveGeoNode::SaveExtract(const char* file, const char* name, Bool_t leafs_only)
 {
-   TEveGeoShapeExtract* gse = DumpShapeTree(this, 0, leafs_only);
+   TEveGeoShapeExtract* gse = DumpShapeTree(this, nullptr, leafs_only);
    if (gse)
    {
       TFile f(file, "RECREATE");
@@ -300,7 +300,7 @@ void TEveGeoNode::SaveExtract(const char* file, const char* name, Bool_t leafs_o
 
 void TEveGeoNode::WriteExtract(const char* name, Bool_t leafs_only)
 {
-   TEveGeoShapeExtract* gse = DumpShapeTree(this, 0, leafs_only);
+   TEveGeoShapeExtract* gse = DumpShapeTree(this, nullptr, leafs_only);
    if (gse)
    {
       gse->Write(name);
@@ -316,28 +316,28 @@ TEveGeoShapeExtract* TEveGeoNode::DumpShapeTree(TEveGeoNode*         geon,
 {
    static const TEveException eh("TEveGeoNode::DumpShapeTree ");
 
-   TGeoNode*   tnode   = 0;
-   TGeoVolume* tvolume = 0;
-   TGeoShape*  tshape  = 0;
+   TGeoNode*   tnode   = nullptr;
+   TGeoVolume* tvolume = nullptr;
+   TGeoShape*  tshape  = nullptr;
 
    tnode = geon->GetNode();
-   if (tnode == 0)
+   if (tnode == nullptr)
    {
       Info(eh, "Null TGeoNode for TEveGeoNode '%s': assuming it's a holder and descending.", geon->GetName());
    }
    else
    {
       tvolume = tnode->GetVolume();
-      if (tvolume == 0) {
+      if (tvolume == nullptr) {
          Warning(eh, "Null TGeoVolume for TEveGeoNode '%s'; skipping its sub-tree.\n", geon->GetName());
-         return 0;
+         return nullptr;
       }
       tshape  = tvolume->GetShape();
       if (tshape->IsComposite())
       {
          TEvePad pad;
          TEvePadHolder gpad(kFALSE, &pad);
-         pad.GetListOfPrimitives()->Add(tshape);
+         pad.Add(tshape);
          TGLScenePad scene_pad(&pad);
          pad.SetViewer3D(&scene_pad);
 
@@ -355,12 +355,12 @@ TEveGeoShapeExtract* TEveGeoNode::DumpShapeTree(TEveGeoNode*         geon,
             TGeoShape::SetTransform(gst);
          }
 
-         pad.SetViewer3D(0);
+         pad.SetViewer3D(nullptr);
 
          TGLFaceSet* fs = dynamic_cast<TGLFaceSet*>(scene_pad.FindLogical(tvolume));
          if (!fs) {
             Warning(eh, "Failed extracting CSG tesselation TEveGeoNode '%s'; skipping its sub-tree.\n", geon->GetName());
-            return 0;
+            return nullptr;
          }
 
          TEveGeoPolyShape* egps = new TEveGeoPolyShape();
@@ -424,7 +424,7 @@ TEveGeoShapeExtract* TEveGeoNode::DumpShapeTree(TEveGeoNode*         geon,
    gse->SetRnrFrame   (kTRUE);
    gse->SetMiniFrame  (kTRUE);
 
-   gse->SetShape((leafs_only && geon->HasChildren()) ? 0 : tshape);
+   gse->SetShape((leafs_only && geon->HasChildren()) ? nullptr : tshape);
 
    if (geon->HasChildren())
    {
@@ -459,7 +459,6 @@ TGeoPainter, fVisOption, fVisLevel and fMaxVisNodes. They have the
 same meaning as in TGeoManager/TGeoPainter.
 */
 
-ClassImp(TEveGeoTopNode);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -512,9 +511,13 @@ void TEveGeoTopNode::Paint(Option_t* option)
 {
    if (fRnrSelf)
    {
+      const char * gpn = gEnv->GetValue("GeomPainter.Name", "");
+      if (strncmp(gpn, "root", 4))
+         gEnv->SetValue("GeomPainter.Name", "root");
+
       TEveGeoManagerHolder geo_holder(fManager);
       TVirtualPad *pad = gPad;
-      gPad = 0;
+      gPad = nullptr;
       TGeoVolume* top_volume = fManager->GetTopVolume();
       if (fVisLevel > 0)
          fManager->SetVisLevel(fVisLevel);
@@ -537,13 +540,16 @@ void TEveGeoTopNode::Paint(Option_t* option)
             break;
       }
       gPad = pad;
-      if(vgp != 0) {
+      if(vgp != nullptr) {
          vgp->SetVisOption(fVisOption);
          TGeoHMatrix geomat;
          if (HasMainTrans()) RefMainTrans().SetGeoHMatrix(geomat);
          vgp->PaintNode(fNode, option, &geomat);
       }
       fManager->SetTopVolume(top_volume);
+
+      if (strncmp(gpn, "root", 4))
+         gEnv->SetValue("GeomPainter.Name", gpn);
    }
 }
 

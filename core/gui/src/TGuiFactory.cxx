@@ -28,11 +28,12 @@ batch mode directly using an instance of this base class.
 #include "TControlBarImp.h"
 #include "TInspectorImp.h"
 #include "TROOT.h"
+#include "TEnv.h"
+#include "TPluginManager.h"
 
-TGuiFactory *gGuiFactory = 0;
-TGuiFactory *gBatchGuiFactory = 0;
+TGuiFactory *gGuiFactory = nullptr;
+TGuiFactory *gBatchGuiFactory = nullptr;
 
-ClassImp(TGuiFactory);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TGuiFactory ctor only called by derived classes.
@@ -55,6 +56,28 @@ TApplicationImp *TGuiFactory::CreateApplicationImp(const char *classname, int *a
 
 TCanvasImp *TGuiFactory::CreateCanvasImp(TCanvas *c, const char *title, UInt_t width, UInt_t height)
 {
+   TString canvName;
+   if (gROOT->IsWebDisplay()) {
+      canvName = "TWebCanvas";
+   } else {
+      canvName = gEnv->GetValue("Canvas.Name", "");
+      // in batch web display should be configured explicitely
+      if (canvName == "TWebCanvas")
+         canvName.Clear();
+   }
+
+   if (!canvName.IsNull() && (canvName != "TRootCanvas") && (canvName != "TCanvasImp")) {
+      auto ph = gROOT->GetPluginManager()->FindHandler("TCanvasImp", canvName);
+
+      if (ph && ph->LoadPlugin() != -1) {
+         auto imp = (TCanvasImp *)ph->ExecPlugin(6, c, title, 0, 0, width, height);
+         if (imp)
+            return imp;
+      }
+
+      Error("CreateCanvasImp", "Fail to create %s canvas implementation", canvName.Data());
+   }
+
    return new TCanvasImp(c, title, width, height);
 }
 
@@ -63,22 +86,84 @@ TCanvasImp *TGuiFactory::CreateCanvasImp(TCanvas *c, const char *title, UInt_t w
 
 TCanvasImp *TGuiFactory::CreateCanvasImp(TCanvas *c, const char *title, Int_t x, Int_t y, UInt_t width, UInt_t height)
 {
+   TString canvName;
+   if (gROOT->IsWebDisplay()) {
+      canvName = "TWebCanvas";
+   } else {
+      canvName = gEnv->GetValue("Canvas.Name", "");
+      // in batch web display should be configured explicitely
+      if (canvName == "TWebCanvas")
+         canvName.Clear();
+   }
+
+   if (!canvName.IsNull() && (canvName != "TRootCanvas") && (canvName != "TCanvasImp")) {
+      auto ph = gROOT->GetPluginManager()->FindHandler("TCanvasImp", canvName);
+
+      if (ph && ph->LoadPlugin() != -1) {
+         auto imp = (TCanvasImp *)ph->ExecPlugin(6, c, title, x, y, width, height);
+         if (imp)
+            return imp;
+      }
+
+      Error("CreateCanvasImp", "Fail to create %s canvas implementation", canvName.Data());
+   }
+
    return new TCanvasImp(c, title, x, y, width, height);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a batch version of TBrowserImp.
 
-TBrowserImp *TGuiFactory::CreateBrowserImp(TBrowser *b, const char *title, UInt_t width, UInt_t height, Option_t *)
+TBrowserImp *TGuiFactory::CreateBrowserImp(TBrowser *b, const char *title, UInt_t width, UInt_t height, Option_t *opt)
 {
+   const char *browserName = nullptr;
+
+   if (gROOT->IsWebDisplay() && !gROOT->IsWebDisplayBatch())
+      browserName = "ROOT::RWebBrowserImp";
+   else if (!gROOT->IsBatch())
+      browserName = gEnv->GetValue("Browser.Name", "");
+
+   if (browserName && *browserName) {
+      auto ph = gROOT->GetPluginManager()->FindHandler("TBrowserImp", browserName);
+
+      if (ph && ph->LoadPlugin() != -1) {
+         auto imp = (TBrowserImp *)ph->ExecPlugin(5, b, title, width, height, opt);
+         if (imp)
+            return imp;
+      }
+
+      Error("CreateBrowserImp", "Fail to create %s, please provide missing libraries or run 'root --web=off'",
+            browserName);
+   }
+
    return new TBrowserImp(b, title, width, height);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a batch version of TBrowserImp.
 
-TBrowserImp *TGuiFactory::CreateBrowserImp(TBrowser *b, const char *title, Int_t x, Int_t y, UInt_t width, UInt_t height, Option_t *)
+TBrowserImp *TGuiFactory::CreateBrowserImp(TBrowser *b, const char *title, Int_t x, Int_t y, UInt_t width, UInt_t height, Option_t *opt)
 {
+   const char *browserName = nullptr;
+
+   if (gROOT->IsWebDisplay() && !gROOT->IsWebDisplayBatch())
+      browserName = "ROOT::RWebBrowserImp";
+   else if (!gROOT->IsBatch())
+      browserName = gEnv->GetValue("Browser.Name", "");
+
+   if (browserName && *browserName) {
+      auto ph = gROOT->GetPluginManager()->FindHandler("TBrowserImp", browserName);
+
+      if (ph && ph->LoadPlugin() != -1) {
+         auto imp = (TBrowserImp *)ph->ExecPlugin(7, b, title, x, y, width, height, opt);
+         if (imp)
+            return imp;
+      }
+
+      Error("CreateBrowserImp", "Fail to create %s, please provide missing libraries or run 'root --web=off'",
+            browserName);
+   }
+
    return new TBrowserImp(b, title, x, y, width, height);
 }
 
@@ -95,6 +180,19 @@ TContextMenuImp *TGuiFactory::CreateContextMenuImp(TContextMenu *c, const char *
 
 TControlBarImp *TGuiFactory::CreateControlBarImp(TControlBar *c, const char *title)
 {
+   if (gROOT->IsWebDisplay()) {
+      auto ph = gROOT->GetPluginManager()->FindHandler("TControlBarImp", "TWebControlBar");
+
+      if (ph && ph->LoadPlugin() != -1) {
+         auto imp = (TControlBarImp *)ph->ExecPlugin(4, c, title, 0, 0);
+         if (imp)
+            return imp;
+      }
+
+      Error("CreateControlBarImp",
+            "Fail to create TWebControlBar, please provide missing libWebGui6 or run 'root --web=off'");
+   }
+
    return new TControlBarImp(c, title);
 }
 
@@ -103,6 +201,19 @@ TControlBarImp *TGuiFactory::CreateControlBarImp(TControlBar *c, const char *tit
 
 TControlBarImp *TGuiFactory::CreateControlBarImp(TControlBar *c, const char *title, Int_t x, Int_t y)
 {
+   if (gROOT->IsWebDisplay()) {
+      auto ph = gROOT->GetPluginManager()->FindHandler("TControlBarImp", "TWebControlBar");
+
+      if (ph && ph->LoadPlugin() != -1) {
+         auto imp = (TControlBarImp *)ph->ExecPlugin(4, c, title, x, y);
+         if (imp)
+            return imp;
+      }
+
+      Error("CreateControlBarImp",
+            "Fail to create TWebControlBar, please provide missing libWebGui6 or run 'root --web=off'");
+   }
+
    return new TControlBarImp(c, title, x, y);
 }
 
@@ -111,10 +222,9 @@ TControlBarImp *TGuiFactory::CreateControlBarImp(TControlBar *c, const char *tit
 
 TInspectorImp *TGuiFactory::CreateInspectorImp(const TObject *obj, UInt_t width, UInt_t height)
 {
-   if (gROOT->IsBatch()) {
+   if (gROOT->IsBatch())
       return new TInspectorImp(obj, width, height);
-   }
 
-   gROOT->ProcessLine(Form("TInspectCanvas::Inspector((TObject*)0x%zx);", (size_t)obj));
-   return 0;
+   gROOT->ProcessLine(TString::Format("TInspectCanvas::Inspector((TObject*)0x%zx);", (size_t)obj).Data());
+   return nullptr;
 }

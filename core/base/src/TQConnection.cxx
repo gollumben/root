@@ -34,8 +34,6 @@ TQConnection:
 #include "THashTable.h"
 #include "strlcpy.h"
 
-ClassImpQ(TQConnection)
-
 char *gTQSlotParams; // used to pass string parameter
 
 /** \class TQSlot
@@ -54,7 +52,7 @@ protected:
 public:
    TQSlot(TClass *cl, const char *method, const char *funcname);
    TQSlot(const char *class_name, const char *funcname);
-   virtual ~TQSlot();
+   ~TQSlot() override;
 
    Bool_t      CheckSlot(Int_t nargs) const;
    Longptr_t   GetOffset() const { return fOffset; }
@@ -62,9 +60,7 @@ public:
    CallFunc_t *GetFunc() const { return fFunc; }
    void        EndExecuting();
 
-   const char *GetName() const {
-      return fName.Data();
-   }
+   const char *GetName() const override { return fName.Data(); }
 
    Int_t GetMethodNargs() { return fMethod->GetNargs(); }
 
@@ -75,14 +71,10 @@ public:
    void ExecuteMethod(void *object, Double_t param);
    void ExecuteMethod(void *object, const char *params);
    void ExecuteMethod(void *object, Longptr_t *paramArr, Int_t nparam = -1);
-   void Print(Option_t *opt = "") const;
-   void ls(Option_t *opt = "") const {
-      Print(opt);
-   }
+   void Print(Option_t *opt = "") const override;
+   void ls(Option_t *opt = "") const override { Print(opt); }
 
-   Bool_t IsExecuting() const {
-      return fExecuting > 0;
-   }
+   Bool_t IsExecuting() const { return fExecuting > 0; }
 };
 
 
@@ -290,7 +282,7 @@ CallFunc_t *TQSlot::StartExecuting() {
 
 void TQSlot::EndExecuting() {
    fExecuting--;
-   if (!TestBit(kNotDeleted) && !fExecuting)
+   if (ROOT::Detail::HasBeenDeleted(this) && !fExecuting)
       gCling->CallFunc_Delete(fFunc);
 }
 
@@ -350,7 +342,7 @@ inline void TQSlot::ExecuteMethod(void *object, Longptr_t *paramArr, Int_t npara
    fExecuting++;
    gCling->CallFunc_Exec(fFunc, address);
    fExecuting--;
-   if (!TestBit(kNotDeleted) && !fExecuting)
+   if (ROOT::Detail::HasBeenDeleted(this) && !fExecuting)
       gCling->CallFunc_Delete(fFunc);
 }
 

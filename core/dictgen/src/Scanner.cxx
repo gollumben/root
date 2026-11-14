@@ -24,6 +24,7 @@
 
 #include <iostream>
 #include <sstream> // class ostringstream
+#include "llvm/ADT/StringExtras.h"
 
 #include "SelectionRules.h"
 
@@ -56,8 +57,6 @@ inline static bool IsElementPresent(const std::vector<const T*> &v, T *el){
 
 using namespace ROOT;
 using namespace clang;
-
-extern cling::Interpreter *gInterp;
 
 const char* RScanner::fgClangDeclKey = "ClangDecl"; // property key used for connection with Clang objects
 const char* RScanner::fgClangFuncKey = "ClangFunc"; // property key for demangled names
@@ -152,7 +151,7 @@ inline long APIntToLong(const llvm::APInt& num)
 
 inline std::string APIntToStr(const llvm::APInt& num)
 {
-   return num.toString(10, true);
+   return llvm::toString(num, /*radix*/10, /*signed*/true);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -545,13 +544,14 @@ int RScanner::AddAnnotatedRecordDecl(const ClassSelectionRule* selected,
        0 != ROOT::TMetaUtils::GetClassVersion(recordDecl,fInterpreter)) {
       std::string normName;
       TMetaUtils::GetNormalizedName(normName,
-                                    recordDecl->getASTContext().getTypeDeclType(recordDecl),
+                                    recordDecl->getASTContext().getCanonicalTagType(recordDecl),
                                     fInterpreter,
                                     fNormCtxt);
       ROOT::TMetaUtils::Error(nullptr,"Union %s has been selected for I/O. This is not supported. Interactive usage of unions is supported, as all C++ entities, without the need of dictionaries.\n",normName.c_str());
       return 1;
    }
 
+   // clang-format off
    if (has_attr_name) {
       fSelectedClasses.emplace_back(selected->GetIndex() + indexOffset,
                                     req_type,
@@ -562,6 +562,8 @@ int RScanner::AddAnnotatedRecordDecl(const ClassSelectionRule* selected,
                                     selected->RequestNoInputOperator(),
                                     selected->RequestOnlyTClass(),
                                     selected->RequestedVersionNumber(),
+                                    selected->RequestedRNTupleSerializationMode(),
+                                    selected->RequestedRNTupleSoARecord(),
                                     fInterpreter,
                                     fNormCtxt);
    } else {
@@ -572,16 +574,19 @@ int RScanner::AddAnnotatedRecordDecl(const ClassSelectionRule* selected,
                                     selected->RequestNoInputOperator(),
                                     selected->RequestOnlyTClass(),
                                     selected->RequestedVersionNumber(),
+                                    selected->RequestedRNTupleSerializationMode(),
+                                    selected->RequestedRNTupleSoARecord(),
                                     fInterpreter,
                                     fNormCtxt);
    }
+   // clang-format on
 
    if (fVerboseLevel > 0) {
       std::string qual_name;
       GetDeclQualName(recordDecl,qual_name);
       std::string normName;
       TMetaUtils::GetNormalizedName(normName,
-                                    recordDecl->getASTContext().getTypeDeclType(recordDecl),
+                                    recordDecl->getASTContext().getCanonicalTagType(recordDecl),
                                     fInterpreter,
                                     fNormCtxt);
       std::string typedef_qual_name;
@@ -735,14 +740,14 @@ bool RScanner::TreatRecordDeclOrTypedefNameDecl(clang::TypeDecl* typeDecl)
             declSelRuleMapIt->second != selected) {
          std::string normName;
          TMetaUtils::GetNormalizedName(normName,
-                                       recordDecl->getASTContext().getTypeDeclType(recordDecl),
+                                       recordDecl->getASTContext().getCanonicalTagType(recordDecl),
                                        fInterpreter,
                                        fNormCtxt);
 
          auto previouslyMatchingRule = (const ClassSelectionRule*)declSelRuleMapIt->second;
          int previouslineno = previouslyMatchingRule->GetLineNumber();
 
-         std::string cleanFileName =  llvm::sys::path::filename(selected->GetSelFileName());
+         std::string cleanFileName =  llvm::sys::path::filename(selected->GetSelFileName()).str();
          auto lineno = selected->GetLineNumber();
          auto rulesAreCompatible = SelectionRulesUtils::areEqual<ClassSelectionRule>(selected, previouslyMatchingRule, true /*moduloNameOrPattern*/);
          if (!rulesAreCompatible){
@@ -776,7 +781,7 @@ bool RScanner::TreatRecordDeclOrTypedefNameDecl(clang::TypeDecl* typeDecl)
       if (!isFileSelection) {
          std::string normName;
          TMetaUtils::GetNormalizedName(normName,
-                                       recordDecl->getASTContext().getTypeDeclType(recordDecl),
+                                       recordDecl->getASTContext().getCanonicalTagType(recordDecl),
                                        fInterpreter,
                                        fNormCtxt);
          auto msg = "Class or struct %s was selected but its dictionary cannot be generated: "
@@ -812,7 +817,7 @@ void RScanner::AddDelayedAnnotatedRecordDecls()
    for (auto &&info: fDelayedAnnotatedRecordDecls) {
       const clang::Type *thisType = info.fSelected->GetRequestedType();
       if (!thisType)
-         thisType = info.fDecl->getTypeForDecl();
+         thisType = info.fDecl->getASTContext().getCanonicalTagType(info.fDecl)->getTypePtr();
       const clang::CXXRecordDecl *recordDecl = info.fDecl;
       auto nameTypeForIO = ROOT::TMetaUtils::GetNameTypeForIO(clang::QualType(thisType, 0), fInterpreter, fNormCtxt);
       auto typeForIO = nameTypeForIO.second;
@@ -1053,6 +1058,8 @@ void RScanner::Scan(const clang::ASTContext &C)
    if (fVerboseLevel > 0 && fSelectionRules.GetHasFileNameRule())  {
       std::cout<<"File name detected"<<std::endl;
    }
+
+   cling::Interpreter::PushTransactionRAII RAII(const_cast<cling::Interpreter *>(&fInterpreter));
 
    if (fScanType == EScanType::kTwoPasses)
       TraverseDecl(C.getTranslationUnitDecl());

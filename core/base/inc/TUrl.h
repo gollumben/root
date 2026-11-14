@@ -34,17 +34,17 @@ class TUrl : public TObject {
 
 private:
    mutable TString fUrl;    // full URL
-   TString fProtocol;       // protocol: http, ftp, news, root, proof, ...
+   TString fProtocol;       // protocol: http, ftp, news, root, ...
    TString fUser;           // user name
    TString fPasswd;         // password
    TString fHost;           // remote host
    TString fFile;           // remote object
    TString fAnchor;         // anchor in object (after #)
    TString fOptions;        // options/search (after ?)
-   mutable TString fFileOA; //!file with option and anchor
-   mutable TString fHostFQ; //!fully qualified host name
+   mutable TString fFileOA; ///<!file with option and anchor
+   mutable TString fHostFQ; ///<!fully qualified host name
    Int_t   fPort{-1};       // port through which to contact remote server
-   mutable TMap *fOptionsMap{nullptr}; //!map containing options key/value pairs
+   mutable TMap *fOptionsMap{nullptr}; ///<!map containing options key/value pairs
 
    static TObjArray  *fgSpecialProtocols;  // list of special protocols
    static THashList  *fgHostFQDNs;         // list of resolved host FQDNs
@@ -88,14 +88,14 @@ public:
    void        SetPort(Int_t port) { fPort = port; fUrl = ""; }
    void        SetUrl(const char *url, Bool_t defaultIsFile = kFALSE);
 
-   Bool_t      IsSortable() const { return kTRUE; }
-   Int_t       Compare(const TObject *obj) const;
+   Bool_t      IsSortable() const override { return kTRUE; }
+   Int_t       Compare(const TObject *obj) const override;
 
-   void        Print(Option_t *option="") const;
+   void        Print(Option_t *option="") const override;
 
    static TObjArray *GetSpecialProtocols();
 
-   ClassDef(TUrl,1)  //Represents an URL
+   ClassDefOverride(TUrl,1)  //Represents an URL
 };
 
 #endif

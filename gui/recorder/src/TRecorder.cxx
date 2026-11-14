@@ -121,7 +121,6 @@ const char *kWindowsTree    = "WindowsTree"; // Name of TTree with window IDs
 const char *kExtraEventTree = "ExtraEvents"; // Name of TTree with extra events (PaveLabels and Texts)
 const char *kBranchName     = "MainBranch";  // Name of the main branch in all TTrees
 
-ClassImp(TRecorder);
 
 
 //_____________________________________________________________________________
@@ -138,7 +137,7 @@ protected:
 
 public:
    TGCursorWindow();
-   virtual ~TGCursorWindow();
+   ~TGCursorWindow() override;
 };
 
 static TGCursorWindow *gCursorWin = 0;
@@ -313,7 +312,6 @@ void TRecorder::PrevCanvases(const char *filename, Option_t *option)
 //______________________________________________________________________________
 // Represents state of TRecorder when replaying
 
-ClassImp(TRecorderReplaying);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Allocates all necessary data structures used for replaying
@@ -471,7 +469,7 @@ Bool_t TRecorderReplaying::Initialize(TRecorder *r, Bool_t showMouseCursor,
       f->Close();
    }
 
-   gPad = 0;
+   gPad = nullptr;
    // Starts replaying
    fTimer->Connect("Timeout()","TRecorderReplaying",this,"ReplayRealtime()");
    fTimer->Start(0);
@@ -927,7 +925,6 @@ void TRecorderReplaying::Continue()
 //______________________________________________________________________________
 // Represents state of TRecorder after its creation
 
-ClassImp(TRecorderInactive);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Switches from INACTIVE state to RECORDING and starts recording
@@ -1112,7 +1109,6 @@ void TRecorderInactive::PrevCanvases(const char *filename, Option_t *option)
 //______________________________________________________________________________
 // Represents state of TRecorder when paused
 
-   ClassImp(TRecorderPaused);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Remember the recorder state that is paused
@@ -1149,7 +1145,6 @@ void TRecorderPaused::ReplayStop(TRecorder *r)
 //______________________________________________________________________________
 // Represents state of TRecorder when recording events
 
-ClassImp(TRecorderRecording);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Initializes TRecorderRecording for recording
@@ -1283,7 +1278,6 @@ Bool_t TRecorderRecording::StartRecording()
       TIter nextwindow (gClient->GetListOfWindows());
       TGWindow *twin;
       Window_t  twin2;
-      Int_t cnt = 0;
       while ((twin = (TGWindow*) nextwindow())) {
          twin2 = (Window_t) twin->GetId();
          if (IsFiltered(twin2)) {
@@ -1294,7 +1288,6 @@ Bool_t TRecorderRecording::StartRecording()
          else if (twin != gClient->GetRoot()) {
             RegisterWindow(twin2);
          }
-         cnt++;
       }
       //Info("TRecorderRecording::StartRecording", "Previous Canvases");
    }
@@ -1723,7 +1716,6 @@ void TRecorderRecording::SetTypeOfConfigureNotify(Event_t *e)
 //______________________________________________________________________________
 // The GUI for the recorder
 
-ClassImp(TGRecorder);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// The GUI for the recorder
@@ -2031,8 +2023,6 @@ TGRecorder::~TGRecorder()
 //______________________________________________________________________________
 // Helper class
 
-ClassImp(TRecCmdEvent);
-ClassImp(TRecGuiEvent);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Replays stored GUI event
@@ -2105,8 +2095,8 @@ void TRecGuiEvent::ReplayEvent(Bool_t showMouseCursor)
                                       e->fX, e->fY, px, py, wtarget);
       dx = px - gCursorWin->GetX();
       dy = py - gCursorWin->GetY();
-      if (TMath::Abs(dx) > 5) gDecorWidth += dx;
-      if (TMath::Abs(dy) > 5) gDecorHeight += dy;
+      if (std::abs(dx) > 5) gDecorWidth += dx;
+      if (std::abs(dy) > 5) gDecorHeight += dy;
    }
    // Displays fake mouse cursor for MotionNotify event
    if (showMouseCursor && e->fType == kMotionNotify) {
@@ -2194,4 +2184,3 @@ Event_t *TRecGuiEvent::CreateEvent(TRecGuiEvent *ge)
    return e;
 }
 
-ClassImp(TRecWinPair);

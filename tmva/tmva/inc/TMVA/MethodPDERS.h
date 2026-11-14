@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodPDERS                                                           *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Multidimensional Likelihood using the "Probability density estimator      *
@@ -32,7 +32,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodPDERS
@@ -72,26 +72,26 @@ namespace TMVA {
 
       virtual ~MethodPDERS( void );
 
-      virtual Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets );
+      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets ) override;
 
 
       // training method
-      void Train( void );
+      void Train( void ) override;
 
       // write weights to file
       void WriteWeightsToStream( TFile& rf ) const;
-      void AddWeightsXMLTo( void* parent ) const;
+      void AddWeightsXMLTo( void* parent ) const override;
 
       // read weights from file
-      void ReadWeightsFromStream( std::istream& istr );
-      void ReadWeightsFromStream( TFile& istr );
-      void ReadWeightsFromXML( void* wghtnode );
+      void ReadWeightsFromStream( std::istream& istr ) override;
+      void ReadWeightsFromStream( TFile& istr ) override;
+      void ReadWeightsFromXML( void* wghtnode ) override;
 
       // calculate the MVA value
-      Double_t GetMvaValue( Double_t* err = 0, Double_t* errUpper = 0 );
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
 
       // calculate the MVA value
-      const std::vector<Float_t>& GetRegressionValues();
+      const std::vector<Float_t>& GetRegressionValues() override;
    public:
 
       // for root finder
@@ -104,10 +104,10 @@ namespace TMVA {
    protected:
 
       // make ROOT-independent C++ class for classifier response (classifier-specific implementation)
-      void MakeClassSpecific( std::ostream&, const TString& ) const;
+      void MakeClassSpecific( std::ostream&, const TString& ) const override;
 
       // get help message text
-      void GetHelpMessage() const;
+      void GetHelpMessage() const override;
 
       Volume*      fHelpVolume; // auxiliary variable
       Int_t        fFcnCall;    // number of external function calls (RootFinder)
@@ -127,13 +127,13 @@ namespace TMVA {
       Double_t LanczosFilter( Int_t level, Double_t x );
 
       // ranking of input variables
-      const Ranking* CreateRanking() { return 0; }
+      const Ranking* CreateRanking() override { return nullptr; }
 
    private:
 
       // the option handling methods
-      void DeclareOptions();
-      void ProcessOptions();
+      void DeclareOptions() override;
+      void ProcessOptions() override;
 
       // calculate the averages of the input variables needed for adaptive training
       void CalcAverages();
@@ -162,7 +162,7 @@ namespace TMVA {
          kSphere,
          kTeepee,
          kGauss,
-         kSinc3,     // the sinc enumerators must be consecutive and in order!
+         kSinc3,     ///< the sinc enumerators must be consecutive and in order!
          kSinc5,
          kSinc7,
          kSinc9,
@@ -174,34 +174,34 @@ namespace TMVA {
          kTrim
       } fKernelEstimator;
 
-      BinarySearchTree*  fBinaryTree;   // binary tree
+      BinarySearchTree*  fBinaryTree;   ///< binary tree
 
-      std::vector<Float_t>*   fDelta;         // size of volume
-      std::vector<Float_t>*   fShift;         // volume center
-      std::vector<Float_t>    fAverageRMS;    // average RMS of signal and background
+      std::vector<Float_t>*   fDelta;         ///< size of volume
+      std::vector<Float_t>*   fShift;         ///< volume center
+      std::vector<Float_t>    fAverageRMS;    ///< average RMS of signal and background
 
-      Float_t            fScaleS;        // weight for signal events
-      Float_t            fScaleB;        // weight for background events
-      Float_t            fDeltaFrac;     // fraction of RMS
-      Double_t           fGaussSigma;    // size of Gauss in adaptive volume
-      Double_t           fGaussSigmaNorm;// size of Gauss in adaptive volume (normalised to dimensions)
+      Float_t            fScaleS;        ///< weight for signal events
+      Float_t            fScaleB;        ///< weight for background events
+      Float_t            fDeltaFrac;     ///< fraction of RMS
+      Double_t           fGaussSigma;    ///< size of Gauss in adaptive volume
+      Double_t           fGaussSigmaNorm;///< size of Gauss in adaptive volume (normalised to dimensions)
 
       Double_t           fNRegOut;       // number of output dimensions for regression
 
       // input for adaptive volume adjustment
-      Float_t            fNEventsMin;    // minimum number of events in adaptive volume
-      Float_t            fNEventsMax;    // maximum number of events in adaptive volume
-      Float_t            fMaxVIterations;// maximum number of iterations to adapt volume size
-      Float_t            fInitialScale;  // initial scale for adaptive volume
+      Float_t            fNEventsMin;    ///< minimum number of events in adaptive volume
+      Float_t            fNEventsMax;    ///< maximum number of events in adaptive volume
+      Float_t            fMaxVIterations;///< maximum number of iterations to adapt volume size
+      Float_t            fInitialScale;  ///< initial scale for adaptive volume
 
-      Bool_t             fInitializedVolumeEle; // is volume element initialized ?
+      Bool_t             fInitializedVolumeEle; ///< is volume element initialized ?
 
-      Int_t              fkNNMin;        // min number of events in kNN tree
-      Int_t              fkNNMax;        // max number of events in kNN tree
+      Int_t              fkNNMin;        ///< min number of events in kNN tree
+      Int_t              fkNNMax;        ///< max number of events in kNN tree
 
-      Double_t           fMax_distance;  // maximum distance
-      Bool_t             fPrinted;       // print
-      Bool_t             fNormTree;      // binary-search tree is normalised
+      Double_t           fMax_distance;  ///< maximum distance
+      Bool_t             fPrinted;       ///< print
+      Bool_t             fNormTree;      ///< binary-search tree is normalised
 
       void    SetVolumeElement ( void );
 
@@ -216,9 +216,9 @@ namespace TMVA {
       static MethodPDERS*& GetMethodPDERSThreadLocal() {TTHREAD_TLS(MethodPDERS*) fgThisPDERS(nullptr); return fgThisPDERS;};
       void UpdateThis();
 
-      void Init( void );
+      void Init( void ) override;
 
-      ClassDef(MethodPDERS,0); // Multi-dimensional probability density estimator range search (PDERS) method
+      ClassDefOverride(MethodPDERS,0); // Multi-dimensional probability density estimator range search (PDERS) method
    };
 
 } // namespace TMVA

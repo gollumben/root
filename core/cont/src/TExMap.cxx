@@ -21,10 +21,9 @@ method (linear probing).
 #include "TBuffer.h"
 #include "TError.h"
 #include "TMathBase.h"
-#include <string.h>
+#include <cstring>
 
 
-ClassImp(TExMap);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a TExMap.
@@ -67,6 +66,7 @@ TExMap& TExMap::operator=(const TExMap &map)
       TObject::operator=(map);
       fSize  = map.fSize;
       fTally = map.fTally;
+      delete [] fTable;
       fTable = new Assoc_t [fSize];
       memcpy(fTable, map.fTable, fSize*sizeof(Assoc_t));
    }
@@ -78,7 +78,7 @@ TExMap& TExMap::operator=(const TExMap &map)
 
 TExMap::~TExMap()
 {
-   delete [] fTable; fTable = 0;
+   delete [] fTable; fTable = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -384,7 +384,6 @@ void TExMap::Streamer(TBuffer &b)
 }
 
 
-ClassImp(TExMapIter);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create TExMap iterator.

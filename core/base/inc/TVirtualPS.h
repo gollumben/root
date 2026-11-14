@@ -27,6 +27,8 @@
 #include "TAttText.h"
 #include "TAttMarker.h"
 
+class TImage;
+
 class TVirtualPS : public TNamed, public TAttLine, public TAttFill, public TAttMarker, public TAttText {
 
 private:
@@ -34,13 +36,17 @@ private:
    TVirtualPS& operator=(const TVirtualPS&) = delete;
 
 protected:
-   Int_t        fNByte;           //Number of bytes written in the file (PDF)
-   Int_t        fLenBuffer;       //Buffer length
-   Int_t        fSizBuffer;       //Buffer size
-   Bool_t       fPrinted;         //True when a page must be printed
-   std::ofstream    *fStream;          //File stream identifier
-   char        *fBuffer;          //File buffer
-   const char  *fImplicitCREsc;   //Escape symbol before enforced new line
+   Int_t          fNByte{0};                // Number of bytes written in the file (PDF)
+   Int_t          fLenBuffer{0};            // Buffer length
+   Int_t          fSizBuffer{0};            // Buffer size
+   Bool_t         fPrinted{kFALSE};         // True when a page must be printed
+   std::ofstream *fStream{nullptr};         // File stream identifier
+   char          *fBuffer{nullptr};         // File buffer
+   const char    *fImplicitCREsc{nullptr};  // Escape symbol before enforced new line
+
+   Bool_t         OpenStream(const char *fname, Bool_t binary = kFALSE);
+   void           CloseStream();
+   void           ClearBuffer();
 
 public:
    TVirtualPS();
@@ -48,7 +54,11 @@ public:
    virtual     ~TVirtualPS();
    virtual void  CellArrayBegin(Int_t W, Int_t H, Double_t x1, Double_t x2, Double_t y1, Double_t y2) = 0;
    virtual void  CellArrayFill(Int_t r, Int_t g, Int_t b) = 0;
+   virtual void  CellArrayPng(char * /* buffer */, int /* size */) {}
    virtual void  CellArrayEnd() = 0;
+
+   virtual void  DrawImage(TImage * /* img */, Int_t /* x */, Int_t /* y */ , Int_t /* flags */ = 0) {}
+
    virtual void  Close(Option_t *opt="") = 0;
    virtual void  DrawBox(Double_t x1, Double_t y1,Double_t x2, Double_t  y2) = 0;
    virtual void  DrawFrame(Double_t xl, Double_t yl, Double_t xt, Double_t  yt,
@@ -57,10 +67,12 @@ public:
    virtual void  DrawPolyMarker(Int_t n, Double_t *x, Double_t *y) = 0;
    virtual void  DrawPS(Int_t n, Float_t *xw, Float_t *yw) = 0;
    virtual void  DrawPS(Int_t n, Double_t *xw, Double_t *yw) = 0;
+   virtual void  DrawSegments(Int_t n, Double_t *xw, Double_t *yw);
    virtual void  NewPage() = 0;
    virtual void  Open(const char *filename, Int_t type=-111) = 0;
    virtual void  Text(Double_t x, Double_t y, const char *string) = 0;
    virtual void  Text(Double_t x, Double_t y, const wchar_t *string) = 0;
+   virtual void  TextUrl(Double_t x, Double_t y, const char *string, const char *url) = 0;
    virtual void  SetColor(Float_t r, Float_t g, Float_t b) = 0;
 
    virtual void  PrintFast(Int_t nch, const char *string="");
@@ -68,13 +80,13 @@ public:
    virtual void  WriteInteger(Int_t i, Bool_t space=kTRUE);
    virtual void  WriteReal(Float_t r, Bool_t space=kTRUE);
    virtual void  PrintRaw(Int_t len, const char *str);
-   virtual void *GetStream() const {  return (void*)fStream; }
-   virtual void  SetStream(std::ofstream *os) {  fStream = os; }
+   virtual void *GetStream() const { return (void*)fStream; }
+   virtual void  SetStream(std::ofstream *os) { fStream = os; }
 
    virtual void  SetType(Int_t /*type*/ = -111) { }
    virtual Int_t GetType() const { return 111; }
 
-   ClassDef(TVirtualPS,0)  //Abstract interface to a PostScript driver
+   ClassDefOverride(TVirtualPS,0)  //Abstract interface to a PostScript driver
 };
 
 

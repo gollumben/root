@@ -35,6 +35,7 @@
 #include <unistd.h>
 #endif
 
+#include <algorithm>
 #include <iostream>
 
 using namespace ROOT;
@@ -115,12 +116,12 @@ TModuleGenerator::GetSourceFileKind(const char *filename) const
       // via the FileManager.
       clang::Preprocessor &PP = fCI->getPreprocessor();
       clang::HeaderSearch &HdrSearch = PP.getHeaderSearchInfo();
-      const clang::DirectoryLookup *CurDir = nullptr;
-      const clang::FileEntry *hdrFileEntry
+      clang::ConstSearchDirIterator *CurDir = nullptr;
+      auto hdrFileEntry
          =  HdrSearch.LookupFile(filename, clang::SourceLocation(),
                                  true /*isAngled*/, nullptr /*FromDir*/, CurDir,
-                                 clang::ArrayRef<std::pair<const clang::FileEntry*,
-                                                           const clang::DirectoryEntry*>>(),
+                                 clang::ArrayRef<std::pair<clang::OptionalFileEntryRef,
+                                                           clang::DirectoryEntryRef>>(),
                                  nullptr /*SearchPath*/,/*RelativePath*/ nullptr,
                                  nullptr /*RequestingModule*/, nullptr /*SuggestedModule*/,
                                  nullptr /*IsMapped*/, nullptr /*IsFrameworkFound*/);
@@ -179,6 +180,7 @@ std::pair<std::string, std::string> SplitPPDefine(const std::string &in)
 
 void TModuleGenerator::ParseArgs(const std::vector<std::string> &args)
 {
+   std::vector<std::string> systemIncludePaths;
    for (size_t iPcmArg = 1 /*skip argv0*/, nPcmArg = args.size();
          iPcmArg < nPcmArg; ++iPcmArg) {
       ESourceFileKind sfk = GetSourceFileKind(args[iPcmArg].c_str());
@@ -188,30 +190,43 @@ void TModuleGenerator::ParseArgs(const std::vector<std::string> &args)
          fLinkDefFile = args[iPcmArg];
       } else if (sfk == kSFKNotC && args[iPcmArg][0] == '-') {
          switch (args[iPcmArg][1]) {
-            case 'I':
-               if (args[iPcmArg] != "-I." &&  args[iPcmArg] != "-Iinclude") {
-                  fCompI.push_back(args[iPcmArg].c_str() + 2);
+         case 'i':
+            if (args[iPcmArg].find("-isystem") != std::string::npos) {
+               if (args[iPcmArg].size() == 8)
+                  systemIncludePaths.push_back(args[++iPcmArg]);
+               else {
+                  auto pos = 9; // start after -isystem
+                  while (args[iPcmArg][pos] == ' ')
+                     pos++;
+                  systemIncludePaths.push_back(args[iPcmArg].substr(pos));
                }
-               break;
-            case 'D':
-               if (args[iPcmArg] != "-DTRUE=1" && args[iPcmArg] != "-DFALSE=0"
-                     && args[iPcmArg] != "-DG__NOCINTDLL") {
-                  fCompD.push_back(SplitPPDefine(args[iPcmArg].c_str() + 2));
-               }
-               break;
-            case 'U':
-               fCompU.push_back(args[iPcmArg].c_str() + 2);
-               break;
+            }
+            break;
+         case 'I':
+            if (args[iPcmArg] != "-I." && args[iPcmArg] != "-Iinclude") {
+               fCompI.push_back(args[iPcmArg].c_str() + 2);
+            }
+            break;
+         case 'D':
+            if (args[iPcmArg] != "-DTRUE=1" && args[iPcmArg] != "-DFALSE=0" && args[iPcmArg] != "-DG__NOCINTDLL") {
+               fCompD.push_back(SplitPPDefine(args[iPcmArg].c_str() + 2));
+            }
+            break;
+         case 'U': fCompU.push_back(args[iPcmArg].c_str() + 2); break;
          }
       }
    }
+
+   // System includes have lowest priority, so we move them to the end:
+   std::move(systemIncludePaths.begin(), systemIncludePaths.end(), std::back_inserter(fCompI));
+   fCompI.erase(std::unique(fCompI.begin(), fCompI.end()), fCompI.end());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write
-/// #ifndef FOO
-/// # define FOO=bar
-/// #endif
+/// `#ifndef FOO`
+/// `# define FOO=bar`
+/// `#endif`
 
 std::ostream &TModuleGenerator::WritePPDefines(std::ostream &out) const
 {
@@ -231,9 +246,9 @@ std::ostream &TModuleGenerator::WritePPDefines(std::ostream &out) const
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write
-/// #ifdef FOO
-/// # undef FOO
-/// #endif
+/// `#ifdef FOO`
+/// `# undef FOO`
+/// `#endif`
 
 std::ostream &TModuleGenerator::WritePPUndefines(std::ostream &out) const
 {
@@ -257,8 +272,8 @@ int WarnIfPragmaOnceDetected(const std::string& fullHeaderPath,
    while(std::getline(headerFile,line)){
       llvm::StringRef lineRef (line);
       auto trimmedLineRef = lineRef.trim();
-      if (trimmedLineRef.startswith("#pragma") &&
-          (trimmedLineRef.endswith(" once") || trimmedLineRef.endswith("\tonce"))) {
+      if (trimmedLineRef.starts_with("#pragma") &&
+          (trimmedLineRef.ends_with(" once") || trimmedLineRef.ends_with("\tonce"))) {
          std::cerr << "Error: #pragma once directive detected in header file "
                   << fullHeaderPath
                   << " which was requested to be inlined.\n";
@@ -281,8 +296,8 @@ int ExtractBufferContent(const std::string& fullHeaderPath, std::string& bufferC
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write
-/// #include "header1.h"
-/// #include "header2.h"
+/// `#include "header1.h"`
+/// `#include "header2.h"`
 /// or, if inlining of headers is requested, dump the content of the files.
 
 std::ostream &TModuleGenerator::WritePPIncludes(std::ostream &out) const
@@ -402,9 +417,8 @@ void TModuleGenerator::WriteRegistrationSource(std::ostream &out, const std::str
 {
    if (hasCxxModule) {
       std::string emptyStr = "\"\"";
-      WriteRegistrationSourceImpl(out, GetDictionaryName(), GetDemangledDictionaryName(), {}, {},
-                                  fwdDeclString, "{}",
-                                  emptyStr, headersClassesMapString, "0",
+      WriteRegistrationSourceImpl(out, GetDictionaryName(), GetDemangledDictionaryName(), {}, fCompI, fwdDeclString,
+                                  "{}", emptyStr, headersClassesMapString, "0",
                                   /*HasCxxModule*/ true);
       return;
    }
@@ -577,16 +591,16 @@ bool TModuleGenerator::FindHeader(const std::string &hdrName, std::string &hdrFu
    }
    clang::Preprocessor &PP = fCI->getPreprocessor();
    clang::HeaderSearch &HdrSearch = PP.getHeaderSearchInfo();
-   const clang::DirectoryLookup *CurDir = nullptr;
-   if (const clang::FileEntry *hdrFileEntry
+   clang::ConstSearchDirIterator *CurDir = nullptr;
+   if (auto hdrFileEntry
          =  HdrSearch.LookupFile(hdrName, clang::SourceLocation(),
                                  true /*isAngled*/, nullptr /*FromDir*/, CurDir,
-                                 clang::ArrayRef<std::pair<const clang::FileEntry*,
-                                                         const clang::DirectoryEntry*>>(),
+                                 clang::ArrayRef<std::pair<clang::OptionalFileEntryRef,
+                                                         clang::DirectoryEntryRef>>(),
                                  nullptr /*SearchPath*/, nullptr /*RelativePath*/,
                                  nullptr /*RequestingModule*/, nullptr/*SuggestedModule*/,
                                  nullptr /*IsMapped*/, nullptr /*IsFrameworkFound*/)) {
-      hdrFullPath = hdrFileEntry->getName();
+      hdrFullPath = hdrFileEntry->getName().str();
       return true;
    }
 
@@ -595,7 +609,7 @@ bool TModuleGenerator::FindHeader(const std::string &hdrName, std::string &hdrFu
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write a header file pulling in the content of this module
-/// through a series of #defined, #undefs and #includes.
+/// through a series of `#defined`, `#undefs` and `#includes`.
 /// The sequence corrsponds to a rootcling invocation with
 ///   -c -DFOO -UBAR header.h
 /// I.e. defines, undefines and finally includes.

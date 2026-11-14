@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : DataSetInfo                                                           *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation (see header for description)                               *
@@ -21,7 +21,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::DataSetInfo
@@ -31,14 +31,8 @@ Class that contains all the data information.
 
 */
 
-#include <vector>
-
-#include "TEventList.h"
 #include "TH2.h"
-#include "TRandom3.h"
 #include "TMatrixF.h"
-#include "TVectorF.h"
-#include "TROOT.h"
 
 #include "TMVA/MsgLogger.h"
 #include "TMVA/Tools.h"
@@ -49,6 +43,8 @@ Class that contains all the data information.
 
 #include "TMVA/Types.h"
 #include "TMVA/VariableInfo.h"
+
+#include <vector>
 
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor
@@ -85,10 +81,10 @@ TMVA::DataSetInfo::~DataSetInfo()
    ClearDataSet();
 
    for(UInt_t i=0, iEnd = fClasses.size(); i<iEnd; ++i) {
-      delete fClasses[i];
+      if (fClasses[i]) delete fClasses[i];
    }
 
-   delete fTargetsForMulticlass;
+   if (fTargetsForMulticlass) delete fTargetsForMulticlass;
 
    delete fLogger;
 }
@@ -97,7 +93,7 @@ TMVA::DataSetInfo::~DataSetInfo()
 
 void TMVA::DataSetInfo::ClearDataSet() const
 {
-   if(fDataSet!=0) { delete fDataSet; fDataSet=0; }
+   if(fDataSet) { delete fDataSet; fDataSet=nullptr; }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -247,6 +243,19 @@ void TMVA::DataSetInfo::AddVariablesArray(const TString &expression, Int_t size,
       fVariables.back().SetBit(kIsArrayVariable);
       TString newVarName = fVariables.back().GetInternalName() + TString::Format("[%d]", i);
       fVariables.back().SetInternalName(newVarName);
+
+      // move "external" pointer to the next variable in the array
+      if (varType == 'F') {
+         float *ptr = (float *)external;
+         ++ptr;
+         external = (void *)ptr;
+      } else if (varType == 'I') {
+         int *ptr = (int *)external;
+         ++ptr;
+         external = (void *)ptr;
+      } else {
+         Error("TMVA::DataSetInfo::AddVariablesArray", "'%c' variable type is not supported", varType);
+      }
    }
    fVarArrays[regexpr] = size;
    fNeedsRebuilding = kTRUE;

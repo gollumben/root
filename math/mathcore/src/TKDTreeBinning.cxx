@@ -20,11 +20,10 @@
 #include "Fit/BinData.h"
 #include "TBuffer.h"
 
-ClassImp(TKDTreeBinning);
 
 /**
 \class TKDTreeBinning
-<- TKDTreeBinning - A class providing multidimensional binning ->
+A class providing multidimensional binning
 
 The class implements multidimensional binning by constructing a TKDTree inner structure from the
 data which is used as the bins.
@@ -35,7 +34,7 @@ The bin edges of d-dimensional data is a d-tet of the bin's thresholds. For exam
 edges of bin b is of the form of the following array: {xbmin, ybmin, zbmin}.
 You also have the possibility to sort the bins by their density.
 
-Details of usage can be found in `$ROOTSYS/tutorials/math/kdTreeBinning.C` and more information on
+kdTreeBinning.C and more information on
 the embedded TKDTree documentation.
 
 @ingroup MathCore
@@ -61,7 +60,7 @@ struct TKDTreeBinning::CompareDesc {
 };
 
 /// Class's constructor taking the size of the data points, dimension, a data array and the number
-/// of bins (default = 100). It is reccomended to have the number of bins as an exact divider of
+/// of bins (default = 100). It is recommended to have the number of bins as an exact divider of
 /// the data size.
 /// The data array must be organized with a stride=1 for the points and = N (the dataSize) for the dimension.
 ///
@@ -71,9 +70,9 @@ struct TKDTreeBinning::CompareDesc {
 /// The size of the array must be at least  dataDim*dataSize
 ///
 TKDTreeBinning::TKDTreeBinning(UInt_t dataSize, UInt_t dataDim, Double_t* data, UInt_t nBins, bool adjustBinEdges)
-: fData(0), fBinMinEdges(std::vector<Double_t>()), fBinMaxEdges(std::vector<Double_t>()), fDataBins((TKDTreeID*)0), fDim(dataDim),
+: fData(0),  fDataBins((TKDTreeID*)nullptr), fDim(dataDim),
 fDataSize(dataSize), fDataThresholds(std::vector<std::pair<Double_t, Double_t> >(fDim, std::make_pair(0., 0.))),
-fIsSorted(kFALSE), fIsSortedAsc(kFALSE), fBinsContent(std::vector<UInt_t>()) {
+fIsSorted(kFALSE), fIsSortedAsc(kFALSE) {
    if (adjustBinEdges) SetBit(kAdjustBinEdges);
    if (data) {
       SetData(data);
@@ -84,7 +83,7 @@ fIsSorted(kFALSE), fIsSortedAsc(kFALSE), fBinsContent(std::vector<UInt_t>()) {
    }
 }
 /// Class's constructor taking the size of the data points, dimension, a data vector and the number
-/// of bins (default = 100). It is reccomended to have the number of bins as an exact divider of
+/// of bins (default = 100). It is recommended to have the number of bins as an exact divider of
 /// the data size.
 /// The data array must be organized with a stride=1 for the points and = N (the dataSize) for the dimension.
 ///
@@ -95,9 +94,9 @@ fIsSorted(kFALSE), fIsSortedAsc(kFALSE), fBinsContent(std::vector<UInt_t>()) {
 /// The size of thedata vector must be at least  dataDim*dataSize
 ///
 TKDTreeBinning::TKDTreeBinning(UInt_t dataSize, UInt_t dataDim, const std::vector<double> &data, UInt_t nBins, bool adjustBinEdges)
-: fData(0), fBinMinEdges(std::vector<Double_t>()), fBinMaxEdges(std::vector<Double_t>()), fDataBins((TKDTreeID*)0), fNBins (nBins), fDim(dataDim),
+: fData(0),  fDataBins((TKDTreeID*)nullptr), fNBins (nBins), fDim(dataDim),
 fDataSize(dataSize), fDataThresholds(std::vector<std::pair<Double_t, Double_t> >(fDim, std::make_pair(0., 0.))),
-fIsSorted(kFALSE), fIsSortedAsc(kFALSE), fBinsContent(std::vector<UInt_t>()) {
+fIsSorted(kFALSE), fIsSortedAsc(kFALSE) {
    if (adjustBinEdges) SetBit(kAdjustBinEdges);
    if (!data.empty()) {
       SetData(data);
@@ -137,14 +136,17 @@ void TKDTreeBinning::SetNBins(UInt_t bins) {
          fDataBins = new TKDTreeID(fDataSize, fDim, fDataSize / (fNBins - remainingData)); // TKDTree input is data size, data dimension and the content size of bins ("bucket" size)
          SetTreeData();
          fDataBins->Build();
+         // Need to keep the number of bins consistent with the number of
+         // terminal nodes in the kd-tree.
+         fNBins = fDataBins->GetNNodes() + 1;
          SetBinsEdges();
          SetBinsContent();
       } else {
-         fDataBins = (TKDTreeID*)0;
+         fDataBins = (TKDTreeID*)nullptr;
          this->Warning("SetNBins", "Number of bins is bigger than data size. Nothing is built.");
       }
    } else {
-      fDataBins = (TKDTreeID*)0;
+      fDataBins = (TKDTreeID*)nullptr;
       if (!fDim)
          this->Warning("SetNBins", "Data dimension is nil. Nothing is built.");
       if (!fNBins)
@@ -172,7 +174,7 @@ void TKDTreeBinning::SortBinsByDensity(Bool_t sortAsc) {
       }
       std::vector<Double_t> binMinEdges(fNBins * fDim);
       std::vector<Double_t> binMaxEdges(fNBins * fDim);
-      std::vector<UInt_t> binContent(fNBins );    // reajust also content (not needed bbut better in general!)
+      std::vector<UInt_t> binContent(fNBins );    // readjust also content (not needed but better in general!)
       fIndices.resize(fNBins);
       for (UInt_t i = 0; i < fNBins; ++i) {
          for (UInt_t j = 0; j < fDim; ++j) {
@@ -239,12 +241,13 @@ void TKDTreeBinning::SetTreeData() {
 }
 
 void TKDTreeBinning::SetBinsContent() {
-   // Sets the bins' content
+   // Sets the bins' content from the actual number of points in each terminal
+   // node of the kd-tree. All terminal nodes hold fBucketSize points except
+   // possibly the last one, so query the tree directly instead of guessing.
    fBinsContent.resize(fNBins);
+   UInt_t nTreeNodes = fDataBins->GetNNodes();
    for (UInt_t i = 0; i < fNBins; ++i)
-      fBinsContent[i] = fDataBins->GetBucketSize();
-   if ( fDataSize % fNBins != 0 )
-      fBinsContent[fNBins - 1] = fDataSize % (fNBins-1);
+      fBinsContent[i] = fDataBins->GetNPointsNode(i + nTreeNodes);
 }
 
 void TKDTreeBinning::SetBinsEdges() {
@@ -327,7 +330,7 @@ void TKDTreeBinning::ReadjustMinBinEdges(Double_t* binEdges) {
 
 void TKDTreeBinning::ReadjustMaxBinEdges(Double_t* binEdges) {
    // Readjusts the bins' maximum edge
-   // and shift it sligtly higher
+   // and shift it slightly higher
    for (UInt_t i = 0; i < fDim; ++i) {
       for (UInt_t j = 0; j < fNBins; ++j) {
          if (!fCheckedBinEdges[i][j].second) {
@@ -351,7 +354,7 @@ const Double_t* TKDTreeBinning::GetBinsMinEdges() const {
       return &fBinMinEdges[0];
    this->Warning("GetBinsMinEdges", "Binning kd-tree is nil. No bin edges retrieved.");
    this->Info("GetBinsMinEdges", "Returning null pointer.");
-   return (Double_t*)0;
+   return (Double_t*)nullptr;
 }
 
 /// Returns an array with all bins' maximum edges
@@ -362,7 +365,7 @@ const Double_t* TKDTreeBinning::GetBinsMaxEdges() const {
       return &fBinMaxEdges[0];
    this->Warning("GetBinsMaxEdges", "Binning kd-tree is nil. No bin edges retrieved.");
    this->Info("GetBinsMaxEdges", "Returning null pointer.");
-   return (Double_t*)0;
+   return (Double_t*)nullptr;
 }
 
 /// Returns a pair of an array with all bins minimum and maximum edges
@@ -372,7 +375,7 @@ std::pair<const Double_t*, const Double_t*> TKDTreeBinning::GetBinsEdges() const
       return std::make_pair(GetBinsMinEdges(), GetBinsMaxEdges());
    this->Warning("GetBinsEdges", "Binning kd-tree is nil. No bin edges retrieved.");
    this->Info("GetBinsEdges", "Returning null pointer pair.");
-   return std::make_pair((Double_t*)0, (Double_t*)0);
+   return std::make_pair((Double_t*)nullptr, (Double_t*)nullptr);
 }
 
 /// Returns the bin's minimum edges. 'bin' is between 0 and fNBins - 1
@@ -385,7 +388,7 @@ const Double_t* TKDTreeBinning::GetBinMinEdges(UInt_t bin) const {
    else
       this->Warning("GetBinMinEdges", "Binning kd-tree is nil. No bin edges retrieved.");
    this->Info("GetBinMinEdges", "Returning null pointer.");
-   return (Double_t*)0;
+   return (Double_t*)nullptr;
 }
 
 /// Returns the bin's maximum edges. 'bin' is between 0 and fNBins - 1
@@ -398,7 +401,7 @@ const Double_t* TKDTreeBinning::GetBinMaxEdges(UInt_t bin) const {
    else
       this->Warning("GetBinMaxEdges", "Binning kd-tree is nil. No bin edges retrieved.");
    this->Info("GetBinMaxEdges", "Returning null pointer.");
-   return (Double_t*)0;
+   return (Double_t*)nullptr;
 }
 
 /// Returns a pir with the bin's edges. 'bin' is between 0 and fNBins - 1
@@ -411,7 +414,7 @@ std::pair<const Double_t*, const Double_t*> TKDTreeBinning::GetBinEdges(UInt_t b
    else
       this->Warning("GetBinEdges", "Binning kd-tree is nil. No bin edges retrieved.");
    this->Info("GetBinEdges", "Returning null pointer pair.");
-   return std::make_pair((Double_t*)0, (Double_t*)0);
+   return std::make_pair((Double_t*)nullptr, (Double_t*)nullptr);
 }
 
 /// Returns the number of bins
@@ -439,7 +442,7 @@ TKDTreeID* TKDTreeBinning::GetTree() const {
    if (fDataBins)
       return fDataBins;
    this->Warning("GetTree", "Binning kd-tree is nil. No embedded kd-tree retrieved. Returning null pointer.");
-   return (TKDTreeID*)0;
+   return (TKDTreeID*)nullptr;
 }
 
 // Returns the data array in the dim coordinate. 'dim' is between 0 and fDim - 1
@@ -448,7 +451,7 @@ const Double_t* TKDTreeBinning::GetDimData(UInt_t dim) const {
       return &fData[dim*fDataSize];
    this->Warning("GetDimData", "No such dimensional coordinate. No coordinate data retrieved. Returning null pointer.");
    this->Info("GetDimData", "'dim' is between 0 and %d.", fDim - 1);
-   return 0;
+   return nullptr;
 }
 
 /// Returns the minimum of the data in the dim coordinate. 'dim' is between 0 and fDim - 1
@@ -508,15 +511,15 @@ const double * TKDTreeBinning::GetOneDimBinEdges() const  {
    }
    this->Warning("GetOneDimBinEdges", "Data is multidimensional. No sorted bin edges retrieved. Returning null pointer.");
    this->Info("GetOneDimBinEdges", "This method can only be invoked if the data is a one dimensional set");
-   return 0;
+   return nullptr;
 }
 
-/// Sort the one-dimensional bin edges and retuns a pointer to them
+/// Sort the one-dimensional bin edges and returns a pointer to them
 const Double_t * TKDTreeBinning::SortOneDimBinEdges(Bool_t sortAsc) {
    if (fDim != 1) {
       this->Warning("SortOneDimBinEdges", "Data is multidimensional. Cannot sorted bin edges. Returning null pointer.");
       this->Info("SortOneDimBinEdges", "This method can only be invoked if the data is a one dimensional set");
-      return 0;
+      return nullptr;
    }
    // order bins by increasing (or decreasing ) x positions
    std::vector<UInt_t> indices(fNBins);
@@ -524,7 +527,7 @@ const Double_t * TKDTreeBinning::SortOneDimBinEdges(Bool_t sortAsc) {
 
    std::vector<Double_t> binMinEdges(fNBins );
    std::vector<Double_t> binMaxEdges(fNBins );
-   std::vector<UInt_t> binContent(fNBins );    // reajust also content (not needed but better in general!)
+   std::vector<UInt_t> binContent(fNBins );    // readjust also content (not needed but better in general!)
    fIndices.resize( fNBins );
    for (UInt_t i = 0; i < fNBins; ++i) {
       binMinEdges[i ] = fBinMinEdges[indices[i] ];
@@ -640,7 +643,7 @@ UInt_t TKDTreeBinning::FindBin(const Double_t * point) const {
 std::vector<std::vector<Double_t> > TKDTreeBinning::GetPointsInBin(UInt_t bin) const {
    std::vector<Double_t> point(fDim);
    std::vector< std::vector<Double_t> > thePoints;
-   if (fData.size() == 0) {
+   if (fData.empty()) {
       Error("GetPointsInBin","Internal data set is not valid");
       return thePoints;
    }

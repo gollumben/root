@@ -1,20 +1,34 @@
 #include "TFile.h"
 #include "TSystem.h"
+#include "TClass.h"
 #include "TChain.h"
 #include "TTree.h"
 #include "TTreeReader.h"
 #include "TTreeReaderValue.h"
+#include "TROOT.h"
+#include "TH1.h"
+#include "TTreeFormula.h"
+#include "TString.h"
+#include "TLorentzVector.h"
+#include <Math/Vector3D.h>
+#include <ROOT/TestSupport.hxx>
+#include "ROOT/TTreeReaderValueFast.hxx"
+#include "TNtuple.h"
+
+#include "TTreePlayer.h"
 
 #include "gtest/gtest.h"
 
+#include <limits>
 #include <string>
-
+#include <vector>
+#include <fstream>
 
 // ROOT-10702
 TEST(TTreeReaderRegressions, CompositeTypeWithNameClash)
 {
    struct Int { int x; };
-	gInterpreter->Declare("struct Int { int x; };");
+   gInterpreter->Declare("struct Int { int x; };");
 
    const auto fname = "ttreereader_compositetypewithnameclash.root";
 
@@ -172,4 +186,659 @@ TEST(TTreeReaderRegressions, IndexedFriend)
    }
 
    gSystem->Unlink(fname);
+}
+
+// https://github.com/root-project/root/issues/18066
+TEST(TSelectorDrawRegressions, TernaryOperator)
+{
+   TTree t;
+   t.Fill();
+   t.Draw("(1?2:3)>>h1(12345,0,20)");
+   auto h = gROOT->Get<TH1>("h1");
+   ASSERT_EQ(h->GetXaxis()->GetNbins(), 12345); // was ignored before and set to the default 100
+   ASSERT_EQ(h->GetBinContent(1235), 1); // FindBin(2) is at 1235
+}
+
+// ROOT-4012 (JIRA)
+TEST(TTreeFormulaRegressions, ConstantAlias)
+{
+   TTree t("t", "ti");
+   t.SetAlias("w", "3");
+   TTreeFormula tf("tf", "4.-w", &t);
+   Int_t action;
+   TString expr = "w";
+   EXPECT_EQ(tf.DefinedVariable(expr, action), 0); // was -1 during the regression
+   EXPECT_FLOAT_EQ(tf.EvalInstance(), 1.);
+   TTreeFormula tf2("tf2", "4.", &t);
+   EXPECT_EQ(tf2.DefinedVariable(expr, action), 0); // was -3 during the regression
+   EXPECT_FLOAT_EQ(tf2.EvalInstance(), 4.);
+}
+
+// ROOT-8577 (JIRA)
+#define MYSTRUCT struct MyS { int x; };
+MYSTRUCT
+TEST(TTreeFormulaRegressions, WrongName)
+{
+   gInterpreter->Declare(_R_QUOTEVAL_(MYSTRUCT));
+   MyS s;
+   TLorentzVector v(1, 2, 3, 4);
+   TTree t("t", "t");
+   t.Branch("s", &s);
+   t.Branch("v", &v);
+   t.Fill();
+   {
+      EXPECT_EQ(t.Draw("s.x", ""), 1);
+   }
+   {
+      ROOT::TestSupport::CheckDiagsRAII diags;
+      // diags.requiredDiag(kError, "TSelectorDraw::AbortProcess", "Variable compilation failed: {s.y,}");
+      diags.requiredDiag(kError, "TTreeFormula::ParseWithLeaf", "y is not a datamember of MyS");
+      diags.requiredDiag(kError, "TTreeFormula::Compile", " Bad numerical expression : \"s.y\"");
+      EXPECT_EQ(t.Draw("s.y", ""), -1);
+   }
+   {
+      EXPECT_EQ(t.Draw("v.Eta()", ""), 1);
+   }
+   {
+      ROOT::TestSupport::CheckDiagsRAII diags;
+      diags.requiredDiag(kError, "TTreeFormula::ParseWithLeaf", "Unknown method:eta() in TLorentzVector");
+      diags.requiredDiag(kError, "TTreeFormula::Compile", " Bad numerical expression : \"v.eta()\"");
+      EXPECT_EQ(t.Draw("v.eta()", ""), -1);
+   }
+   {
+      ROOT::TestSupport::CheckDiagsRAII diags;
+      diags.requiredDiag(kError, "TTreeFormula::ParseWithLeaf", "x is not a datamember of TLorentzVector");
+      diags.requiredDiag(kError, "TTreeFormula::Compile", " Bad numerical expression : \"v.x\"");
+      EXPECT_EQ(t.Draw("v.x", ""), -1);
+   }
+   {
+      ROOT::TestSupport::CheckDiagsRAII diags;
+      diags.requiredDiag(kError, "TTreeFormula::ParseWithLeaf", "y is not a datamember of TLorentzVector");
+      diags.requiredDiag(kError, "TTreeFormula::Compile", " Bad numerical expression : \"v.y\"");
+      EXPECT_EQ(t.Draw("v.y", ""), -1);
+   }
+   {
+      ROOT::TestSupport::CheckDiagsRAII diags;
+      diags.requiredDiag(kError, "TTreeFormula::ParseWithLeaf", "Unknown method:eta() in MyS");
+      diags.requiredDiag(kError, "TTreeFormula::Compile", " Bad numerical expression : \"s.eta()\"");
+      EXPECT_EQ(t.Draw("s.eta()", ""), -1);
+   }
+   {
+      ROOT::TestSupport::CheckDiagsRAII diags;
+      diags.requiredDiag(kError, "TTreeFormula::ParseWithLeaf", "Unknown method:Eta() in MyS");
+      diags.requiredDiag(kError, "TTreeFormula::Compile", " Bad numerical expression : \"s.Eta()\"");
+      EXPECT_EQ(t.Draw("s.Eta()", ""), -1);
+   }
+}
+
+// https://github.com/root-project/root/issues/19814
+TEST(TTreeReaderRegressions, UninitializedChain)
+{
+   auto filename = "eve19814.root";
+   auto treename = "events";
+   auto brname = "x";
+   const int refval = 19814;
+   {
+      TFile f(filename, "RECREATE");
+      TTree t(treename, "");
+      int x = refval;
+      t.Branch(brname, &x);
+      t.Fill();
+      f.Write();
+   }
+   {
+      TChain ch(treename);
+      ch.Add(filename);
+      TTreeReader reader(&ch);
+      reader.SetEntriesRange(0, ch.GetEntries());
+      EXPECT_EQ(reader.GetEntries(), 1);
+      TTreeReaderValue<int> x(reader, brname);
+      EXPECT_TRUE(reader.Next());
+      EXPECT_EQ(*x, refval);
+   }
+   gSystem->Unlink(filename);
+}
+
+// https://github.com/root-project/root/issues/10423
+TEST(TTreeReaderRegressions, XYZVectors)
+{
+   auto filename1 = "f10423_a.root";
+   auto filename2 = "f10423_b.root";
+   auto treename = "t";
+   for (auto filename : {filename1, filename2}) {
+      TFile f(filename, "RECREATE");
+      TTree t(treename, treename);
+      ROOT::Math::XYZVector x(1, 2, 3);
+      std::vector<ROOT::Math::XYZVector> y{ROOT::Math::XYZVector(4, 5, 6)};
+      t.Branch("x", &x);
+      if (std::string(filename) == std::string(filename1)) {
+         // original line:
+         t.Branch("y", &y); // commenting this line "fixed" the crash
+      } else {
+         // Actual trigger:
+         auto c = TClass::GetClass("std::vector<ROOT::Math::XYZVector>"); // commenting this line "fixed" the crash
+         (void)c;
+      }
+      t.Fill();
+      t.Write();
+   }
+   for (auto filename : {filename1, filename2}) {
+      TFile f(filename, "READ");
+      TTreeReader r(treename, &f);
+      if (std::string(filename) == std::string(filename1)) {
+         TTreeReaderValue<ROOT::Math::XYZVector> rx(r, "x");
+         TTreeReaderValue<std::vector<ROOT::Math::XYZVector>> ry(r, "y");
+         r.Next();
+         EXPECT_EQ(*rx, ROOT::Math::XYZVector(1, 2, 3));
+         EXPECT_EQ(*ry, std::vector<ROOT::Math::XYZVector>{ROOT::Math::XYZVector(4, 5, 6)});
+      } else {
+         TTreeReaderValue<ROOT::Math::XYZVector> rx(r, "x");
+         r.Next();
+         EXPECT_EQ(*rx, ROOT::Math::XYZVector(1, 2, 3));
+      }
+   }
+   for (auto filename : {filename1, filename2}) {
+      gSystem->Unlink(filename);
+   }
+}
+
+// ROOT-8842 https://its.cern.ch/jira/browse/ROOT-8842
+TEST(TTreeReaderRegressions, ValueFastTuple)
+{
+   TNtuple tree("tuple", "ROOT-8842", "px:py:pz:energy");
+   for (auto i = 0; i < 1000000; ++i)
+      tree.Fill(i, i + 1, i + 2, i + 3);
+   ROOT::Experimental::TTreeReaderFast reader(&tree);
+   ROOT::Experimental::TTreeReaderValueFast<float> px(reader, "px");
+   ROOT::Experimental::TTreeReaderValueFast<float> py(reader, "py");
+   ROOT::Experimental::TTreeReaderValueFast<float> pz(reader, "pz");
+   double total = 0.0;
+   // reader.SetEntry(0); If I uncomment this, the crash disappears
+   for (auto it = reader.begin(); it != reader.end(); ++it)
+      total += sqrt((*px) * (*px) + (*py) * (*py) + (*pz) * (*pz));
+   EXPECT_NEAR(total, 866026269930.1345215, 100);
+}
+
+// ROOT-8000 https://its.cern.ch/jira/browse/ROOT-8000
+// An unrelated file lying around in the current directory whose name matches
+// the leading part of a formula (e.g. a file named "abs") must not make
+// TTree::Draw interpret the formula as the name of a C++ script called with
+// arguments: only files with an extension qualify as scripts.
+TEST(TTreeDrawRegressions, ExpressionNotShadowedByFile)
+{
+   ROOT::TestSupport::FileRaii shadowingFile{"abs"};
+   {
+      std::ofstream f(shadowingFile.GetPath());
+      f << "This is a text file, not a C++ script.\n";
+   }
+
+   TTree t("t", "t");
+   double x;
+   int id;
+   t.Branch("x", &x);
+   t.Branch("id", &id);
+   for (int i = 0; i < 100; ++i) {
+      x = i - 50;
+      id = (i % 2) ? 531 : -531;
+      t.Fill();
+   }
+
+   // These formulas end with a parenthesized part, which used to be stripped
+   // as ACLiC-style arguments, leaving "abs" to be found as a file.
+   EXPECT_EQ(t.Draw("abs(x)", "", "goff"), 100);
+   EXPECT_EQ(t.Draw("x", "abs(id)", "goff"), 100);
+   // The dot in "0.5" used to make the varexp pass the extension check.
+   EXPECT_EQ(t.Draw("abs(x + 0.5)", "abs(id) == 531", "goff"), 100);
+   EXPECT_EQ(t.Draw("x", "abs(id) == id", "goff"), 50);
+}
+
+// ROOT-8000 https://its.cern.ch/jira/browse/ROOT-8000
+// The flip side of the test above: a *real* macro whose name matches the
+// leading part of a formula must still be recognized as a script, precisely
+// because it has an extension. We check this without paying for the ACLiC
+// compilation of the macro: when the variable expression is a script file but
+// the selection is a plain formula (not a file), DrawSelect must reject the
+// combination with its "both must be files" error. That error is only reached
+// if "abs.C" was taken as a script - a bare "abs" would be treated as a formula
+// and the error above ("... is not a file" for the selection) would never fire.
+TEST(TTreeDrawRegressions, MacroWithExtensionRecognizedAsScript)
+{
+   ROOT::TestSupport::FileRaii macroFile{"abs.C"};
+   {
+      std::ofstream f(macroFile.GetPath());
+      f << "double abs()\n{\n   return x;\n}\n";
+   }
+
+   TTree t("t", "t");
+   double x;
+   t.Branch("x", &x);
+   for (int i = 0; i < 100; ++i) {
+      x = i - 50;
+      t.Fill();
+   }
+
+   ROOT::TestSupport::CheckDiagsRAII diags{kError, "TTreePlayer::DrawSelect",
+                                           "Drawing using a C++ macro currently requires that both the expression and "
+                                           "the selection are files",
+                                           /*matchFullMessage=*/false};
+   EXPECT_EQ(t.Draw("abs.C", "x > 0", "goff"), 0);
+}
+
+// https://github.com/root-project/root/issues/20226
+TEST(TTreeScan, IntOverflow)
+{
+   struct DatasetRAII {
+      const char *fTreeName{"tree_20226"};
+      const char *fFileName{"tree_20226.root"};
+      DatasetRAII()
+      {
+         auto file = std::make_unique<TFile>(fFileName, "recreate");
+         auto tree = std::make_unique<TTree>(fTreeName, fTreeName);
+
+         int val{};
+         tree->Branch("val", &val);
+         for (; val < 10; val++)
+            tree->Fill();
+         file->Write();
+      }
+
+      ~DatasetRAII() { std::remove(fFileName); }
+   } dataset;
+
+   auto file = std::make_unique<TFile>(dataset.fFileName);
+   std::unique_ptr<TTree> tree{file->Get<TTree>(dataset.fTreeName)};
+
+   std::ostringstream strCout;
+   {
+      if (auto *treePlayer = static_cast<TTreePlayer *>(tree->GetPlayer())) {
+         struct FileRAII {
+            const char *fPath;
+            FileRAII(const char *name) : fPath(name) {}
+            ~FileRAII() { std::remove(fPath); }
+         } redirectFile{"tree_20226_regression_redirect.txt"};
+         treePlayer->SetScanRedirect(true);
+         treePlayer->SetScanFileName(redirectFile.fPath);
+         tree->Scan("val", "", "", TTree::kMaxEntries, 3);
+
+         std::ifstream redirectStream(redirectFile.fPath);
+         std::stringstream redirectOutput;
+         redirectOutput << redirectStream.rdbuf();
+
+         const static std::string expectedScanOut{
+            R"Scan(************************
+*    Row   *       val *
+************************
+*        3 *         3 *
+*        4 *         4 *
+*        5 *         5 *
+*        6 *         6 *
+*        7 *         7 *
+*        8 *         8 *
+*        9 *         9 *
+************************
+)Scan"};
+         EXPECT_EQ(redirectOutput.str(), expectedScanOut);
+      } else
+         throw std::runtime_error("Could not retrieve TTreePlayer from main tree!");
+   }
+}
+
+// https://github.com/root-project/root/issues/20228
+TEST(TTreeDraw, IntOverflow)
+{
+   struct DatasetRAII {
+      const char *fTreeName{"tree_20228"};
+      const char *fFileName{"tree_20228.root"};
+      DatasetRAII()
+      {
+         auto file = std::make_unique<TFile>(fFileName, "recreate");
+         auto tree = std::make_unique<TTree>(fTreeName, fTreeName);
+
+         int val{};
+         tree->Branch("val", &val);
+         for (; val < 10; val++)
+            tree->Fill();
+         file->Write();
+      }
+
+      ~DatasetRAII() { std::remove(fFileName); }
+   } dataset;
+
+   auto file = std::make_unique<TFile>(dataset.fFileName);
+   std::unique_ptr<TTree> tree{file->Get<TTree>(dataset.fTreeName)};
+
+   // TTree::Draw returns the number of entries selected. In this case it should be 7,
+   // but due to the regression, it was zero
+   tree->SetMaxEntryLoop(TTree::kMaxEntries);
+   auto nEntriesSelected = tree->Draw("val", "", "", TTree::kMaxEntries, 3);
+   EXPECT_EQ(nEntriesSelected, 7);
+}
+
+// https://github.com/root-project/root/issues/20248
+TEST(TTreeScan, chainNameWithDifferentTreeName)
+{
+   struct DatasetRAII {
+      const char *fTreeName{"tree_20248"};
+      const char *fFileName{"tree_20248.root"};
+      DatasetRAII()
+      {
+         auto file = std::make_unique<TFile>(fFileName, "recreate");
+         auto tree = std::make_unique<TTree>(fTreeName, fTreeName);
+
+         int val{};
+         tree->Branch("val", &val);
+         for (; val < 5; val++)
+            tree->Fill();
+         file->Write();
+      }
+
+      ~DatasetRAII() { std::remove(fFileName); }
+   } dataset;
+
+   TChain c{"differentNameForChain"};
+   c.Add((std::string(dataset.fFileName) + "?#" + dataset.fTreeName).c_str());
+
+   ASSERT_NE(c.FindBranch("differentNameForChain.val"), nullptr);
+
+   std::ostringstream strCout;
+   {
+      if (auto *treePlayer = static_cast<TTreePlayer *>(c.GetPlayer())) {
+         struct FileRAII {
+            const char *fPath;
+            FileRAII(const char *name) : fPath(name) {}
+            ~FileRAII() { std::remove(fPath); }
+         } redirectFile{"tree_20248_regression_redirect.txt"};
+         treePlayer->SetScanRedirect(true);
+         treePlayer->SetScanFileName(redirectFile.fPath);
+         c.Scan("differentNameForChain.val", "", "colsize=30");
+
+         std::ifstream redirectStream(redirectFile.fPath);
+         std::stringstream redirectOutput;
+         redirectOutput << redirectStream.rdbuf();
+
+         const static std::string expectedScanOut{
+            R"Scan(*********************************************
+*    Row   *      differentNameForChain.val *
+*********************************************
+*        0 *                              0 *
+*        1 *                              1 *
+*        2 *                              2 *
+*        3 *                              3 *
+*        4 *                              4 *
+*********************************************
+)Scan"};
+         EXPECT_EQ(redirectOutput.str(), expectedScanOut);
+      } else
+         throw std::runtime_error("Could not retrieve TTreePlayer from main tree!");
+   }
+}
+
+// Alt$(primary, alternate) used on its own, with 'primary' a variable-length
+// array, must loop over all the elements of the array instead of just the
+// first one. Previously the array dimension of 'primary' was not propagated to
+// the enclosing TTreeFormula manager when Alt$ was the only source of
+// multiplicity, so the formula reported a single instance per entry.
+TEST(TTreeFormulaRegressions, AltDollarVariableArray)
+{
+   TTree t("t", "t");
+   Int_t n = 3;
+   Float_t x[3]{};
+   t.Branch("n", &n);
+   t.Branch("x", &x, "x[n]/F");
+   x[0] = 1;
+   x[1] = 2;
+   x[2] = 3;
+   t.Fill();
+   x[0] = 4;
+   x[1] = 5;
+   x[2] = 6;
+   t.Fill();
+   n = 2;
+   x[0] = -1;
+   x[1] = -2;
+   x[2] = -3;
+   t.Fill();
+   n = 1;
+   x[0] = 0;
+   t.Fill();
+
+   auto evalAll = [](TTree &tree, TTreeFormula &form, Long64_t entry) {
+      tree.LoadTree(entry);
+      const Int_t ndata = form.GetNdata();
+      std::vector<double> values;
+      for (Int_t i = 0; i < ndata; ++i)
+         values.push_back(form.EvalInstance(i));
+      return values;
+   };
+
+   // 1) Standalone Alt$ over the whole array loops over its elements.
+   {
+      TTreeFormula form("form", "Alt$(x,-1)", &t);
+      EXPECT_EQ(form.GetMultiplicity(), 1);
+      const std::vector<std::vector<double>> expected{{1, 2, 3}, {4, 5, 6}, {-1, -2}, {0}};
+      for (Long64_t entry = 0; entry < t.GetEntries(); ++entry)
+         EXPECT_EQ(evalAll(t, form, entry), expected[entry]) << "entry " << entry;
+   }
+
+   // 2) A fixed index into the variable-length array stays a single value per
+   // entry and falls back to the alternate when the index is out of range.
+   // This is the documented Alt$(arr[i], default) use case and must not be
+   // turned into a zero-instance (dropped) entry.
+   {
+      TTreeFormula form("form", "Alt$(x[2],-1)", &t);
+      const std::vector<std::vector<double>> expected{{3}, {6}, {-1}, {-1}}; // x[2] only exists for n==3
+      for (Long64_t entry = 0; entry < t.GetEntries(); ++entry)
+         EXPECT_EQ(evalAll(t, form, entry), expected[entry]) << "entry " << entry;
+   }
+}
+
+// Companion to AltDollarVariableArray: when Alt$ is combined with another array
+// that drives the iteration, the alternate must pad the shorter array rather
+// than shrinking the loop. See the TTree::Draw documentation for Alt$.
+TEST(TTreeFormulaRegressions, AltDollarPadsShorterArray)
+{
+   TTree t("t", "t");
+   Int_t n1 = 3, n2 = 2;
+   Float_t a1[3]{10, 20, 30};
+   Float_t a2[3]{1, 2, 3};
+   t.Branch("n1", &n1);
+   t.Branch("n2", &n2);
+   t.Branch("a1", &a1, "a1[n1]/F");
+   t.Branch("a2", &a2, "a2[n2]/F");
+   t.Fill();
+
+   // The loop is driven by a1 (3 elements); Alt$(a2,0) yields a2[0],a2[1],0.
+   TTreeFormula form("form", "a1+Alt$(a2,0)", &t);
+   t.LoadTree(0);
+   ASSERT_EQ(form.GetNdata(), 3);
+   const std::vector<double> expected{11, 22, 30};
+   for (Int_t i = 0; i < 3; ++i)
+      EXPECT_FLOAT_EQ(form.EvalInstance(i), expected[i]) << "instance " << i;
+}
+
+// https://github.com/root-project/root/issues/20249
+TEST(TTreeScan, TTreeGetBranchOfFriendTChain)
+{
+   struct DatasetRAII {
+      const char *fTreeNameStepZero{"tree_20249_zero"};
+      const char *fFileNameStepZero{"tree_20249_zero.root"};
+      const char *fTreeNameStepOne{"tree_20249_one"};
+      const char *fFileNameStepOne{"tree_20249_one.root"};
+
+      void WriteData(const char *name, const char *treename, int first, int last)
+      {
+         auto file = std::make_unique<TFile>(name, "RECREATE");
+         auto tree = std::make_unique<TTree>(treename, treename);
+
+         int value{};
+         tree->Branch("value", &value);
+
+         for (value = first; value < last; ++value) {
+            tree->Fill();
+         }
+
+         file->Write();
+      }
+
+      DatasetRAII()
+      {
+         WriteData(fFileNameStepZero, fTreeNameStepZero, 3, 7);
+         WriteData(fFileNameStepOne, fTreeNameStepOne, 0, 4);
+      }
+
+      ~DatasetRAII()
+      {
+         std::remove(fFileNameStepZero);
+         std::remove(fFileNameStepOne);
+      }
+   } dataset;
+
+   auto chain0 = std::make_unique<TChain>("stepzerochain");
+   chain0->Add((std::string(dataset.fFileNameStepZero) + "?#" + dataset.fTreeNameStepZero).c_str());
+
+   auto file1 = std::make_unique<TFile>(dataset.fFileNameStepOne);
+   std::unique_ptr<TTree> tree1{file1->Get<TTree>(dataset.fTreeNameStepOne)};
+   tree1->AddFriend(chain0.get());
+
+   ASSERT_NE(tree1->FindBranch("stepzerochain.value"), nullptr);
+
+   std::ostringstream strCout;
+   {
+      if (auto *treePlayer = static_cast<TTreePlayer *>(tree1->GetPlayer())) {
+         struct FileRAII {
+            const char *fPath;
+            FileRAII(const char *name) : fPath(name) {}
+            ~FileRAII() { std::remove(fPath); }
+         } redirectFile{"tree_20249_regression_redirect.txt"};
+         treePlayer->SetScanRedirect(true);
+         treePlayer->SetScanFileName(redirectFile.fPath);
+
+         tree1->Scan("value:stepzerochain.value", "", "colsize=24");
+
+         std::ifstream redirectStream(redirectFile.fPath);
+         std::stringstream redirectOutput;
+         redirectOutput << redirectStream.rdbuf();
+
+         const static std::string expectedScanOut{
+            R"Scan(******************************************************************
+*    Row   *                    value *      stepzerochain.value *
+******************************************************************
+*        0 *                        0 *                        3 *
+*        1 *                        1 *                        4 *
+*        2 *                        2 *                        5 *
+*        3 *                        3 *                        6 *
+******************************************************************
+)Scan"};
+         EXPECT_EQ(redirectOutput.str(), expectedScanOut);
+      } else
+         throw std::runtime_error("Could not retrieve TTreePlayer from main tree!");
+   }
+}
+
+// https://github.com/root-project/root/issues/7844
+// TTree::Scan() used to lose precision when printing 64-bit integer branches
+// (e.g. ULong64_t): the "lld" column format, when given without an embedded
+// column size (i.e. via "colsize=N col=lld"), was not recognized as a
+// "long long" modifier because of an off-by-one in the length-modifier
+// detection in TTreeFormula::PrintValue. As a consequence the value was
+// evaluated and printed as a double, rounding anything above 2^53.
+TEST(TTreeScan, ULong64Precision)
+{
+   // The "long" ("ld") and "long long" ("lld") Scan column formats are both
+   // evaluated through `long double` (see TTreeFormula::PrintValue), so exact
+   // 64-bit integer output is only possible where `long double` has more mantissa
+   // bits than `double`. That is the case on x86-64 (80-bit, 64-bit mantissa) but
+   // not, e.g., on macOS ARM where `long double` is just a 64-bit `double` (53-bit
+   // mantissa). This test checks the exact output on the former and, on the
+   // latter, that the value's unrepresentability is reported as the
+   // known-limitation error rather than silently rounded.
+
+   // 1617047019150033926 needs 61 bits, so it cannot be represented exactly
+   // by a double (53-bit mantissa).
+   constexpr ULong64_t value{1617047019150033926ULL};
+
+   constexpr const char *treeName{"tree_7844"};
+   ROOT::TestSupport::FileRaii fileGuard{"tree_7844.root"};
+   {
+      std::unique_ptr<TFile> file{TFile::Open(fileGuard.GetPath().c_str(), "recreate")};
+      auto tree = std::make_unique<TTree>(treeName, treeName);
+
+      ULong64_t x = value;
+      tree->Branch("x", &x, "x/l");
+      tree->Fill();
+      file->Write();
+   }
+
+   std::unique_ptr<TFile> file{TFile::Open(fileGuard.GetPath().c_str())};
+   auto tree = file->Get<TTree>(treeName);
+
+   auto *treePlayer = static_cast<TTreePlayer *>(tree->GetPlayer());
+   ASSERT_TRUE(treePlayer) << "Could not retrieve TTreePlayer from main tree!";
+
+   ROOT::TestSupport::FileRaii redirectFile{"tree_7844_regression_redirect.txt"};
+   // SetScanFileName() stores the raw pointer, so keep the path string alive.
+   const std::string redirectPath{redirectFile.GetPath()};
+   treePlayer->SetScanRedirect(true);
+   treePlayer->SetScanFileName(redirectPath.c_str());
+
+   // Run a Scan with the given option string into the redirect file and return
+   // its contents.
+   auto scanToString = [&](const char *option) {
+      tree->Scan("x:x-1617047019150033925:x-1617047019150033000", "", option);
+      std::ifstream redirectStream(redirectPath.c_str());
+      std::stringstream redirectOutput;
+      redirectOutput << redirectStream.rdbuf();
+      return redirectOutput.str();
+   };
+
+   const static std::string expectedScanOut{
+      R"Scan(************************************************************************************
+*    Row   *                     x * x-1617047019150033925 * x-1617047019150033000 *
+************************************************************************************
+*        0 *   1617047019150033926 *                     1 *                   926 *
+************************************************************************************
+)Scan"};
+
+   // Each format is checked both with the column size given separately via
+   // "colsize=" (so the format reaching TTreeFormula::PrintValue is just "lld") and
+   // embedded in the token itself ("21lld"). Only the former triggered the
+   // off-by-one in the length-modifier detection, but both must behave identically.
+   // The "ld" ("long") and "lld" ("long long") formats must behave identically too,
+   // as both evaluate through `long double`.
+   if (std::numeric_limits<long double>::digits > std::numeric_limits<double>::digits) {
+      // long double holds the 61-bit value exactly: every spelling must print the
+      // exact 64-bit value and the exact result of arithmetic with large constants.
+      EXPECT_EQ(scanToString("colsize=21 col=lld:lld:lld"), expectedScanOut);
+      EXPECT_EQ(scanToString("col=21lld:21lld:21lld"), expectedScanOut);
+      EXPECT_EQ(scanToString("colsize=21 col=ld:ld:ld"), expectedScanOut);
+      EXPECT_EQ(scanToString("col=21ld:21ld:21ld"), expectedScanOut);
+   } else {
+      // long double is just a 64-bit double here, so the value is genuinely
+      // unrepresentable: PrintValue must emit the known-limitation error (once per
+      // offending value) instead of silently rounding.
+      ROOT::TestSupport::CheckDiagsRAII diags;
+      diags.requiredDiag(kError, "TTreeFormula::PrintValue", "may be inexact", /*matchFullMessage=*/false);
+      scanToString("colsize=21 col=lld:lld:lld");
+      scanToString("col=21lld:21lld:21lld");
+      scanToString("colsize=21 col=ld:ld:ld");
+      scanToString("col=21ld:21ld:21ld");
+   }
+}
+
+// https://github.com/root-project/root/issues/22755
+// sqrt() of a negative argument used to evaluate to sqrt(abs(x)) instead of NaN
+TEST(TTreeFormulaRegressions, SqrtOfNegative)
+{
+   TTree t("t", "t");
+   int x = 0;
+   t.Branch("x", &x, "x/I");
+   t.Fill();
+   t.GetEntry(0);
+
+   TTreeFormula tf("tf", "sqrt(-4.0)", &t);
+   EXPECT_TRUE(std::isnan(tf.EvalInstance()));
+   TTreeFormula tf2("tf2", "sqrt(x - 4)", &t);
+   EXPECT_TRUE(std::isnan(tf2.EvalInstance()));
+   TTreeFormula tf3("tf3", "sqrt(x + 9)", &t);
+   EXPECT_FLOAT_EQ(tf3.EvalInstance(), 3.);
 }

@@ -29,10 +29,10 @@ Class contains info for producing menu item on the JS side.
 
 class TWebMenuItem {
 protected:
-   std::string fName;       //  name of the menu item
-   std::string fTitle;      //  title of menu item
-   std::string fExec;       // execute when item is activated
-   std::string fClassName;  // class name
+   std::string fName;       ///<  name of the menu item
+   std::string fTitle;      ///<  title of menu item
+   std::string fExec;       ///< execute when item is activated
+   std::string fClassName;  ///< class name
 public:
 
    TWebMenuItem(const std::string &name, const std::string &title) : fName(name), fTitle(title), fExec(), fClassName() {}
@@ -43,7 +43,7 @@ public:
     * which will be executed when menu item is selected  */
    void SetExec(const std::string &exec) { fExec = exec; }
 
-   /** Set class name, to which method belons to  */
+   /** Set class name, to which method belongs to  */
    void SetClassName(const std::string &clname) { fClassName = clname; }
 
    /** Returns menu item name */
@@ -66,7 +66,7 @@ public:
    }
 
    /** virtual destructor need for vtable, used when vector of TMenuItem* is stored */
-   virtual ~TWebCheckedMenuItem() = default;
+   ~TWebCheckedMenuItem() override = default;
 
    /** Set checked state for the item, default is none */
    void SetChecked(bool on = true) { fChecked = on; }
@@ -105,7 +105,7 @@ public:
    TWebArgsMenuItem(const std::string &name, const std::string &title) : TWebMenuItem(name, title) {}
 
    /** virtual destructor need for vtable, used when vector of TMenuItem* is stored */
-   virtual ~TWebArgsMenuItem() = default;
+   ~TWebArgsMenuItem() override = default;
 
    std::vector<TWebMenuArgument> &GetArgs() { return fArgs; }
 

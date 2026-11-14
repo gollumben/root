@@ -38,7 +38,7 @@ namespace ROOT {
 namespace Math {
 
 Interpolator::Interpolator(unsigned int ndata, Interpolation::Type type ) {
-   // allocate GSL interpolaiton object
+   // allocate GSL interpolation object
    fInterp = new GSLInterpolator(ndata, type);
 }
 
@@ -59,18 +59,6 @@ Interpolator::~Interpolator()
 {
    // destructor (delete underlined obj)
    if (fInterp) delete fInterp;
-}
-
-Interpolator::Interpolator(const Interpolator &)
-{
-}
-
-Interpolator & Interpolator::operator = (const Interpolator &rhs)
-{
-   // dummy (private) assignment
-   if (this == &rhs) return *this;  // time saving self-test
-
-   return *this;
 }
 
 bool Interpolator::SetData(unsigned int ndata, const double * x, const double *y) {

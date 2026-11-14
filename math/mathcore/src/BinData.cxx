@@ -16,8 +16,6 @@
 #include <cassert>
 #include <cmath>
 
-using namespace std;
-
 namespace ROOT {
 
    namespace Fit
@@ -67,7 +65,7 @@ namespace ROOT {
       InitDataVector( );
     }
 
-    /** constructurs using external data */
+    /** constructors using external data */
 
     /**
       constructor from external data for 1D with errors on  coordinate and value
@@ -235,7 +233,7 @@ namespace ROOT {
 
       if ( fpTmpBinEdgeVector )
       {
-        assert( Opt().fIntegral );
+        assert(HasBinEdges());
 
         delete[] fpTmpBinEdgeVector;
         fpTmpBinEdgeVector= nullptr;
@@ -275,7 +273,7 @@ namespace ROOT {
         if ( !fData.empty() )
           fDataPtr = &fData.front();
 
-         // copy coordinate erro and set correct pointers
+         // copy coordinate errors and set correct pointers
         fCoordErrors = rhs.fCoordErrors;
         if (!fCoordErrors.empty()) {
            assert(kCoordError == fErrorType || kAsymError == fErrorType);
@@ -304,7 +302,7 @@ namespace ROOT {
 
       fpTmpCoordErrorVector= new double[ fDim ];
 
-      if ( Opt().fIntegral )
+      if ( HasBinEdges() )
         fpTmpBinEdgeVector = new double[ fDim ];
 
       return *this;
@@ -339,12 +337,6 @@ namespace ROOT {
       InitDataVector( );
       InitializeErrors( );
     }
-
-    void BinData::Initialize( unsigned int newPoints, unsigned int dim, ErrorType err )
-    {
-      Append( newPoints, dim, err );
-    }
-
 
 
     /**
@@ -614,7 +606,7 @@ namespace ROOT {
 
     /**
        add the bin width data, a pointer to an array with the bin upper edge information.
-       This is needed when fitting with integral options
+       This is needed when fitting with integral or Bin volume normalization options
        The information is added for the previously inserted point.
        BinData::Add  must be called before
     */
@@ -828,7 +820,9 @@ namespace ROOT {
              double y = Value(i);
              double err = Error(i);
              fSumContent += y;
-             if (y != 0 || err != 1.0)  fSumError2 += err*err;
+             if (fErrorType != kNoError) {
+               if (y != 0 || err != 1.0 )  fSumError2 += err*err;
+             }
           }
        }
        else {
@@ -842,7 +836,8 @@ namespace ROOT {
           }
        }
        // set the weight flag
-       fIsWeighted =  (fSumContent != fSumError2);
+       if (fErrorType != kNoError)
+        fIsWeighted =  (fSumContent != fSumError2);
     }
 
   } // end namespace Fit

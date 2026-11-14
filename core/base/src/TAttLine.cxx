@@ -11,14 +11,13 @@
 
 #include "TAttLine.h"
 #include "TVirtualPad.h"
-#include "TStyle.h"
-#include "TVirtualX.h"
+#include "TVirtualPadPainter.h"
 #include "TVirtualPadEditor.h"
+#include "TStyle.h"
 #include "TColor.h"
 #include <cmath>
 #include <iostream>
 
-ClassImp(TAttLine);
 using std::sqrt;
 
 /** \class TAttLine
@@ -57,8 +56,8 @@ End_Macro
 ### Color transparency
 `SetLineColorAlpha()`, allows to set a transparent color.
 In the following example the line color of the histogram `histo`
-is set to blue with a transparency of 35%. The color `kBlue`
-itself remains fully opaque.
+is set to blue with an opacity of 35% (i.e. a transparency of 65%).
+(The color `kBlue` itself is internally stored as fully opaque.)
 
 ~~~ {.cpp}
 histo->SetLineColorAlpha(kBlue, 0.35);
@@ -68,6 +67,8 @@ The transparency is available on all platforms when the flag `OpenGL.CanvasPrefe
 in `$ROOTSYS/etc/system.rootrc`, or on Mac with the Cocoa backend. On the file output
 it is visible with PDF, PNG, Gif, JPEG, SVG, TeX ... but not PostScript.
 
+Alternatively, you can call at the top of your script `gSytle->SetCanvasPreferGL();`.
+Or if you prefer to activate GL for a single canvas `c`, then use `c->SetSupportGL(true);`.
 
 \anchor ATTLINE2
 ## Line Width
@@ -233,7 +234,7 @@ Int_t TAttLine::DistancetoLine(Int_t px, Int_t py, Double_t xp1, Double_t yp1, D
    if (c <= 0)  return 9999;
    Double_t v     = sqrt(c);
    Double_t u     = (a - b + c)/(2*v);
-   Double_t d     = TMath::Abs(a - u*u);
+   Double_t d     = std::abs(a - u*u);
    if (d < 0)   return 9999;
 
    return Int_t(sqrt(d) - 0.5*Double_t(fLineWidth));
@@ -244,17 +245,32 @@ Int_t TAttLine::DistancetoLine(Int_t px, Int_t py, Double_t xp1, Double_t yp1, D
 
 void TAttLine::Modify()
 {
-   if (!gPad) return;
-   Int_t lineWidth = TMath::Abs(fLineWidth%100);
-   if (!gPad->IsBatch()) {
-      gVirtualX->SetLineColor(fLineColor);
-      if (fLineStyle > 0 && fLineStyle < 30) gVirtualX->SetLineStyle(fLineStyle);
-      else                                   gVirtualX->SetLineStyle(1);
-      gVirtualX->SetLineWidth(lineWidth);
-   }
+   if (gPad)
+      ModifyOn(*gPad);
+}
 
-   if (fLineStyle > 0 && fLineStyle < 30) gPad->SetAttLinePS(fLineColor,fLineStyle,lineWidth);
-   else                                   gPad->SetAttLinePS(fLineColor,1,lineWidth);
+////////////////////////////////////////////////////////////////////////////////
+/// Change current line attributes on specified pad
+
+void TAttLine::ModifyOn(TVirtualPad &pad)
+{
+   auto pp = pad.GetPainter();
+   if (!pp)
+      return;
+
+   Bool_t normal_style = (fLineStyle > 0) && (fLineStyle < 30);
+   Bool_t normal_width = (fLineWidth >= 0) && (fLineWidth < 100);
+
+   if (normal_style && normal_width)
+      pp->SetAttLine(*this);
+   else {
+      TAttLine att1(*this);
+      if (!normal_style)
+         att1.SetLineStyle(1);
+      if (!normal_width)
+         att1.SetLineWidth(std::abs(fLineWidth % 100));
+      pp->SetAttLine(att1);
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -272,19 +288,16 @@ void TAttLine::ResetAttLine(Option_t *)
 
 void TAttLine::SaveLineAttributes(std::ostream &out, const char *name, Int_t coldef, Int_t stydef, Int_t widdef)
 {
-   if (fLineColor != coldef) {
-      if (fLineColor > 228) {
-         TColor::SaveColor(out, fLineColor);
-         out<<"   "<<name<<"->SetLineColor(ci);" << std::endl;
-      } else
-         out<<"   "<<name<<"->SetLineColor("<<fLineColor<<");"<<std::endl;
-   }
-   if (fLineStyle != stydef) {
-      out<<"   "<<name<<"->SetLineStyle("<<fLineStyle<<");"<<std::endl;
-   }
-   if (fLineWidth != widdef) {
-      out<<"   "<<name<<"->SetLineWidth("<<fLineWidth<<");"<<std::endl;
-   }
+   // save line settings if gStyle configured differently - so 1,1,1 is not default
+   Bool_t force_saving = (coldef == 1) && (stydef == 1) && (widdef == 1) && gStyle &&
+                         ((gStyle->GetLineColor() != 1) || (gStyle->GetLineWidth() != 1) || (gStyle->GetLineStyle() != 1));
+
+   if ((fLineColor != coldef) || force_saving)
+      out << "   " << name << "->SetLineColor(" << TColor::SavePrimitiveColor(fLineColor) << ");\n";
+   if ((fLineStyle != stydef) || force_saving)
+      out << "   " << name << "->SetLineStyle(" << fLineStyle << ");\n";
+   if ((fLineWidth != widdef)  || force_saving)
+      out << "   " << name << "->SetLineWidth(" << fLineWidth << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -296,10 +309,17 @@ void TAttLine::SetLineAttributes()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set a transparent line color. lalpha defines the percentage of
-/// the color opacity from 0. (fully transparent) to 1. (fully opaque).
+/// Set a transparent line color.
+/// \param lcolor defines the line color
+/// \param lalpha defines the percentage of opacity from 0. (fully transparent) to 1. (fully opaque).
+/// \note lalpha is used only on the [supported platforms](\ref col_trans_available).
 
 void TAttLine::SetLineColorAlpha(Color_t lcolor, Float_t lalpha)
 {
    fLineColor = TColor::GetColorTransparent(lcolor, lalpha);
+}
+
+void TAttLine::SetLineColor(TColorNumber lcolor)
+{
+   SetLineColor(lcolor.number());
 }

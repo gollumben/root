@@ -29,8 +29,17 @@
 #include <XrdCl/XrdClFile.hh>
 #include <XrdCl/XrdClXRootDResponses.hh>
 #include <XrdCl/XrdClDefaultEnv.hh>
+#include <XrdCl/XrdClFileSystem.hh>
 #include <XrdVersion.hh>
 #include <iostream>
+
+#include <ROOT/StringUtils.hxx>
+
+namespace {
+
+Int_t ParseOpenMode(Option_t *in, TString &modestr, int &mode, Bool_t assumeRead);
+
+} // namepsace
 
 //------------------------------------------------------------------------------
 // Open handler for async open requests
@@ -53,8 +62,8 @@ class TAsyncOpenHandler: public XrdCl::ResponseHandler
       // Called when a response to open arrives
       //////////////////////////////////////////////////////////////////////////
 
-      virtual void HandleResponse(XrdCl::XRootDStatus *status,
-                                  XrdCl::AnyObject    *response)
+      void HandleResponse(XrdCl::XRootDStatus *status,
+                          XrdCl::AnyObject    *response) override
       {
          if (status->IsOK())
          {
@@ -95,8 +104,8 @@ class TAsyncReadvHandler: public XrdCl::ResponseHandler
       // Handle readv response
       //////////////////////////////////////////////////////////////////////////
 
-      virtual void HandleResponse(XrdCl::XRootDStatus *status,
-                                  XrdCl::AnyObject    *response)
+      void HandleResponse(XrdCl::XRootDStatus *status,
+                          XrdCl::AnyObject    *response) override
       {
          fStatuses->at(fStatusIndex) = status;
          fSemaphore->Post();
@@ -111,7 +120,17 @@ class TAsyncReadvHandler: public XrdCl::ResponseHandler
 };
 
 
-ClassImp(TNetXNGFile);
+
+TNetXNGFile::TNetXNGFile()
+   : TFile(),
+     fFile(nullptr),
+     fUrl(nullptr),
+     fMode(XrdCl::OpenFlags::None),
+     fInitCondVar(nullptr),
+     fReadvIorMax(0),
+     fReadvIovMax(0)
+{
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor
@@ -131,14 +150,11 @@ TNetXNGFile::TNetXNGFile(const char *url,
                          Bool_t      parallelopen) :
 	TNetXNGFile(url,0,mode,title,compress,netopt,parallelopen){}
 
-TNetXNGFile::TNetXNGFile(const char *url,
-		         const char *lurl,
-                         Option_t   *mode,
-                         const char *title,
-                         Int_t       compress,
-                         Int_t       /*netopt*/,
-                         Bool_t      parallelopen) :
-   TFile((lurl ? lurl : url), "NET", title, compress)
+TNetXNGFile::TNetXNGFile(const char *url, const char *lurl, Option_t *mode, const char *title, Int_t compress,
+                         Int_t /*netopt*/, Bool_t parallelopen)
+   : TFile((lurl ? lurl : url),
+           strstr(mode, "_WITHOUT_GLOBALREGISTRATION") != nullptr ? "NET_WITHOUT_GLOBALREGISTRATION" : "NET", title,
+           compress)
 {
    using namespace XrdCl;
 
@@ -158,12 +174,12 @@ TNetXNGFile::TNetXNGFile(const char *url,
 
    fFile        = new File();
    fInitCondVar = new XrdSysCondVar();
-   fUrl->SetProtocol(std::string("root"));
+
    fQueryReadVParams = 1;
    fReadvIorMax = 2097136;
    fReadvIovMax = 1024;
 
-   if (ParseOpenMode(mode, fOption, fMode, kTRUE)<0) {
+   if (ParseOpenMode(mode, fOption, fMode, kTRUE) < 0) {
       Error("Open", "could not parse open mode %s", mode);
       MakeZombie();
       return;
@@ -186,7 +202,7 @@ TNetXNGFile::TNetXNGFile(const char *url,
    if (parallelopen) {
       // Open the file asynchronously
       TAsyncOpenHandler *handler = new TAsyncOpenHandler(this);
-      status = fFile->Open(fUrl->GetURL(), fMode, Access::None, handler);
+      status = fFile->Open(fUrl->GetURL(), static_cast<XrdCl::OpenFlags::Flags>(fMode), Access::None, handler);
       if (!status.IsOK()) {
          Error("Open", "%s", status.ToStr().c_str());
          MakeZombie();
@@ -195,7 +211,7 @@ TNetXNGFile::TNetXNGFile(const char *url,
    }
 
    // Open the file synchronously
-   status = fFile->Open(fUrl->GetURL(), fMode);
+   status = fFile->Open(fUrl->GetURL(), static_cast<XrdCl::OpenFlags::Flags>(fMode));
    if (!status.IsOK()) {
 #if XrdVNUMBER >= 40000
       if( status.code == errRedirect )
@@ -325,6 +341,8 @@ void TNetXNGFile::Close(const Option_t */*option*/)
 {
    TFile::Close();
 
+   if (!fFile) return;
+
    XrdCl::XRootDStatus status = fFile->Close();
    if (!status.IsOK()) {
       Error("Close", "%s", status.ToStr().c_str());
@@ -347,7 +365,7 @@ Int_t TNetXNGFile::ReOpen(Option_t *modestr)
 {
    using namespace XrdCl;
    TString newOpt;
-   OpenFlags::Flags mode;
+   int mode;
 
    Int_t parseres = ParseOpenMode(modestr, newOpt, mode, kFALSE);
 
@@ -371,7 +389,7 @@ Int_t TNetXNGFile::ReOpen(Option_t *modestr)
    fOption = newOpt;
    fMode = mode;
 
-   st = fFile->Open(fUrl->GetURL(), fMode);
+   st = fFile->Open(fUrl->GetURL(), static_cast<XrdCl::OpenFlags::Flags>(fMode));
    if (!st.IsOK()) {
       Error("ReOpen", "%s", st.ToStr().c_str());
       return 1;
@@ -674,6 +692,8 @@ void TNetXNGFile::Seek(Long64_t offset, ERelativeTo position)
    SetOffset(offset, position);
 }
 
+namespace {
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Parse a file open mode given as a string into a canonically formatted
 /// output mode string and an integer code that the xroot client can use
@@ -685,27 +705,39 @@ void TNetXNGFile::Seek(Long64_t offset, ERelativeTo position)
 /// returns:             0 in case the mode was successfully parsed,
 ///                     -1 in case of failure
 
-Int_t TNetXNGFile::ParseOpenMode(Option_t *in, TString &modestr,
-                                 XrdCl::OpenFlags::Flags &mode,
-                                 Bool_t assumeRead)
+Int_t ParseOpenMode(Option_t *in, TString &modestr, int &mode, Bool_t assumeRead)
 {
    using namespace XrdCl;
    modestr = ToUpper(TString(in));
 
-   if (modestr == "NEW" || modestr == "CREATE")  mode = OpenFlags::New;
-   else if (modestr == "RECREATE")               mode = OpenFlags::Delete;
-   else if (modestr == "UPDATE")                 mode = OpenFlags::Update;
-   else if (modestr == "READ")                   mode = OpenFlags::Read;
-   else {
-      if (!assumeRead) {
-         return -1;
+   const static std::unordered_map<std::string, OpenFlags::Flags> strToFlagMap{{"CREATE", OpenFlags::New},
+                                                                               {"NEW", OpenFlags::New},
+                                                                               {"READ", OpenFlags::Read},
+                                                                               {"RECREATE", OpenFlags::Delete},
+                                                                               {"UPDATE", OpenFlags::Update}};
+
+   const auto tokens = ROOT::Split(modestr, "_ ", /*skipEmpty*/ true);
+   for (const auto &token : tokens) {
+      if (auto it = strToFlagMap.find(token); it != strToFlagMap.end()) {
+         // Though unnecessary, we substitute the current value of modestr with the specific valid value just found.
+         // This is done for backwards compatibility: some other code in TFile may rely on the open mode to be exactly
+         // one of the valid values.
+         modestr = token;
+         mode = it->second;
+         return 0;
       }
-      modestr = "READ";
-      mode = OpenFlags::Read;
    }
 
-   return 0;
+   if (assumeRead) {
+      modestr = "READ";
+      mode = OpenFlags::Read;
+      return 0;
+   }
+
+   return -1;
 }
+
+} // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Check the file is open and isn't a zombie

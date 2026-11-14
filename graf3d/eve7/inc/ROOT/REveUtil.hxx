@@ -14,12 +14,12 @@
 
 #include "REveTypes.hxx"
 
-#include "TError.h"
-
+#include <string>
+#include <string_view>
 #include <map>
-#include <set>
-#include <exception>
 
+class TObject;
+class TObjArray;
 class TGeoManager;
 
 namespace ROOT {
@@ -47,6 +47,10 @@ public:
    static void Macro(const char *mac);
    static void LoadMacro(const char *mac);
 
+   // Input string verification and sanitization
+
+   static bool VerifyObjectFilterOrTableExpression(std::string_view expr);
+
    // Color management
 
    static void ColorFromIdx(Color_t ci, UChar_t col[4], Bool_t alpha = kTRUE);
@@ -57,6 +61,10 @@ public:
    static void SetColorBrightness(Float_t value, Bool_t full_redraw = kFALSE);
 
    // Math utilities
+
+   static double ServerTimeMs();
+   static void AppendServerTime(std::string &msg);
+   static void StampServerTime(std::string &msg);
 
    static Bool_t IsU1IntervalContainedByMinMax(Float_t minM, Float_t maxM, Float_t minQ, Float_t maxQ);
    static Bool_t IsU1IntervalOverlappingByMinMax(Float_t minM, Float_t maxM, Float_t minQ, Float_t maxQ);
@@ -138,7 +146,7 @@ protected:
 
 public:
    REveRefBackPtr() = default;
-   virtual ~REveRefBackPtr();
+   ~REveRefBackPtr() override;
 
    using REveRefCnt::DecRefCount;
    using REveRefCnt::IncRefCount;

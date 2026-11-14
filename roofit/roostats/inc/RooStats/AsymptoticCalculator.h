@@ -15,8 +15,11 @@
 #include "RooArgSet.h"
 #include "Rtypes.h"
 
+#include <memory>
+
 class RooArgList;
 class RooCategory;
+class RooFitResult;
 class RooRealVar;
 class RooPoisson;
 class RooProdPdf;
@@ -33,21 +36,15 @@ namespace RooStats {
          const ModelConfig &nullModel,
          bool nominalAsimov = false
          );
-      //    HypoTestCalculatorGeneric(data, altModel, nullModel, 0)
-      // {
-      // }
-
-      ~AsymptoticCalculator() {
-      }
 
       /// initialize the calculator by performing a global fit and make the Asimov data set
       bool Initialize() const;
 
       /// re-implement HypoTest computation using the asymptotic
-      virtual HypoTestResult *GetHypoTest() const;
+      HypoTestResult *GetHypoTest() const override;
 
       /// Make Asimov data.
-      static RooAbsData * MakeAsimovData( RooAbsData & data, const ModelConfig & model,  const RooArgSet & poiValues, RooArgSet & globObs, const RooArgSet * genPoiValues = 0);
+      static RooAbsData * MakeAsimovData( RooAbsData & data, const ModelConfig & model,  const RooArgSet & poiValues, RooArgSet & globObs, const RooArgSet * genPoiValues = nullptr);
 
 
       /// Make a nominal Asimov data set from a model.
@@ -70,16 +67,23 @@ namespace RooStats {
       /// set the test statistics for one-sided discovery
       void SetOneSidedDiscovery(bool on) { fOneSidedDiscovery = on; }
 
+      /// use the signed (uncapped) profile likelihood test statistic.
+      /// When using a one-sided test statistic, the value is not set to zero when the best fit value of the
+      /// POI is beyond the tested value, but the sign of the test statistic is flipped instead
+      /// (see also ProfileLikelihoodTestStat::SetSigned).
+      /// It has no effect for the two-sided test statistics.
+      void SetSigned(bool on = true) { fSigned = on; }
+
       /// re-implementation of  setters since they are needed to re-initialize the calculator
-      virtual void SetNullModel(const ModelConfig &nullModel) {
+      void SetNullModel(const ModelConfig &nullModel) override {
          HypoTestCalculatorGeneric::SetNullModel(nullModel);
          fIsInitialized = false;
       }
-      virtual void SetAlternateModel(const ModelConfig &altModel) {
+      void SetAlternateModel(const ModelConfig &altModel) override {
          HypoTestCalculatorGeneric::SetAlternateModel(altModel);
          fIsInitialized = false;
       }
-      virtual void SetData(RooAbsData &data) {
+      void SetData(RooAbsData &data) override {
          HypoTestCalculatorGeneric::SetData(data);
          fIsInitialized = false;
       }
@@ -99,51 +103,52 @@ namespace RooStats {
       /// return best fit value for all parameters
       const RooArgSet & GetBestFitParams() const { return fBestFitPoi; }
 
+      /// Result of the unconditional fit to the observed data, performed by
+      /// Initialize() (updated if GetHypoTest() finds a better minimum).
+      /// Returns nullptr if the fit was skipped or has not been run yet.
+      /// The calculator keeps ownership of the returned object.
+      const RooFitResult *GetFitResultUncondObs() const { return fFitResultUncondObs.get(); }
+      /// Result of the conditional fit to the observed data with the POI fixed
+      /// to the tested value, from the last call to GetHypoTest().
+      /// Returns nullptr if the fit was skipped or has not been run yet.
+      /// The calculator keeps ownership of the returned object.
+      const RooFitResult *GetFitResultCondObs() const { return fFitResultCondObs.get(); }
+      /// Result of the fit to the Asimov data set with the POI fixed to the
+      /// value of the alternate-model snapshot, performed by Initialize(). Since
+      /// the Asimov data set is generated at that POI value, this corresponds to
+      /// the unconditional minimum (updated if GetHypoTest() finds a better
+      /// minimum). Returns nullptr if the fit was skipped or has not been run
+      /// yet. The calculator keeps ownership of the returned object.
+      const RooFitResult *GetFitResultUncondAsimov() const { return fFitResultUncondAsimov.get(); }
+      /// Result of the conditional fit to the Asimov data set with the POI
+      /// fixed to the tested value, from the last call to GetHypoTest().
+      /// Returns nullptr if the fit was skipped or has not been run yet.
+      /// The calculator keeps ownership of the returned object.
+      const RooFitResult *GetFitResultCondAsimov() const { return fFitResultCondAsimov.get(); }
+
       static void SetPrintLevel(int level);
 
-   protected:
-      // // configure TestStatSampler for the Null run
-      // int PreNullHook(RooArgSet *parameterPoint, double obsTestStat) const;
-
-      // // configure TestStatSampler for the Alt run
-      // int PreAltHook(RooArgSet *parameterPoint, double obsTestStat) const;
-
-
-      static RooAbsData * GenerateAsimovDataSinglePdf(const RooAbsPdf & pdf, const RooArgSet & obs,  const RooRealVar & weightVar,
-                                                      RooCategory * channelCat = 0);
-
-      static RooAbsData * GenerateCountingAsimovData(RooAbsPdf & pdf, const RooArgSet & obs,  const RooRealVar & weightVar,
-                                                      RooCategory * channelCat = 0);
-
-
-      static void FillBins(const RooAbsPdf & pdf, const RooArgList &obs, RooAbsData & data, int &index,  double
-                           &binVolume, int &ibin);
-
-      static double EvaluateNLL(RooAbsPdf & pdf, RooAbsData& data, const RooArgSet * condObs, const RooArgSet * globObs, const RooArgSet *poiSet = 0 );
-
-      static bool SetObsToExpected(RooAbsPdf &pdf, const RooArgSet &obs);
-      static bool SetObsToExpected(RooProdPdf &prod, const RooArgSet &obs);
-
-   protected:
-      ClassDef(AsymptoticCalculator,2)
-
    private:
-
-      bool fOneSided;                     // for one sided PL test statistic (upper limits)
-      mutable bool fOneSidedDiscovery;    // for one sided PL test statistic (for discovery)
-      bool fNominalAsimov;                // make Asimov at nominal parameter values
-      mutable bool fIsInitialized;        //! flag to check if calculator is initialized
-      mutable int fUseQTilde;             // flag to indicate if using qtilde or not (-1 (default based on RooRealVar)), 0 false, 1 (true)
-      static int fgPrintLevel;            // control print level  (0 minimal, 1 normal, 2 debug)
+      bool fOneSided;                     ///< for one sided PL test statistic (upper limits)
+      bool fOneSidedDiscovery;            ///< for one sided PL test statistic (for discovery)
+      bool fSigned = false;               ///< use signed (uncapped) PL test statistic
+      bool fNominalAsimov;                ///< make Asimov at nominal parameter values
+      mutable bool fIsInitialized;        ///<! flag to check if calculator is initialized
+      mutable int fUseQTilde;             ///< flag to indicate if using qtilde or not (-1 (default based on RooRealVar)), 0 false, 1 (true)
       mutable double fNLLObs;
       mutable double fNLLAsimov;
 
-      mutable RooAbsData * fAsimovData;   // asimov data set
-      mutable RooArgSet  fAsimovGlobObs;  // snapshot of Asimov global observables
-      mutable RooArgSet  fBestFitPoi;     // snapshot of best fitted POI values
-      mutable RooArgSet  fBestFitParams;  // snapshot of all best fitted Parameter values
+      mutable RooAbsData * fAsimovData;   ///< asimov data set
+      mutable RooArgSet  fAsimovGlobObs;  ///< snapshot of Asimov global observables
+      mutable RooArgSet  fBestFitPoi;     ///< snapshot of best fitted POI values
+      mutable RooArgSet  fBestFitParams;  ///< snapshot of all best fitted Parameter values
 
+      mutable std::unique_ptr<RooFitResult> fFitResultUncondObs;    ///<! result of unconditional fit to observed data
+      mutable std::unique_ptr<RooFitResult> fFitResultCondObs;      ///<! result of conditional fit to observed data
+      mutable std::unique_ptr<RooFitResult> fFitResultUncondAsimov; ///<! result of fit to Asimov data at the alt POI
+      mutable std::unique_ptr<RooFitResult> fFitResultCondAsimov;   ///<! result of conditional fit to Asimov data
 
+      ClassDefOverride(AsymptoticCalculator,0)
    };
 }
 

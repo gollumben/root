@@ -72,12 +72,35 @@ endif()
 
 #---Set environment --------------------------------------------------------------------------------
 if(ENV)
-  string(REPLACE "#" ";" _env ${ENV})
+  # CMake treats ';' as a list separator. Since ENV values may legitimately
+  # contain semicolons (e.g. PATH-like variables), we must escape them here
+  # so they survive the upcoming list expansion in `foreach()`.
+  string(REPLACE ";" "\\;" _env "${ENV}")
+
+  # Deserialize the ENV string into a CMake list.
+  # This is the inverse operation of ROOT_ADD_TEST, which serializes the list
+  # by joining elements with '#'.
+  string(REPLACE "#" ";" _env "${_env}")
+
   foreach(pair ${_env})
-    string(REGEX REPLACE "^([^=]+)=(.*)$" "\\1;\\2" pair ${pair})
-    list(GET pair 0 var)
-    list(GET pair 1 val)
-    set(ENV{${var}} ${val})
+
+    # During list expansion, CMake has already consumed any previous '\;'
+    # escaping. Re-escape semicolons so the key=value split below treats the
+    # value as a single string.
+    string(REPLACE ";" "\\;" pair "${pair}")
+
+    # Split KEY=VALUE
+    string(REGEX REPLACE "^([^=]+)=(.*)$" "\\1" var "${pair}")
+    string(REGEX REPLACE "^([^=]+)=(.*)$" "\\2" val "${pair}")
+
+    if(val STREQUAL "")
+      unset(ENV{${var}})
+    else()
+      # As before, quoting is important here so the semicolons are not
+      # interpreted as list separators.
+      set(ENV{${var}} "${val}")
+    endif()
+
     if(DBG)
       message(STATUS "testdriver[ENV]:${var}==>${val}")
     endif()
@@ -86,7 +109,7 @@ endif()
 
 if(SYS)
   if(WIN32)
-    file(TO_NATIVE_PATH ${SYS}/bin _path)
+    cmake_path(CONVERT "${SYS}/bin" TO_NATIVE_PATH_LIST _path)
     set(ENV{PATH} "${_path};$ENV{PATH}")
   elseif(APPLE)
     set(ENV{PATH} ${SYS}/bin:$ENV{PATH})
@@ -118,8 +141,22 @@ endif()
 
 if(CMD)
   #---Execute the actual test ------------------------------------------------------------------------
+  if(CMD_ENV)
+    # Only support exactly one variable
+    set(_cmd ${CMAKE_COMMAND} -E env ${CMD_ENV} ${_cmd})
+  endif()
+
   if(IN)
     set(_input INPUT_FILE ${IN})
+  elseif(UNIX)
+    # Don't let the test inherit the terminal that ctest might run in as
+    # stdin. Tests are wrapped in coreutils timeout, which moves them to a
+    # background process group, so any terminal access (like the tcsetattr()
+    # in the pdb.Pdb constructor since Python 3.15, which doctest triggers)
+    # would stop them with SIGTTOU until the test times out.
+    set(_input INPUT_FILE /dev/null)
+  else()
+    set(_input INPUT_FILE NUL)
   endif()
 
   if(OUT)
@@ -169,6 +206,7 @@ if(CMD)
       string(STRIP "${_errvar0}" _errvar0)
       string(REPLACE "\n" ";" _lines "${_errvar0}")
       list(FILTER _lines EXCLUDE REGEX "^Info in <.+::ACLiC>: creating shared library.+")
+      list(FILTER _lines EXCLUDE REGEX "^Info in <TROOT>: Object auto registration.*") # ROOT 7 demo mode in ROOT 6
       string(REPLACE ";" "\n" _errvar0 "${_lines}")
       if(_errvar0)
         message(FATAL_ERROR "Unexpected error output")

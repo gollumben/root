@@ -12,7 +12,7 @@
 
 #include "clang/Basic/CodeGenOptions.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/Triple.h"
+#include "llvm/TargetParser/Triple.h"
 
 #include <string>
 #include <vector>
@@ -99,7 +99,7 @@ namespace cling {
     /// paths.
     void addHeaderSearchPathFlags(
         std::vector<std::string>& argv,
-        const std::shared_ptr<clang::HeaderSearchOptions> &headerSearchOptions);
+        const clang::HeaderSearchOptions& headerSearchOptions);
 
     ///\brief Compiles a PTX file from the current input. The PTX code is
     /// written to cling.ptx.
@@ -121,7 +121,7 @@ namespace cling {
     ///\param [in] hostTriple - The llvm triple of the host system
     void setCuArgs(const clang::LangOptions& langOpts,
                    const cling::InvocationOptions& invocationOptions,
-                   const clang::codegenoptions::DebugInfoKind debugInfo,
+                   const llvm::codegenoptions::DebugInfoKind debugInfo,
                    const llvm::Triple hostTriple);
 
   public:

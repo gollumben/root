@@ -31,9 +31,9 @@
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Basic/SourceManager.h"
 
-#include <cstdlib>
-#include <cctype>
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 
 namespace {
   ///\brief Make a valid C++ identifier, replacing illegal characters in `S'
@@ -75,7 +75,7 @@ namespace cling {
 
     std::string pathname(m_Interpreter.lookupFileOrLibrary(file));
     if (pathname.empty())
-      pathname = file;
+      pathname = file.str();
     if (m_Interpreter.loadFile(pathname, /*allowSharedLib=*/true, transaction)
         == Interpreter::kSuccess) {
       registerUnloadPoint(unloadPoint, pathname);
@@ -113,7 +113,7 @@ namespace cling {
 
   void MetaSema::actOnComment(llvm::StringRef comment) const {
     // Some of the comments are meaningful for the cling::Interpreter
-    m_Interpreter.declare(comment);
+    m_Interpreter.declare(comment.str());
   }
 
   MetaSema::ActionResult MetaSema::actOnxCommand(llvm::StringRef file,
@@ -141,14 +141,14 @@ namespace cling {
       return (m_Interpreter.echo(OS.str(), ret) == Interpreter::kSuccess)
               ? CR_Success : CR_Failure;
     };
-    
+
     cling::Transaction* T = nullptr;
     if (actOnLCommand(file, &T) != AR_Success || !T)
       return AR_Failure;
 
     // First, try function named after `file`; add any alternatives below.
     const std::string tryCallThese[] = {
-      makeValidCXXIdentifier(llvm::sys::path::stem(file)),
+      makeValidCXXIdentifier(llvm::sys::path::stem(file).str()),
       // FIXME: this provides an entry point that is independent from the macro
       // filename (and still works if file is renamed); should we enable this?
       //"__main__",
@@ -193,7 +193,7 @@ namespace cling {
     auto interpreterHasTransaction = [] (const Interpreter& Interp,
                                          const Transaction* T) {
       for (const Transaction* I = Interp.getFirstTransaction();
-           I != 0; I = I->getNext())
+           I != nullptr; I = I->getNext())
         if (I == T)
           return true;
       return false;
@@ -201,21 +201,35 @@ namespace cling {
     clang::FileManager& FM = m_Interpreter.getSema().getSourceManager().getFileManager();
 
     std::string pathname(m_Interpreter.lookupFileOrLibrary(file));
-    const auto FE = FM.getFile(pathname, /*OpenFile=*/false,
-                               /*CacheFailure=*/false);
-    auto TI = m_FEToTransaction.find(FE);
-    if (!FE || TI == m_FEToTransaction.end())
+    auto FE = FM.getFileRef(pathname, /*OpenFile=*/false,
+                            /*CacheFailure=*/false);
+    if (!FE) {
+      llvm::consumeError(FE.takeError());
+      return AR_Failure;
+    }
+
+    auto TI = m_FEToTransaction.find(*FE);
+    if (TI == m_FEToTransaction.end())
       return AR_Success;
 
     const Transaction* unloadPoint = (*TI).second;
+    // Erase the entry before reverting: as of now the file is no longer
+    // registered as loaded, whatever the outcome of the reversion.
+    m_FEToTransaction.erase(TI);
     if (interpreterHasTransaction(m_Interpreter, unloadPoint)) {
       // Revert all the transactions that came after `unloadPoint'.
       while (m_Interpreter.getLastTransaction() != unloadPoint) {
-        if (const auto ThisFE = m_TransactionToFE[m_Interpreter.getLastTransaction()]) {
-          auto I = m_FEToTransaction.find(ThisFE);
-          if (I != m_FEToTransaction.end())
-            m_FEToTransaction.erase(I);
-        }
+        const Transaction* T = m_Interpreter.getLastTransaction();
+        // Any file whose unload point is `T' can no longer be reverted: drop
+        // its registration. This must not be left behind: `T' is deallocated
+        // during the reversion and its address may be reused by a future
+        // transaction, which would alias the stale entry.
+        llvm::SmallVector<const clang::FileEntry*, 2> revertedFiles;
+        for (const auto &Entry : m_FEToTransaction)
+          if (Entry.second == T)
+            revertedFiles.push_back(Entry.first);
+        for (const clang::FileEntry* RFE : revertedFiles)
+          m_FEToTransaction.erase(RFE);
         m_Interpreter.unload(/*numberOfTransactions=*/1);
       }
 
@@ -226,7 +240,6 @@ namespace cling {
       m_MetaProcessor.getOuts() << "!!!ERROR: Transaction for file: " << file
                                 << " has already been unloaded\n";
     }
-    m_FEToTransaction.erase(TI);
     return AR_Success;
   }
 
@@ -247,23 +260,22 @@ namespace cling {
       m_Interpreter.enableRawInput(mode);
   }
 
-  void MetaSema::actOndebugCommand(llvm::Optional<int> mode) const {
-    constexpr clang::codegenoptions::DebugInfoKind DebugInfo[] = {
-      clang::codegenoptions::NoDebugInfo,
-      clang::codegenoptions::LocTrackingOnly,
-      clang::codegenoptions::DebugLineTablesOnly,
-      clang::codegenoptions::LimitedDebugInfo,
-      clang::codegenoptions::FullDebugInfo
-    };
+  void MetaSema::actOndebugCommand(std::optional<int> mode) const {
+    constexpr llvm::codegenoptions::DebugInfoKind DebugInfo[] = {
+        llvm::codegenoptions::NoDebugInfo,
+        llvm::codegenoptions::LocTrackingOnly,
+        llvm::codegenoptions::DebugLineTablesOnly,
+        llvm::codegenoptions::LimitedDebugInfo,
+        llvm::codegenoptions::FullDebugInfo};
     constexpr int N = (int)std::extent<decltype(DebugInfo)>::value;
 
     clang::CodeGenOptions& CGO = m_Interpreter.getCI()->getCodeGenOpts();
     if (!mode) {
-      bool flag = (CGO.getDebugInfo() == clang::codegenoptions::NoDebugInfo);
+      bool flag = (CGO.getDebugInfo() == llvm::codegenoptions::NoDebugInfo);
       if (flag)
-        CGO.setDebugInfo(clang::codegenoptions::LimitedDebugInfo);
+        CGO.setDebugInfo(llvm::codegenoptions::LimitedDebugInfo);
       else
-        CGO.setDebugInfo(clang::codegenoptions::NoDebugInfo);
+        CGO.setDebugInfo(llvm::codegenoptions::NoDebugInfo);
       m_MetaProcessor.getOuts() << (flag ? "G" : "Not g") << "enerating debug symbols\n";
     } else {
       mode = (*mode < 0) ? 0 : ((*mode >= N) ? N - 1 : *mode);
@@ -288,11 +300,11 @@ namespace cling {
   }
 
   void MetaSema::actOnstoreStateCommand(llvm::StringRef name) const {
-    m_Interpreter.storeInterpreterState(name);
+    m_Interpreter.storeInterpreterState(name.str());
   }
 
   void MetaSema::actOncompareStateCommand(llvm::StringRef name) const {
-    m_Interpreter.compareInterpreterState(name);
+    m_Interpreter.compareInterpreterState(name.str());
   }
 
   void MetaSema::actOnstatsCommand(llvm::StringRef name,
@@ -320,9 +332,9 @@ namespace cling {
       " ==============================================================================\n"
       " Syntax: " << metaString << "Command [arg0 arg1 ... argN]\n"
       "\n"
-      "   " << metaString << "L <filename>\t\t- Load the given file or library\n\n"
-
-      "   " << metaString << "(x|X) <filename>[args]\t- Same as .L and runs a function with"
+      "   " << metaString << "L <filename>\t\t- Load the given file or library\n"
+      "\n"
+      "   " << metaString << "(x|X) <filename>[(args)]\t- Same as .L and runs a function with"
                              "\n\t\t\t\t  signature: ret_type filename(args)\n"
       "\n"
       "   " << metaString << "> <filename>\t\t- Redirect command to a given file\n"
@@ -335,28 +347,42 @@ namespace cling {
       "\n"
       "   " << metaString << "U <filename>\t\t- Unloads the given file\n"
       "\n"
-      "   " << metaString << "I [path]\t\t\t- Shows the include path. If a path is given -"
-                             "\n\t\t\t\t  adds the path to the include paths\n"
+      "   " << metaString << "(I|include) [path]\t\t- Shows all include paths. If a path is given,"
+                             "\n\t\t\t\t  adds the path to the include paths. Paths with double\n"
+                             "\n\t\t\t\t  slashes // are not supported since they are treated as\n"
+                             "\n\t\t\t\t  C++ comments; use AddIncludePath instead in that case.\n"
       "\n"
       "   " << metaString << "O <level>\t\t\t- Sets the optimization level (0-3)"
-                             "\n\t\t\t\t  (not yet implemented)\n"
+                             "\n\t\t\t\t  If no level is given, prints the current setting.\n"
       "\n"
-      "   " << metaString << "class <name>\t\t- Prints out class <name> in a CINT-like style\n"
+      "   " << metaString << "class <name>\t\t- Prints out class <name> in a CINT-like style (one-level).\n"
+                             "\t\t\t\t  If no name is given, prints out list of all classes.\n"
       "\n"
-      "   " << metaString << "files \t\t\t- Prints out some CINT-like file statistics\n"
+      "   " << metaString << "Class <name>\t\t- Prints out class <name> in a CINT-like style (all-levels).\n"
+                             "\t\t\t\t  If no name is given, prints out list of all classes.\n"
       "\n"
-      "   " << metaString << "fileEx \t\t\t- Prints out some file statistics\n"
+      "   " << metaString << "namespace\t\t\t- Prints list of all known namespaces\n"
       "\n"
-      "   " << metaString << "g \t\t\t\t- Prints out information about global variable"
-                             "\n\t\t\t\t  'name' - if no name is given, print them all\n"
+      "   " << metaString << "typedef <name>\t\t- Prints out typedef <name> in a CINT-like style\n"
+                             "\t\t\t\t  If no name is given, prints out list of all typedefs.\n"
+      "\n"
+      "   " << metaString << "files\t\t\t- Prints names of all included (parsed) files\n"
+      "\n"
+      "   " << metaString << "fileEx\t\t\t- Prints out included (parsed) file statistics\n"
+                             "\t\t\t\t  as well as a list of their names\n"
+      "\n"
+      "   " << metaString << "g <var>\t\t\t- Prints out information about global variable"
+                             "\n\t\t\t\t  'var' - if no name is given, print them all\n"
       "\n"
       "   " << metaString << "@ \t\t\t\t- Cancels and ignores the multiline input\n"
       "\n"
       "   " << metaString << "rawInput [0|1]\t\t- Toggle wrapping and printing the"
                              "\n\t\t\t\t  execution results of the input\n"
       "\n"
-      "   " << metaString << "dynamicExtensions [0|1]\t- Toggles the use of the dynamic scopes and the"
-                             "\n\t\t\t\t  late binding\n"
+      "   " << metaString << "dynamicExtensions [0|1]\t- Toggles the use of the dynamic scopes"
+                             "\n\t\t\t\t  and the late binding\n"
+      "\n"
+      "   " << metaString << "debug <level>\t\t- Generates debug symbols (level is optional, 0 to disable)\n"
       "\n"
       "   " << metaString << "printDebug [0|1]\t\t- Toggles the printing of input's corresponding"
                              "\n\t\t\t\t  state changes\n"
@@ -372,7 +398,12 @@ namespace cling {
                              "\t\t\t\t  'decl' dump ast declarations\n"
                              "\t\t\t\t  'undo' show undo stack\n"
       "\n"
-      "   " << metaString << "help\t\t\t- Shows this information\n"
+      "   " << metaString << "T <filePath> <comment>\t- Generate autoload map\n"
+      "\n"
+      "   " << metaString << "trace <repr> <id>\t\t- Dump trace of requested respresentation\n"
+                             "\t\t\t\t  (see " << metaString << "stats arguments for <repr>)\n"
+      "\n"
+      "   " << metaString << "help\t\t\t- Shows this information (also " << metaString << "?)\n"
       "\n"
       "   " << metaString << "q\t\t\t\t- Exit the program\n"
       "\n";
@@ -386,16 +417,16 @@ namespace cling {
 
     for (clang::SourceManager::fileinfo_iterator I = SM.fileinfo_begin(),
            E = SM.fileinfo_end(); I != E; ++I) {
-      m_MetaProcessor.getOuts() << (*I).first->getName();
+      m_MetaProcessor.getOuts() << (*I).first.getName();
       m_MetaProcessor.getOuts() << "\n";
     }
 #if 0
     // Only available in clang's trunk:
-    clang::ASTReader* Reader = m_Interpreter.getCI()->getModuleManager();
-    const clang::serialization::ModuleManager& ModMan
-      = Reader->getModuleManager();
-    for (clang::serialization::ModuleManager::ModuleConstIterator I
-           = ModMan.begin(), E = ModMan.end(); I != E; ++I) {
+    clang::ASTReader* Reader = m_Interpreter.getCI()->getASTReader();
+    const clang::serialization::ASTReader& ASTRead
+      = Reader->getASTReader();
+    for (clang::serialization::ASTReader::ModuleConstIterator I
+           = ASTRead.begin(), E = ASTRead.end(); I != E; ++I) {
       typedef
         std::vector<llvm::PointerIntPair<const clang::FileEntry*, 1, bool> >
         InputFiles_t;
@@ -413,16 +444,9 @@ namespace cling {
     m_Interpreter.printIncludedFiles(m_MetaProcessor.getOuts());
   }
 
-  void MetaSema::actOnclassCommand(llvm::StringRef className) const {
-    if (!className.empty())
+  void MetaSema::actOnClassCommand(llvm::StringRef className, bool verbose) const {
       DisplayClass(m_MetaProcessor.getOuts(),
-                   &m_Interpreter, className.str().c_str(), true);
-    else
-      DisplayClasses(m_MetaProcessor.getOuts(), &m_Interpreter, false);
-  }
-
-  void MetaSema::actOnClassCommand() const {
-    DisplayClasses(m_MetaProcessor.getOuts(), &m_Interpreter, true);
+                   &m_Interpreter, className.str().c_str(), verbose);
   }
 
   void MetaSema::actOnNamespaceCommand() const {
@@ -456,7 +480,7 @@ namespace cling {
       clang::ASTContext& Ctx = m_Interpreter.getCI()->getASTContext();
       if (result) {
         *result = Value(Ctx.IntTy, m_Interpreter);
-        result->getAs<long long>() = exitStatus;
+        result->setLongLong(exitStatus); // FIXME: This should assert.
       }
       return (exitStatus == 0) ? AR_Success : AR_Failure;
     }
@@ -469,14 +493,17 @@ namespace cling {
                                      llvm::StringRef filename) {
     std::string pathname(m_Interpreter.lookupFileOrLibrary(filename));
     if (pathname.empty())
-      pathname = filename;
+      pathname = filename.str();
 
     clang::FileManager& FM = m_Interpreter.getSema().getSourceManager().getFileManager();
-    const clang::FileEntry* FE = FM.getFile(pathname, /*OpenFile=*/false,
-                                            /*CacheFailure=*/false);
-    if (FE && !m_FEToTransaction[FE]) {
-      m_FEToTransaction[FE] = unloadPoint;
-      m_TransactionToFE[unloadPoint] = FE;
+    auto FE =
+        FM.getFileRef(pathname, /*OpenFile=*/false, /*CacheFailure=*/false);
+    if (!FE) {
+      llvm::consumeError(FE.takeError());
+      return;
     }
+
+    if (*FE && !m_FEToTransaction[*FE])
+      m_FEToTransaction[*FE] = unloadPoint;
   }
 } // end namespace cling

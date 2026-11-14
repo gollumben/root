@@ -213,7 +213,6 @@ internally. You are free to destroy this object, or recycle it for the next
 object if suitable.
 */
 
-ClassImp(TBuffer3D);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Destructor.
@@ -250,6 +249,7 @@ void TBuffer3D::Init()
    fTransparency  = 0;
    fLocalFrame    = kFALSE;
    fReflection    = kFALSE;
+   fScaled        = kFALSE;
    SetLocalMasterIdentity();
 
    // Reset bounding box

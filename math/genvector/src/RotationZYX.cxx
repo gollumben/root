@@ -25,8 +25,8 @@
 #include "Math/GenVector/RotationX.h"
 #include "Math/GenVector/RotationY.h"
 #include "Math/GenVector/RotationZ.h"
-
 #include "Math/GenVector/AxisAnglefwd.h"
+#include "TMath.h"
 
 namespace ROOT {
 
@@ -111,7 +111,7 @@ void RotationZYX::Rectify()
    //  same as Euler- Angles, just here Theta is shifted by PI/2 with respect to
    // the theta of the EulerAngles class
 
-   Scalar theta2 = fTheta + M_PI_2;
+   Scalar theta2 = fTheta + TMath::PiOver2();
    if ( theta2 < 0 || theta2 > Pi() ) {
       Scalar t = theta2 - std::floor( theta2/(2*Pi() ) ) * 2*Pi();
       if ( t <= Pi() ) {
@@ -122,7 +122,7 @@ void RotationZYX::Rectify()
          fPsi =  fPsi + Pi();
       }
       // ftheta is shifted of PI/2 w.r.t theta2
-      fTheta = theta2 - M_PI_2;
+      fTheta = theta2 - TMath::PiOver2();
    }
 
    if ( fPhi <= -Pi()|| fPhi > Pi() ) {
@@ -149,7 +149,7 @@ void RotationZYX::Invert()
 
 std::ostream & operator<< (std::ostream & os, const RotationZYX & e) {
    // TODO - this will need changing for machine-readable issues
-   //        and even the human readable form may need formatiing improvements
+   //        and even the human readable form may need formatting improvements
    os << "\n{phi(Z angle): " << e.Phi() << "   theta(Y angle): " << e.Theta()
    << "   psi(X angle): " << e.Psi() << "}\n";
    return os;

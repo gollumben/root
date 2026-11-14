@@ -14,16 +14,16 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_GLYPH_H
-#include "TTF.h"
+#include "TTFhandle.h"
 #include "TMathText.h"
 #include "TMath.h"
 #include "TVirtualPad.h"
+#include "TVirtualPadPainter.h"
 #include "TVirtualPS.h"
-#include "TVirtualX.h"
 #include "TText.h"
 
-#include "../../../graf2d/mathtext/inc/mathtext.h"
-#include "../../../graf2d/mathtext/inc/mathrender.h"
+#include "mathtext/mathtext.h"
+#include "mathtext/mathrender.h"
 
 /** \class TMathText
 \ingroup BasicGraphics
@@ -36,13 +36,13 @@ do it. The syntax is the same as the TeX's one.
 The following example demonstrate how to use TMathText:
 
 Begin_Macro(source)
-../../../tutorials/graphics/tmathtext.C
+../../../tutorials/visualisation/graphics/tmathtext.C
 End_Macro
 
 The list of all available symbols is given in the following example:
 
 Begin_Macro
-../../../tutorials/graphics/tmathtext2.C
+../../../tutorials/visualisation/graphics/tmathtext2.C
 End_Macro
 
 #### Limitation:
@@ -64,8 +64,6 @@ private:
    float _pad_scale;
    float _pad_scale_x;
    float _pad_scale_y;
-   float _pad_scale_x_relative;
-   float _pad_scale_y_relative;
    float _current_font_size[mathtext::math_text_renderer_t::NFAMILY];
    inline size_t root_face_number(
       const unsigned int family, const bool serif = false) const
@@ -102,12 +100,12 @@ private:
    }
 protected:
    inline mathtext::affine_transform_t
-   transform_logical_to_pixel(void) const
+   transform_logical_to_pixel(void) const override
    {
       return mathtext::affine_transform_t::identity;
    }
    inline mathtext::affine_transform_t
-   transform_pixel_to_logical(void) const
+   transform_pixel_to_logical(void) const override
    {
       return mathtext::affine_transform_t::identity;
    }
@@ -116,42 +114,41 @@ public:
       : TText(), TAttFill(0, 1001),
         _parent(parent), _font_size(0), _angle_degree(0)
    {
-      int i;
       _font_size = 0;
       _x0 = 0;
       _y0 = 0;
       _angle_degree = 0;
-      for (i = 0; i<6; i++) _pad_pixel_transform[i] = 0;
+      for (int i = 0; i<6; i++)
+         _pad_pixel_transform[i] = 0;
       _pad_scale = 0;
       _pad_scale_x = 0;
       _pad_scale_y = 0;
-      _pad_scale_x_relative = 0;
-      _pad_scale_y_relative = 0;
-      for (i = 0; i < mathtext::math_text_renderer_t::NFAMILY; i++) _current_font_size[i] = 0;
+      for (int i = 0; i < mathtext::math_text_renderer_t::NFAMILY; i++)
+         _current_font_size[i] = 0;
    }
    inline float
-   font_size(const unsigned int family = FAMILY_PLAIN) const
+   font_size(const unsigned int family = FAMILY_PLAIN) const override
    {
       return _current_font_size[family];
    }
    inline void
-   point(const float /*x*/, const float /*y*/)
+   point(const float /*x*/, const float /*y*/) override
    {
    }
    inline void
-   set_font_size(const float size, const unsigned int family)
+   set_font_size(const float size, const unsigned int family) override
    {
       _current_font_size[family] = size;
    }
    inline void
-   set_font_size(const float size)
+   set_font_size(const float size) override
    {
       _font_size = size;
       std::fill(_current_font_size,
               _current_font_size + NFAMILY, size);
    }
    inline void
-   reset_font_size(const unsigned int /*family*/)
+   reset_font_size(const unsigned int /*family*/) override
    {
    }
    inline void
@@ -160,12 +157,8 @@ public:
    {
       _x0 = gPad->XtoAbsPixel(x);
       _y0 = gPad->YtoAbsPixel(y);
-      _pad_scale_x =
-         gPad->XtoPixel(gPad->GetX2()) -
-         gPad->XtoPixel(gPad->GetX1());
-      _pad_scale_y =
-         gPad->YtoPixel(gPad->GetY1()) -
-         gPad->YtoPixel(gPad->GetY2());
+      _pad_scale_x = gPad->GetPadWidth();
+      _pad_scale_y = gPad->GetPadHeight();
       _pad_scale = std::min(_pad_scale_x, _pad_scale_y);
 
       _angle_degree = angle_degree;
@@ -196,7 +189,7 @@ public:
          y * _pad_pixel_transform[4] + _pad_pixel_transform[5]));
    }
    inline void
-   filled_rectangle(const mathtext::bounding_box_t &bounding_box_0)
+   filled_rectangle(const mathtext::bounding_box_t &bounding_box_0) override
    {
       SetFillColor(_parent->fTextColor);
       SetFillStyle(1001);
@@ -220,31 +213,27 @@ public:
       gPad->PaintFillArea(4, xt, yt);
    }
    inline void
-   rectangle(const mathtext::bounding_box_t &/*bounding_box*/)
+   rectangle(const mathtext::bounding_box_t &/*bounding_box*/) override
    {
    }
    inline mathtext::bounding_box_t
-   bounding_box(const wchar_t character, float &current_x,
-             const unsigned int family)
+   bounding_box_char(const wchar_t character, float &current_x, const unsigned int family)
    {
-      const size_t old_font_index = TTF::fgCurFontIdx;
-      const bool cyrillic_or_cjk = is_cyrillic_or_cjk(character);
+      TTFhandle h;
+      h.SetTextFont(is_cyrillic_or_cjk(character) ? root_cjk_face_number() : root_face_number(family));
+      h.SetTextSize(_current_font_size[family] * _pad_scale);
 
-      if (cyrillic_or_cjk) {
-         TTF::SetTextFont((Font_t) root_cjk_face_number());
-      } else {
-         TTF::SetTextFont((Font_t) root_face_number(family));
-      }
+      auto font_face = (FT_Face) h.GetFontFace();
+      if (!font_face || font_face->units_per_EM == 0)
+         return mathtext::bounding_box_t(0, 0, 0, 0, 0, 0);
+
       FT_Load_Glyph(
-         TTF::fgFace[TTF::fgCurFontIdx],
-         FT_Get_Char_Index(
-            TTF::fgFace[TTF::fgCurFontIdx], character),
+         font_face,
+         FT_Get_Char_Index(font_face, character),
          FT_LOAD_NO_SCALE);
 
-      const float scale = _current_font_size[family] /
-         TTF::fgFace[TTF::fgCurFontIdx]->units_per_EM;
-      const FT_Glyph_Metrics metrics =
-         TTF::fgFace[TTF::fgCurFontIdx]->glyph->metrics;
+      const float scale = _current_font_size[family] / font_face->units_per_EM;
+      const FT_Glyph_Metrics metrics = font_face->glyph->metrics;
       const float lower_left_x = metrics.horiBearingX;
       const float lower_left_y =
          metrics.horiBearingY - metrics.height;
@@ -257,93 +246,78 @@ public:
          upper_right_x <= advance ? 0.0F :
          std::max(0.0F, upper_right_x + margin - advance);
       const mathtext::bounding_box_t ret =
-         mathtext::bounding_box_t(
-            lower_left_x, lower_left_y,
-            upper_right_x, upper_right_y,
-            advance, italic_correction) * scale;
+         mathtext::bounding_box_t(lower_left_x * scale, lower_left_y * scale, upper_right_x * scale,
+                                  upper_right_y * scale, advance * scale, italic_correction * scale);
 
       current_x += ret.advance();
-      TTF::fgCurFontIdx = old_font_index;
 
       return ret;
    }
    inline mathtext::bounding_box_t
-   bounding_box(const std::wstring string,
-             const unsigned int family = FAMILY_PLAIN)
+   bounding_box(const std::wstring string, const unsigned int family = FAMILY_PLAIN) override
    {
-      if (TTF::fgCurFontIdx<0) return mathtext::bounding_box_t(0, 0, 0, 0, 0, 0);
-      if (string.empty() || TTF::fgFace[TTF::fgCurFontIdx] == NULL ||
-         TTF::fgFace[TTF::fgCurFontIdx]->units_per_EM == 0) {
+      if (string.empty())
          return mathtext::bounding_box_t(0, 0, 0, 0, 0, 0);
-      }
 
       std::wstring::const_iterator iterator = string.begin();
       float current_x = 0;
       mathtext::bounding_box_t ret =
-         bounding_box(*iterator, current_x, family);
+         bounding_box_char(*iterator, current_x, family);
 
       ++iterator;
       for (; iterator != string.end(); ++iterator) {
          const mathtext::point_t position =
             mathtext::point_t(current_x, 0);
          const mathtext::bounding_box_t glyph_bounding_box =
-            bounding_box(*iterator, current_x, family);
+            bounding_box_char(*iterator, current_x, family);
          ret = ret.merge(position + glyph_bounding_box);
       }
 
       return ret;
    }
-   inline void
-   text_raw(const float x, const float y,
-          const std::wstring string,
-          const unsigned int family = FAMILY_PLAIN)
+   void text_raw(const float x, const float y,
+                 const std::wstring string,
+                 const unsigned int family = FAMILY_PLAIN) override
    {
-      SetTextFont((Font_t) root_face_number(family));
       SetTextSize(_current_font_size[family]);
-      TAttText::Modify();
 
       wchar_t buf[2];
-      float advance = 0;
+      float current_x = 0;
 
       buf[1] = L'\0';
-      for (std::wstring::const_iterator iterator = string.begin(); iterator != string.end(); ++iterator) {
-         buf[0] = *iterator;
-         const bool cyrillic_or_cjk = is_cyrillic_or_cjk(buf[0]);
-
-         if (cyrillic_or_cjk) {
+      for (auto character : string) {
+         buf[0] = character;
+         const bool cyrillic_or_cjk = is_cyrillic_or_cjk(character);
+         if (cyrillic_or_cjk)
             SetTextFont((Font_t) root_cjk_face_number());
-            TAttText::Modify();
-         }
-
-         const mathtext::bounding_box_t b =
-            bounding_box(buf, family);
-         double xt;
-         double yt;
-
-         transform_pad(xt, yt, x + advance, y);
-         gPad->PaintText(xt, yt, buf);
-         advance += b.advance();
-         if (cyrillic_or_cjk) {
+         else
             SetTextFont((Font_t) root_face_number(family));
-            TAttText::Modify();
-         }
+
+         double xt, yt;
+
+         transform_pad(xt, yt, x + current_x, y);
+
+         TAttText::ModifyOn(*gPad);
+         gPad->PaintText(xt, yt, buf);
+
+         // use bounding function to advance current_x
+         bounding_box_char(character, current_x, family);
       }
    }
    inline void
    text_with_bounding_box(const float /*x*/, const float /*y*/,
                      const std::wstring /*string*/,
-                     const unsigned int /*family = FAMILY_PLAIN*/)
+                     const unsigned int /*family = FAMILY_PLAIN*/) override
    {
    }
    using mathtext::math_text_renderer_t::bounding_box;
 };
 
-ClassImp(TMathText);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.
 
-TMathText::TMathText(void)
+TMathText::TMathText()
    : TAttFill(0, 1001)
 {
    fRenderer = new TMathTextRenderer(this);
@@ -361,8 +335,9 @@ TMathText::TMathText(Double_t x, Double_t y, const char *text)
 ////////////////////////////////////////////////////////////////////////////////
 /// Destructor.
 
-TMathText::~TMathText(void)
+TMathText::~TMathText()
 {
+   delete fRenderer;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -371,7 +346,6 @@ TMathText::~TMathText(void)
 TMathText::TMathText(const TMathText &text)
    : TText(text), TAttFill(text)
 {
-   ((TMathText &)text).Copy(*this);
    fRenderer = new TMathTextRenderer(this);
 }
 
@@ -381,8 +355,10 @@ TMathText::TMathText(const TMathText &text)
 TMathText &TMathText::operator=(const TMathText &rhs)
 {
    if (this != &rhs) {
-      TText::operator    = (rhs);
-      TAttFill::operator = (rhs);
+      TText::operator=(rhs);
+      TAttFill::operator=(rhs);
+      delete fRenderer;
+      fRenderer = new TMathTextRenderer(this);
    }
    return *this;
 }
@@ -392,51 +368,44 @@ TMathText &TMathText::operator=(const TMathText &rhs)
 
 void TMathText::Copy(TObject &obj) const
 {
-   ((TMathText &)obj).fRenderer = fRenderer;
-   TText::Copy(obj);
-   TAttFill::Copy((TAttFill &)obj);
+   TMathText &tgt = (TMathText &)obj;
+   delete tgt.fRenderer;
+   TText::Copy(tgt);
+   TAttFill::Copy(tgt);
+   tgt.fRenderer = new TMathTextRenderer(&tgt);
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Render the text.
 
-void TMathText::
-Render(const Double_t x, const Double_t y, const Double_t size,
-      const Double_t angle, const Char_t *t, const Int_t /*length*/)
+void TMathText::Render(const Double_t x, const Double_t y, const Double_t size,
+                       const Double_t angle, const Char_t *t, const Int_t /*length*/)
 {
    const mathtext::math_text_t math_text(t);
-   TMathTextRenderer *renderer = (TMathTextRenderer *)fRenderer;
 
-   renderer->set_parameter(x, y, size, angle);
-   renderer->text(0, 0, math_text);
+   fRenderer->set_parameter(x, y, size, angle);
+   fRenderer->text(0, 0, math_text);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Get the text bounding box.
 
-void TMathText::
-GetSize(Double_t &x0, Double_t &y0, Double_t &x1, Double_t &y1,
-      const Double_t size, const Double_t angle, const Char_t *t,
-      const Int_t /*length*/)
+void TMathText::GetSize(Double_t &x0, Double_t &y0, Double_t &x1, Double_t &y1,
+                        const Double_t size, const Double_t angle, const Char_t *t,
+                        const Int_t /*length*/)
 {
    const mathtext::math_text_t math_text(t);
-   TMathTextRenderer *renderer = (TMathTextRenderer *)fRenderer;
 
-   renderer->set_parameter(0, 0, size, angle);
+   fRenderer->set_parameter(0, 0, size, angle);
 
-   const mathtext::bounding_box_t bounding_box =
-      renderer->bounding_box(math_text);
-   double x[4];
-   double y[4];
+   const mathtext::bounding_box_t bounding_box = fRenderer->bounding_box(math_text);
+   double x[4], y[4];
 
-   renderer->transform_pad(
-      x[0], y[0], bounding_box.left(), bounding_box.bottom());
-   renderer->transform_pad(
-      x[1], y[1], bounding_box.right(), bounding_box.bottom());
-   renderer->transform_pad(
-      x[2], y[2], bounding_box.right(), bounding_box.top());
-   renderer->transform_pad(
-      x[3], y[3], bounding_box.left(), bounding_box.top());
+   fRenderer->transform_pad(x[0], y[0], bounding_box.left(), bounding_box.bottom());
+   fRenderer->transform_pad(x[1], y[1], bounding_box.right(), bounding_box.bottom());
+   fRenderer->transform_pad(x[2], y[2], bounding_box.right(), bounding_box.top());
+   fRenderer->transform_pad(x[3], y[3], bounding_box.left(), bounding_box.top());
 
    x0 = std::min(std::min(x[0], x[1]), std::min(x[2], x[3]));
    y0 = std::min(std::min(y[0], y[1]), std::min(y[2], y[3]));
@@ -447,21 +416,17 @@ GetSize(Double_t &x0, Double_t &y0, Double_t &x1, Double_t &y1,
 ////////////////////////////////////////////////////////////////////////////////
 /// Alignment.
 
-void TMathText::
-GetAlignPoint(Double_t &x0, Double_t &y0,
-           const Double_t size, const Double_t angle,
-           const Char_t *t, const Int_t /*length*/,
-           const Short_t align)
+void TMathText::GetAlignPoint(Double_t &x0, Double_t &y0,
+                              const Double_t size, const Double_t angle,
+                              const Char_t *t, const Int_t /*length*/,
+                              const Short_t align)
 {
    const mathtext::math_text_t math_text(t);
-   TMathTextRenderer *renderer = (TMathTextRenderer *)fRenderer;
 
-   renderer->set_parameter(0, 0, size, angle);
+   fRenderer->set_parameter(0, 0, size, angle);
 
-   const mathtext::bounding_box_t bounding_box =
-      renderer->bounding_box(math_text);
-   float x = 0;
-   float y = 0;
+   const mathtext::bounding_box_t bounding_box = fRenderer->bounding_box(math_text);
+   float x = 0, y = 0;
 
    Short_t halign = align / 10;
    Short_t valign = align - 10 * halign;
@@ -478,7 +443,7 @@ GetAlignPoint(Double_t &x0, Double_t &y0,
       case 2:   y = bounding_box.vertical_center();   break;
       case 3:   y = bounding_box.top();               break;
    }
-   renderer->transform_pad(x0, y0, x, y);
+   fRenderer->transform_pad(x0, y0, x, y);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -486,15 +451,16 @@ GetAlignPoint(Double_t &x0, Double_t &y0,
 
 void TMathText::GetBoundingBox(UInt_t &w, UInt_t &h, Bool_t /*angle*/)
 {
+   if (!gPad) return;
    const TString newText = GetTitle();
    const Int_t length = newText.Length();
    const Char_t *text = newText.Data();
-   const Double_t size = GetTextSize();
 
    Double_t x0;
    Double_t y0;
    Double_t x1;
    Double_t y1;
+   Double_t size = GetTextSizePercent(GetTextSize());
 
    GetSize(x0, y0, x1, y1, size, 0, text, length);
    w = (UInt_t)(TMath::Abs(gPad->XtoAbsPixel(x1) - gPad->XtoAbsPixel(x0)));
@@ -564,6 +530,7 @@ TMathText *TMathText::DrawMathText(Double_t x, Double_t y, const char *text)
 
 void TMathText::Paint(Option_t *)
 {
+   if (!gPad) return;
    Double_t xsave = fX;
    Double_t ysave = fY;
 
@@ -585,25 +552,19 @@ void TMathText::Paint(Option_t *)
 void TMathText::PaintMathText(Double_t x, Double_t y, Double_t angle,
                               Double_t size, const Char_t *text1)
 {
+   if (!gPad) return;
    Double_t saveSize = size;
    Int_t saveFont    = fTextFont;
    Short_t saveAlign = fTextAlign;
 
    TAttText::Modify();
-   if (gVirtualPS) { // Initialise TMathTextRenderer
-      if (gPad->IsBatch()) {
-         if (gVirtualPS->InheritsFrom("TImageDump")) gPad->PaintText(0, 0, "");
-      }
+   if (auto ps = gPad->GetPainter()->GetPS()) { // Initialise TMathTextRenderer
+      if (ps->InheritsFrom("TImageDump")) gPad->PaintText(0, 0, "");
    }
 
    // Do not use Latex if font is low precision.
    if (fTextFont % 10 < 2) {
-      if (gVirtualX) {
-         gVirtualX->SetTextAngle(angle);
-      }
-      if (gVirtualPS) {
-         gVirtualPS->SetTextAngle(angle);
-      }
+      gPad->GetPainter()->SetTextAngle(angle);
       gPad->PaintText(x, y, text1);
       return;
    }
@@ -680,28 +641,17 @@ void TMathText::PaintMathText(Double_t x, Double_t y, Double_t angle,
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out
 
-void TMathText::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
+void TMathText::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   const char quote = '"';
+   SavePrimitiveConstructor(
+      out, Class(), "mathtex",
+      TString::Format("%g, %g, \"%s\"", fX, fY, TString(GetTitle()).ReplaceSpecialCppChars().Data()), kFALSE);
 
-   if (gROOT->ClassSaved(TMathText::Class())) {
-      out << "   ";
-   } else {
-      out << "   TMathText *";
-   }
-
-   TString s = GetTitle();
-
-   s.ReplaceAll("\\","\\\\");
-   s.ReplaceAll("\"","\\\"");
-   out << "mathtex = new TMathText("<< fX << "," << fY << ","
-      << quote << s.Data() << quote << ");" << std::endl;
-   if (TestBit(kTextNDC)) {
-      out << "mathtex->SetNDC();" << std::endl;
-   }
+   if (TestBit(kTextNDC))
+      out << "   mathtex->SetNDC();\n";
 
    SaveTextAttributes(out, "mathtex", 11, 0, 1, 42, 0.05);
    SaveFillAttributes(out, "mathtex", 0, 1001);
 
-   out<<"   mathtex->Draw();" << std::endl;
+   SavePrimitiveDraw(out, "mathtex", option);
 }

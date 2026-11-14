@@ -1,6 +1,5 @@
 // @(#)root/core:$Id$
 /// \file RConversionRuleParser.cxx
-/// \ingroup Base
 /// \author Victor Perev
 /// \author Philippe Canal
 /// \date 04/10/2003
@@ -195,6 +194,20 @@ namespace ROOT
          ///////////////////////////////////////////////////////////////////////
 
          if( key == "code" ) {
+            // Cleaning of the input command:
+            // - Trim whitespaces at the borders
+            // - Get the inner command (i.e. the part between quotes)
+            // - Trim whitespaces again
+            // - Stitch back together
+            auto clean_command = [](const std::string &c) {
+               auto first_trim = TSchemaRuleProcessor::Trim(c);
+               auto inner_command =
+                  first_trim.substr(first_trim.find_first_of('"') + 1, first_trim.find_last_of('"') - 1);
+               auto second_trim = TSchemaRuleProcessor::Trim(inner_command);
+               return '"' + second_trim + '"';
+            };
+            command = clean_command(command);
+
             if( command[1] != '{' ) {
                error_string = "Parsing error while processing key: code\n";
                error_string += "Expected \"{ at the beginning of the value.";
@@ -789,7 +802,17 @@ namespace ROOT
          }
 
          if( it->find( "source" ) != it->end() ) {
-            output << "      rule->fSource      = \"" << (*it)["source"];
+            // Normalize the type name first, in particular we need to remove the
+            // aliases.
+            SourceTypeList_t source;
+            TSchemaRuleProcessor::SplitDeclaration( (*it)["source"], source );
+            std::string norm_sources;
+            std::string norm_type;
+            for(auto it2 = source.begin(); it2 != source.end(); ++it2 ) {
+               TClassEdit::GetNormalizedName(norm_type, it2->first.fType);
+               norm_sources += norm_type + " " + it2->second + it2->first.fDimensions + "; ";
+            }
+            output << "      rule->fSource      = \"" << norm_sources;
             output << "\";" << std::endl;
          }
 
@@ -850,7 +873,7 @@ namespace ROOT
       //////////////////////////////////////////////////////////////////////////
 
       for( it = gReadRules.begin(); it != gReadRules.end(); ++it ) {
-         for( rule = it->second.begin(); rule != it->second.end(); ++rule ) {
+         for (rule = it->second.fRules.begin(); rule != it->second.fRules.end(); ++rule) {
             attr = rule->find( "include" );
             if( attr == rule->end() ) continue;
             TSchemaRuleProcessor::SplitList( attr->second, tmp );
@@ -863,7 +886,7 @@ namespace ROOT
       //////////////////////////////////////////////////////////////////////////
 
       for( it = gReadRawRules.begin(); it != gReadRawRules.end(); ++it ) {
-         for( rule = it->second.begin(); rule != it->second.end(); ++rule ) {
+         for (rule = it->second.fRules.begin(); rule != it->second.fRules.end(); ++rule) {
             attr = rule->find( "include" );
             if( attr == rule->end() ) continue;
             TSchemaRuleProcessor::SplitList( attr->second, tmp );
@@ -909,10 +932,10 @@ namespace ROOT
       if( it == gReadRules.end() ) {
          std::list<SchemaRuleMap_t> lst;
          lst.push_back( rule );
-         gReadRules[normalizedTargetName] = lst;
+         gReadRules[normalizedTargetName].fRules = lst;
       }
       else
-         it->second.push_back( rule );
+         it->second.fRules.push_back(rule);
    }
 
    /////////////////////////////////////////////////////////////////////////////
@@ -944,10 +967,10 @@ namespace ROOT
       if( it == gReadRawRules.end() ) {
          std::list<SchemaRuleMap_t> lst;
          lst.push_back( rule );
-         gReadRawRules[normalizedTargetName] = lst;
+         gReadRawRules[normalizedTargetName].fRules = lst;
       }
       else
-         it->second.push_back( rule );
+         it->second.fRules.push_back(rule);
    }
 
 

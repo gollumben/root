@@ -17,11 +17,13 @@
 #include "TBrowser.h"
 #include "TClass.h"
 #include "TMath.h"
-#include "snprintf.h"
+
+#include <cstdio>
+#include <sstream>
+#include <string>
 
 extern void Yields(Int_t &, Double_t *, Double_t &f, Double_t *x, Int_t iflag);
 
-ClassImp(TSPlot);
 
 /** \class TSPlot
 
@@ -233,7 +235,7 @@ for signal reproduces correctly the PDF even where the latter vanishes,
 although the error bars remain sizeable. This results from the almost
 complete cancellation between positive and negative weights: the sum of
 weights is close to zero while the sum of weights squared is not. The
-occurence of negative weights occurs through the appearance of the
+occurrence of negative weights occurs through the appearance of the
 covariance matrix, and its negative components, in the definition of
 Eq. (2).
 
@@ -286,17 +288,13 @@ The results above can be obtained by running the tutorial TestSPlot.C
 ////////////////////////////////////////////////////////////////////////////////
 /// default constructor (used by I/O only)
 
-TSPlot::TSPlot() :
- fTree(0),
- fTreename(0),
- fVarexp(0),
- fSelection(0)
+TSPlot::TSPlot()
 {
    fNx = 0;
    fNy=0;
    fNevents = 0;
    fNSpecies=0;
-   fNumbersOfEvents=0;
+   fNumbersOfEvents=nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -307,11 +305,7 @@ TSPlot::TSPlot() :
 ///  - ns :  number of species
 ///  - tree: input data
 
-TSPlot::TSPlot(Int_t nx, Int_t ny, Int_t ne, Int_t ns, TTree *tree) :
- fTreename(0),
- fVarexp(0),
- fSelection(0)
-
+TSPlot::TSPlot(Int_t nx, Int_t ny, Int_t ne, Int_t ns, TTree *tree)
 {
    fNx = nx;
    fNy=ny;
@@ -323,7 +317,7 @@ TSPlot::TSPlot(Int_t nx, Int_t ny, Int_t ne, Int_t ns, TTree *tree) :
    fYpdf.ResizeTo(fNevents, fNSpecies*fNy);
    fSWeights.ResizeTo(fNevents, fNSpecies*(fNy+1));
    fTree = tree;
-   fNumbersOfEvents = 0;
+   fNumbersOfEvents = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -348,26 +342,26 @@ void TSPlot::Browse(TBrowser *b)
 {
    if (!fSWeightsHists.IsEmpty()) {
       TIter next(&fSWeightsHists);
-      TH1D* h = 0;
+      TH1D* h = nullptr;
       while ((h = (TH1D*)next()))
          b->Add(h,h->GetName());
    }
 
    if (!fYpdfHists.IsEmpty()) {
       TIter next(&fYpdfHists);
-      TH1D* h = 0;
+      TH1D* h = nullptr;
       while ((h = (TH1D*)next()))
          b->Add(h,h->GetName());
    }
    if (!fYvarHists.IsEmpty()) {
       TIter next(&fYvarHists);
-      TH1D* h = 0;
+      TH1D* h = nullptr;
       while ((h = (TH1D*)next()))
          b->Add(h,h->GetName());
    }
    if (!fXvarHists.IsEmpty()) {
       TIter next(&fXvarHists);
-      TH1D* h = 0;
+      TH1D* h = nullptr;
       while ((h = (TH1D*)next()))
          b->Add(h,h->GetName());
    }
@@ -391,7 +385,7 @@ void TSPlot::SetInitialNumbersOfSpecies(Int_t *numbers)
 ///
 /// The option controls the print level
 ///  - "Q" - no print out
-///  - "V" - prints the estimated #of events in species - default
+///  - "V" - prints the estimated `#of events` in species - default
 ///  - "VV" - as "V" + the minuit printing + sums of weights for control
 
 void TSPlot::MakeSPlot(Option_t *option)
@@ -416,7 +410,7 @@ void TSPlot::MakeSPlot(Option_t *option)
    }
 
 
-   TVirtualFitter *minuit = TVirtualFitter::Fitter(0, 2);
+   TVirtualFitter *minuit = TVirtualFitter::Fitter(nullptr, 2);
    fPdfTot.ResizeTo(fNevents, fNSpecies);
 
    //now let's do it, excluding different yvars
@@ -530,10 +524,9 @@ void TSPlot::FillXvarHists(Int_t nbins)
    }
 
    //make the histograms
-   char name[12];
    for (i=0; i<fNx; i++){
-      snprintf(name,sizeof(name), "x%d", i);
-      TH1D *h = new TH1D(name, name, nbins, fMinmax(0, i), fMinmax(1, i));
+      std::string name = "x" + std::to_string(i);
+      TH1D *h = new TH1D(name.c_str(), name.c_str(), nbins, fMinmax(0, i), fMinmax(1, i));
       for (j=0; j<fNevents; j++)
          h->Fill(fXvar(j, i));
       fXvarHists.Add(h);
@@ -587,10 +580,9 @@ void TSPlot::FillYvarHists(Int_t nbins)
    }
 
    //make the histograms
-   char name[12];
    for (i=0; i<fNy; i++){
-      snprintf(name,sizeof(name), "y%d", i);
-      TH1D *h=new TH1D(name, name, nbins, fMinmax(0, fNx+i), fMinmax(1, fNx+i));
+      std::string name = "y" + std::to_string(i);
+      TH1D *h=new TH1D(name.c_str(), name.c_str(), nbins, fMinmax(0, fNx+i), fMinmax(1, fNx+i));
       for (j=0; j<fNevents; j++)
          h->Fill(fYvar(j, i));
       fYvarHists.Add(h);
@@ -639,12 +631,13 @@ void TSPlot::FillYpdfHists(Int_t nbins)
          return;
    }
 
-   char name[34];
    for (ispecies=0; ispecies<fNSpecies; ispecies++){
       for (i=0; i<fNy; i++){
-         snprintf(name,sizeof(name), "pdf_species%d_y%d", ispecies, i);
+         std::stringstream nameStream;
+         nameStream << "pdf_species" << ispecies << "_y" << i;
+         std::string name = nameStream.str();
          //TH1D *h = new TH1D(name, name, nbins, ypdfmin[ispecies*fNy+i], ypdfmax[ispecies*fNy+i]);
-         TH1D *h = new TH1D(name, name, nbins, fMinmax(0, fNx+fNy+ispecies*fNy+i), fMinmax(1, fNx+fNy+ispecies*fNy+i));
+         TH1D *h = new TH1D(name.c_str(), name.c_str(), nbins, fMinmax(0, fNx+fNy+ispecies*fNy+i), fMinmax(1, fNx+fNy+ispecies*fNy+i));
          for (j=0; j<fNevents; j++)
             h->Fill(fYpdf(j, ispecies*fNy+i));
          fYpdfHists.Add(h);
@@ -667,7 +660,7 @@ TObjArray* TSPlot::GetYpdfHists()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Returns the histogram of the pdf of variable iyvar for species #ispecies, binning nbins.
+/// Returns the histogram of the pdf of variable iyvar for species `#ispecies`, binning nbins.
 /// If histograms have not already
 /// been filled, they are filled with default binning 100.
 
@@ -702,13 +695,13 @@ void TSPlot::FillSWeightsHists(Int_t nbins)
          return;
    }
 
-   char name[30];
-
    //Fill histograms of x-variables weighted with sWeights
    for (Int_t ivar=0; ivar<fNx; ivar++){
       for (Int_t ispecies=0; ispecies<fNSpecies; ispecies++){
-            snprintf(name,30, "x%d_species%d", ivar, ispecies);
-            TH1D *h = new TH1D(name, name, nbins, fMinmax(0, ivar), fMinmax(1, ivar));
+            std::stringstream nameStream;
+            nameStream << "x" << ivar << "_species" << ispecies;
+            std::string name = nameStream.str();
+            TH1D *h = new TH1D(name.c_str(), name.c_str(), nbins, fMinmax(0, ivar), fMinmax(1, ivar));
             h->Sumw2();
             for (Int_t ievent=0; ievent<fNevents; ievent++)
                h->Fill(fXvar(ievent, ivar), fSWeights(ievent, ispecies));
@@ -719,8 +712,10 @@ void TSPlot::FillSWeightsHists(Int_t nbins)
    //Fill histograms of y-variables (excluded from the fit), weighted with sWeights
    for (Int_t iexcl=0; iexcl<fNy; iexcl++){
       for(Int_t ispecies=0; ispecies<fNSpecies; ispecies++){
-            snprintf(name,30, "y%d_species%d", iexcl, ispecies);
-            TH1D *h = new TH1D(name, name, nbins, fMinmax(0, fNx+iexcl), fMinmax(1, fNx+iexcl));
+            std::stringstream nameStream;
+            nameStream << "y" << iexcl << "_species" << ispecies;
+            std::string name = nameStream.str();
+            TH1D *h = new TH1D(name.c_str(), name.c_str(), nbins, fMinmax(0, fNx+iexcl), fMinmax(1, fNx+iexcl));
             h->Sumw2();
             for (Int_t ievent=0; ievent<fNevents; ievent++)
                h->Fill(fYvar(ievent, iexcl), fSWeights(ievent, fNSpecies*(iexcl+1)+ispecies));
@@ -751,11 +746,11 @@ TObjArray *TSPlot::GetSWeightsHists()
 ///
 ///Parameters:
 ///
-///  - type = 1 - histogram of x variable #nvar
-///  - type = 2 - histogram of y variable #nvar
-///  - type = 3 - histogram of y_pdf for y #nvar and species #nspecies
-///  - type = 4 - histogram of x variable #nvar, species #nspecies, WITH sWeights
-///  - type = 5 - histogram of y variable #nvar, species #nspecies, WITH sWeights
+///  - type = 1 - histogram of x variable `#%nvar`
+///  - type = 2 - histogram of y variable `#%nvar`
+///  - type = 3 - histogram of y_pdf for y `#%nvar` and species #%nspecies`
+///  - type = 4 - histogram of x variable `#%nvar`, species `#%nspecies`, WITH sWeights
+///  - type = 5 - histogram of y variable `#%nvar`, species `#%nspecies`, WITH sWeights
 
 void TSPlot::RefillHist(Int_t type, Int_t nvar, Int_t nbins, Double_t min, Double_t max, Int_t nspecies)
 {
@@ -1013,7 +1008,7 @@ void TSPlot::SetTreeSelection(const char* varexp, const char *selection, Long64_
 
 void Yields(Int_t &, Double_t *, Double_t &f, Double_t *x, Int_t /*iflag*/)
 {
-   Double_t lik;
+   Double_t likelihood;
    Int_t i, ispecies;
 
    TVirtualFitter *fitter = TVirtualFitter::GetFitter();
@@ -1022,11 +1017,11 @@ void Yields(Int_t &, Double_t *, Double_t &f, Double_t *x, Int_t /*iflag*/)
    Int_t nes = pdftot->GetNcols();
    f=0;
    for (i=0; i<nev; i++){
-      lik=0;
+      likelihood=0;
       for (ispecies=0; ispecies<nes; ispecies++)
-         lik+=x[ispecies]*(*pdftot)(i, ispecies);
-      if (lik<0) lik=1;
-      f+=TMath::Log(lik);
+         likelihood+=x[ispecies]*(*pdftot)(i, ispecies);
+      if (likelihood<0) likelihood=1;
+      f+=TMath::Log(likelihood);
    }
    //extended likelihood, equivalent to chi2
    Double_t ntot=0;

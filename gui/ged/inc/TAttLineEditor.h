@@ -34,15 +34,15 @@ protected:
    virtual void   ConnectSignals2Slots();
 
 public:
-   TAttLineEditor(const TGWindow *p = 0,
+   TAttLineEditor(const TGWindow *p = nullptr,
                   Int_t width = 140, Int_t height = 30,
                   UInt_t options = kChildFrame,
                   Pixel_t back = GetDefaultFrameBackground());
-   virtual ~TAttLineEditor();
+   ~TAttLineEditor() override;
 
-   virtual void   SetModel(TObject* obj);
+   void   SetModel(TObject* obj) override;
    virtual void   DoLineColor(Pixel_t color);
-   virtual void   DoLineAlphaColor(ULong_t p);
+   virtual void   DoLineAlphaColor(ULongptr_t p);
    virtual void   DoLineStyle(Int_t style);
    virtual void   DoLineWidth(Int_t width);
    virtual void   DoAlpha();
@@ -50,7 +50,7 @@ public:
    virtual void   DoLiveAlpha(Int_t a);
    virtual void   GetCurAlpha();
 
-   ClassDef(TAttLineEditor,0)  // GUI for editing line attributes
+   ClassDefOverride(TAttLineEditor,0)  // GUI for editing line attributes
 };
 
 #endif

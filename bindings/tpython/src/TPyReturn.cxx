@@ -9,10 +9,11 @@
 //  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
 //  *************************************************************************/
 
+#include <Python.h>
+
 // Bindings
-#include "CPyCppyy.h"
+#include "cpyrt/API.h"
 #include "TPyReturn.h"
-#include "CPPInstance.h"
 
 // ROOT
 #include "TObject.h"
@@ -41,13 +42,23 @@
 //  (double)4.14150000000000063e+00
 
 //- data ---------------------------------------------------------------------
-ClassImp(TPyReturn);
+
+namespace {
+   class PyGILRAII {
+      PyGILState_STATE m_GILState;
+   public:
+      PyGILRAII() : m_GILState(PyGILState_Ensure()) { }
+      ~PyGILRAII() { PyGILState_Release(m_GILState); }
+   };
+}
 
 //- constructors/destructor --------------------------------------------------
 TPyReturn::TPyReturn()
 {
+   PyGILRAII gilRaii;
+
    // Construct a TPyReturn object from Py_None.
-   Py_INCREF(Py_None);
+   Py_IncRef(Py_None);
    fPyObject = Py_None;
 }
 
@@ -57,8 +68,10 @@ TPyReturn::TPyReturn()
 
 TPyReturn::TPyReturn(PyObject *pyobject)
 {
+   PyGILRAII gilRaii;
+
    if (!pyobject) {
-      Py_INCREF(Py_None);
+      Py_IncRef(Py_None);
       fPyObject = Py_None;
    } else
       fPyObject = pyobject; // steals reference
@@ -69,7 +82,9 @@ TPyReturn::TPyReturn(PyObject *pyobject)
 
 TPyReturn::TPyReturn(const TPyReturn &other)
 {
-   Py_INCREF(other.fPyObject);
+   PyGILRAII gilRaii;
+
+   Py_IncRef(other.fPyObject);
    fPyObject = other.fPyObject;
 }
 
@@ -78,9 +93,11 @@ TPyReturn::TPyReturn(const TPyReturn &other)
 
 TPyReturn &TPyReturn::operator=(const TPyReturn &other)
 {
+   PyGILRAII gilRaii;
+
    if (this != &other) {
-      Py_INCREF(other.fPyObject);
-      Py_DECREF(fPyObject);
+      Py_IncRef(other.fPyObject);
+      Py_DecRef(fPyObject);
       fPyObject = other.fPyObject;
    }
 
@@ -92,12 +109,16 @@ TPyReturn &TPyReturn::operator=(const TPyReturn &other)
 
 TPyReturn::~TPyReturn()
 {
-   Py_DECREF(fPyObject);
+   PyGILRAII gilRaii;
+
+   Py_DecRef(fPyObject);
 }
 
 //- public members -----------------------------------------------------------
 TPyReturn::operator char *() const
 {
+   PyGILRAII gilRaii;
+
    // Cast python return value to C-style string (may fail).
    return (char *)((const char *)*this);
 }
@@ -107,10 +128,12 @@ TPyReturn::operator char *() const
 
 TPyReturn::operator const char *() const
 {
+   PyGILRAII gilRaii;
+
    if (fPyObject == Py_None) // for void returns
       return 0;
 
-   const char *s = CPyCppyy_PyText_AsString(fPyObject);
+   const char *s = PyUnicode_AsUTF8AndSize(fPyObject, nullptr);
    if (PyErr_Occurred()) {
       PyErr_Print();
       return 0;
@@ -124,6 +147,8 @@ TPyReturn::operator const char *() const
 
 TPyReturn::operator Char_t() const
 {
+   PyGILRAII gilRaii;
+
    std::string s = operator const char *();
    if (s.size())
       return s[0];
@@ -136,6 +161,8 @@ TPyReturn::operator Char_t() const
 
 TPyReturn::operator Long_t() const
 {
+   PyGILRAII gilRaii;
+
    Long_t l = PyLong_AsLong(fPyObject);
 
    if (PyErr_Occurred())
@@ -149,6 +176,8 @@ TPyReturn::operator Long_t() const
 
 TPyReturn::operator ULong_t() const
 {
+   PyGILRAII gilRaii;
+
    ULong_t ul = PyLong_AsUnsignedLong(fPyObject);
 
    if (PyErr_Occurred())
@@ -162,6 +191,8 @@ TPyReturn::operator ULong_t() const
 
 TPyReturn::operator Double_t() const
 {
+   PyGILRAII gilRaii;
+
    Double_t d = PyFloat_AsDouble(fPyObject);
 
    if (PyErr_Occurred())
@@ -172,16 +203,18 @@ TPyReturn::operator Double_t() const
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Cast python return value to ROOT object with dictionary (may fail; note that
-/// you have to use the void* converter, as CINT will not call any other).
+/// you have to use the void* converter, as Cling will not call any other).
 
 TPyReturn::operator void *() const
 {
-   if (fPyObject == Py_None)
-      return 0;
+   PyGILRAII gilRaii;
 
-   if (CPyCppyy::CPPInstance_Check(fPyObject)) {
-      ((CPyCppyy::CPPInstance *)fPyObject)->CppOwns();
-      return ((CPyCppyy::CPPInstance *)fPyObject)->GetObject();
+   if (fPyObject == Py_None)
+      return nullptr;
+
+   if (cppjit::cpyrt::Instance_Check(fPyObject)) {
+      cppjit::cpyrt::Instance_SetCppOwns(fPyObject);
+      return cppjit::cpyrt::Instance_AsVoidPtr(fPyObject);
    } else
       return fPyObject; // borrows reference
 }
@@ -191,9 +224,11 @@ TPyReturn::operator void *() const
 
 TPyReturn::operator PyObject *() const
 {
+   PyGILRAII gilRaii;
+
    if (fPyObject == Py_None)
       return 0;
 
-   Py_INCREF(fPyObject);
+   Py_IncRef(fPyObject);
    return fPyObject;
 }

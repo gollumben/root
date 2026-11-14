@@ -42,10 +42,8 @@ class TGTabElement;
 class TGVerticalFrame;
 class TGHorizontalFrame;
 class TGPictureButton;
-class THtml;
 class TGLabel;
 class TProcessID;
-class TGHtml;
 
 class TGDocument : public TNamed {
 
@@ -61,7 +59,7 @@ public:
    TGDocument(const char *fname = "", const char *title = "", Int_t tabid = 0,
              TGTab *tab = 0, TGTabElement *tabel = 0, TGTextEdit *edit = 0,
              TObjArray *doclist = 0);
-   virtual ~TGDocument() { }
+   ~TGDocument() override { }
 
    Bool_t         Open(const char *filename);
    Bool_t         Close();
@@ -76,7 +74,7 @@ public:
    void           DataChanged();
    void           DataDropped(char *fname);
 
-   ClassDef(TGDocument,0)  // Simple class describing document used in TGRootIDE
+   ClassDefOverride(TGDocument,0)  // Simple class describing document used in TGRootIDE
 };
 
 class TGRootIDE : public TGMainFrame {
@@ -118,16 +116,6 @@ protected:
 
    TGVerticalFrame   *fVerticalFrame;     // vertical frame
    TGHorizontalFrame *fHorizontalFrame;   // horizontal frame
-   TGPictureButton   *fBack;              // back button
-   TGPictureButton   *fForward;           // forward button
-   TGPictureButton   *fReload;            // reload button
-   TGPictureButton   *fStop;              // stop loading button
-   TGPictureButton   *fHome;              // home button
-   TGComboBox        *fComboBox;          // url history combo box
-   TGTextBuffer      *fURLBuf;            // url buffer
-   TGTextEntry       *fURL;               // url text entry
-   THtml             *fHtml;              // html doc
-   TGHtml            *fGuiHtml;           // html widget
 
    virtual void       Build();
 
@@ -136,12 +124,12 @@ public:
                 UInt_t w = 900, UInt_t h = 600);
    TGRootIDE(TMacro *macro, const TGWindow *p = 0, UInt_t w = 0,
                 UInt_t h = 0);
-   virtual ~TGRootIDE();
+   ~TGRootIDE() override;
 
-   virtual Bool_t ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2);
-   virtual Bool_t HandleKey(Event_t *event);
-   virtual Bool_t HandleTimer(TTimer *t);
-   virtual void   CloseWindow();
+   Bool_t ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2) override;
+   Bool_t HandleKey(Event_t *event) override;
+   Bool_t HandleTimer(TTimer *t) override;
+   void   CloseWindow() override;
 
    void           ClearText();
    Bool_t         LoadBuffer(const char *buf) { return fTextEdit->LoadBuffer(buf); }
@@ -174,15 +162,8 @@ public:
    void           DirSelected(const char *txt);
    void           DirChanged();
    void           Selected(const char *txt);
-   void           URLChanged();
-   void           Back();
-   void           Forward();
-   void           Reload();
-   void           Stop();
-   void           MouseOver(char *);
-   void           MouseDown(char *);
 
-   ClassDef(TGRootIDE,0)  // Simple IDE using TGTextEdit and TGHtml widgets
-};
+   ClassDefOverride(TGRootIDE,0)  // Simple IDE using TGTextEdit widgets
+}
 
 #endif

@@ -1,25 +1,27 @@
 // Tests for the RooDataSet
 // Authors: Stephan Hageboeck, CERN  04/2020
+//          Jonas Rembser, CERN  04/2022
 
-#include "RooDataSet.h"
-#include "RooDataHist.h"
-#include "RooRealVar.h"
-#include "RooHelpers.h"
-#include "RooCategory.h"
-
-#include <TFile.h>
-#include <TTree.h>
-#include <TChain.h>
+#include <RooAbsPdf.h>
+#include <RooCategory.h>
 #include <RooDataHist.h>
-#include <TRandom3.h>
-#include <TH1F.h>
+#include <RooDataSet.h>
+#include <RooFormulaVar.h>
+#include <RooHelpers.h>
+#include <RooRealVar.h>
+#include <RooStringVar.h>
+#include <RooVectorDataStore.h>
+#include <RooWorkspace.h>
+
+#include <TChain.h>
 #include <TCut.h>
+#include <TFile.h>
+#include <TH1F.h>
+#include <TRandom3.h>
 #include <TSystem.h>
+#include <TTree.h>
 
-#include <TRandom3.h>
-#include <TH1F.h>
-#include <TCut.h>
-
+#include <cmath>
 #include <fstream>
 #include <memory>
 
@@ -31,231 +33,582 @@
 /// make use of all variables. Although true, the user has no way to suppress this.
 TEST(RooDataSet, ImportFromTreeWithCut)
 {
-  RooHelpers::HijackMessageStream hijack(RooFit::INFO, RooFit::InputArguments);
+   RooHelpers::HijackMessageStream hijack(RooFit::INFO, RooFit::InputArguments);
 
-  TTree tree("tree", "tree");
-  double thex, they;
-  tree.Branch("x", &thex);
-  tree.Branch("y", &they);
-  tree.Branch("z", &they);
-  thex = -0.337;
-  they = 1.;
-  tree.Fill();
+   TTree tree("tree", "tree");
+   double theXVal;
+   double theYVal;
+   tree.Branch("x", &theXVal);
+   tree.Branch("y", &theYVal);
+   tree.Branch("z", &theYVal);
+   theXVal = -0.337;
+   theYVal = 1.;
+   tree.Fill();
 
-  thex = 0.337;
-  they = 1.;
-  tree.Fill();
+   theXVal = 0.337;
+   theYVal = 1.;
+   tree.Fill();
 
-  thex = 1.337;
-  they = 1.;
-  tree.Fill();
+   theXVal = 1.337;
+   theYVal = 1.;
+   tree.Fill();
 
-  RooRealVar x("x", "x", 0);
-  RooRealVar y("y", "y", 0);
-  RooRealVar z("z", "z", 0);
-  RooDataSet data("data", "data", &tree, RooArgSet(x, y, z), "x>y");
+   RooRealVar x("x", "x", 0);
+   RooRealVar y("y", "y", 0);
+   RooRealVar z("z", "z", 0);
+   RooDataSet data("data", "data", {x, y, z}, RooFit::Import(tree), RooFit::Cut("x>y"));
 
-  EXPECT_TRUE(hijack.str().empty()) << "Messages issued were: " << hijack.str();
-  EXPECT_EQ(data.numEntries(), 1);
+   EXPECT_TRUE(hijack.str().empty()) << "Messages issued were: " << hijack.str();
+   EXPECT_EQ(data.numEntries(), 1);
 
-  RooRealVar* theX = dynamic_cast<RooRealVar*>(data.get(0)->find("x"));
-  ASSERT_NE(theX, nullptr);
-  EXPECT_FLOAT_EQ(theX->getVal(), 1.337);
+   RooRealVar *theX = dynamic_cast<RooRealVar *>(data.get(0)->find("x"));
+   ASSERT_NE(theX, nullptr);
+   EXPECT_FLOAT_EQ(theX->getVal(), 1.337);
 }
 #endif
 
 /// ROOT-9528 Branch names are capped after a certain number of characters
-TEST(RooDataSet, ImportLongBranchNames) {
+TEST(RooDataSet, ImportLongBranchNames)
+{
 
-  TTree tree("theTree", "theTree");
-  double doub = 0.;
-  tree.Branch("HLT_mu6_mu4_bBmumux_BsmumuPhi_delayed_L1BPH_2M8_MU6MU4_BPH_0DR15_MU6MU4", &doub);
-  doub = 2.;
-  tree.Fill();
-  doub = 4.;
-  tree.Fill();
+   TTree tree("theTree", "theTree");
+   double myDouble = 0.;
+   tree.Branch("HLT_mu6_mu4_bBmumux_BsmumuPhi_delayed_L1BPH_2M8_MU6MU4_BPH_0DR15_MU6MU4", &myDouble);
+   myDouble = 2.;
+   tree.Fill();
+   myDouble = 4.;
+   tree.Fill();
 
-  RooRealVar *v = new RooRealVar("HLT_mu6_mu4_bBmumux_BsmumuPhi_delayed_L1BPH_2M8_MU6MU4_BPH_0DR15_MU6MU4", "HLT_mu6_mu4_bBmumux_BsmumuPhi_delayed_L1BPH_2M8_MU6MU4_BPH_0DR15_MU6MU4", 0., -100000., 100000.);
+   RooRealVar *v =
+      new RooRealVar("HLT_mu6_mu4_bBmumux_BsmumuPhi_delayed_L1BPH_2M8_MU6MU4_BPH_0DR15_MU6MU4",
+                     "HLT_mu6_mu4_bBmumux_BsmumuPhi_delayed_L1BPH_2M8_MU6MU4_BPH_0DR15_MU6MU4", 0., -100000., 100000.);
 
-  RooDataSet ds("ds", "ds", RooArgSet(*v), RooFit::Import(tree));
-  EXPECT_EQ(static_cast<RooRealVar*>(ds.get(0)->find(*v))->getVal(), 2.);
-  EXPECT_EQ(static_cast<RooRealVar*>(ds.get(1)->find(*v))->getVal(), 4.);
-  EXPECT_EQ(ds.numEntries(), 2);
-  EXPECT_DOUBLE_EQ(ds.sumEntries("HLT_mu6_mu4_bBmumux_BsmumuPhi_delayed_L1BPH_2M8_MU6MU4_BPH_0DR15_MU6MU4 > 3."), 1.);
+   RooDataSet ds("ds", "ds", RooArgSet(*v), RooFit::Import(tree));
+   EXPECT_EQ(static_cast<RooRealVar *>(ds.get(0)->find(*v))->getVal(), 2.);
+   EXPECT_EQ(static_cast<RooRealVar *>(ds.get(1)->find(*v))->getVal(), 4.);
+   EXPECT_EQ(ds.numEntries(), 2);
+   EXPECT_DOUBLE_EQ(ds.sumEntries("HLT_mu6_mu4_bBmumux_BsmumuPhi_delayed_L1BPH_2M8_MU6MU4_BPH_0DR15_MU6MU4 > 3."), 1.);
 }
-
 
 /// ROOT-3579 Binned clone seemed to create problems with chains.
 /// Code adapted from example in JIRA.
-TEST(RooDataSet, BinnedClone) {
-  const char* filename[2] = {"RooDataSet_BinnedClone1.root", "RooDataSet_BinnedClone2.root"};
-  double sumW = 0;
+TEST(RooDataSet, BinnedClone)
+{
+   const char *filename[2] = {"RooDataSet_BinnedClone1.root", "RooDataSet_BinnedClone2.root"};
+   double sumW = 0;
 
-  for (unsigned int i=0; i < 2; ++i) {
-    TFile file(filename[i], "RECREATE");
-    TTree tree("cand", "cand");
-    double Mes,weight;
-    tree.Branch("Mes", &Mes);
-    tree.Branch("weight", &weight);
+   for (unsigned int i = 0; i < 2; ++i) {
+      TFile file(filename[i], "RECREATE");
+      TTree tree("cand", "cand");
+      double Mes;
+      double weight;
+      tree.Branch("Mes", &Mes);
+      tree.Branch("weight", &weight);
 
-    for (unsigned int j=0; j<20; ++j) {
-      Mes = 5.24 + j*0.05/20. + i*0.0003;
-      weight = 1.3 + j + i;
-      sumW += weight;
-      tree.Fill();
-    }
-    file.WriteObject(&tree, "cand");
-    file.Close();
-  }
+      for (unsigned int j = 0; j < 20; ++j) {
+         Mes = 5.24 + j * 0.05 / 20. + i * 0.0003;
+         weight = 1.3 + j + i;
+         sumW += weight;
+         tree.Fill();
+      }
+      file.WriteObject(&tree, "cand");
+      file.Close();
+   }
 
-  TChain chain("cand");
-  chain.Add(filename[0]);
-  chain.Add(filename[1]);
-  RooRealVar mes("Mes","Mes",5.28,5.24,5.29);
-  mes.setBin(40);
-  RooRealVar weight("weight","weight",1,0,100);
-  RooDataSet* data = new RooDataSet("dataset", "dataset", &chain, RooArgSet(mes,weight), 0, weight.GetName());
-  RooDataHist* hist = data->binnedClone();
+   TChain chain("cand");
+   chain.Add(filename[0]);
+   chain.Add(filename[1]);
+   RooRealVar mes("Mes", "Mes", 5.28, 5.24, 5.29);
+   mes.setBin(40);
+   RooRealVar weight("weight", "weight", 1, 0, 100);
 
-  EXPECT_DOUBLE_EQ(hist->sumEntries(), sumW);
+   {
+      RooDataSet data{"dataset", "dataset", {mes, weight}, RooFit::Import(chain), RooFit::WeightVar(weight.GetName())};
+      std::unique_ptr<RooDataHist> hist{data.binnedClone()};
 
-  delete hist;//invalid read here
-  delete data;//and here too
+      EXPECT_DOUBLE_EQ(hist->sumEntries(), sumW);
 
-  gSystem->Unlink(filename[0]);
-  gSystem->Unlink(filename[1]);
+      // the original crash happened when "hist" and "data" got destructed
+   }
+
+   gSystem->Unlink(filename[0]);
+   gSystem->Unlink(filename[1]);
 }
 
-
-
 /// ROOT-4580, possibly solved by ROOT-10517
-TEST(RooDataSet, ReducingData) {
-  //Test Data hist and such.
-  TTree mytree("tree","tree") ;
-  double mass_x, track0_chi2_x, track1_chi2_x;
+TEST(RooDataSet, ReducingData)
+{
+   // Test Data hist and such.
+   TTree mytree("tree", "tree");
+   double mass_x;
+   double track0_chi2_x;
+   double track1_chi2_x;
 
-  mytree.Branch("track0_chi2",&track0_chi2_x,"track0_chi2/D");
-  mytree.Branch("track1_chi2",&track1_chi2_x,"track1_chi2/D");
-  mytree.Branch("mass",&mass_x,"mass/D");
-  for (int i=0; i < 50; i++) {
-    track0_chi2_x = gRandom->Landau(1,0.5);
-    track1_chi2_x = gRandom->Landau(1,0.5);
-    mass_x = gRandom->Gaus(20, 0.5);
-    mytree.Fill() ;
-  }
+   mytree.Branch("track0_chi2", &track0_chi2_x, "track0_chi2/D");
+   mytree.Branch("track1_chi2", &track1_chi2_x, "track1_chi2/D");
+   mytree.Branch("mass", &mass_x, "mass/D");
+   for (int i = 0; i < 50; i++) {
+      track0_chi2_x = gRandom->Landau(1, 0.5);
+      track1_chi2_x = gRandom->Landau(1, 0.5);
+      mass_x = gRandom->Gaus(20, 0.5);
+      mytree.Fill();
+   }
 
-  Double_t chi2cutval = 1.0;
-  constexpr Double_t massmin = 0;
-  constexpr Double_t massmax = 40;
+   double chi2cutval = 1.0;
+   constexpr double massmin = 0;
+   constexpr double massmax = 40;
 
-  //Now use roofit
-  //observables from ttree
-  RooRealVar mymass("mass", "mass", massmin, massmax);
-  RooRealVar track0_chi2("track0_chi2", "track0_chi2", -10., 90);
-  RooRealVar track1_chi2("track1_chi2", "track1_chi2", -10., 90);
+   // Now use roofit
+   // observables from ttree
+   RooRealVar mymass("mass", "mass", massmin, massmax);
+   RooRealVar track0_chi2("track0_chi2", "track0_chi2", -10., 90);
+   RooRealVar track1_chi2("track1_chi2", "track1_chi2", -10., 90);
 
-  //get the datasets
-  RooDataSet *data_unbinned = new RooDataSet("mass_example","mass example", &mytree, RooArgSet(mymass,track0_chi2,track1_chi2));
-  std::unique_ptr<RooDataHist> data( data_unbinned->binnedClone("data") );
+   // get the datasets
+   RooDataSet data_unbinned{"mass_example", "mass example", {mymass, track0_chi2, track1_chi2}, RooFit::Import(mytree)};
+   std::unique_ptr<RooDataHist> data(data_unbinned.binnedClone("data"));
 
-  for (int i=0; i<3; ++i){
-    // Check with root:
-    TH1F test_hist(Form("h%i", i), "histo", 10, massmin, massmax);
-    chi2cutval+=0.5;
+   for (int i = 0; i < 3; ++i) {
+      // Check with root:
+      TH1F test_hist(("h" + std::to_string(i)).c_str(), "histo", 10, massmin, massmax);
+      test_hist.SetDirectory(gDirectory); // TTree::Draw needs to find the histogram
+      chi2cutval += 0.5;
 
-    TCut chi2_test_cut = Form("max(track0_chi2,track1_chi2)<%f",chi2cutval);
+      std::stringstream cutString;
+      cutString << "max(track0_chi2,track1_chi2)<" << chi2cutval;
+      TCut chi2_test_cut = cutString.str().c_str();
 
-    Long64_t drawnEvents = mytree.Draw(Form("mass>>h%i", i), chi2_test_cut /*&& mass_cut*/);
-    ASSERT_NE(drawnEvents, 0l);
-    ASSERT_EQ(test_hist.Integral(), drawnEvents);
+      std::string drawString = std::string{"mass>>"} + test_hist.GetName();
+      Long64_t drawnEvents = mytree.Draw(drawString.c_str(), chi2_test_cut /*&& mass_cut*/);
+      ASSERT_NE(drawnEvents, 0l);
+      ASSERT_EQ(test_hist.Integral(), drawnEvents);
 
-    // For unbinned data, reducing should be equivalent to the tree.
-    std::unique_ptr<RooDataSet> data_unbinned_reduced ( static_cast<RooDataSet*>(data_unbinned->reduce(RooFit::Cut(chi2_test_cut))) );
-    EXPECT_DOUBLE_EQ(data_unbinned_reduced->sumEntries(), test_hist.Integral());
-    EXPECT_EQ(data_unbinned_reduced->numEntries(), test_hist.Integral());
+      // For unbinned data, reducing should be equivalent to the tree.
+      std::unique_ptr<RooAbsData> data_unbinned_reduced{data_unbinned.reduce(RooFit::Cut(chi2_test_cut))};
+      EXPECT_DOUBLE_EQ(data_unbinned_reduced->sumEntries(), test_hist.Integral());
+      EXPECT_EQ(data_unbinned_reduced->numEntries(), test_hist.Integral());
 
-    // When using binned data, reducing and expecting the ame number of entries as in the unbinned case is not possible,
-    // since information is lost if entries to the left and right of the cut end up in the same bin.
-    // Therefore, can only test <=
-    std::unique_ptr<RooDataHist> reduced_binned_data ( static_cast<RooDataHist*>(data->reduce(RooFit::Cut(chi2_test_cut))) );
-    if (floor(chi2cutval) == chi2cutval)
-      EXPECT_FLOAT_EQ(reduced_binned_data->sumEntries(), test_hist.Integral());
-    else
-      EXPECT_LE(reduced_binned_data->sumEntries(), test_hist.Integral());
-  }
+      // When using binned data, reducing and expecting the ame number of entries as in the unbinned case is not
+      // possible, since information is lost if entries to the left and right of the cut end up in the same bin.
+      // Therefore, can only test <=
+      std::unique_ptr<RooAbsData> reduced_binned_data{data->reduce(RooFit::Cut(chi2_test_cut))};
+      if (floor(chi2cutval) == chi2cutval) {
+         EXPECT_FLOAT_EQ(reduced_binned_data->sumEntries(), test_hist.Integral());
+      } else {
+         EXPECT_LE(reduced_binned_data->sumEntries(), test_hist.Integral());
+      }
+   }
 }
 
 /// ROOT-10845 IsOnHeap() always returned false.
-TEST(RooDataSet, IsOnHeap) {
-  auto setp = new RooDataSet();
-  EXPECT_TRUE(setp->IsOnHeap());
+TEST(RooDataSet, IsOnHeap)
+{
+   auto setp = new RooDataSet();
+   EXPECT_TRUE(setp->IsOnHeap());
 
-  RooDataSet setStack;
-  EXPECT_FALSE(setStack.IsOnHeap());
+   RooDataSet setStack;
+   EXPECT_FALSE(setStack.IsOnHeap());
 }
 
 /// ROOT-10935. Cannot read a category from a text file if states are given as index instead of label.
-TEST(RooDataSet, ReadCategory) {
-  RooCategory cat("cat", "cat", {{"One", 1}, {"Two", 2}, {"Three", 3}});
-  cat.setRange("OneTwo", "One,Two");
+TEST(RooDataSet, ReadCategory)
+{
+   RooCategory cat("cat", "cat", {{"One", 1}, {"Two", 2}, {"Three", 3}});
+   cat.setRange("OneTwo", "One,Two");
 
-  RooRealVar x("x", "x", 0., 10.);
+   RooRealVar x("x", "x", 0., 10.);
 
-  constexpr auto filename = "datasetWithCategory.txt";
-  std::ofstream file(filename);
-  file << "1. One\n" << "2. Two\n" << "3. 3" << std::endl;
+   constexpr auto filename = "datasetWithCategory.txt";
+   std::ofstream file(filename);
+   file << "1. One\n"
+        << "2. Two\n"
+        << "3. 3" << std::endl;
 
-  auto dataset = RooDataSet::read(filename, RooArgList(x,cat));
-  EXPECT_EQ(dataset->numEntries(), 3);
-  for (int i=1; i < 4; ++i) {
-    EXPECT_EQ(static_cast<RooRealVar*>(dataset->get(i-1)->find("x"))->getVal(), i);
-    EXPECT_EQ(static_cast<RooCategory*>(dataset->get(i-1)->find("cat"))->getIndex(), i);
-  }
+   auto dataset = RooDataSet::read(filename, RooArgList(x, cat));
+   EXPECT_EQ(dataset->numEntries(), 3);
+   for (int i = 1; i < 4; ++i) {
+      EXPECT_EQ(static_cast<RooRealVar *>(dataset->get(i - 1)->find("x"))->getVal(), i);
+      EXPECT_EQ(static_cast<RooCategory *>(dataset->get(i - 1)->find("cat"))->getIndex(), i);
+   }
 
-  gSystem->Unlink(filename);
+   gSystem->Unlink(filename);
 }
 
-
 /// ROOT-8173. Reading negative exponents from file goes wrong.
-TEST(RooDataSet, ReadNegativeExponent) {
-  RooRealVar x("x", "x", 0., 10.);
+TEST(RooDataSet, ReadNegativeExponent)
+{
+   RooRealVar x("x", "x", 0., 10.);
 
-  constexpr auto filename = "datasetWithCategory.txt";
-  std::ofstream file(filename);
-  file << "2.E-1\n" << "2.E-2\n" << "2.E-3" << std::endl;
+   constexpr auto filename = "datasetWithCategory.txt";
+   std::ofstream file(filename);
+   file << "2.E-1\n"
+        << "2.E-2\n"
+        << "2.E-3" << std::endl;
 
-  auto dataset = RooDataSet::read(filename, RooArgList(x));
-  ASSERT_EQ(dataset->numEntries(), 3);
-  const double solutions[] = { 2.E-1, 2.E-2, 2.E-3 };
-  for (int i=0; i < 3; ++i) {
-    EXPECT_EQ(static_cast<RooRealVar*>(dataset->get(i)->find("x"))->getVal(), solutions[i]);
-  }
+   auto dataset = RooDataSet::read(filename, RooArgList(x));
+   ASSERT_EQ(dataset->numEntries(), 3);
+   const double solutions[] = {2.E-1, 2.E-2, 2.E-3};
+   for (int i = 0; i < 3; ++i) {
+      EXPECT_EQ(static_cast<RooRealVar *>(dataset->get(i)->find("x"))->getVal(), solutions[i]);
+   }
 
-  gSystem->Unlink(filename);
+   gSystem->Unlink(filename);
 }
 
 /// root-project/root#6408: Importing from tree deletes the TFile with the original
-TEST(RooDataSet, CrashAfterImportFromTree) {
-  TTree* tree = new TTree("tree", "tree");
-  double var = 1;
-  tree->Branch("var", &var, "var/D");
-  var = 1;
-  tree->Fill();
-  var = 2;
-  tree->Fill();
+TEST(RooDataSet, CrashAfterImportFromTree)
+{
+   TTree *tree = new TTree("tree", "tree");
+   double var = 1;
+   tree->Branch("var", &var, "var/D");
+   var = 1;
+   tree->Fill();
+   var = 2;
+   tree->Fill();
 
-  auto roovar = std::make_unique<RooRealVar>("var", "var", 0, 10);
-  auto output_file = std::make_unique<TFile>("test.root", "RECREATE", "output_file");
+   auto roovar = std::make_unique<RooRealVar>("var", "var", 0, 10);
+   auto output_file = std::make_unique<TFile>("test.root", "RECREATE", "output_file");
 
-  ASSERT_TRUE(output_file->IsOpen());
-  auto data_set = std::make_unique<RooDataSet>("data_set", "data_set", tree, RooArgSet(*roovar));
+   ASSERT_TRUE(output_file->IsOpen());
+   RooDataSet dataset{"dataset", "dataset", {*roovar}, RooFit::Import(*tree)};
 
-  // Would crash, since the TFile would be deleted by importing:
-  ASSERT_TRUE(output_file->IsOpen());
+   // Would crash, since the TFile would be deleted by importing:
+   ASSERT_TRUE(output_file->IsOpen());
 
-  EXPECT_EQ(data_set->sumEntries(), 2.);
-  EXPECT_EQ(data_set->numEntries(), 2);
-  EXPECT_EQ(static_cast<RooRealVar*>(data_set->get(0)->find("var"))->getVal(), 1.);
-  EXPECT_EQ(static_cast<RooRealVar*>(data_set->get(1)->find("var"))->getVal(), 2.);
+   EXPECT_EQ(dataset.sumEntries(), 2.);
+   EXPECT_EQ(dataset.numEntries(), 2);
+   EXPECT_EQ(static_cast<RooRealVar *>(dataset.get(0)->find("var"))->getVal(), 1.);
+   EXPECT_EQ(static_cast<RooRealVar *>(dataset.get(1)->find("var"))->getVal(), 2.);
+}
 
+// root-project/root#6951: Broken weights after reducing RooDataSet created with RooAbsPdf::generate()
+TEST(RooDataSet, ReduceWithCompositeDataStore)
+{
+   RooHelpers::LocalChangeMsgLevel changeMsgLvl(RooFit::WARNING);
+
+   RooWorkspace ws{};
+   ws.factory("Gaussian::gauss(x[-10,10], mean[3,-10,10], sigma[1,0.1,10])");
+   auto &gauss = *ws.pdf("gauss");
+   auto &x = *ws.var("x");
+
+   std::size_t nEvents = 10;
+
+   // Generate toy dataset
+   std::unique_ptr<RooDataSet> dataSetPtr{gauss.generate(x, nEvents)};
+   auto &dataSet = *dataSetPtr;
+
+   // Generate a new dataset with weight column
+   RooDataSet dataSetWeighted("dataSetWeighted", "dataSetWeighted", x, RooFit::WeightVar());
+   for (std::size_t i = 0; i < nEvents; ++i) {
+      dataSetWeighted.add(*dataSet.get(), 0.5);
+   }
+
+   // Make a new dataset that uses the RooCompositeDataStore backend
+   RooCategory sample("sample", "sample");
+   sample.defineType("physics");
+   RooDataSet dataSetComposite("hmaster", "hmaster", x, RooFit::Index(sample),
+                               RooFit::Link({{"physics", &dataSetWeighted}}));
+
+   // Reduce the dataset with the RooCompositeDataStore
+   std::unique_ptr<RooAbsData> dataSetReducedPtr{dataSetComposite.reduce(RooFit::Cut("true"))};
+   auto &dataSetReduced = static_cast<RooDataSet &>(*dataSetReducedPtr);
+
+   // Get the first row of all datasets
+   dataSet.get(0);
+   dataSetWeighted.get(0);
+   dataSetComposite.get(0);
+   dataSetReduced.get(0);
+
+   // Make sure weights didn't get lost after reducing the dataset
+   EXPECT_EQ(dataSetWeighted.weight(), dataSetComposite.weight());
+   EXPECT_EQ(dataSetComposite.weight(), dataSetReduced.weight());
+}
+
+// Make sure that CutRange() also considers the variables not selected by
+// SelectVars() in RooAbsData::reduce().
+//
+// Covers JIRA issue ROOT-8040.
+TEST(RooDataSet, ReduceWithSelectVarsAndCutRange)
+{
+   using namespace RooFit;
+
+   RooWorkspace ws;
+   ws.factory("a[5,0,100]");
+   ws.factory("b[10,0,100]");
+   ws.defineSet("obs", "a,b");
+
+   RooDataSet d("data", "data", *ws.set("obs"));
+   ws.var("a")->setVal(5);
+   ws.var("b")->setVal(5);
+   d.add(*ws.set("obs"));
+   ws.var("a")->setVal(15);
+   ws.var("b")->setVal(15);
+   d.add(*ws.set("obs"));
+   ws.var("a")->setVal(5);
+   ws.var("b")->setVal(15);
+   d.add(*ws.set("obs"));
+   ws.var("a")->setVal(15);
+   ws.var("b")->setVal(5);
+   d.add(*ws.set("obs"));
+
+   ws.var("a")->setRange("myRange", 0, 10);
+   ws.var("b")->setRange("myRange", 0, 10);
+
+   std::unique_ptr<RooAbsData> reduced{d.reduce(SelectVars(*ws.var("a")), CutRange("myRange"))};
+
+   EXPECT_EQ(reduced->numEntries(), 1);
+}
+
+// Test that importing a RooDataHist to a RooDataSet works and that it gives
+// the right weight() and weightSquared().
+TEST(RooDataSet, ImportDataHist)
+{
+   RooRealVar x{"x", "x", 0, 3};
+   x.setBins(3);
+
+   RooDataHist dh{"dh", "dh", x};
+
+   dh.set(0, 10, 5);
+   dh.set(1, 20, 15);
+   dh.set(2, 30, 20);
+
+   RooDataSet ds{"ds", "ds", x, RooFit::Import(dh)};
+
+   for (int i = 0; i < x.numBins(); ++i) {
+      ds.get(i);
+      EXPECT_FLOAT_EQ(ds.weight(), dh.weight(i)) << "weight() is off in bin " << i;
+      EXPECT_FLOAT_EQ(ds.weightSquared(), dh.weightSquared(i)) << "weightSquared() is off in bin " << i;
+   }
+}
+
+// Test that splitting a RooDataSet by index category does preserve the weight
+// errors. Covers GitHub issue #12453.
+TEST(RooDataSet, SplitDataSetWithWeightErrors)
+{
+   using namespace RooFit;
+
+   RooRealVar x{"x", "x", 0, 10};
+   RooCategory cat{"cat", "cat", {{"sample_0", 0}}};
+   RooRealVar weight{"weight", "weight", 1.0};
+
+   RooDataSet data1{"data", "data", {x, cat, weight}, WeightVar(weight), StoreError(weight)};
+
+   data1.add({x, cat}, 2.0, 0.3);
+
+   std::vector<std::unique_ptr<RooAbsData>> dataList{data1.split(cat, true)};
+   RooAbsData &data2 = *dataList[0];
+
+   data1.Print();
+
+   data1.get(0);
+   data2.get(0);
+   EXPECT_DOUBLE_EQ(data2.weightError(), data1.weightError());
+}
+
+// The version number of the RooVectorDataStore::RealFullVector was increased
+// in the 6.30 development cycle. The RealFullVector is used to store columns
+// with errors, both symmetric and asymmetric.
+//
+// The reference file was created with the following code with ROOT 6.26.10:
+//
+// ```c++
+// using namespace RooFit;
+//
+// RooRealVar x{"x", "x", 0, 10};
+// RooRealVar y{"y", "y", 0, 10};
+//
+// RooDataSet data{"data", "data", {x, y}, StoreError(x), StoreAsymError(y)};
+//
+// x.setVal(5.0);
+// x.setError(2.0);
+// y.setVal(9.0);
+// y.setAsymError(-4.0, 3.0);
+//
+// data.add({x, y});
+//
+// x.setVal(7.0);
+// x.setError(3.0);
+// y.setVal(4.0);
+// y.setAsymError(-2.0, 1.0);
+//
+// data.add({x, y});
+//
+// std::unique_ptr<TFile> file{TFile::Open("dataSet_with_errors_6_26_10.root", "RECREATE")};
+//
+// file->WriteObject(&data, data.GetName());
+// ```
+TEST(RooDataSet, ReadDataSetWithErrors626)
+{
+   std::unique_ptr<TFile> file{TFile::Open("dataSet_with_errors_6_26_10.root", "READ")};
+   ASSERT_TRUE(file && !file->IsZombie());
+
+   auto data = file->Get<RooDataSet>("data");
+
+   auto &x = static_cast<RooRealVar &>((*data->get())["x"]);
+   auto &y = static_cast<RooRealVar &>((*data->get())["y"]);
+
+   // Make sure the dataset is really using a RooVectorDataStore
+   EXPECT_TRUE(dynamic_cast<RooVectorDataStore const *>(data->store()));
+
+   data->get(0);
+
+   EXPECT_DOUBLE_EQ(x.getVal(), 5.0);
+   EXPECT_DOUBLE_EQ(x.getError(), 2.0);
+
+   EXPECT_DOUBLE_EQ(y.getVal(), 9.0);
+   EXPECT_DOUBLE_EQ(y.getAsymErrorLo(), -4.0);
+   EXPECT_DOUBLE_EQ(y.getAsymErrorHi(), 3.0);
+
+   data->get(1);
+
+   EXPECT_DOUBLE_EQ(x.getVal(), 7.0);
+   EXPECT_DOUBLE_EQ(x.getError(), 3.0);
+
+   EXPECT_DOUBLE_EQ(y.getVal(), 4.0);
+   EXPECT_DOUBLE_EQ(y.getAsymErrorLo(), -2.0);
+   EXPECT_DOUBLE_EQ(y.getAsymErrorHi(), 1.0);
+}
+
+TEST(RooDataSet, RooStringVarStorage)
+{
+   /* RooDataSet should be able to store strings
+    * although this currently will only work for tree storage
+    * */
+
+   RooStringVar str("str", "test string", "");
+   RooDataSet data("data", "data", str);
+   data.convertToTreeStore(); // necessary until VectorStore supports strings
+   data.add(str = "str1");
+   data.add(str = "str2");
+
+   ASSERT_STREQ(data.get(0)->getStringValue("str"), "str1");
+   ASSERT_STREQ(data.get(1)->getStringValue("str"), "str2");
+
+   // ensure dataset is cloneable
+   RooDataSet dataClone(data);
+
+   ASSERT_STREQ(dataClone.get(0)->getStringValue("str"), "str1");
+   ASSERT_STREQ(dataClone.get(1)->getStringValue("str"), "str2");
+}
+
+// root-project/root#15744: Test that reducing a RooCompositeDataStore with a cut that depends on its index category
+// works properly
+TEST(RooDataSet, ReduceCompositeDataStoreByIndexCat)
+{
+   using namespace RooFit;
+
+   RooWorkspace ws{};
+   auto cat = static_cast<RooCategory *>(ws.factory("cat[c0=0,c1=1]"));
+   ws.factory("Gaussian::gauss(x[0,1], mu[0.5, 0., 1.], sigma[0.2, 0.1, 0.3])");
+   auto sim = static_cast<RooAbsPdf *>(ws.factory("SIMCLONE::sim(gauss, $SplitParam(mu, cat))"));
+
+   // fill a small protodata
+   // we expect only 1 entry with index 1
+   RooArgSet row(*cat);
+   RooDataSet cat_data("cat_data", "", *cat);
+   for (int i = 0; i < 10; i++) {
+      cat->setIndex(i == 0);
+      cat_data.add(row);
+   }
+
+   std::unique_ptr<RooDataSet> data{sim->generate(*ws.var("x"), ProtoData(cat_data))};
+
+   // the index category stored in the datastore
+   auto dsCat = static_cast<RooCategory *>(data->store()->get()->find(*cat));
+   dsCat->setIndex(0);
+
+   auto initialIndexInDataStore = dsCat->getCurrentIndex();
+   auto initialIndexInWorkspace = cat->getCurrentIndex();
+
+   // reduce by string cut
+   // also test that the cut works even if the index cat is not among the selected variables
+   std::unique_ptr<RooAbsData> dataReducedByString{data->reduce(SelectVars(*ws.var("x")), Cut("cat==cat::c1"))};
+
+   // reduce by RooFormulaVar to test server handling
+   RooFormulaVar cutVar("cut", "cat==cat::c1", {*cat});
+   std::unique_ptr<RooAbsData> dataReducedByDirectFormulaVar{data->reduce(Cut(cutVar))};
+
+   // reduce by RooFormulaVar not directly depending on the index category to test server handling
+   RooFormulaVar catIndex("catIndex", "cat", {*cat});
+   RooFormulaVar cutVar2("cut2", "catIndex > 0.5", {catIndex});
+   std::unique_ptr<RooAbsData> dataReducedByIndirectFormulaVar{data->reduce(Cut(cutVar2))};
+
+   // Make sure the number of selected entries matches the number of events with index 1 (which is 1)
+   EXPECT_EQ(dataReducedByString->numEntries(), 1);
+   EXPECT_EQ(dataReducedByDirectFormulaVar->numEntries(), 1);
+   EXPECT_EQ(dataReducedByIndirectFormulaVar->numEntries(), 1);
+
+   // Test that the category state was correctly reset (both in workspace and datastore)
+   EXPECT_EQ(dsCat->getCurrentIndex(), initialIndexInDataStore);
+   EXPECT_EQ(cat->getCurrentIndex(), initialIndexInWorkspace);
+}
+
+/// Reducing, merging and appending of unbinned and binned datasets, checked
+/// against event counts that are computed while deterministically filling the
+/// inputs. Replaces the former stressRooFit test based on the rf402 tutorial,
+/// which compared against stored reference values.
+TEST(RooDataSet, ReduceMergeAppend)
+{
+   RooRealVar x("x", "x", -10, 10);
+   RooRealVar y("y", "y", 0, 40);
+   RooCategory c("c", "c", {{"Plus", +1}, {"Minus", -1}});
+
+   RooDataSet d("d", "d", {x, y, c});
+
+   // Fill the dataset with deterministic values and keep track of the entry
+   // counts that the reduce operations below are expected to yield
+   int nYCut = 0;    // entries with y > 5.17
+   int nXBinCut = 0; // entries in x bins with positive bin center (10 bins in [-10, 10], so x >= 0)
+   for (int i = 0; i < 1000; i++) {
+      x.setVal(i / 50 - 10);
+      y.setVal(std::sqrt(1.0 * i));
+      c.setLabel((i % 2) ? "Plus" : "Minus");
+      d.add({x, y, c});
+      if (y.getVal() > 5.17)
+         ++nYCut;
+      if (x.getVal() >= 0)
+         ++nXBinCut;
+   }
+
+   using namespace RooFit;
+
+   std::unique_ptr<RooAbsData> d1{d.reduce(SelectVars({x, c}))};
+   std::unique_ptr<RooAbsData> d2{d.reduce(SelectVars(y))};
+   std::unique_ptr<RooAbsData> d3{d.reduce(Cut("y>5.17"))};
+   std::unique_ptr<RooAbsData> d4{d.reduce(SelectVars({x, c}), Cut("y>5.17"))};
+
+   EXPECT_EQ(d1->numEntries(), 1000);
+   EXPECT_EQ(d1->get()->size(), 2u);
+   EXPECT_EQ(d2->numEntries(), 1000);
+   EXPECT_EQ(d2->get()->size(), 1u);
+   EXPECT_EQ(d3->numEntries(), nYCut);
+   EXPECT_EQ(d3->get()->size(), 3u);
+   EXPECT_EQ(d4->numEntries(), nYCut);
+   EXPECT_EQ(d4->get()->size(), 2u);
+
+   // merge() adds datasets column-wise
+   static_cast<RooDataSet &>(*d1).merge(static_cast<RooDataSet *>(d2.get()));
+   EXPECT_EQ(d1->numEntries(), 1000);
+   EXPECT_EQ(d1->get()->size(), 3u);
+
+   // The merged column must contain the original y values
+   EXPECT_DOUBLE_EQ(d1->get(999)->getRealValue("y"), std::sqrt(999.));
+
+   // append() adds datasets row-wise
+   static_cast<RooDataSet &>(*d1).append(static_cast<RooDataSet &>(*d3));
+   EXPECT_EQ(d1->numEntries(), 1000 + nYCut);
+
+   // Binned clone of the unbinned dataset: all entries are inside the variable
+   // ranges, so no events may be lost
+   x.setBins(10);
+   y.setBins(10);
+   RooDataHist dh("dh", "binned version of d", {x, y}, d);
+   EXPECT_DOUBLE_EQ(dh.sumEntries(), 1000.);
+
+   // Reduction of the binned dataset. The cut is evaluated on the bin
+   // centers, so the reduced histogram contains the full content of all bins
+   // with positive center.
+   std::unique_ptr<RooAbsData> dh2{dh.reduce(SelectVars(y), Cut("x>0"))};
+   EXPECT_EQ(dh2->numEntries(), 10);
+   EXPECT_DOUBLE_EQ(dh2->sumEntries(), nXBinCut);
 }

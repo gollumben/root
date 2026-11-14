@@ -66,37 +66,15 @@ public:
       }
    }
 
-   ~MinuitParameter() {}
+   MinuitParameter(const MinuitParameter &par) = default;
 
-   MinuitParameter(const MinuitParameter &par)
-      : fNum(par.fNum), fValue(par.fValue), fError(par.fError), fConst(par.fConst), fFix(par.fFix),
-        fLoLimit(par.fLoLimit), fUpLimit(par.fUpLimit), fLoLimValid(par.fLoLimValid), fUpLimValid(par.fUpLimValid),
-        fName(par.fName)
-   {
-   }
-
-   MinuitParameter &operator=(const MinuitParameter &par)
-   {
-      if (this != &par) {
-         fNum = par.fNum;
-         fName = par.fName;
-         fValue = par.fValue;
-         fError = par.fError;
-         fConst = par.fConst;
-         fFix = par.fFix;
-         fLoLimit = par.fLoLimit;
-         fUpLimit = par.fUpLimit;
-         fLoLimValid = par.fLoLimValid;
-         fUpLimValid = par.fUpLimValid;
-      }
-      return *this;
-   }
+   MinuitParameter &operator=(const MinuitParameter &par) = default;
 
    // access methods
    unsigned int Number() const { return fNum; }
    // new API returning a string
    const std::string &GetName() const { return fName; }
-   // return const char * for mantaining backward compatibility
+   // return const char * for maintaining backward compatibility
    const char *Name() const { return fName.c_str(); }
 
    double Value() const { return fValue; }
@@ -105,7 +83,13 @@ public:
    // interaction
    void SetName(const std::string &name) { fName = name; }
 
-   void SetValue(double val) { fValue = val; }
+   void SetValue(double val) {
+      fValue = val;
+      if (fLoLimValid && val < fLoLimit)
+         fValue = fLoLimit;
+      else if (fUpLimValid && val > fUpLimit)
+         fValue = fUpLimit;
+   }
    void SetError(double err) { fError = err; }
    void SetLimits(double low, double up)
    {

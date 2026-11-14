@@ -119,9 +119,9 @@ namespace ROOT
            BaseNode& operator=(const BaseNode& ) {return *this;}
 
            //links to adjacent nodes
-           BaseNode*                 fParent;     //!pointer to parent node
-           BaseNode*                 fLeftChild;  //!pointer to left child
-           BaseNode*                 fRightChild; //!pointer to right child
+           BaseNode*                 fParent;     ///<!pointer to parent node
+           BaseNode*                 fLeftChild;  ///<!pointer to left child
+           BaseNode*                 fRightChild; ///<!pointer to right child
         };
 
         class HeadNode : public BaseNode
@@ -132,19 +132,19 @@ namespace ROOT
            virtual ~HeadNode() {delete Parent();}
 
            //delegate everything to the actual root node of the tree
-           virtual const BinNode*   FindNode(const point_type& rPoint) const {return Parent()->FindNode(rPoint);}
-           virtual void             GetClosestPoints(const point_type& rRef,UInt_t nPoints,std::vector<std::pair<const _DataPoint*,Double_t> >& vFoundPoints) const;
-           virtual void             GetPointsWithinDist(const point_type& rRef,value_type fDist,std::vector<const _DataPoint*>& vFoundPoints) const;
-           virtual Bool_t           Insert(const point_type& rPoint) {return Parent()->Insert(rPoint);}
-           virtual void             Print(Int_t) const {Parent()->Print();}
+           const BinNode*           FindNode(const point_type& rPoint) const override {return Parent()->FindNode(rPoint);}
+           void                     GetClosestPoints(const point_type& rRef,UInt_t nPoints,std::vector<std::pair<const _DataPoint*,Double_t> >& vFoundPoints) const override;
+           void                     GetPointsWithinDist(const point_type& rRef,value_type fDist,std::vector<const _DataPoint*>& vFoundPoints) const override;
+           Bool_t                   Insert(const point_type& rPoint) override {return Parent()->Insert(rPoint);}
+           void                     Print(Int_t) const override {Parent()->Print();}
 
         private:
            // node should never be copied
            HeadNode(const HeadNode& ) {}
            HeadNode& operator=(const HeadNode& ) {return *this;}
 
-           virtual HeadNode*        Clone();
-           virtual bool             IsHeadNode() const {return true;}
+           HeadNode*        Clone() override;
+           bool             IsHeadNode() const override {return true;}
 
            // only delegate everything else is private and should not be used
            using BaseNode::Parent;
@@ -164,18 +164,18 @@ namespace ROOT
 
            //accessing information about this split node
            const Cut*               GetCut() const {return fCut;}
-           virtual void             Print(Int_t iRow = 0) const;
+           void                     Print(Int_t iRow = 0) const override;
 
         private:
            // node should never be copied
            SplitNode(const SplitNode& ) {}
            SplitNode& operator=(const SplitNode& ) {return *this;}
 
-           virtual SplitNode*       Clone();
-           virtual const BinNode*   FindNode(const point_type& rPoint) const;
-           virtual void             GetClosestPoints(const point_type& rRef,UInt_t nPoints,std::vector<std::pair<const _DataPoint*,Double_t> >& vFoundPoints) const;
-           virtual void             GetPointsWithinDist(const point_type& rRef,value_type fDist,std::vector<const _DataPoint*>& vFoundPoints) const;
-           virtual Bool_t           Insert(const point_type& rPoint);
+           SplitNode*               Clone() override;
+           const BinNode*           FindNode(const point_type& rPoint) const override;
+           void                     GetClosestPoints(const point_type& rRef,UInt_t nPoints,std::vector<std::pair<const _DataPoint*,Double_t> >& vFoundPoints) const override;
+           void                     GetPointsWithinDist(const point_type& rRef,value_type fDist,std::vector<const _DataPoint*>& vFoundPoints) const override;
+           Bool_t                   Insert(const point_type& rPoint) override;
 
            const Cut*               fCut;     //pointer to cut object owned by this node
         };
@@ -193,39 +193,35 @@ namespace ROOT
 
            // usual bin operations
            virtual void                            EmptyBin();
-           virtual const BinNode*                  FindNode(const point_type& rPoint) const;
+           const BinNode*                          FindNode(const point_type& rPoint) const override;
            point_type                              GetBinCenter() const;
            Double_t                                GetBinContent() const {return GetSumw();}
-#ifndef _AIX
            virtual const std::vector<tBoundary>&   GetBoundaries() const {return fBoundaries;}
-#else
-           virtual void GetBoundaries() const { }
-#endif
            Double_t                                GetDensity() const {return GetBinContent()/GetVolume();}
            Double_t                                GetEffectiveEntries() const {return (GetSumw2()) ? std::pow(GetSumw(),2)/GetSumw2() : 0;}
            UInt_t                                  GetEntries() const {return fEntries;}
            Double_t                                GetVolume() const;
            Double_t                                GetSumw() const {return fSumw;}
            Double_t                                GetSumw2() const {return fSumw2;}
-           virtual Bool_t                          Insert(const point_type& rPoint);
+           Bool_t                                  Insert(const point_type& rPoint) override;
            Bool_t                                  IsInBin(const point_type& rPoint) const;
-           virtual void                            Print(int iRow = 0) const;
+           void                                    Print(int iRow = 0) const override;
 
         protected:
-           virtual BinNode*                        Clone();
+           BinNode*                                Clone() override;
 
            // intrinsic bin properties
-           std::vector<tBoundary>                  fBoundaries;    //bin boundaries
-           Double_t                                fSumw;          //sum of weights
-           Double_t                                fSumw2;         //sum of weights^2
-           UInt_t                                  fEntries;       //number of entries
+           std::vector<tBoundary>                  fBoundaries;    ///< bin boundaries
+           Double_t                                fSumw;          ///< sum of weights
+           Double_t                                fSumw2;         ///< sum of weights^2
+           UInt_t                                  fEntries;       ///< number of entries
 
         private:
            BinNode& operator=(const BinNode& rhs);
 
            // bin does not contain any point like information
-           virtual void                    GetClosestPoints(const point_type&,UInt_t,std::vector<std::pair<const _DataPoint*,Double_t> >&) const {}
-           virtual void                    GetPointsWithinDist(const point_type&,value_type,std::vector<const point_type*>&) const {}
+           void                                    GetClosestPoints(const point_type&,UInt_t,std::vector<std::pair<const _DataPoint*,Double_t> >&) const override {}
+           void                                    GetPointsWithinDist(const point_type&,value_type,std::vector<const point_type*>&) const override {}
 
            // a bin does not have children
            using BaseNode::LeftChild;
@@ -239,20 +235,16 @@ namespace ROOT
            typedef std::pair<value_type,value_type> tBoundary;
 
         public:
-           //constructor and desctructor
+           //constructor and destructor
            TerminalNode(Double_t iBucketSize,BaseNode* pParent = 0);
            virtual ~TerminalNode();
 
-           virtual void                            EmptyBin();
-#ifndef _AIX
-           virtual const std::vector<tBoundary>&   GetBoundaries() const;
-#else
-           virtual void GetBoundaries() const;
-#endif
-           virtual void                            GetClosestPoints(const point_type& rRef,UInt_t nPoints,std::vector<std::pair<const _DataPoint*,Double_t> >& vFoundPoints) const;
+           void                                    EmptyBin() override;
+           const std::vector<tBoundary>&           GetBoundaries() const override;
+           void                                    GetClosestPoints(const point_type& rRef,UInt_t nPoints,std::vector<std::pair<const _DataPoint*,Double_t> >& vFoundPoints) const override;
            const std::vector<const point_type*>&   GetPoints() const {return fDataPoints;}
-           virtual void                            GetPointsWithinDist(const point_type& rRef,value_type fDist,std::vector<const _DataPoint*>& vFoundPoints) const;
-           virtual void                            Print(int iRow = 0) const;
+           void                                    GetPointsWithinDist(const point_type& rRef,value_type fDist,std::vector<const _DataPoint*>& vFoundPoints) const override;
+           void                                    Print(int iRow = 0) const override;
 
         private:
            // node should never be copied
@@ -267,10 +259,10 @@ namespace ROOT
            TerminalNode(Double_t iBucketSize,UInt_t iSplitAxis,data_it first,data_it end);
 
            //tree operations
-           virtual BinNode*                        Clone() {return ConvertToBinNode();}
+           BinNode*                                Clone() override {return ConvertToBinNode();}
            BinNode*                                ConvertToBinNode();
-           virtual const BinNode*                  FindNode(const point_type&) const {return this;}
-           virtual Bool_t                          Insert(const point_type& rPoint);
+           const BinNode*                          FindNode(const point_type&) const override {return this;}
+           Bool_t                                  Insert(const point_type& rPoint) override;
            void                                    Split();
            void                                    SetOwner(Bool_t bIsOwner = true) {fOwnData = bIsOwner;}
            void                                    SetSplitOption(eSplitOption opt) {fSplitOption = opt;}
@@ -278,11 +270,11 @@ namespace ROOT
            data_it                                 SplitBinContent();
            void                                    UpdateBoundaries();
 
-           Bool_t                                  fOwnData;       // terminal node owns the data objects (default = false)
-           eSplitOption                            fSplitOption;   // according to which figure of merit the node is splitted
-           Double_t                                fBucketSize;    // target number of entries per bucket
-           UInt_t                                  fSplitAxis;     // axis at which the next split will occur
-           std::vector<const _DataPoint*>          fDataPoints;    // data points in this bucket
+           Bool_t                                  fOwnData;       ///< terminal node owns the data objects (default = false)
+           eSplitOption                            fSplitOption;   ///< according to which figure of merit the node is split
+           Double_t                                fBucketSize;    ///< target number of entries per bucket
+           UInt_t                                  fSplitAxis;     ///< axis at which the next split will occur
+           std::vector<const _DataPoint*>          fDataPoints;    ///< data points in this bucket
         };
 
      public:
@@ -341,7 +333,7 @@ namespace ROOT
         void            Freeze();
         Double_t        GetBucketSize() const {return fBucketSize;}
         void            GetClosestPoints(const point_type& rRef,UInt_t nPoints,std::vector<std::pair<const _DataPoint*,Double_t> >& vFoundPoints) const;
-        Double_t         GetEffectiveEntries() const;
+        Double_t        GetEffectiveEntries() const;
         KDTree<_DataPoint>* GetFrozenCopy();
         UInt_t          GetNBins() const;
         UInt_t          GetEntries() const;

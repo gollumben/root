@@ -30,13 +30,12 @@
 OpenGL renderer class for TH3.
 */
 
-ClassImp(TH3GL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
 TH3GL::TH3GL() :
-   TGLPlot3D(), fM(0)
+   TGLPlot3D(), fM(nullptr)
 {
 }
 
@@ -46,7 +45,7 @@ TH3GL::TH3GL() :
 TH3GL::TH3GL(TH3 *th3, TPolyMarker3D *pm) :
    TGLPlot3D(), fM(th3)
 {
-   SetPainter(new TGLBoxPainter(th3, pm, 0, &fCoord));
+   SetPainter(new TGLBoxPainter(th3, pm, nullptr, &fCoord));
    fPlotPainter->InitGeometry();
 }
 
@@ -68,12 +67,12 @@ Bool_t TH3GL::SetModel(TObject* obj, const Option_t* opt)
    fM = SetModelDynCast<TH3>(obj);
 
    if (option.Index("iso") != kNPOS)
-      SetPainter( new TGLIsoPainter(fM, 0, &fCoord) );
+      SetPainter( new TGLIsoPainter(fM, nullptr, &fCoord) );
    else if (option.Index("box") != kNPOS)
-      SetPainter( new TGLBoxPainter(fM, 0, &fCoord) );
+      SetPainter( new TGLBoxPainter(fM, nullptr, &fCoord) );
    else {
       Warning("SetModel", "Option '%s' not supported, assuming 'box'.", option.Data());
-      SetPainter( new TGLBoxPainter(fM, 0, &fCoord) );
+      SetPainter( new TGLBoxPainter(fM, nullptr, &fCoord) );
    }
 
    fPlotPainter->AddOption(option);

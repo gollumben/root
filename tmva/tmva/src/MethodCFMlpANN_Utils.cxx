@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : TMVA::MethodCFMlpANN_utils                                            *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Reference for the original FORTRAN version "mlpl3.F":                          *
  *      Authors  : J. Proriol and contributions from ALEPH-Clermont-Ferrand       *
@@ -42,7 +42,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  *                                                                                *
  **********************************************************************************/
 
@@ -74,7 +74,6 @@ Reference for the original FORTRAN version "mlpl3.F":
 using std::cout;
 using std::endl;
 
-ClassImp(TMVA::MethodCFMlpANN_Utils);
 
 const Int_t       TMVA::MethodCFMlpANN_Utils::fg_max_nVar_   = max_nVar_;
 const Int_t       TMVA::MethodCFMlpANN_Utils::fg_max_nNodes_ = max_nNodes_;

@@ -20,19 +20,18 @@ sets and multisets) while storing them in split mode.
 
 #include "TError.h"
 
-ClassImp(TBranchSTL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.
 
 TBranchSTL::TBranchSTL():
-   fCollProxy( 0 ),
-   fParent( 0 ),
-   fIndArrayCl( 0 ),
+   fCollProxy( nullptr ),
+   fParent( nullptr ),
+   fIndArrayCl( nullptr ),
    fClassVersion( 0 ),
    fClCheckSum( 0 ),
-   fInfo( 0 ),
-   fObject( 0 ),
+   fInfo( nullptr ),
+   fObject( nullptr ),
    fID( -2 )
 {
    fIndArrayCl = TClass::GetClass( "TIndArray" );
@@ -45,21 +44,21 @@ TBranchSTL::TBranchSTL():
 ////////////////////////////////////////////////////////////////////////////////
 /// Normal constructor, called from TTree.
 
-TBranchSTL::TBranchSTL( TTree *tree, const char *name,
-                        TVirtualCollectionProxy *collProxy,
-                        Int_t buffsize, Int_t splitlevel )
+TBranchSTL::TBranchSTL(TTree *tree, const char *name,
+                       TVirtualCollectionProxy *collProxy,
+                       Int_t bufsize, Int_t splitlevel )
 {
    fTree         = tree;
    fCollProxy    = collProxy;
-   fBasketSize   = buffsize;
+   fBasketSize   = bufsize;
    fSplitLevel   = splitlevel;
    fContName     = collProxy->GetCollectionClass()->GetName();
    fClCheckSum   = 0;
    fClassVersion = 1;
    fID           = -2;
-   fInfo         = 0;
+   fInfo         = nullptr;
    fMother = this;
-   fParent = 0;
+   fParent = nullptr;
    fDirectory = fTree->GetDirectory();
    fFileName = "";
    SetName( name );
@@ -87,14 +86,14 @@ TBranchSTL::TBranchSTL( TTree *tree, const char *name,
 ////////////////////////////////////////////////////////////////////////////////
 /// Normal constructor, called from another branch.
 
-TBranchSTL::TBranchSTL( TBranch* parent, const char* name,
-                        TVirtualCollectionProxy* collProxy,
-                        Int_t buffsize, Int_t splitlevel,
-                        TStreamerInfo* info, Int_t id )
+TBranchSTL::TBranchSTL(TBranch* parent, const char* name,
+                       TVirtualCollectionProxy* collProxy,
+                       Int_t bufsize, Int_t splitlevel,
+                       TStreamerInfo* info, Int_t id )
 {
    fTree         = parent->GetTree();
    fCollProxy    = collProxy;
-   fBasketSize   = buffsize;
+   fBasketSize   = bufsize;
    fSplitLevel   = splitlevel;
    fContName     = collProxy->GetCollectionClass()->GetName();
    fClassName    = info->GetClass()->GetName();
@@ -149,7 +148,7 @@ void TBranchSTL::Browse( TBrowser *b )
    Int_t nbranches = fBranches.GetEntriesFast();
    if (nbranches > 0) {
       TList persistentBranches;
-      TBranch* branch=0;
+      TBranch* branch=nullptr;
       TIter iB(&fBranches);
       while( (branch = (TBranch*)iB()) )
          persistentBranches.Add(branch);
@@ -176,7 +175,7 @@ Int_t TBranchSTL::FillImpl(ROOT::Internal::TBranchIMTHelper *imtHelper)
       //------------------------------------------------------------------------
       // We have received a zero pointer - treat it as an empty collection
       //------------------------------------------------------------------------
-      if( fObject == 0 ) {
+      if( fObject == nullptr ) {
          Int_t bytes      = 0;
          Int_t totalBytes = 0;
 
@@ -226,11 +225,11 @@ Int_t TBranchSTL::FillImpl(ROOT::Internal::TBranchIMTHelper *imtHelper)
    // Loop over the elements and create branches as needed
    //---------------------------------------------------------------------------
    TClass*               cl         = fCollProxy->GetValueClass();
-   TClass*               actClass   = 0;
-   TClass*               vectClass  = 0;
-   char*                 element    = 0;
-   std::vector<void*>*   elPointers = 0;
-   TBranchElement*       elBranch   = 0;
+   TClass*               actClass   = nullptr;
+   TClass*               vectClass  = nullptr;
+   char*                 element    = nullptr;
+   std::vector<void*>*   elPointers = nullptr;
+   TBranchElement*       elBranch   = nullptr;
    UInt_t                elOffset   = 0;
    UChar_t               maxID      = fBranches.GetEntriesFast()+1;
    UChar_t               elID;
@@ -397,7 +396,7 @@ Int_t TBranchSTL::GetEntry( Long64_t entry, Int_t getall )
    //---------------------------------------------------------------------------
    UInt_t nBranches = fBranches.GetEntriesFast();
    TClass*               elClass   = fCollProxy->GetValueClass();
-   TClass*               tmpClass  = 0;
+   TClass*               tmpClass  = nullptr;
 
    if( fBranchVector.size() < nBranches )
       fBranchVector.resize( nBranches );
@@ -410,15 +409,15 @@ Int_t TBranchSTL::GetEntry( Long64_t entry, Int_t getall )
       fObject = *(char**)fAddress;
    }
    TVirtualCollectionProxy::TPushPop helper( fCollProxy, fObject );
-   void* env = fCollProxy->Allocate( size, kTRUE );
+   void* env = fCollProxy->Allocate( size, true );
 
    //---------------------------------------------------------------------------
    // Process entries
    //---------------------------------------------------------------------------
    UChar_t             index      = 0;
-   void**              element    = 0;
-   std::vector<void*>* elemVect   = 0;
-   TBranchElement*     elemBranch = 0;
+   void**              element    = nullptr;
+   std::vector<void*>* elemVect   = nullptr;
+   TBranchElement*     elemBranch = nullptr;
 
    for( Int_t i = 0; i < size; ++i ) {
       element = (void**)fCollProxy->At(i);
@@ -428,7 +427,7 @@ Int_t TBranchSTL::GetEntry( Long64_t entry, Int_t getall )
       // The case of zero pointers
       //------------------------------------------------------------------------
       if( index == 0 ) {
-         *element = 0;
+         *element = nullptr;
          continue;
       }
 
@@ -438,7 +437,7 @@ Int_t TBranchSTL::GetEntry( Long64_t entry, Int_t getall )
       if( index > nBranches ) {
          Error( "GetEntry", "Index %d out of range, unable to find the branch, setting pointer to 0",
                 index );
-         *element = 0;
+         *element = nullptr;
          continue;
       }
 
@@ -455,14 +454,14 @@ Int_t TBranchSTL::GetEntry( Long64_t entry, Int_t getall )
 
          if( bytes == 0 ) {
             Error( "GetEntry", "No entry for index %d, setting pointer to 0", index );
-            *element = 0;
+            *element = nullptr;
             fBranchVector[index].fPosition++;
             continue;
          }
 
          if( bytes <= 0 ) {
             Error( "GetEntry", "I/O error while getting entry for index %d, setting pointer to 0", index );
-            *element = 0;
+            *element = nullptr;
             fBranchVector[index].fPosition++;
             continue;
          }
@@ -504,7 +503,7 @@ Int_t TBranchSTL::GetEntry( Long64_t entry, Int_t getall )
    //---------------------------------------------------------------------------
    for( UInt_t i = 0; i < fBranchVector.size(); ++i ) {
       delete fBranchVector[i].fPointers;
-      fBranchVector[i].fPointers = 0;
+      fBranchVector[i].fPointers = nullptr;
    }
 
    return totalBytes;
@@ -518,7 +517,7 @@ Int_t TBranchSTL::GetEntry( Long64_t entry, Int_t getall )
 
 Int_t TBranchSTL::GetExpectedType(TClass *&expectedClass,EDataType &expectedType)
 {
-   expectedClass = 0;
+   expectedClass = nullptr;
    expectedType = kOther_t;
 
    if (fID < 0) {
@@ -590,11 +589,11 @@ TStreamerInfo* TBranchSTL::GetInfo() const
 ////////////////////////////////////////////////////////////////////////////////
 /// Branch declared folder if at least one entry.
 
-Bool_t TBranchSTL::IsFolder() const
+bool TBranchSTL::IsFolder() const
 {
    if( fBranches.GetEntriesFast() >= 1 )
-      return kTRUE;
-   return kFALSE;
+      return true;
+   return false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -602,14 +601,15 @@ Bool_t TBranchSTL::IsFolder() const
 
 void TBranchSTL::Print(const char *option) const
 {
-   if (strncmp(option,"debugAddress",strlen("debugAddress"))==0) {
-      if (strlen(GetName())>24) Printf("%-24s\n%-24s ", GetName(),"");
+   constexpr auto length = std::char_traits<char>::length;
+   if (strncmp(option,"debugAddress",length("debugAddress"))==0) {
+      if (length(GetName())>24) Printf("%-24s\n%-24s ", GetName(),"");
       else Printf("%-24s ", GetName());
 
       TBranchElement *parent = dynamic_cast<TBranchElement*>(GetMother()->GetSubBranch(this));
       Int_t ind = parent ? parent->GetListOfBranches()->IndexOf(this) : -1;
       TVirtualStreamerInfo *info = GetInfo();
-      Int_t *branchOffset = parent ? parent->GetBranchOffset() : 0;
+      Int_t *branchOffset = parent ? parent->GetBranchOffset() : nullptr;
 
       Printf("%-16s %2d SplitCollPtr %-16s %-16s %8x %-16s n/a\n",
              info ? info->GetName() : "StreamerInfo unavailable", fID,
@@ -620,7 +620,7 @@ void TBranchSTL::Print(const char *option) const
          TBranch *br = (TBranch *)fBranches.UncheckedAt(i);
          br->Print("debugAddressSub");
       }
-   } else if (strncmp(option,"debugInfo",strlen("debugInfo"))==0)  {
+   } else if (strncmp(option,"debugInfo",length("debugInfo"))==0)  {
       Printf("Branch %s uses:\n",GetName());
       if (fID>=0) {
          GetInfo()->GetElement(fID)->ls();

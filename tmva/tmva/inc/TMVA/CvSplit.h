@@ -54,7 +54,7 @@ protected:
    std::vector<std::vector<TMVA::Event *>> fTestEvents;
 
 protected:
-   ClassDef(CvSplit, 0);
+   ClassDefOverride(CvSplit, 0);
 };
 
 /* =============================================================================
@@ -77,10 +77,10 @@ private:
    DataSetInfo &fDsi;
 
    std::vector<std::pair<Int_t, Int_t>>
-      fFormulaParIdxToDsiSpecIdx; //! Maps parameter indicies in splitExpr to their spectator index in the datasetinfo.
-   Int_t fIdxFormulaParNumFolds;  //! Keeps track of the index of reserved par "NumFolds" in splitExpr.
-   TString fSplitExpr;     //! Expression used to split data into folds. Should output values between 0 and numFolds.
-   TFormula fSplitFormula; //! TFormula for splitExpr.
+      fFormulaParIdxToDsiSpecIdx; ///<! Maps parameter indicies in splitExpr to their spectator index in the datasetinfo.
+   Int_t fIdxFormulaParNumFolds;  ///<! Keeps track of the index of reserved par "NumFolds" in splitExpr.
+   TString fSplitExpr;     ///<! Expression used to split data into folds. Should output values between 0 and numFolds.
+   TFormula fSplitFormula; ///<! TFormula for splitExpr.
 
    std::vector<Double_t> fParValues;
 };
@@ -105,9 +105,9 @@ private:
 
 private:
    UInt_t fSeed;
-   TString fSplitExprString; //! Expression used to split data into folds. Should output values between 0 and numFolds.
+   TString fSplitExprString; ///<! Expression used to split data into folds. Should output values between 0 and numFolds.
    std::unique_ptr<CvSplitKFoldsExpr> fSplitExpr;
-   Bool_t fStratified; // If true, use stratified split. (Balance class presence in each fold).
+   Bool_t fStratified; ///< If true, use stratified split. (Balance class presence in each fold).
 
    // Used for CrossValidation with random splits (not using the
    // CVSplitKFoldsExpr functionality) to communicate Event to fold mapping.

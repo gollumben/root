@@ -30,9 +30,6 @@ a web browser with sensitive regions (MAP HTML tag).
 #include "TVirtualX.h"
 
 
-ClassImp(TGRegion);
-ClassImp(TGRegionWithId);
-ClassImpQ(TGImageMap)
 
 
 TGRegionWithId  *gCurrentRegion; // current region
@@ -53,7 +50,7 @@ private:
 
 public:
    TGRegionData() { fRgn = 0; fIsNull = kTRUE; AddReference(); }
-   ~TGRegionData() { }
+   ~TGRegionData() override { }
    TGRegionData &operator=(const TGRegionData &r);
 };
 

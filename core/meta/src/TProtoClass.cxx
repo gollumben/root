@@ -24,12 +24,29 @@ Persistent version of a TClass.
 #include "TList.h"
 #include "TListOfDataMembers.h"
 #include "TListOfEnums.h"
+#include "TListOfEnumsWithLock.h"
 #include "TRealData.h"
 #include "TError.h"
 #include "TVirtualCollectionProxy.h"
 
 #include <cassert>
 #include <unordered_map>
+
+#ifdef WIN32
+#include <io.h>
+#include "Windows4Root.h"
+#include <Psapi.h>
+#define RTLD_DEFAULT ((void *)::GetModuleHandle(NULL))
+#define dlsym(library, function_name) ::GetProcAddress((HMODULE)library, function_name)
+#else
+#include <dlfcn.h>
+#endif
+
+static bool IsFromRootCling() {
+  // rootcling also uses TCling for generating the dictionary ROOT files.
+  const static bool foundSymbol = dlsym(RTLD_DEFAULT, "usedToIdentifyRootClingByDlSym");
+  return foundSymbol;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Initialize a TProtoClass from a TClass.
@@ -38,7 +55,7 @@ TProtoClass::TProtoClass(TClass* cl):
    TNamed(*cl), fBase(cl->GetListOfBases()),
    fEnums(cl->GetListOfEnums()), fSizeof(cl->Size()), fCheckSum(cl->fCheckSum),
    fCanSplit(cl->fCanSplit), fStreamerType(cl->fStreamerType), fProperty(cl->fProperty),
-   fClassProperty(cl->fClassProperty)
+   fClassProperty(cl->fClassProperty), fOwner(false)
 {
    if (cl->Property() & kIsNamespace){
       //fData=new TListOfDataMembers();
@@ -149,16 +166,22 @@ TProtoClass::~TProtoClass()
 /// if (fPRealData) fPRealData->Delete(opt);
 /// delete fPRealData; fPRealData = 0;
 
-void TProtoClass::Delete(Option_t* opt /*= ""*/) {
-   if (fBase) fBase->Delete(opt);
-   delete fBase; fBase = nullptr;
-
-   for (auto dm: fData) {
-      delete dm;
+void TProtoClass::Delete(Option_t* opt /*= ""*/)
+{
+   if (fOwner && fBase) {
+      fBase->Delete(opt);
+      delete fBase; fBase = nullptr;
    }
 
-   if (fEnums) fEnums->Delete(opt);
-   delete fEnums; fEnums = nullptr;
+   if (fOwner)
+      for (auto dm: fData)
+         delete dm;
+   fData.clear();
+
+   if (fOwner && fEnums) {
+      fEnums->Delete(opt);
+      delete fEnums; fEnums = nullptr;
+   }
 
    if (gErrorIgnoreLevel==-2) printf("Delete the protoClass %s \n",GetName());
 }
@@ -168,6 +191,7 @@ void TProtoClass::Delete(Option_t* opt /*= ""*/) {
 /// Returns 'false' if nothing was done.  This can happen in the case where
 /// there is more than one dictionary for the same entity.  Note having
 /// duplicate dictionary is acceptable for namespace or STL collections.
+/// The caller of this function should be holding the ROOT Write lock.
 
 Bool_t TProtoClass::FillTClass(TClass* cl) {
    if (cl->fRealData || cl->fBase.load() || cl->fData.load() || cl->fEnums.load() || cl->fCanSplit >= 0 ||
@@ -243,6 +267,7 @@ Bool_t TProtoClass::FillTClass(TClass* cl) {
    cl->fName  = this->fName;
    cl->fTitle = this->fTitle;
    cl->fBase = fBase;
+   fBase = nullptr;
 
    // fill list of data members in TClass
    //if (cl->fData) { cl->fData->Delete(); delete cl->fData;  }
@@ -262,7 +287,8 @@ Bool_t TProtoClass::FillTClass(TClass* cl) {
    // We need to fill enums one by one to initialise the internal map which is
    // transient
    {
-      auto temp = new TListOfEnums();
+      auto temp = cl->fEnums.load() ? cl->fEnums.load() :
+                  IsFromRootCling() ? new TListOfEnums() : new TListOfEnumsWithLock();
       if (fEnums) {
          for (TObject* enumAsTObj : *fEnums){
             temp->Add((TEnum*) enumAsTObj);
@@ -278,14 +304,13 @@ Bool_t TProtoClass::FillTClass(TClass* cl) {
    if (cl->fSizeof != -1 && cl->fSizeof != fSizeof) {
       Error("FillTClass",
             "For %s the sizeof provided by GenerateInitInstance (%d) is different from the one provided by TProtoClass (%d)",
-            cl->GetName(), cl->fSizeof, fSizeof);
+            cl->GetName(), cl->fSizeof.load(std::memory_order_relaxed), fSizeof);
    } else
       cl->fSizeof = fSizeof;
    cl->fCheckSum = fCheckSum;
    cl->fCanSplit = fCanSplit;
    cl->fProperty = fProperty;
    cl->fClassProperty = fClassProperty;
-   cl->fStreamerType = fStreamerType;
 
    // Update pointers to TClass
    if (cl->fBase.load()) {
@@ -359,7 +384,7 @@ Bool_t TProtoClass::FillTClass(TClass* cl) {
          //TProtoRealData* prd = (TProtoRealData*)element;
          // pass a previous real data only if depth
 
-         if (TRealData* rd = element.CreateRealData(currentRDClass, cl,prevRealData, prevLevel)) {
+         if (TRealData* rd = element.CreateRealData(currentRDClass, cl,prevRealData, prevLevel, element.TestFlag(TProtoRealData::kIsTransient))) {
             if (first) {
                //LM: need to do here because somehow fRealData is destroyed when calling TClass::GetListOfDataMembers()
                if (cl->fRealData) {
@@ -386,7 +411,7 @@ Bool_t TProtoClass::FillTClass(TClass* cl) {
       cl->fRealData = new TList(); // FIXME: this should really become a THashList!
    }
 
-   cl->SetStreamerImpl();
+   cl->SetStreamerImpl(fStreamerType);
 
    // set to zero in order not to delete when protoclass is deleted
    fBase = nullptr;
@@ -442,15 +467,23 @@ TProtoClass::TProtoRealData::~TProtoRealData()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Create a TRealData from this, with its data member coming from dmClass.
+/// \brief Create a TRealData from this, with its data member coming from dmClass.
 /// find data member from protoclass
+///
+/// \return the created TRealData
+///
+/// \param [in] dmClass Class where the data member is declared
+/// \param [in] parent  Parent class
+/// \param [in] prevData the previous 'real' data member (might be part of another class)
+/// \param [in] prevLevel nesting level
+/// \param [in] quiet Whether we should not warn about missing information (usually set to true for transient members)
 
 TRealData* TProtoClass::TProtoRealData::CreateRealData(TClass* dmClass,
-                                                       TClass* parent, TRealData *prevData, int prevLevel) const
+                                                       TClass* parent, TRealData *prevData, int prevLevel, bool quiet) const
 {
 
    //TDataMember* dm = (TDataMember*)dmClass->GetListOfDataMembers()->FindObject(fName);
-   TDataMember* dm = TProtoClass::FindDataMember(dmClass, fDMIndex);
+   TDataMember* dm = TProtoClass::FindDataMember(dmClass, fDMIndex, quiet);
 
    if (!dm && dmClass->GetState()!=TClass::kForwardDeclared && !dmClass->fIsSyntheticPair) {
       ::Error("CreateRealData",
@@ -538,8 +571,16 @@ Int_t TProtoClass::DataMemberIndex(TClass * cl, const char * name)
    return -1;
 }
 ////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+/// \brief Find the requested TDataMember
+///
+/// \return the requested TDataMember if found
+///
+/// \param [in] cl TClass to search for the data member
+/// \param [in] index Numerical index of the object's data member
+/// \param [in] quiet Whether we should not warn about missing information (usually set to true for transient members)
 
-TDataMember * TProtoClass::FindDataMember(TClass * cl, Int_t index)
+TDataMember * TProtoClass::FindDataMember(TClass * cl, Int_t index, bool quiet)
 {
    TList * dmList = cl->GetListOfDataMembers(false);
 
@@ -553,7 +594,7 @@ TDataMember * TProtoClass::FindDataMember(TClass * cl, Int_t index)
          return dm;
       i++;
    }
-   if (cl->GetState()!=TClass::kForwardDeclared && !cl->fIsSyntheticPair)
+   if (cl->GetState()!=TClass::kForwardDeclared && !cl->fIsSyntheticPair && !quiet)
       ::Error("TProtoClass::FindDataMember","data member with index %d is not found in class %s",index,cl->GetName());
    return nullptr;
 }

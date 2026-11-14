@@ -19,12 +19,11 @@
 #include "TBuffer3D.h"
 #include "TBuffer3DTypes.h"
 #include "TVirtualViewer3D.h"
-#include "TGeometry.h"
+#include "TGeometryTransformer.h"
 #include "TMath.h"
 
 #include <cassert>
 
-ClassImp(TMarker3DBox);
 
 /** \class TMarker3DBox
 \ingroup g3d
@@ -47,7 +46,7 @@ It has the following parameters:
 
 TMarker3DBox::TMarker3DBox()
 {
-   fRefObject = 0;
+   fRefObject = nullptr;
    fDx        = 1;
    fDy        = 1;
    fDz        = 1;
@@ -75,7 +74,7 @@ TMarker3DBox::TMarker3DBox( Float_t x, Float_t y, Float_t z,
    fZ         = z;
    fTheta     = theta;
    fPhi       = phi;
-   fRefObject = 0;
+   fRefObject = nullptr;
    SetBit(kTemporary,kFALSE);
 }
 
@@ -198,7 +197,7 @@ void TMarker3DBox::Paint(Option_t * /* option */ )
    // If we are just a temporary object then no 'real object' to
    // pass to viewer
    if (TestBit(kTemporary)) {
-      buffer.fID = 0;
+      buffer.fID = nullptr;
    } else {
       buffer.fID           = this;
    }
@@ -230,14 +229,14 @@ void TMarker3DBox::Paint(Option_t * /* option */ )
       SetPoints(buffer.fPnts);
 
       // Transform points
-      if (gGeometry && !buffer.fLocalFrame) {
+      if (ROOT::Internal::currentTGeometryTransformer && !buffer.fLocalFrame) {
          Double_t dlocal[3];
          Double_t dmaster[3];
          for (UInt_t j=0; j<buffer.NbPnts(); j++) {
             dlocal[0] = buffer.fPnts[3*j];
             dlocal[1] = buffer.fPnts[3*j+1];
             dlocal[2] = buffer.fPnts[3*j+2];
-            gGeometry->Local2Master(&dlocal[0],&dmaster[0]);
+            ROOT::Internal::currentTGeometryTransformer(&dlocal[0], &dmaster[0]);
             buffer.fPnts[3*j]   = dmaster[0];
             buffer.fPnts[3*j+1] = dmaster[1];
             buffer.fPnts[3*j+2] = dmaster[2];
@@ -303,7 +302,7 @@ void TMarker3DBox::PaintH3(TH1 *h, Option_t *option)
    TView *view = gPad->GetView();
    if (!view) {
       gPad->Range(-1,-1,1,1);
-      view = TView::CreateView(1,0,0);
+      view = TView::CreateView(1,nullptr,nullptr);
       if (!view) return;
    }
    view->SetRange(xaxis->GetBinLowEdge(xaxis->GetFirst()),
@@ -348,27 +347,15 @@ void TMarker3DBox::PaintH3(TH1 *h, Option_t *option)
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out
 
-void TMarker3DBox::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
+void TMarker3DBox::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   out<<"   "<<std::endl;
-   if (gROOT->ClassSaved(TMarker3DBox::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TMarker3DBox *";
-   }
-   out<<"marker3DBox = new TMarker3DBox("<<fX<<","
-                                         <<fY<<","
-                                         <<fZ<<","
-                                         <<fDx<<","
-                                         <<fDy<<","
-                                         <<fDz<<","
-                                         <<fTheta<<","
-                                         <<fPhi<<");"<<std::endl;
+   SavePrimitiveConstructor(out, Class(), "marker3DBox",
+                            TString::Format("%g, %g, %g, %g, %g, %g, %g, %g", fX, fY, fZ, fDx, fDy, fDz, fTheta, fPhi));
 
-   SaveLineAttributes(out,"marker3DBox",1,1,1);
-   SaveFillAttributes(out,"marker3DBox",1,0);
+   SaveLineAttributes(out, "marker3DBox", 1, 1, 1);
+   SaveFillAttributes(out, "marker3DBox", 1, 0);
 
-   out<<"   marker3DBox->Draw();"<<std::endl;
+   SavePrimitiveDraw(out, "marker3DBox", option);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -20,16 +20,15 @@
 
 //______________________________________________________________________
 /**
-   TUnuranBaseDist, base class for Unuran distribution classees such as
+   TUnuranBaseDist, base class for Unuran distribution classes such as
    TUnuranContDist (for one-dimension) or TUnuranMultiContDist (multi-dimension)
 
-   \ingroup Unnuran
+   \ingroup Unuran
 */
 ///////////////////////////////////////////////////////////////////////
 class TUnuranBaseDist  {
 
 public:
-
 
    /**
       Destructor (no operations)
@@ -41,29 +40,7 @@ public:
     */
    virtual TUnuranBaseDist * Clone() const = 0;
 
-
-// private:
-//    /**
-//       Default constructor
-//     */
-//    TUnuranBaseDist() {}
-
-//    /**
-//       Copy constructor
-//    */
-//    TUnuranBaseDist(const TUnuranBaseDist & ) {}
-
-//    /**
-//       Assignment operator
-//    */
-//    TUnuranBaseDist & operator = (const TUnuranBaseDist & ) {
-//       return *this;
-//    }
-
-
    ClassDef(TUnuranBaseDist,1)  //Base class for Unuran distribution wrappers
-
-
 };
 
 

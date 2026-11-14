@@ -8,28 +8,26 @@
 # CMakeLists.txt file for building ROOT core/unix package
 ############################################################################
 
-set(Unix_dict_headers
-  TUnixSystem.h
-  PARENT_SCOPE
-)
+if(NOT UNIX)
+  return()
+endif()
 
-ROOT_OBJECT_LIBRARY(Unix
+set_property(TARGET Core APPEND PROPERTY DICT_HEADERS TUnixSystem.h)
+target_sources(Core
+PRIVATE
   src/TUnixSystem.cxx
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/
+  FILES
+    inc/TUnixSystem.h
+    inc/LinkDef.h
 )
+target_include_directories(Core PRIVATE inc ../../builtins/clib/res)
 
-target_include_directories(Unix PRIVATE 
-   ${CMAKE_SOURCE_DIR}/core/clib/res
-   ${CMAKE_SOURCE_DIR}/core/foundation/res
-   ${CMAKE_SOURCE_DIR}/core/base/inc
-   ${CMAKE_SOURCE_DIR}/core/clib/inc
-   ${CMAKE_SOURCE_DIR}/core/meta/inc
-   ${CMAKE_SOURCE_DIR}/core/cont/inc
-   ${CMAKE_SOURCE_DIR}/core/thread/inc
-   ${CMAKE_SOURCE_DIR}/core/textinput/inc
-   ${CMAKE_SOURCE_DIR}/core/gui/inc
-   ${CMAKE_SOURCE_DIR}/core/foundation/inc
-   ${CMAKE_BINARY_DIR}/ginclude
-)
-
+if (CMAKE_SYSTEM_NAME MATCHES FreeBSD)
+  target_link_libraries(Core PRIVATE execinfo util)
+endif()
 
 ROOT_INSTALL_HEADERS()

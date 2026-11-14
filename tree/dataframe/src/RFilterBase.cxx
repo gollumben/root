@@ -9,6 +9,7 @@
  *************************************************************************/
 
 #include "ROOT/RDF/RCutFlowReport.hxx"
+#include "ROOT/RDF/RDefineBase.hxx"
 #include "ROOT/RDF/RFilterBase.hxx"
 #include "ROOT/RDF/Utils.hxx"
 #include <numeric> // std::accumulate
@@ -16,20 +17,22 @@
 using namespace ROOT::Detail::RDF;
 
 RFilterBase::RFilterBase(RLoopManager *implPtr, std::string_view name, const unsigned int nSlots,
-                         const RDFInternal::RBookedDefines &defines, const ColumnNames_t &columns)
-   : RNodeBase(implPtr), fLastCheckedEntry(std::vector<Long64_t>(nSlots * RDFInternal::CacheLineStep<Long64_t>(), -1)),
+                         const RDFInternal::RColumnRegister &colRegister, const ColumnNames_t &columns,
+                         const std::vector<std::string> &prevVariations, const std::string &variation)
+   : RNodeBase(ROOT::Internal::RDF::Union(colRegister.GetVariationDeps(columns), prevVariations), implPtr),
+     fLastCheckedEntry(nSlots * RDFInternal::CacheLineStep<Long64_t>(), -1),
      fLastResult(nSlots * RDFInternal::CacheLineStep<int>()),
      fAccepted(nSlots * RDFInternal::CacheLineStep<ULong64_t>()),
-     fRejected(nSlots * RDFInternal::CacheLineStep<ULong64_t>()), fName(name), fColumnNames(columns), fDefines(defines),
-     fIsDefine(columns.size())
+     fRejected(nSlots * RDFInternal::CacheLineStep<ULong64_t>()), fName(name), fColumnNames(columns),
+     fColRegister(colRegister), fIsDefine(columns.size()), fVariation(variation)
 {
    const auto nColumns = fColumnNames.size();
-   for (auto i = 0u; i < nColumns; ++i)
-      fIsDefine[i] = fDefines.HasName(fColumnNames[i]);
+   for (auto i = 0u; i < nColumns; ++i) {
+      fIsDefine[i] = fColRegister.IsDefineOrAlias(fColumnNames[i]);
+      if (fVariation != "nominal" && fIsDefine[i])
+         fColRegister.GetDefine(fColumnNames[i])->MakeVariations({fVariation});
+   }
 }
-
-// outlined to pin virtual table
-RFilterBase::~RFilterBase() {}
 
 bool RFilterBase::HasName() const
 {
@@ -55,3 +58,6 @@ void RFilterBase::InitNode()
    if (!fName.empty()) // if this is a named filter we care about its report count
       ResetReportCount();
 }
+
+// outlined to pin virtual table
+ROOT::Detail::RDF::RFilterBase::~RFilterBase() = default;

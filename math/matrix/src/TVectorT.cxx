@@ -12,28 +12,28 @@
 /** \class TVectorT
     \ingroup Matrix
 
- TVectorT
+TVectorT
 
- Template class of Vectors in the linear algebra package.
+Template class of Vectors in the linear algebra package.
 
- See \ref MatrixPage for the documentation of the linear algebra package
+See the \ref Matrix page for the documentation of the linear algebra package
 
- Unless otherwise specified, vector indices always start with 0,
- spanning up to the specified limit-1.
+Unless otherwise specified, vector indices always start with 0,
+spanning up to the specified limit-1.
 
- For (n) vectors where n <= kSizeMax (5 currently) storage space is
- available on the stack, thus avoiding expensive allocation/
- deallocation of heap space . However, this introduces of course
- kSizeMax overhead for each vector object . If this is an issue
- recompile with a new appropriate value (>=0) for kSizeMax
+For (n) vectors where n <= kSizeMax (5 currently) storage space is
+available on the stack, thus avoiding expensive allocation/
+deallocation of heap space . However, this introduces of course
+kSizeMax overhead for each vector object . If this is an issue
+recompile with a new appropriate value (>=0) for kSizeMax
 
- Another way to assign and store vector data is through Use
- see for instance stressLinear.cxx file .
+Another way to assign and store vector data is through Use
+see for instance stressLinear.cxx file .
 
- Note that Constructors/assignments exists for all different matrix
- views
+Note that Constructors/assignments exists for all different matrix
+views
 
- For usage examples see $ROOTSYS/test/stressLinear.cxx
+For usage examples see `$ROOTSYS/test/stressLinear.cxx`
 
 */
 
@@ -41,9 +41,9 @@
 #include "TBuffer.h"
 #include "TMath.h"
 #include "TROOT.h"
-#include "Varargs.h"
 
-templateClassImp(TVectorT);
+#include <cstdarg>
+#include <type_traits>
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -55,7 +55,7 @@ void TVectorT<Element>::Delete_m(Int_t size,Element *&m)
    if (m) {
       if (size > kSizeMax)
          delete [] m;
-      m = 0;
+      m = nullptr;
    }
 }
 
@@ -66,7 +66,7 @@ void TVectorT<Element>::Delete_m(Int_t size,Element *&m)
 template<class Element>
 Element* TVectorT<Element>::New_m(Int_t size)
 {
-   if (size == 0) return 0;
+   if (size == 0) return nullptr;
    else {
       if ( size <= kSizeMax )
          return fDataStack;
@@ -153,7 +153,7 @@ void TVectorT<Element>::Allocate(Int_t nrows,Int_t row_lwb,Int_t init)
    fIsOwner  = kTRUE;
    fNrows    = 0;
    fRowLwb   = 0;
-   fElements = 0;
+   fElements = nullptr;
 
    if (nrows < 0)
    {
@@ -287,7 +287,7 @@ TVectorT<Element>::TVectorT(Int_t lwb,Int_t upb,Double_t iv1, ...)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Resize the vector to [lwb:upb] .
-/// New dynamic elemenst are created, the overlapping part of the old ones are
+/// New dynamic elements are created, the overlapping part of the old ones are
 /// copied to the new structures, then the old elements are deleted.
 
 template<class Element>
@@ -2239,7 +2239,7 @@ void TMatrixTAutoloadOps::Compare(const TVectorT<Element> &v1,const TVectorT<Ele
 
    imax += v1.GetLwb();
    printf("\nMaximal discrepancy    \t\t%g",difmax);
-   printf("\n   occured at the point\t\t(%d)",imax);
+   printf("\n   occurred at the point\t\t(%d)",imax);
    const Element mv1 = v1(imax);
    const Element mv2 = v2(imax);
    printf("\n Vector 1 element is    \t\t%g",mv1);
@@ -2464,3 +2464,11 @@ template Bool_t    TMatrixTAutoloadOps::AreCompatible       <Double_t,Double_t>(
 template void      TMatrixTAutoloadOps::Compare             <Double_t>         (const TVectorD &v1,const TVectorD &v2);
 template Bool_t    TMatrixTAutoloadOps::VerifyVectorValue   <Double_t>         (const TVectorD &m,       Double_t  val,Int_t verbose,Double_t maxDevAllow);
 template Bool_t    TMatrixTAutoloadOps::VerifyVectorIdentity<Double_t>         (const TVectorD &m1,const TVectorD &m2, Int_t verbose,Double_t maxDevAllow);
+
+
+// ROOT-7739
+static_assert(std::is_same_v<decltype(std::declval<double>() * std::declval<TVectorD>()), TVectorD>,
+              "double * TVectorD must be TVectorD");
+
+static_assert(std::is_same_v<decltype(std::declval<TVectorD>() * std::declval<double>()), TVectorD>,
+              "TVectorD * double must be TVectorD");

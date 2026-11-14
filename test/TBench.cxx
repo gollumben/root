@@ -8,7 +8,8 @@
 #include "TClass.h"
 //the next include must be the last one on systems like Windows/NT
 #include "TBench.h"
-#include "Riostream.h"
+
+#include <iostream>
 
 THit s_hit;
 #ifdef R__HPUX
@@ -50,7 +51,6 @@ Counter hitCount("THit");
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(THit);
 //-------------------------------------------------------------
 THit::THit() {
    fPulses = 0;
@@ -129,7 +129,6 @@ TBuffer &operator<<(TBuffer &buf, const THit *obj)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TObjHit);
 //-------------------------------------------------------------
 
 TObjHit::TObjHit() :THit() {}
@@ -138,7 +137,6 @@ TObjHit::TObjHit(int t) :THit(t) {}
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhit);
 //-------------------------------------------------------------
 TSTLhit::TSTLhit()
 {
@@ -213,7 +211,6 @@ Int_t TSTLhit::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitList);
 //-------------------------------------------------------------
 TSTLhitList::TSTLhitList()
 {
@@ -286,7 +283,6 @@ Int_t TSTLhitList::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitDeque);
 //-------------------------------------------------------------
 TSTLhitDeque::TSTLhitDeque()
 {
@@ -360,7 +356,6 @@ Int_t TSTLhitDeque::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitSet);
 //-------------------------------------------------------------
 TSTLhitSet::TSTLhitSet()
 {
@@ -434,7 +429,6 @@ Int_t TSTLhitSet::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitMultiset);
 //-------------------------------------------------------------
 TSTLhitMultiset::TSTLhitMultiset()
 {
@@ -508,7 +502,6 @@ Int_t TSTLhitMultiset::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitMap);
 //-------------------------------------------------------------
 TSTLhitMap::TSTLhitMap()
 {
@@ -582,7 +575,6 @@ Int_t TSTLhitMap::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitMultiMap);
 //-------------------------------------------------------------
 TSTLhitMultiMap::TSTLhitMultiMap()
 {
@@ -657,7 +649,6 @@ Int_t TSTLhitMultiMap::ReadTree()
 #if 0
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitHashSet);
 //-------------------------------------------------------------
 TSTLhitHashSet::TSTLhitHashSet()
 {
@@ -731,7 +722,6 @@ Int_t TSTLhitHashSet::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitHashMultiSet);
 //-------------------------------------------------------------
 TSTLhitHashMultiSet::TSTLhitHashMultiSet()
 {
@@ -805,7 +795,6 @@ Int_t TSTLhitHashMultiSet::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitStar);
 //-------------------------------------------------------------
 TSTLhitStar::TSTLhitStar()
 {
@@ -882,7 +871,6 @@ Int_t TSTLhitStar::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitStarList);
 //-------------------------------------------------------------
 TSTLhitStarList::TSTLhitStarList()
 {
@@ -957,7 +945,6 @@ Int_t TSTLhitStarList::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitStarDeque);
 //-------------------------------------------------------------
 TSTLhitStarDeque::TSTLhitStarDeque()
 {
@@ -1032,7 +1019,6 @@ Int_t TSTLhitStarDeque::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitStarSet);
 //-------------------------------------------------------------
 TSTLhitStarSet::TSTLhitStarSet()
 {
@@ -1108,7 +1094,6 @@ Int_t TSTLhitStarSet::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitStarMultiSet);
 //-------------------------------------------------------------
 TSTLhitStarMultiSet::TSTLhitStarMultiSet()
 {
@@ -1184,7 +1169,6 @@ Int_t TSTLhitStarMultiSet::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitStarMap);
 //-------------------------------------------------------------
 TSTLhitStarMap::TSTLhitStarMap()
 {
@@ -1259,7 +1243,6 @@ Int_t TSTLhitStarMap::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TSTLhitStarMultiMap);
 //-------------------------------------------------------------
 TSTLhitStarMultiMap::TSTLhitStarMultiMap()
 {
@@ -1335,7 +1318,6 @@ Int_t TSTLhitStarMultiMap::ReadTree()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TCloneshit);
 //-------------------------------------------------------------
 TCloneshit::TCloneshit()
 {

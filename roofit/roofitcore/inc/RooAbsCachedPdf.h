@@ -27,11 +27,11 @@ public:
 
   // Default constructor
   RooAbsCachedPdf() : _cacheMgr(this,10) {}
-  RooAbsCachedPdf(const char *name, const char *title, Int_t ipOrder=0);
+  RooAbsCachedPdf(const char *name, const char *title, int ipOrder=0);
   RooAbsCachedPdf(const RooAbsCachedPdf& other, const char* name=nullptr) ;
 
-  virtual double getValV(const RooArgSet* set=nullptr) const ;
-  virtual bool selfNormalized() const {
+  double getValV(const RooArgSet* set=nullptr) const override ;
+  bool selfNormalized() const override {
     // Declare p.d.f self normalized
     return true ;
   }
@@ -44,32 +44,34 @@ public:
     // Return RooDataHist with cached values
     return getCacheHist(&nset) ;
   }
-  RooAbsPdf* getCachePdf(const RooArgSet* nset=0) const ;
-  RooDataHist* getCacheHist(const RooArgSet* nset=0) const ;
+  RooAbsPdf* getCachePdf(const RooArgSet* nset=nullptr) const ;
+  RooDataHist* getCacheHist(const RooArgSet* nset=nullptr) const ;
 
   void setInterpolationOrder(int order) ;
-  Int_t getInterpolationOrder() const { 
+  Int_t getInterpolationOrder() const {
     // Set interpolation order in RooHistPdf that represent cached histogram
-    return _ipOrder ; 
+    return _ipOrder ;
   }
 
-  virtual bool forceAnalyticalInt(const RooAbsArg& dep) const ;
-  virtual Int_t getAnalyticalIntegralWN(RooArgSet& allVars, RooArgSet& analVars, const RooArgSet* normSet, const char* rangeName=nullptr) const ;
-  virtual double analyticalIntegralWN(Int_t code, const RooArgSet* normSet, const char* rangeName=nullptr) const ;
+  bool forceAnalyticalInt(const RooAbsArg& dep) const override ;
+  Int_t getAnalyticalIntegralWN(RooArgSet& allVars, RooArgSet& analVars, const RooArgSet* normSet, const char* rangeName=nullptr) const override ;
+  double analyticalIntegralWN(Int_t code, const RooArgSet* normSet, const char* rangeName=nullptr) const override ;
 
+  std::unique_ptr<RooAbsArg> compileForNormSet(RooArgSet const &normSet, RooFit::Detail::CompileContext & ctx) const override;
 
   class PdfCacheElem : public RooAbsCacheElement {
   public:
     PdfCacheElem(const RooAbsCachedPdf& self, const RooArgSet* nset) ;
 
     // Cache management functions
-    virtual RooArgList containedArgs(Action) ;
-    virtual void printCompactTreeHook(std::ostream&, const char *, Int_t, Int_t) ;
+    RooArgList containedArgs(Action) override ;
+    void printCompactTreeHook(std::ostream&, const char *, Int_t, Int_t) override ;
 
     RooHistPdf* pdf() { return _pdf.get() ; }
     RooDataHist* hist() { return _hist.get() ; }
     const RooArgSet& nset() { return _nset ; }
     RooChangeTracker* paramTracker() { return _paramTracker.get() ; }
+    void setUnitNorm() { pdf()->setUnitNorm(true); }
 
   private:
     // Payload
@@ -81,39 +83,42 @@ public:
 
   } ;
 
-  protected:
-   
-  PdfCacheElem* getCache(const RooArgSet* nset, bool recalculate=true) const ;
-  void clearCacheObject(PdfCacheElem& cache) const ;
+  using CacheElem = PdfCacheElem;
 
-  virtual const char* payloadUniqueSuffix() const { return 0 ; }
-  
+  protected:
+
+  void doEval(RooFit::EvalContext &) const override;
+
+  PdfCacheElem* getCache(const RooArgSet* nset, bool recalculate=true) const ;
+
+  virtual const char* payloadUniqueSuffix() const { return nullptr ; }
+
   friend class PdfCacheElem ;
-  virtual const char* binningName() const { 
+  virtual const char* binningName() const {
     // Return name of binning to be used for creation of cache histogram
-    return "cache" ; 
+    return "cache" ;
   }
-  virtual PdfCacheElem* createCache(const RooArgSet* nset) const { 
+  virtual PdfCacheElem* createCache(const RooArgSet* nset) const {
     // Create cache storage element
-    return new PdfCacheElem(*this,nset) ; 
+    return new PdfCacheElem(*this,nset) ;
   }
   virtual const char* inputBaseName() const = 0 ;
-  virtual RooArgSet* actualObservables(const RooArgSet& nset) const = 0 ;
-  virtual RooArgSet* actualParameters(const RooArgSet& nset) const = 0 ;
+  virtual RooFit::OwningPtr<RooArgSet> actualObservables(const RooArgSet& nset) const = 0 ;
+  virtual RooFit::OwningPtr<RooArgSet> actualParameters(const RooArgSet& nset) const = 0 ;
   virtual RooAbsArg& pdfObservable(RooAbsArg& histObservable) const { return histObservable ; }
   virtual void fillCacheObject(PdfCacheElem& cache) const = 0 ;
 
-  mutable RooObjCacheManager _cacheMgr ; //! The cache manager  
-  Int_t _ipOrder ; // Interpolation order for cache histograms 
- 
+  mutable RooObjCacheManager _cacheMgr ; ///<! The cache manager
+  Int_t _ipOrder ; // Interpolation order for cache histograms
+
   std::string cacheNameSuffix(const RooArgSet& nset) const ;
   virtual TString histNameSuffix() const { return TString("") ; }
   void disableCache(bool flag) {
     // Flag to disable caching mechanism
-    _disableCache = flag ; 
+    _disableCache = flag ;
   }
 
-  mutable RooAICRegistry _anaReg ; //! Registry for analytical integration codes
+  mutable RooAICRegistry _anaReg ; ///<! Registry for analytical integration codes
   class AnaIntConfig {
   public:
     RooArgSet _allVars ;
@@ -121,15 +126,23 @@ public:
     const RooArgSet* _nset ;
     bool    _unitNorm ;
   } ;
-  mutable std::map<Int_t,AnaIntConfig> _anaIntMap ; //! Map for analytical integration codes
+  mutable std::map<Int_t,AnaIntConfig> _anaIntMap ; ///<! Map for analytical integration codes
 
 
 
 private:
 
-  bool _disableCache = false; // Flag to run object in passthrough (= non-caching mode)
+  bool _disableCache = false; ///< Flag to run object in passthrough (= non-caching mode)
 
-  ClassDef(RooAbsCachedPdf,2) // Abstract base class for cached p.d.f.s
+  /// Pinned at compileForNormSet() time on the cloned cache pdf, so that
+  /// doEval() looks up the same _cacheMgr slot that getAnalyticalIntegralWN()
+  /// populates while the surrounding RooNormalizedPdf is being constructed.
+  /// Without this, the two paths used different (or null) keys and the cache
+  /// was rebuilt on the first Evaluator step of every fit.
+  RooArgSet _compiledNormSet;       ///<! stable normalization set for the compiled clone
+  bool _hasCompiledNormSet = false; ///<! whether _compiledNormSet has been populated
+
+  ClassDefOverride(RooAbsCachedPdf,2) // Abstract base class for cached p.d.f.s
 };
- 
+
 #endif

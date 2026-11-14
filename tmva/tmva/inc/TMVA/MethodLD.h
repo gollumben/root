@@ -1,10 +1,10 @@
-// Author: Krzysztof Danielowski, Kamil Kraszewski, Maciej Kruk, Jan Therhaag 
+// Author: Krzysztof Danielowski, Kamil Kraszewski, Maciej Kruk, Jan Therhaag
 
 /**********************************************************************************
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodLD                                                              *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Linear Discriminant (Simple Linear Regression)                            *
@@ -17,13 +17,13 @@
  *      Jan Therhaag          <therhaag@physik.uni-bonn.de> - Uni Bonn, Germany   *
  *                                                                                *
  * Copyright (c) 2008-2011:                                                       *
- *      CERN, Switzerland                                                         * 
- *      PAN, Poland                                                               * 
+ *      CERN, Switzerland                                                         *
+ *      PAN, Poland                                                               *
  *      U. of Bonn, Germany                                                       *
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  *                                                                                *
  **********************************************************************************/
 
@@ -50,58 +50,58 @@ namespace TMVA {
    class MethodLD : public MethodBase {
 
    public:
-   
+
       // constructor
-      MethodLD( const TString& jobName, 
-                const TString& methodTitle, 
+      MethodLD( const TString& jobName,
+                const TString& methodTitle,
                 DataSetInfo& dsi,
                 const TString& theOption = "LD");
-      
+
       // constructor
-      MethodLD( DataSetInfo& dsi, 
+      MethodLD( DataSetInfo& dsi,
                 const TString& theWeightFile);
 
       // destructor
       virtual ~MethodLD( void );
 
-      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets );
-    
+      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets ) override;
+
       // training method
-      void Train( void );
+      void Train( void ) override;
 
       // calculate the MVA value
-      Double_t GetMvaValue( Double_t* err = 0, Double_t* errUpper = 0 );
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
 
       // calculate the Regression value
-      virtual const std::vector<Float_t>& GetRegressionValues();
+      const std::vector<Float_t>& GetRegressionValues() override;
 
-      using MethodBase::ReadWeightsFromStream;   
+      using MethodBase::ReadWeightsFromStream;
 
-      void AddWeightsXMLTo      ( void* parent ) const;
+      void AddWeightsXMLTo      ( void* parent ) const override;
 
-      void ReadWeightsFromStream( std::istream & i );
-      void ReadWeightsFromXML   ( void* wghtnode );
+      void ReadWeightsFromStream( std::istream & i ) override;
+      void ReadWeightsFromXML   ( void* wghtnode ) override;
 
-      const Ranking* CreateRanking();
-      void DeclareOptions();
-      void ProcessOptions();
+      const Ranking* CreateRanking() override;
+      void DeclareOptions() override;
+      void ProcessOptions() override;
 
    protected:
 
-      void MakeClassSpecific( std::ostream&, const TString& ) const;
-      void GetHelpMessage() const;
+      void MakeClassSpecific( std::ostream&, const TString& ) const override;
+      void GetHelpMessage() const override;
 
    private:
 
-      Int_t fNRegOut; // size of the output
- 
-      TMatrixD *fSumMatx;              // Sum of coordinates product matrix 
-      TMatrixD *fSumValMatx;           // Sum of values multiplied by coordinates
-      TMatrixD *fCoeffMatx;            // Matrix of coefficients
-      std::vector< std::vector<Double_t>* > *fLDCoeff; // LD coefficients
+      Int_t fNRegOut; ///< size of the output
+
+      TMatrixD *fSumMatx;              ///< Sum of coordinates product matrix
+      TMatrixD *fSumValMatx;           ///< Sum of values multiplied by coordinates
+      TMatrixD *fCoeffMatx;            ///< Matrix of coefficients
+      std::vector< std::vector<Double_t>* > *fLDCoeff; ///< LD coefficients
 
       // default initialisation called by all constructors
-      void Init( void );
+      void Init( void ) override;
 
       // Initialization and allocation of matrices
       void InitMatrices( void );
@@ -114,11 +114,11 @@ namespace TMVA {
 
       // get LD coefficients
       void GetLDCoeff( void );
-      
+
       // nice output
       void PrintCoefficients( void );
 
-      ClassDef(MethodLD,0); //Linear discriminant analysis
+      ClassDefOverride(MethodLD,0); //Linear discriminant analysis
    };
 } // namespace TMVA
 

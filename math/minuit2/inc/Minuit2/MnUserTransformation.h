@@ -14,9 +14,9 @@
 #include "Minuit2/MnMatrix.h"
 #include "Minuit2/MinuitParameter.h"
 #include "Minuit2/MnMachinePrecision.h"
-#include "Minuit2/SinParameterTransformation.h"
-#include "Minuit2/SqrtLowParameterTransformation.h"
-#include "Minuit2/SqrtUpParameterTransformation.h"
+#include "Minuit2/MnParameterTransformation.h"
+
+#include <ROOT/RSpan.hxx>
 
 #include <vector>
 #include <string>
@@ -38,38 +38,13 @@ class MnUserCovariance;
 class MnUserTransformation {
 
 public:
-   MnUserTransformation()
-      : fPrecision(MnMachinePrecision()), fParameters(std::vector<MinuitParameter>()),
-        fExtOfInt(std::vector<unsigned int>()), fDoubleLimTrafo(SinParameterTransformation()),
-        fUpperLimTrafo(SqrtUpParameterTransformation()), fLowerLimTrafo(SqrtLowParameterTransformation()),
-        fCache(std::vector<double>())
-   {
-   }
+   MnUserTransformation() = default;
 
-   MnUserTransformation(const std::vector<double> &, const std::vector<double> &);
+   MnUserTransformation(std::span<const double>, std::span<const double>);
 
-   ~MnUserTransformation() {}
+   MnUserTransformation(const MnUserTransformation &trafo) = default;
 
-   MnUserTransformation(const MnUserTransformation &trafo)
-      : fPrecision(trafo.fPrecision), fParameters(trafo.fParameters), fExtOfInt(trafo.fExtOfInt),
-        fDoubleLimTrafo(trafo.fDoubleLimTrafo), fUpperLimTrafo(trafo.fUpperLimTrafo),
-        fLowerLimTrafo(trafo.fLowerLimTrafo), fCache(trafo.fCache)
-   {
-   }
-
-   MnUserTransformation &operator=(const MnUserTransformation &trafo)
-   {
-      if (this != &trafo) {
-         fPrecision = trafo.fPrecision;
-         fParameters = trafo.fParameters;
-         fExtOfInt = trafo.fExtOfInt;
-         fDoubleLimTrafo = trafo.fDoubleLimTrafo;
-         fUpperLimTrafo = trafo.fUpperLimTrafo;
-         fLowerLimTrafo = trafo.fLowerLimTrafo;
-         fCache = trafo.fCache;
-      }
-      return *this;
-   }
+   MnUserTransformation &operator=(const MnUserTransformation &trafo) = default;
 
    //#ifdef MINUIT2_THREAD_SAFE
    // thread-safe version (do not use cache)
@@ -85,12 +60,15 @@ public:
    double Int2extError(unsigned int, double, double) const;
 
    MnUserCovariance Int2extCovariance(const MnAlgebraicVector &, const MnAlgebraicSymMatrix &) const;
+   MnUserCovariance Ext2intCovariance(const MnAlgebraicVector &, const MnAlgebraicSymMatrix &) const;
 
    // Index = external Parameter
    double Ext2int(unsigned int, double) const;
 
    // Index = internal Parameter
    double DInt2Ext(unsigned int, double) const;
+   double D2Int2Ext(unsigned int, double) const;
+   double DExt2Int(unsigned int, double) const;
 
    //   // Index = external Parameter
    //   double dExt2Int(unsigned int, double) const;
@@ -166,7 +144,7 @@ public:
 
    // convert external number into Name of Parameter (will assert if index is out of range)
    const std::string &GetName(unsigned int) const;
-   // mantain interface with const char * for backward compatibility
+   // maintain interface with const char * for backward compatibility
    const char *Name(unsigned int) const;
 
 private:

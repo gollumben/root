@@ -8,24 +8,26 @@ set(Libraries TMVA)
 
 
 #--- CUDA tests. ---------------------------
-if (CUDA_FOUND AND tmva-gpu AND tmva-cudnn)
+if (tmva-gpu AND tmva-cudnn)
 
-   set(DNN_CUDA_LIBRARIES ${CUDA_CUBLAS_LIBRARIES} ${CUDNN_LIBRARIES} )
+   list(APPEND Libraries CUDA::cuda_driver CUDA::cudart)
 
-   CUDA_ADD_EXECUTABLE(testGRUBackpropagationCudnn TestGRUBackpropagationCudnn.cxx)
+   set(DNN_CUDA_LIBRARIES ${CUDA_CUBLAS_LIBRARIES} )
+
+   add_executable(testGRUBackpropagationCudnn TestGRUBackpropagationCudnn.cxx)
    target_link_libraries(testGRUBackpropagationCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-   ROOT_ADD_TEST(TMVA-DNN-GRU-BackpropagationCudnn COMMAND testGRUBackpropagationCudnn)
+   ROOT_ADD_TEST(TMVA-DNN-GRU-BackpropagationCudnn COMMAND testGRUBackpropagationCudnn RESOURCE_LOCK GPU)
 
-   CUDA_ADD_EXECUTABLE(testGRUForwardPassCudnn TestGRUForwardPassCudnn.cxx)
+   add_executable(testGRUForwardPassCudnn TestGRUForwardPassCudnn.cxx)
    target_link_libraries(testGRUForwardPassCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-   ROOT_ADD_TEST(TMVA-DNN-GRU-Forwaed-Cudnn COMMAND testGRUForwardPassCudnn)
+   ROOT_ADD_TEST(TMVA-DNN-GRU-Forwaed-Cudnn COMMAND testGRUForwardPassCudnn RESOURCE_LOCK GPU)
 
    # GRU - Full Test GPU
-   CUDA_ADD_EXECUTABLE(testFullGRUCudnn TestFullGRUCudnn.cxx)
+   add_executable(testFullGRUCudnn TestFullGRUCudnn.cxx)
    target_link_libraries(testFullGRUCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-   ROOT_ADD_TEST(TMVA-DNN-GRU-Full-Cudnn COMMAND testFullGRUCudnn)
+   ROOT_ADD_TEST(TMVA-DNN-GRU-Full-Cudnn COMMAND testFullGRUCudnn RESOURCE_LOCK GPU)
 
-endif (CUDA_FOUND AND tmva-gpu AND tmva-cudnn)
+endif (tmva-gpu AND tmva-cudnn)
 
 #--- CPU tests. ----------------------------
 if (BLAS_FOUND AND imt)

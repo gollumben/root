@@ -32,22 +32,22 @@ protected:
    virtual void ConnectSignals2Slots();
 
 public:
-   TAttFillEditor(const TGWindow *p = 0,
+   TAttFillEditor(const TGWindow *p = nullptr,
                   Int_t width = 140, Int_t height = 30,
                   UInt_t options = kChildFrame,
                   Pixel_t back = GetDefaultFrameBackground());
-   virtual ~TAttFillEditor();
+   ~TAttFillEditor() override;
 
-   virtual void   SetModel(TObject* obj);
+   void   SetModel(TObject* obj) override;
    virtual void   DoFillColor(Pixel_t color);
-   virtual void   DoFillAlphaColor(ULong_t p);
+   virtual void   DoFillAlphaColor(ULongptr_t p);
    virtual void   DoFillPattern(Style_t color);
    virtual void   DoAlpha();
    virtual void   DoAlphaField();
    virtual void   DoLiveAlpha(Int_t a);
    virtual void   GetCurAlpha();
 
-   ClassDef(TAttFillEditor,0)  //GUI for editing fill attributes
+   ClassDefOverride(TAttFillEditor,0)  //GUI for editing fill attributes
 };
 
 #endif

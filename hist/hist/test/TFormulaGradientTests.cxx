@@ -15,12 +15,16 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include "ROOTUnitTestSupport.h"
+#include "ROOT/TestSupport.hxx"
 
 #include <Math/MinimizerOptions.h>
 #include <TFormula.h>
 #include <TF1.h>
+#include <TF2.h>
 #include <TFitResult.h>
+
+#include "gtest/gtest.h"
+#include "gmock/gmock.h"
 
 TEST(TFormulaGradientPar, Sanity)
 {
@@ -43,7 +47,7 @@ TEST(TFormulaGradientPar, ResultUpsize)
    TFormula::CladStorage result;
    double x[] = {2, 1};
 
-   ASSERT_TRUE(0 == result.size());
+   ASSERT_TRUE(result.empty());
    ROOT_EXPECT_WARNING(f.GradientPar(x, result),
                        "TFormula::GradientPar",
                        "The size of gradient result is 0 but 2 is required. Resizing."
@@ -129,7 +133,24 @@ TEST(TFormulaGradientPar, BreitWignerCrossCheckAccuracyDemo)
    EXPECT_NEAR(0, result_num[2], /*abs_error*/1e-13);
 }
 
-// FIXME: Add more: crystalball, cheb3, bigaus?
+TEST(TFormulaGradientPar, BigausCrossCheck)
+{
+   auto h = new TF2("f1", "bigaus");
+   const unsigned len = 6;
+   double p[] = {/*Constant=*/1,/*MeanX=*/0,/*SigmaX=*/1,/*MeanY=*/1,/*SigmaY=*/2,/*Rho=*/0.};
+   h->SetParameters(p);
+   double x[] = {0};
+   TFormula::CladStorage result_clad(len);
+   TFormula* formula = h->GetFormula();
+   formula->GradientPar(x, result_clad);
+   TFormula::CladStorage result_num(len);
+   h->GradientPar(x, result_num.data());
+
+   for (unsigned i = 0; i < len; ++i)
+     ASSERT_FLOAT_EQ(result_num[i], result_clad[i]);
+}
+
+// FIXME: Add more: crystalball, cheb3?
 
 TEST(TFormulaGradientPar, GetGradFormula)
 {

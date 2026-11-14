@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodDNN                                                              *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      NeuralNetwork                                                             *
@@ -22,7 +22,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 //#pragma once
@@ -100,13 +100,13 @@ private:
    };
 
    // the option handling methods
-   void DeclareOptions();
-   void ProcessOptions();
+   void DeclareOptions() override;
+   void ProcessOptions() override;
 
    UInt_t GetNumValidationSamples();
 
    // general helper functions
-   void     Init();
+   void     Init() override;
 
    Net_t                fNet;
    DNN::EInitialization fWeightInitialization;
@@ -124,7 +124,7 @@ private:
 
    KeyValueVector_t fSettings;
 
-   ClassDef(MethodDNN,0); // neural network
+   ClassDefOverride(MethodDNN,0); // neural network
 
    static inline void WriteMatrixXML(void *parent, const char *name,
                                      const TMatrixT<Double_t> &X);
@@ -132,8 +132,8 @@ private:
                                     TMatrixT<Double_t> &X);
 protected:
 
-   void MakeClassSpecific( std::ostream&, const TString& ) const;
-   void GetHelpMessage() const;
+   void MakeClassSpecific( std::ostream&, const TString& ) const override;
+   void GetHelpMessage() const override;
 
 public:
 
@@ -146,32 +146,32 @@ public:
              const TString& theWeightFile);
    virtual ~MethodDNN();
 
-   virtual Bool_t HasAnalysisType(Types::EAnalysisType type,
+   Bool_t HasAnalysisType(Types::EAnalysisType type,
                                   UInt_t numberClasses,
-                                  UInt_t numberTargets );
+                                  UInt_t numberTargets ) override;
    LayoutVector_t   ParseLayoutString(TString layerSpec);
    KeyValueVector_t ParseKeyValueString(TString parseString,
                                       TString blockDelim,
                                       TString tokenDelim);
-   void Train();
+   void Train() override;
    void TrainGpu();
    void TrainCpu();
 
-   virtual Double_t GetMvaValue( Double_t* err=0, Double_t* errUpper=0 );
-   virtual const std::vector<Float_t>& GetRegressionValues();
-   virtual const std::vector<Float_t>& GetMulticlassValues();
+   Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
+   const std::vector<Float_t>& GetRegressionValues() override;
+   const std::vector<Float_t>& GetMulticlassValues() override;
 
    using MethodBase::ReadWeightsFromStream;
 
    // write weights to stream
-   void AddWeightsXMLTo     ( void* parent ) const;
+   void AddWeightsXMLTo     ( void* parent ) const override;
 
    // read weights from stream
-   void ReadWeightsFromStream( std::istream & i );
-   void ReadWeightsFromXML   ( void* wghtnode );
+   void ReadWeightsFromStream( std::istream & i ) override;
+   void ReadWeightsFromXML   ( void* wghtnode ) override;
 
    // ranking of input variables
-   const Ranking* CreateRanking();
+   const Ranking* CreateRanking() override;
 
 };
 
@@ -190,10 +190,10 @@ inline void MethodDNN::WriteMatrixXML(void *parent,
       }
    }
    std::string s = matrixStringStream.str();
-   void* matxml = gTools().xmlengine().NewChild(parent, 0, name);
-   gTools().xmlengine().NewAttr(matxml, 0, "rows",
+   void* matxml = gTools().xmlengine().NewChild(parent, nullptr, name);
+   gTools().xmlengine().NewAttr(matxml, nullptr, "rows",
                                 gTools().StringFromInt((int)X.GetNrows()));
-   gTools().xmlengine().NewAttr(matxml, 0, "cols",
+   gTools().xmlengine().NewAttr(matxml, nullptr, "cols",
                                 gTools().StringFromInt((int)X.GetNcols()));
    gTools().xmlengine().AddRawLine (matxml, s.c_str());
 }

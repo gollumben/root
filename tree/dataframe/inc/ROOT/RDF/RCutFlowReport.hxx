@@ -11,8 +11,8 @@
 #ifndef ROOT_RCUTFLOWREPORT
 #define ROOT_RCUTFLOWREPORT
 
+#include <string_view>
 #include "RtypesCore.h"
-#include "TString.h"
 
 #include <string>
 #include <vector>
@@ -22,22 +22,33 @@ namespace ROOT {
 namespace Detail {
 namespace RDF {
 class RFilterBase;
+class RMergeableReport;
 } // End NS RDF
 } // End NS Detail
+
+namespace Internal {
+namespace RDF {
+template <typename RNode_t>
+class ReportHelper;
+} // namespace RDF
+} // namespace Internal
 
 namespace RDF {
 
 class TCutInfo {
    friend class RCutFlowReport;
    friend class ROOT::Detail::RDF::RFilterBase;
+   friend class ROOT::Detail::RDF::RMergeableReport;
 
 private:
-   const std::string fName;
-   const ULong64_t fPass;
-   const ULong64_t fAll;
+   std::string fName;
+   ULong64_t fPass;
+   ULong64_t fAll;
    TCutInfo(const std::string &name, ULong64_t pass, ULong64_t all) : fName(name), fPass(pass), fAll(all) {}
 
 public:
+   // Default constructor for the I/O
+   TCutInfo() = default;
    const std::string &GetName() const { return fName; }
    ULong64_t GetAll() const { return fAll; }
    ULong64_t GetPass() const { return fPass; }
@@ -46,6 +57,9 @@ public:
 
 class RCutFlowReport {
    friend class ROOT::Detail::RDF::RFilterBase;
+   friend class ROOT::Detail::RDF::RMergeableReport;
+   template <typename RNode_t>
+   friend class ROOT::Internal::RDF::ReportHelper;
 
 private:
    std::vector<TCutInfo> fCutInfos;
@@ -53,7 +67,8 @@ private:
 
 public:
    using const_iterator = typename std::vector<TCutInfo>::const_iterator;
-   void Print();
+   void Print() const;
+   std::string AsString() const;
    const TCutInfo &operator[](std::string_view cutName);
    const TCutInfo &At(std::string_view cutName) { return operator[](cutName); }
    const_iterator begin() const { return fCutInfos.begin(); }

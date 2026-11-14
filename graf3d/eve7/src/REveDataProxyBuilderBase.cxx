@@ -22,7 +22,7 @@
 using namespace ROOT::Experimental;
 
 
-REveDataProxyBuilderBase::Product::Product(std::string iViewType, const REveViewContext* c) : m_viewType(iViewType), m_viewContext(c), m_elements(0)
+REveDataProxyBuilderBase::Product::Product(std::string iViewType, const REveViewContext* c) : m_viewType(iViewType), m_viewContext(c), m_elements(nullptr)
 {
    m_elements = new REveCompound("ProxyProduct", "", false);
    m_elements->IncDenyDestroy();
@@ -87,11 +87,11 @@ void REveDataProxyBuilderBase::Build()
             auto oldSize = product->NumChildren();
             if (HaveSingleProduct())
             {
-               Build(m_collection, product, pp->m_viewContext);
+               BuildProduct(m_collection, product, pp->m_viewContext);
             }
             else
             {
-               BuildViewType(m_collection, product, pp->m_viewType, pp->m_viewContext);
+               BuildProductViewType(m_collection, product, pp->m_viewType, pp->m_viewContext);
             }
 
             // Project all children of current product.
@@ -105,7 +105,7 @@ void REveDataProxyBuilderBase::Build()
                {
                   REveProjectionManager *pmgr = projectedProduct->GetManager();
                   Float_t oldDepth = pmgr->GetCurrentDepth();
-                  pmgr->SetCurrentDepth(m_layer);
+                  pmgr->SetCurrentDepth(m_collection->GetLayer());
                   Int_t cnt = 0;
                   REveElement *projectedProductAsElement = projectedProduct->GetProjectedAsElement();
                   // printf("projectedProduct children %d, product children %d\n", projectedProductAsElement->NumChildren(), product->NumChildren());
@@ -143,14 +143,14 @@ void REveDataProxyBuilderBase::Build()
 //------------------------------------------------------------------------------
 
 void
-REveDataProxyBuilderBase::Build(const REveDataCollection*, REveElement*, const REveViewContext*)
+REveDataProxyBuilderBase::BuildProduct(const REveDataCollection*, REveElement*, const REveViewContext*)
 {
    assert("virtual Build(const REveEventItem*, REveElement*, const REveViewContext*) not implemented by inherited class");
 }
 
 
 void
-REveDataProxyBuilderBase::BuildViewType(const REveDataCollection*, REveElement*, const std::string&, const REveViewContext*)
+REveDataProxyBuilderBase::BuildProductViewType(const REveDataCollection*, REveElement*, const std::string&, const REveViewContext*)
 {
    assert("virtual BuildViewType(const FWEventItem*, TEveElementList*, FWViewType::EType, const FWViewContext*) not implemented by inherited class");
 }
@@ -197,11 +197,11 @@ REveDataProxyBuilderBase::LocalModelChanges(int, REveElement*, const REveViewCon
 //------------------------------------------------------------------------------
 
 void
-REveDataProxyBuilderBase::FillImpliedSelected( REveElement::Set_t& impSet)
+REveDataProxyBuilderBase::FillImpliedSelected( REveElement::Set_t& impSet, const std::set<int> &sec_idcs)
 {
    for (auto &prod: m_products)
    {
-      FillImpliedSelected(impSet, prod);
+      FillImpliedSelected(impSet, sec_idcs, prod);
    }
 }
 

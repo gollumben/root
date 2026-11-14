@@ -1,0 +1,155 @@
+<?xml version="1.0" standalone="no"?>
+<svg width="567" height="197" viewBox="0 0 567 197" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+<title>
+tmarker.svg
+</title>
+<rect x="0.500" y="0" width="567" height="197" fill="#f2f2f2"/>
+<path d="M0.500,197l 2.0, -2.0v -193h 563l 2.0, -2.0h -567v 197z" fill="white"/>
+<path d="M0.500,197l 2.0, -2.0h 563v -193l 2.0, -2.0v 197h -567z" fill="#a9a9a9"/>
+<path stroke="black" stroke-width="1" fill="none" d="M35,147h1"/>
+<text xml:space="preserve" x="36" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">1
+</text>
+<g fill="black">
+<circle cx="36" cy="88" r="14"/>
+</g>
+<text xml:space="preserve" x="36" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">20
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M22,29l14,-14M36,15l14,14M50,29l-14,14M36,43l-14,-14M22,29l28,0M36,43l0,-28"/>
+<text xml:space="preserve" x="36" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">35
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M57,147l28,0M71,133l0,28"/>
+<text xml:space="preserve" x="71" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">2
+</text>
+<path fill="black" d="M57,74l28,0l0,28l-28,0l0,-28z"/>
+<text xml:space="preserve" x="71" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">21
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M57,15l28,0M85,15l0,28M85,43l-28,0M57,43l0,-28M57,15l28,28M57,43l28,-28"/>
+<text xml:space="preserve" x="71" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">36
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M93,147l28,0M107,133l0,28M97,137l20,20M97,157l20,-20"/>
+<text xml:space="preserve" x="107" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">3
+</text>
+<path fill="black" d="M93,102l28,0l-14,-28l-14,28z"/>
+<text xml:space="preserve" x="107" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">22
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M107,29l-7,14l14,0l-7,-14l-7,-14l-7,14l14,0l14,0l-7,-14l-7,14z"/>
+<text xml:space="preserve" x="107" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">37
+</text>
+<g stroke="black" stroke-width="1" fill="none">
+<circle cx="142" cy="147" r="14"/>
+</g>
+<text xml:space="preserve" x="142" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">4
+</text>
+<path fill="black" d="M142,102l14,-28l-28,0l14,28z"/>
+<text xml:space="preserve" x="142" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">23
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M128,29l0,-7l7,-7l14,0l7,7l0,14l-7,7l-14,0l-7,-7l0,-7l28,0l-14,0l0,-14l0,28l0,-14"/>
+<text xml:space="preserve" x="142" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">38
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M168,137l20,20M168,157l20,-20"/>
+<text xml:space="preserve" x="178" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">5
+</text>
+<g stroke="black" stroke-width="1" fill="none">
+<circle cx="178" cy="88" r="14"/>
+</g>
+<text xml:space="preserve" x="178" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">24
+</text>
+<path fill="black" d="M164,29l7,14l7,-14zM185,43l7,-14l-14,0zM185,15l-14,0l7,14z"/>
+<text xml:space="preserve" x="178" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">39
+</text>
+<g fill="black">
+<circle cx="213" cy="147" r="2"/>
+</g>
+<text xml:space="preserve" x="213" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">6
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M199,74l28,0l0,28l-28,0l0,-28z"/>
+<text xml:space="preserve" x="213" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">25
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M213,29l7,14l7,-7l-14,-7l14,-7l-7,-7l-7,14l-7,-14l-7,7l14,7l-14,7l7,7l7,-14z"/>
+<text xml:space="preserve" x="213" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">40
+</text>
+<g fill="black">
+<circle cx="249" cy="147" r="3"/>
+</g>
+<text xml:space="preserve" x="249" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">7
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M235,102l28,0l-14,-28l-14,28z"/>
+<text xml:space="preserve" x="249" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">26
+</text>
+<path fill="black" d="M235,36l7,7l7,-14zM256,43l7,-7l-14,-7zM263,22l-7,-7l-7,14zM242,15l-7,7l14,7z"/>
+<text xml:space="preserve" x="249" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">41
+</text>
+<g fill="black">
+<circle cx="284" cy="147" r="14"/>
+</g>
+<text xml:space="preserve" x="284" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">8
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M275,88l9,-14l9,14l-9,14l-9,-14z"/>
+<text xml:space="preserve" x="284" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">27
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M284,43l-3,-11l-11,-3l11,-3l3,-11l3,11l11,3l-11,3l-3,11z"/>
+<text xml:space="preserve" x="284" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">42
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M318,147h1"/>
+<text xml:space="preserve" x="319" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">9
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M305,83l9,0l0,-9l10,0l0,9l9,0l0,10l-9,0l0,9l-10,0l0,-9l-9,0l0,-10z"/>
+<text xml:space="preserve" x="319" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">28
+</text>
+<path fill="black" d="M319,43l-3,-11l-11,-3l11,-3l3,-11l3,11l11,3l-11,3l-3,11z"/>
+<text xml:space="preserve" x="319" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">43
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M354,147h1"/>
+<text xml:space="preserve" x="355" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">10
+</text>
+<path fill="black" d="M341,93l7,-7l-2,-12l9,7l9,-7l-2,12l7,7l-9,0l-5,9l-5,-9l-9,0z"/>
+<text xml:space="preserve" x="355" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">29
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M355,29l7,14l-14,0l14,-28l-14,0l7,14l14,7l0,-14l-28,14l0,-14l14,7z"/>
+<text xml:space="preserve" x="355" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">44
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M389,147h1"/>
+<text xml:space="preserve" x="390" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">11
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M376,93l7,-7l-2,-12l9,7l9,-7l-2,12l7,7l-9,0l-5,9l-5,-9l-9,0z"/>
+<text xml:space="preserve" x="390" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">30
+</text>
+<path fill="black" d="M383,43l14,0l-7,-14zM404,36l0,-14l-14,7zM397,15l-14,0l7,14zM376,22l0,14l14,-7z"/>
+<text xml:space="preserve" x="390" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">45
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M425,147h1"/>
+<text xml:space="preserve" x="426" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">12
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M412,88l28,0M426,74l0,28M416,78l20,20M416,98l20,-20"/>
+<text xml:space="preserve" x="426" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">31
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M426,36l-7,7l-7,-7l7,-7l-7,-7l7,-7l7,7l7,-7l7,7l-7,7l7,7l-7,7l-7,-7z"/>
+<text xml:space="preserve" x="426" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">46
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M460,147h1"/>
+<text xml:space="preserve" x="461" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">13
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M461,102l14,-28l-28,0l14,28z"/>
+<text xml:space="preserve" x="461" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">32
+</text>
+<path fill="black" d="M461,36l-7,7l-7,-7l7,-7l-7,-7l7,-7l7,7l7,-7l7,7l-7,7l7,7l-7,7l-7,-7z"/>
+<text xml:space="preserve" x="461" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">47
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M496,147h1"/>
+<text xml:space="preserve" x="497" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">14
+</text>
+<path fill="black" d="M488,88l9,-14l9,14l-9,14l-9,-14z"/>
+<text xml:space="preserve" x="497" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">33
+</text>
+<path fill="black" d="M490,29l-7,7l7,7zM490,29l0,14l7,-7zM504,29l-7,7l7,7zM504,29l0,14l7,-7zM490,15l-7,7l7,7zM490,15l0,14l7,-7zM504,15l-7,7l7,7zM504,15l0,14l7,-7z"/>
+<text xml:space="preserve" x="497" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">48
+</text>
+<path stroke="black" stroke-width="1" fill="none" d="M531,147h1"/>
+<text xml:space="preserve" x="532" y="182" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">15
+</text>
+<path fill="black" d="M518,83l9,0l0,-9l10,0l0,9l9,0l0,10l-9,0l0,9l-10,0l0,-9l-9,0l0,-10z"/>
+<text xml:space="preserve" x="532" y="123" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">34
+</text>
+<path fill="black" d="M527,34l0,9l10,0zM527,34l10,9l0,-9zM537,24l0,10l9,0zM537,24l9,10l0,-10zM518,24l0,10l9,0zM518,24l9,10l0,-10zM527,15l0,9l10,0zM527,15l10,9l0,-9z"/>
+<text xml:space="preserve" x="532" y="64" text-anchor="middle" fill="black" font-size="19" font-family="Helvetica" font-weight="bold">49
+</text></svg>

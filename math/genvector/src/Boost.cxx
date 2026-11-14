@@ -77,8 +77,7 @@ void Boost::SetComponents (Scalar bx, Scalar by, Scalar bz) {
    // set the boost beta as 3 components
    Scalar bp2 = bx*bx + by*by + bz*bz;
    if (bp2 >= 1) {
-      GenVector::Throw (
-                              "Beta Vector supplied to set Boost represents speed >= c");
+      GenVector_Throw("Beta Vector supplied to set Boost represents speed >= c");
       // SetIdentity();
       return;
    }
@@ -127,8 +126,7 @@ void Boost::Rectify() {
    // again.
 
    if (fM[kTT] <= 0) {
-      GenVector::Throw (
-                              "Attempt to rectify a boost with non-positive gamma");
+      GenVector_Throw("Attempt to rectify a boost with non-positive gamma");
       return;
    }
    DisplacementVector3D< Cartesian3D<Scalar> > beta ( fM[kXT], fM[kYT], fM[kZT] );
@@ -172,7 +170,7 @@ Boost Boost::Inverse() const {
 
 std::ostream & operator<< (std::ostream & os, const Boost & b) {
    // TODO - this will need changing for machine-readable issues
-   //        and even the human readable form needs formatiing improvements
+   //        and even the human readable form needs formatting improvements
    double m[16];
    b.GetLorentzRotation(m);
    os << "\n" << m[0]  << "  " << m[1]  << "  " << m[2]  << "  " << m[3];

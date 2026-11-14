@@ -156,10 +156,13 @@ public:
 class REveRhoZProjection : public REveProjection {
 private:
    REveVector fProjectedCenter; // projected center of distortion.
+   REveVector fPlaneNormal;     // normal vector of projection plane
+   bool       fYAxis{true};     // cached flag to mark if plane normal has been rotated
+   Bool_t AcceptSegmentRotatedPlane(REveVector &v1, REveVector &v2, Float_t tolerance) const;
 
 public:
    REveRhoZProjection();
-   virtual ~REveRhoZProjection() {}
+   ~REveRhoZProjection() override {}
 
    Bool_t Is2D() const override { return kTRUE; }
    Bool_t Is3D() const override { return kFALSE; }
@@ -168,6 +171,9 @@ public:
 
    void SetCenter(REveVector &v) override;
    Float_t *GetProjectedCenter() override { return fProjectedCenter.Arr(); }
+
+   void SetPlaneNormal(REveVector &v);
+   Float_t *GetPlaneNormal() { return fPlaneNormal.Arr(); }
 
    Bool_t HasSeveralSubSpaces() const override { return kTRUE; }
    Bool_t AcceptSegment(REveVector &v1, REveVector &v2, Float_t tolerance) const override;
@@ -184,7 +190,7 @@ public:
 class REveRPhiProjection : public REveProjection {
 public:
    REveRPhiProjection();
-   virtual ~REveRPhiProjection() {}
+   ~REveRPhiProjection() override {}
 
    Bool_t Is2D() const override { return kTRUE; }
    Bool_t Is3D() const override { return kFALSE; }
@@ -203,7 +209,7 @@ private:
 
 public:
    REveXZProjection();
-   virtual ~REveXZProjection() {}
+   ~REveXZProjection() override {}
 
    Bool_t Is2D() const override { return kTRUE;  }
    Bool_t Is3D() const override { return kFALSE; }
@@ -227,7 +233,7 @@ private:
 
 public:
    REveYZProjection();
-   virtual ~REveYZProjection() {}
+   ~REveYZProjection() override {}
 
    Bool_t Is2D() const override { return kTRUE;  }
    Bool_t Is3D() const override { return kFALSE; }
@@ -251,7 +257,7 @@ private:
 
 public:
    REveZXProjection();
-   virtual ~REveZXProjection() {}
+   ~REveZXProjection() override {}
 
    Bool_t Is2D() const override { return kTRUE;  }
    Bool_t Is3D() const override { return kFALSE; }
@@ -275,7 +281,7 @@ private:
 
 public:
    REveZYProjection();
-   virtual ~REveZYProjection() {}
+   ~REveZYProjection() override {}
 
    Bool_t Is2D() const override { return kTRUE;  }
    Bool_t Is3D() const override { return kFALSE; }
@@ -296,7 +302,7 @@ public:
 class REve3DProjection : public REveProjection {
 public:
    REve3DProjection();
-   virtual ~REve3DProjection() {}
+   ~REve3DProjection() override {}
 
    Bool_t Is2D() const override { return kFALSE; }
    Bool_t Is3D() const override { return kTRUE; }

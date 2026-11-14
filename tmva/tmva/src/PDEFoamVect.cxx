@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Classes: PDEFoamVect                                                           *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Auxiliary class PDEFoamVect of n-dimensional vector, with dynamic         *
@@ -23,7 +23,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::PDEFoamVect
@@ -38,11 +38,10 @@
 #include <iostream>
 #include <iomanip>
 
-using namespace std;
-
 //#define SW2 std::setw(12)
 
-ClassImp(TMVA::PDEFoamVect);
+using std::streamsize;
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor for streamer

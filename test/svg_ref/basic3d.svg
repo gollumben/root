@@ -1,0 +1,62 @@
+<?xml version="1.0" standalone="no"?>
+<svg width="567" height="385" viewBox="0 0 567 385" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+<title>
+basic3d.svg
+</title>
+<rect x="0.500" y="0" width="567" height="384" fill="#f2f2f2"/>
+<path d="M0.500,384l 2.0, -2.0v -380h 563l 2.0, -2.0h -567v 384z" fill="white"/>
+<path d="M0.500,384l 2.0, -2.0h 563v -380l 2.0, -2.0v 384h -567z" fill="#a9a9a9"/>
+<rect x="29" y="69" width="510" height="308" fill="#ce5e60"/>
+<path d="M29,377l 3.0, -3.0v -302h 504l 3.0, -3.0h -510v 308z" fill="#dc8c8e"/>
+<path d="M29,377l 3.0, -3.0h 504v -302l 3.0, -3.0v 308h -510z" fill="#a13033"/>
+<path d="M257,292l 27, -30" fill="none" stroke="#ffff00" stroke-width="3.0"/>
+<path d="M284,261l 64, -50" fill="none" stroke="#ffff00" stroke-width="3.0"/>
+<path d="M348,212l -37, -58" fill="none" stroke="#ffff00" stroke-width="3.0"/>
+<path d="M311,154l -54, 61" fill="none" stroke="#ffff00" stroke-width="3.0"/>
+<path d="M193,341l 27, -53" fill="none" stroke="#ff0000" stroke-width="5.0"/>
+<path d="M220,288l 64, -88" fill="none" stroke="#ff0000" stroke-width="5.0"/>
+<path d="M284,200l -164, -12" fill="none" stroke="#ff0000" stroke-width="5.0"/>
+<path d="M120,188l 137, 143" fill="none" stroke="#ff0000" stroke-width="5.0"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M250,292l14,0M257,285l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M226,263l14,0M233,256l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M239,276l14,0M246,269l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M237,181l14,0M244,174l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M257,221l14,0M264,214l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M240,204l14,0M247,197l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M268,248l14,0M275,241l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M302,257l14,0M309,250l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M264,189l14,0M271,182l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M232,87l14,0M239,80l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M363,223l14,0M370,216l0,14"/>
+<path stroke="#0000ff" stroke-width="1" fill="none" d="M376,221l14,0M383,214l0,14"/>
+<g fill="black">
+<circle cx="373" cy="207" r="7"/>
+</g>
+<g fill="black">
+<circle cx="364" cy="148" r="7"/>
+</g>
+<g fill="black">
+<circle cx="318" cy="176" r="7"/>
+</g>
+<g fill="black">
+<circle cx="397" cy="193" r="7"/>
+</g>
+<g fill="black">
+<circle cx="387" cy="179" r="7"/>
+</g>
+<g fill="black">
+<circle cx="437" cy="173" r="7"/>
+</g>
+<g fill="black">
+<circle cx="413" cy="213" r="7"/>
+</g>
+<g fill="black">
+<circle cx="426" cy="134" r="7"/>
+</g>
+<rect x="57" y="12" width="454" height="46" fill="#b2a596"/>
+<path d="M62,58v 3.3h 452v -45h -3.3v 41z" fill="black"/>
+<path d="M57,58v -46h 454v 46h -454z" fill="none" stroke="black"/>
+<text xml:space="preserve" x="170" y="29" fill="black" font-size="18" font-family="Helvetica" font-weight="bold">Examples of 3-D primitives
+</text>
+<text xml:space="preserve" x="119" y="52" fill="#0000ff" font-size="18" font-family="Helvetica" font-weight="bold">Click anywhere on the picture to rotate
+</text></svg>

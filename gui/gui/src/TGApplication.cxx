@@ -34,7 +34,6 @@ application.
 #include "TInterpreter.h"
 #include "TColor.h"
 
-ClassImp(TGApplication);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a GUI application environment. Use this class if you only
@@ -42,7 +41,7 @@ ClassImp(TGApplication);
 /// use either TApplication or TRint.
 
 TGApplication::TGApplication(const char *appClassName,
-                             int *argc, char **argv, void*, int)
+                             Int_t *argc, char **argv, void*, Int_t)
    : TApplication()
 {
    if (gApplication) {
@@ -80,23 +79,6 @@ TGApplication::TGApplication(const char *appClassName,
    // a GUI application is never run in batch mode
    gROOT->SetBatch(kFALSE);
 
-   if (strcmp(appClassName, "proofserv")) {
-      const char *ttpath = gEnv->GetValue("Root.TTFontPath",
-                                          TROOT::GetTTFFontDir());
-      char *ttfont = gSystem->Which(ttpath, "arialbd.ttf", kReadPermission);
-      // Added by cholm for use of DFSG - fonts - based on fix by Kevin
-      if (!ttfont)
-         ttfont = gSystem->Which(ttpath, "FreeSansBold.ttf", kReadPermission);
-      if (ttfont && gEnv->GetValue("Root.UseTTFonts", 1)) {
-         TPluginHandler *h;
-         if ((h = gROOT->GetPluginManager()->FindHandler("TVirtualX", "x11ttf")))
-            if (h->LoadPlugin() == -1)
-               Info("TGApplication", "no TTF support");
-      }
-
-      delete [] ttfont;
-   }
-
    // Create the canvas colors early so they are allocated before
    // any color table expensive bitmaps get allocated in GUI routines (like
    // creation of XPM bitmaps).
@@ -108,7 +90,8 @@ TGApplication::TGApplication(const char *appClassName,
       UInt_t w, h;
       if (gVirtualX) {
          gVirtualX->GetGeometry(-1, x, y, w, h);
-         if (h > 0 && h < 1000) gStyle->SetScreenFactor(0.0011*h);
+         if (h > 0)
+            gStyle->SetScreenFactor(0.001 * h);
       }
    }
 

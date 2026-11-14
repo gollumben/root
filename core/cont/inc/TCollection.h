@@ -114,7 +114,7 @@ public:
       };
    };
 
-   mutable TErrorLock fLock; //! Special 'lock' to detect multiple access to a collection.
+   mutable TErrorLock fLock; ///<! Special 'lock' to detect multiple access to a collection.
 
 #define R__COLLECTION_WRITE_GUARD() TCollection::TErrorLock::WriteGuard wg(fLock, this, __PRETTY_FUNCTION__)
 #define R__COLLECTION_READ_GUARD() TCollection::TErrorLock::ReadGuard rg(fLock, this, __PRETTY_FUNCTION__)
@@ -136,8 +136,8 @@ private:
    static Bool_t        fgEmptyingGarbage;    //used by garbage collector
    static Int_t         fgGarbageStack;       //used by garbage collector
 
-   TCollection(const TCollection &);    //private and not-implemented, collections
-   void operator=(const TCollection &); //are too complex to be automatically copied
+   TCollection(const TCollection &) = delete;    //private and not-implemented, collections
+   void operator=(const TCollection &) = delete; //are too complex to be automatically copied
 
 protected:
    enum EStatusBits {
@@ -160,54 +160,56 @@ public:
 
    virtual            ~TCollection();
    virtual void       Add(TObject *obj) = 0;
+   virtual void       Add(TObject */*obj*/, Option_t */*opt*/) { AbstractMethod("Add"); };
    void               AddVector(TObject *obj1, ...);
    virtual void       AddAll(const TCollection *col);
    Bool_t             AssertClass(TClass *cl) const;
-   void               Browse(TBrowser *b);
+   void               Browse(TBrowser *b) override;
    Int_t              Capacity() const { return fSize; }
-   virtual void       Clear(Option_t *option="") = 0;
-   virtual TObject   *Clone(const char *newname="") const;
-   Int_t              Compare(const TObject *obj) const;
-   Bool_t             Contains(const char *name) const { return FindObject(name) != 0; }
-   Bool_t             Contains(const TObject *obj) const { return FindObject(obj) != 0; }
-   virtual void       Delete(Option_t *option="") = 0;
-   virtual void       Draw(Option_t *option="");
-   virtual void       Dump() const ;
-   virtual TObject   *FindObject(const char *name) const;
+   void               Clear(Option_t *option="") override = 0;
+   TObject           *Clone(const char *newname="") const override;
+   Int_t              Compare(const TObject *obj) const override;
+   Bool_t             Contains(const char *name) const { return FindObject(name) != nullptr; }
+   Bool_t             Contains(const TObject *obj) const { return FindObject(obj) != nullptr; }
+   void               Delete(Option_t *option="") override = 0;
+   void               Draw(Option_t *option="") override;
+   void               Dump() const override;
+   TObject           *FindObject(const char *name) const override;
    TObject           *operator()(const char *name) const;
-   virtual TObject   *FindObject(const TObject *obj) const;
+   TObject           *FindObject(const TObject *obj) const override;
    virtual Int_t      GetEntries() const { return GetSize(); }
-   virtual const char *GetName() const;
+   inline std::size_t size() const { return GetEntries(); }
+   const char        *GetName() const override;
    virtual TObject  **GetObjectRef(const TObject *obj) const = 0;
    /// Return the *capacity* of the collection, i.e. the current total amount of space that has been allocated so far.
    /// Same as `Capacity`. Use `GetEntries` to get the number of elements currently in the collection.
    virtual Int_t      GetSize() const { return fSize; }
    virtual Int_t      GrowBy(Int_t delta) const;
-   ULong_t            Hash() const { return fName.Hash(); }
+   ULong_t            Hash() const override { return fName.Hash(); }
    Bool_t             IsArgNull(const char *where, const TObject *obj) const;
    virtual Bool_t     IsEmpty() const { return GetSize() <= 0; }
-   virtual Bool_t     IsFolder() const { return kTRUE; }
+   Bool_t             IsFolder() const override { return kTRUE; }
    Bool_t             IsOwner() const { return TestBit(kIsOwner); }
-   Bool_t             IsSortable() const { return kTRUE; }
-   virtual void       ls(Option_t *option="") const ;
-   virtual Bool_t     Notify();
+   Bool_t             IsSortable() const override { return kTRUE; }
+   void               ls(Option_t *option="") const override;
+   Bool_t             Notify() override;
    virtual TIterator *MakeIterator(Bool_t dir = kIterForward) const = 0;
    virtual TIterator *MakeReverseIterator() const { return MakeIterator(kIterBackward); }
-   virtual void       Paint(Option_t *option="");
-   virtual void       Print(Option_t *option="") const;
+   void               Paint(Option_t *option="") override;
+   void               Print(Option_t *option="") const override;
    virtual void       Print(Option_t *option, Int_t recurse) const;
    virtual void       Print(Option_t *option, const char* wildcard, Int_t recurse=1) const;
    virtual void       Print(Option_t *option, TPRegexp& regexp, Int_t recurse=1) const;
-   virtual void       RecursiveRemove(TObject *obj);
+   void               RecursiveRemove(TObject *obj) override;
    virtual TObject   *Remove(TObject *obj) = 0;
    virtual void       RemoveAll(TCollection *col);
    void               RemoveAll() { Clear(); }
    void               SetCurrentCollection();
    void               SetName(const char *name) { fName = name; }
    virtual void       SetOwner(Bool_t enable = kTRUE);
-   virtual bool       UseRWLock();
-   virtual Int_t      Write(const char *name=0, Int_t option=0, Int_t bufsize=0);
-   virtual Int_t      Write(const char *name=0, Int_t option=0, Int_t bufsize=0) const;
+   virtual bool       UseRWLock(Bool_t enable = true);
+   Int_t              Write(const char *name = nullptr, Int_t option = 0, Int_t bufsize = 0) override;
+   Int_t              Write(const char *name = nullptr, Int_t option = 0, Int_t bufsize = 0) const override;
 
    R__ALWAYS_INLINE Bool_t IsUsingRWLock() const { return TestBit(TCollection::kUseRWLock); }
 
@@ -219,7 +221,7 @@ public:
    TIter begin() const;
    TIter end() const;
 
-   ClassDef(TCollection,3)  //Collection abstract base class
+   ClassDefOverride(TCollection,3)  //Collection abstract base class
 };
 
 
@@ -235,14 +237,14 @@ public:
 class TIter {
 
 private:
-   TIterator    *fIterator;         //collection iterator
+   TIterator    *fIterator{nullptr};         //collection iterator
 
 protected:
    TIter() : fIterator(nullptr) { }
 
 public:
    TIter(const TCollection *col, Bool_t dir = kIterForward)
-         : fIterator(col ? col->MakeIterator(dir) : 0) { }
+         : fIterator(col ? col->MakeIterator(dir) : nullptr) { }
    TIter(TIterator *it) : fIterator(it) { }
    TIter(const TIter &iter);
    TIter &operator=(const TIter &rhs);
@@ -265,8 +267,7 @@ public:
    }
    TIter &operator=(TIterator *iter)
    {
-      if (fIterator)
-         delete fIterator;
+      delete fIterator;
       fIterator = iter;
       return *this;
    }
@@ -321,7 +322,7 @@ public:
 /// of the type requested (or a derived class). Any deviation from this expectation
 /// will only be caught/reported by an assert in debug builds.
 ///
-/// This is best used with a TClonesArray, for other cases prefered TRangeDynCast.
+/// This is best used with a TClonesArray, for other cases TRangeDynCast is preferred.
 ///
 /// The typical use is:
 /// ```{.cpp}
@@ -357,9 +358,6 @@ using TRangeStaticCast = TRangeCast<T, false>;
 template <typename T>
 using TRangeDynCast = ROOT::Detail::TRangeCast<T, true>;
 
-// Zero overhead macros in case not compiled with thread support
-#if defined (_REENTRANT) || defined (WIN32)
-
 #define R__COLL_COND_MUTEX(mutex) this->IsUsingRWLock() ? mutex : nullptr
 
 #define R__COLLECTION_READ_LOCKGUARD(mutex) ::ROOT::TReadLockGuard _R__UNIQUE_(R__readguard)(R__COLL_COND_MUTEX(mutex))
@@ -367,16 +365,6 @@ using TRangeDynCast = ROOT::Detail::TRangeCast<T, true>;
 
 #define R__COLLECTION_WRITE_LOCKGUARD(mutex) ::ROOT::TWriteLockGuard _R__UNIQUE_(R__readguard)(R__COLL_COND_MUTEX(mutex))
 #define R__COLLECTION_WRITE_LOCKGUARD_NAMED(name,mutex) ::ROOT::TWriteLockGuard _NAME2_(R__readguard,name)(R__COLL_COND_MUTEX(mutex))
-
-#else
-
-#define R__COLLECTION_READ_LOCKGUARD(mutex) (void)mutex
-#define R__COLLECTION_COLLECTION_READ_LOCKGUARD_NAMED(name,mutex) (void)mutex
-
-#define R__COLLECTION_WRITE_LOCKGUARD(mutex) (void)mutex
-#define R__COLLECTION_WRITE_LOCKGUARD_NAMED(name,mutex) (void)mutex
-
-#endif
 
 //---- R__FOR_EACH macro -------------------------------------------------------
 

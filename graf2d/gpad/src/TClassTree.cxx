@@ -27,8 +27,8 @@
 #include "TSystem.h"
 #include "TObjString.h"
 #include "strlcpy.h"
-#include "snprintf.h"
 
+#include <cstdio>
 #include <fstream>
 #include <algorithm>
 
@@ -46,8 +46,6 @@ const Int_t kIsaPointer  = BIT(20);
 const Int_t kIsBasic     = BIT(21);
 
 static Float_t gXsize, gYsize, gDx, gDy, gLabdx, gLabdy, gDxx, gCsize;
-
-ClassImp(TClassTree);
 
 /** \class TClassTree
 \ingroup gpad
@@ -141,8 +139,7 @@ in the list of data members.
  - References from code is shown by a full green line
 
 Use TClassTree::SetSourceDir to specify the search path for source files.
-By default the search path includes the `$ROOTSYS` directory, the current
-directory and the subdirectory `src`.
+By default the search path includes the current directory and the subdirectory `src`.
 
 The first time TClassTree::Draw is invoked, all the classes in the
 current application are processed, including the parsing of the code
@@ -179,24 +176,9 @@ to be displayed.
 
 TClassTree::TClassTree()
 {
-   fShowCod  = 0;
-   fShowHas  = 0;
-   fShowMul  = 0;
-   fShowRef  = 0;
-   fNclasses = 0;
-   fCstatus  = 0;
-   fParents  = 0;
-   fCparent  = 0;
-   fCpointer = 0;
-   fCnames   = 0;
-   fCtitles  = 0;
-   fOptions  = 0;
-   fLinks    = 0;
-   fDerived  = 0;
-   fNdata    = 0;
    SetLabelDx();
    SetYoffset(0);
-   SetSourceDir(".:src:" + TROOT::GetSourceDir());
+   SetSourceDir(".:src");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -205,24 +187,9 @@ TClassTree::TClassTree()
 TClassTree::TClassTree(const char *name, const char *classes)
            :TNamed(name,classes)
 {
-   fShowCod  = 0;
-   fShowHas  = 0;
-   fShowMul  = 0;
-   fShowRef  = 0;
-   fNclasses = 0;
-   fCstatus  = 0;
-   fParents  = 0;
-   fCparent  = 0;
-   fCpointer = 0;
-   fCnames   = 0;
-   fCtitles  = 0;
-   fOptions  = 0;
-   fLinks    = 0;
-   fDerived  = 0;
-   fNdata    = 0;
    SetLabelDx();
    SetYoffset(0);
-   SetSourceDir(".:src:" + TROOT::GetSourceDir());
+   SetSourceDir(".:src");
 
    // draw list of classes (if specified)
    if (classes && strlen(classes)) {
@@ -404,7 +371,7 @@ void TClassTree::Init()
       TList *lb = fCpointer[i]->GetListOfBases();
       if (!lb) continue;
       clbase = (TBaseClass*)lb->First();
-      if (clbase == 0) continue;
+      if (!clbase) continue;
       cl = (TClass*)clbase->GetClassPointer();
       for (j=0;j<fNclasses;j++) {
          if(cl == fCpointer[j]) {
@@ -438,7 +405,7 @@ void TClassTree::ls(Option_t *) const
 
 TObjString *TClassTree::Mark(const char *classname, TList *los, Int_t abit)
 {
-   if (!los) return 0;
+   if (!los) return nullptr;
    TObjString *os = (TObjString*)los->FindObject(classname);
    if (!os) {
       os = new TObjString(classname);
@@ -514,7 +481,7 @@ void TClassTree::Paint(Option_t *)
             }
          }
       }
-      ptr = strtok(0,":");
+      ptr = strtok(nullptr, ":");
    }
     //mark base classes of referenced classes
    for (i=0;i<fNclasses;i++) {
@@ -693,7 +660,7 @@ void TClassTree::ScanClasses(Int_t iclass)
 {
    Int_t ic, icl;
    TList *los = fLinks[iclass];
-   TList *losref = 0;
+   TList *losref = nullptr;
    TObjString *os;
 
    // scan list of data members
@@ -858,7 +825,7 @@ void TClassTree::ScanClasses(Int_t iclass)
 
 void TClassTree::SetClasses(const char *classes, Option_t *)
 {
-   if (classes == 0) return;
+   if (!classes) return;
    fClasses = classes;
    for (Int_t i=0;i<fNclasses;i++) {
       fCstatus[i]  = 0;

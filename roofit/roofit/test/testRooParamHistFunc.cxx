@@ -1,23 +1,33 @@
 // Tests for RooParamHistFunc
 // Author: Jonas Rembser, CERN  03/2020
 
-#include "RooParamHistFunc.h"
-#include "RooRealSumPdf.h"
-#include "RooRealVar.h"
-#include "RooUniform.h"
+#include <RooHelpers.h>
+#include <RooParamHistFunc.h>
+#include <RooRealSumPdf.h>
+#include <RooRealVar.h>
+#include <RooUniform.h>
 
-#include "TH1D.h"
-#include "TF1.h"
+#include <TH1D.h>
+#include <TF1.h>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include <numeric>
+
+// RooParamHistFunc is deprecated, but still tested until its removal in ROOT 6.46
+#ifdef _MSC_VER
+#pragma warning(disable : 4996)
+#else
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 
 TEST(RooParamHistFunc, Integration)
 {
    // This tests the analytical integration of RooParamHistFunc,
    // inspired by this issue on GitHub:
    // https://github.com/root-project/root/issues/7182
+
+   RooHelpers::LocalChangeMsgLevel changeMsgLvl(RooFit::WARNING);
 
    constexpr int nBins = 20;
    constexpr double xMin = 0;
@@ -32,12 +42,14 @@ TEST(RooParamHistFunc, Integration)
    }
 
    RooDataHist dh("dh", "dh", x, &h1);
-   RooParamHistFunc phf("phf", "", x, dh);
-   phf.Print("t");
+   RooParamHistFunc phf("phf", "", dh, x);
    x.setRange("R1", 0, xMax * 0.5);
 
-   EXPECT_FLOAT_EQ(phf.createIntegral(x, x)->getVal(), nEntries * binWidth);
-   EXPECT_FLOAT_EQ(phf.createIntegral(x, x, "R1")->getVal(), nEntries * binWidth * 0.5);
+   std::unique_ptr<RooAbsReal> integral{phf.createIntegral(x, x)};
+   std::unique_ptr<RooAbsReal> integralR1{phf.createIntegral(x, x, "R1")};
+
+   EXPECT_FLOAT_EQ(integral->getVal(), nEntries * binWidth);
+   EXPECT_FLOAT_EQ(integralR1->getVal(), nEntries * binWidth * 0.5);
 
    // Extending the code in issue 7182, we also want to make sure that the
    // integration also works if the bin scaling parameters are not just one,
@@ -59,8 +71,8 @@ TEST(RooParamHistFunc, Integration)
    auto ref = std::accumulate(phVals.begin(), phVals.end(), 0.0) * binWidth;
    auto refR1 = std::accumulate(phVals.begin(), phVals.begin() + nBins / 2, 0.0) * binWidth;
 
-   EXPECT_FLOAT_EQ(phf.createIntegral(x, x)->getVal(), ref);
-   EXPECT_FLOAT_EQ(phf.createIntegral(x, x, "R1")->getVal(), refR1);
+   EXPECT_FLOAT_EQ(integral->getVal(), ref);
+   EXPECT_FLOAT_EQ(integralR1->getVal(), refR1);
 }
 
 TEST(RooParamHistFunc, IntegrationAndCloning)
@@ -69,6 +81,8 @@ TEST(RooParamHistFunc, IntegrationAndCloning)
    // after the RooParamHistFunc has been cloned.
    // The test was inspired by this error reported on the forum:
    // https://root-forum.cern.ch/t/barlow-beeston-in-subrange/43909/5
+
+   RooHelpers::LocalChangeMsgLevel changeMsgLvl(RooFit::WARNING);
 
    using namespace RooFit;
 
@@ -80,7 +94,7 @@ TEST(RooParamHistFunc, IntegrationAndCloning)
    h1.FillRandom("f1", 50);
    RooDataHist dh1("dh1", "dh1", x, &h1);
 
-   RooParamHistFunc ph("ph", "", x, dh1);
+   RooParamHistFunc ph("ph", "", dh1, x);
 
    // Combine the RooParamHistFunc with something else in a RooRealSumPdf.
    // This is do make the test more similar to the Barlow-Beeston test,
@@ -89,8 +103,8 @@ TEST(RooParamHistFunc, IntegrationAndCloning)
    RooRealVar frac("frac", "frac", 0.5, 0.0, 1.0);
    RooRealSumPdf model{"model", "model", ph, uni, frac};
 
-   auto integral = ph.createIntegral(x, x, "R1");
-   auto integralClone = static_cast<RooAbsReal *>(integral->cloneTree());
+   std::unique_ptr<RooAbsReal> integral{ph.createIntegral(x, x, "R1")};
+   std::unique_ptr<RooAbsReal> integralClone{static_cast<RooAbsReal *>(integral->cloneTree())};
 
    RooArgSet nset{x};
 

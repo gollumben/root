@@ -23,31 +23,31 @@ else()
     TPosixMutex.h
     TPosixThread.h
     TPosixThreadFactory.h
-    PosixThreadInc.h
   )
 endif()
+
+set(THREAD_HEADERS
+  TAtomicCount.h
+  TCondition.h
+  TConditionImp.h
+  TMutex.h
+  TMutexImp.h
+  TRWLock.h
+  TSemaphore.h
+  TThreadFactory.h
+  TThread.h
+  TThreadImp.h
+  TThreadPool.h
+  ROOT/TRWSpinLock.hxx
+  ROOT/TSpinMutex.hxx
+  ROOT/TThreadedObject.hxx
+)
 
 ROOT_STANDARD_LIBRARY_PACKAGE(Thread
   HEADERS
     ${PLATFORM_HEADERS}
-    TAtomicCount.h
-    TCondition.h
-    TConditionImp.h
-    ThreadLocalStorage.h
-    TMutex.h
-    TMutexImp.h
-    TRWLock.h
-    TSemaphore.h
-    TThreadFactory.h
-    TThread.h
-    TThreadImp.h
-    TThreadPool.h
-    ROOT/RConcurrentHashColl.hxx
-    ROOT/TRWSpinLock.hxx
-    ROOT/TSpinMutex.hxx
-    ROOT/TThreadedObject.hxx
+    ${THREAD_HEADERS}
   SOURCES
-    src/RConcurrentHashColl.cxx
     src/TCondition.cxx
     src/TConditionImp.cxx
     src/TMutex.cxx
@@ -65,27 +65,35 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Thread
     -writeEmptyRootPCM
   DEPENDENCIES
     Core
-  BUILTINS
-    TBB
   INSTALL_OPTIONS ${installoptions}
+)
+
+target_include_directories(Core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>
+)
+
+set(RELATIVE_INC_HEADERS ${PLATFORM_HEADERS} ${THREAD_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+
+target_sources(Thread
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/
+  FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef.h
 )
 
 target_link_libraries(Thread PUBLIC ${CMAKE_THREAD_LIBS_INIT})
 
-target_include_directories(Thread PRIVATE
-   ${CMAKE_SOURCE_DIR}/core/base/inc
-   ${CMAKE_SOURCE_DIR}/core/clib/inc
-   ${CMAKE_BINARY_DIR}/ginclude
+target_include_directories(Thread PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>
 )
 
-# keep include directory for ROOT/RSha256.hxx private
-set_source_files_properties(src/RConcurrentHashColl.cxx
-  PROPERTIES COMPILE_FLAGS -I${CMAKE_SOURCE_DIR}/core/foundation/res)
-
-if((tbb OR builtin_tbb) AND NOT MSVC)
-  target_include_directories(Thread PRIVATE ${TBB_INCLUDE_DIRS})
-  target_link_libraries(Thread PRIVATE ${TBB_LIBRARIES})
-  set_target_properties(Thread PROPERTIES COMPILE_FLAGS "${TBB_CXXFLAGS}")
+if(TARGET TBB::tbb)
+  target_link_libraries(Thread PRIVATE TBB::tbb)
+  target_compile_definitions(Thread PUBLIC ROOT_CORE_THREAD_TBB)
 endif()
 
 if(WIN32)

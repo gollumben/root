@@ -13,16 +13,23 @@ if(mathmore)
   set(ROOT_MATHMORE_LIBRARY MathMore)
 endif()
 
+set (EXTRA_DICT_OPTS)
+if (runtime_cxxmodules AND WIN32)
+  set (EXTRA_DICT_OPTS NO_CXXMODULE)
+endif()
+
+set (ROOFITMORE_HEADERS
+  RooFitMoreLib.h
+  RooLegendre.h
+  RooMathMoreReg.h
+  RooSpHarmonic.h
+  RooNonCentralChiSquare.h
+  RooHypatia2.h
+)
+
 ROOT_STANDARD_LIBRARY_PACKAGE(RooFitMore
   HEADERS
-    RooFitMoreLib.h
-    RooAdaptiveGaussKronrodIntegrator1D.h
-    RooGaussKronrodIntegrator1D.h
-    RooLegendre.h
-    RooMathMoreReg.h
-    RooSpHarmonic.h
-    RooNonCentralChiSquare.h
-    RooHypatia2.h
+    ${ROOFITMORE_HEADERS}
   SOURCES
     src/RooFitMoreLib.cxx
     src/RooAdaptiveGaussKronrodIntegrator1D.cxx
@@ -36,26 +43,41 @@ ROOT_STANDARD_LIBRARY_PACKAGE(RooFitMore
     "-writeEmptyRootPCM"
   LINKDEF
     LinkDef.h
-  LIBRARIES
-    RooBatchCompute
   DEPENDENCIES
-    ${ROOT_MATHMORE_LIBRARY}
     Core
     RooFitCore
     RooFit
     Hist
-    Matrix
     Tree
-    Minuit
     RIO
+  LIBRARIES
+    ${ROOT_MATHMORE_LIBRARY}
     MathCore
-    Foam
+  ${EXTRA_DICT_OPTS}
 )
+
+target_link_libraries(RooFitMore PRIVATE GSL::gsl GSL::gslcblas)
 
 # For recent clang, this can facilitate auto-vectorisation.
 # In RooFit, the errno side effect is not needed, anyway:
-if(NOT MSVC)
+if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
   target_compile_options(RooFitMore PUBLIC -fno-math-errno)
 endif()
 
-#ROOT_ADD_TEST_SUBDIRECTORY(test)
+set(RELATIVE_INC_HEADERS ${ROOFITMORE_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+target_sources(
+    RooFitMore
+    PRIVATE
+    FILE_SET private_header_files
+    TYPE HEADERS
+    BASE_DIRS inc/ src/
+    FILES
+        ${RELATIVE_INC_HEADERS}
+        inc/LinkDef.h
+        src/BracketAdapters.h
+        src/RooAdaptiveGaussKronrodIntegrator1D.h
+        src/RooGaussKronrodIntegrator1D.h
+)
+
+ROOT_ADD_TEST_SUBDIRECTORY(test)

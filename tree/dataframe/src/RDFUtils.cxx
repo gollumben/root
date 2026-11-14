@@ -12,6 +12,8 @@
 #include "ROOT/RDataSource.hxx"
 #include "ROOT/RDF/RDefineBase.hxx"
 #include "ROOT/RDF/RLoopManager.hxx"
+#include "ROOT/RDF/RSample.hxx"
+#include "ROOT/RDF/RSampleInfo.hxx"
 #include "ROOT/RDF/Utils.hxx"
 #include "ROOT/RLogger.hxx"
 #include "RtypesCore.h"
@@ -26,23 +28,68 @@
 #include "TROOT.h" // IsImplicitMTEnabled, GetThreadPoolSize
 #include "TTree.h"
 
+#include <fstream>
+#include <mutex>
+#include <nlohmann/json.hpp> // nlohmann::json::parse
 #include <stdexcept>
 #include <string>
 #include <cstring>
 #include <typeinfo>
+#include <cstdint>
 
 using namespace ROOT::Detail::RDF;
 using namespace ROOT::RDF;
 
-ROOT::Experimental::RLogChannel &ROOT::Detail::RDF::RDFLogChannel()
+ROOT::RLogChannel &ROOT::Detail::RDF::RDFLogChannel()
 {
-   static ROOT::Experimental::RLogChannel c("ROOT.RDF");
+   static RLogChannel c("ROOT.RDF");
    return c;
 }
+
+// A static function, not in an anonymous namespace, because the function name is included in the user-visible message.
+static void WarnHist()
+{
+   R__LOG_WARNING(RDFLogChannel()) << "Filling RHist is experimental and still under development.";
+}
+
+void ROOT::Internal::RDF::WarnHist()
+{
+   static std::once_flag once;
+   std::call_once(once, ::WarnHist);
+}
+
+// A static function, not in an anonymous namespace, because the function name is included in the user-visible message.
+static void WarnProfile()
+{
+   R__LOG_WARNING(RDFLogChannel()) << "Filling RProfile is experimental and still under development.";
+}
+
+void ROOT::Internal::RDF::WarnProfile()
+{
+   static std::once_flag once;
+   std::call_once(once, ::WarnProfile);
+}
+
+namespace {
+using TypeInfoRef = std::reference_wrapper<const std::type_info>;
+struct TypeInfoRefHash {
+   std::size_t operator()(TypeInfoRef id) const { return id.get().hash_code(); }
+};
+
+struct TypeInfoRefEqualComp {
+   bool operator()(TypeInfoRef left, TypeInfoRef right) const { return left.get() == right.get(); }
+};
+} // namespace
 
 namespace ROOT {
 namespace Internal {
 namespace RDF {
+
+unsigned int &NThreadPerTH3()
+{
+   static unsigned int nThread = 1;
+   return nThread;
+}
 
 /// Return the type_info associated to a name. If the association fails, an
 /// exception is thrown.
@@ -50,84 +97,161 @@ namespace RDF {
 /// columns.
 const std::type_info &TypeName2TypeID(const std::string &name)
 {
-   if (auto c = TClass::GetClass(name.c_str())) {
-      if (!c->GetTypeInfo()) {
-         std::string msg("Cannot extract type_info of type ");
-         msg += name.c_str();
-         msg += ".";
-         throw std::runtime_error(msg);
-      }
+   // This map includes all relevant C++ fundamental types found at
+   // https://en.cppreference.com/w/cpp/language/types.html and the associated
+   // ROOT portable types when available.
+   const static std::unordered_map<std::string, TypeInfoRef> typeName2TypeIDMap{
+      // Integral types
+      // Standard integer types
+      {"short", typeid(short)},
+      {"short int", typeid(short int)},
+      {"signed short", typeid(signed short)},
+      {"signed short int", typeid(signed short int)},
+      {"unsigned short", typeid(unsigned short)},
+      {"unsigned short int", typeid(unsigned short int)},
+      {"int", typeid(int)},
+      {"signed", typeid(signed)},
+      {"signed int", typeid(signed int)},
+      {"unsigned", typeid(unsigned)},
+      {"unsigned int", typeid(unsigned int)},
+      {"long", typeid(long)},
+      {"long int", typeid(long int)},
+      {"signed long", typeid(signed long)},
+      {"signed long int", typeid(signed long int)},
+      {"unsigned long", typeid(unsigned long)},
+      {"unsigned long int", typeid(unsigned long int)},
+      {"long long", typeid(long long)},
+      {"long long int", typeid(long long int)},
+      {"signed long long", typeid(signed long long)},
+      {"signed long long int", typeid(signed long long int)},
+      {"unsigned long long", typeid(unsigned long long)},
+      {"unsigned long long int", typeid(unsigned long long int)},
+      {"std::size_t", typeid(std::size_t)},
+   // Extended standard integer types
+#ifdef INT8_MAX
+      {"std::int8_t", typeid(std::int8_t)},
+#endif
+#ifdef INT16_MAX
+      {"std::int16_t", typeid(std::int16_t)},
+#endif
+#ifdef INT32_MAX
+      {"std::int32_t", typeid(std::int32_t)},
+#endif
+#ifdef INT64_MAX
+      {"std::int64_t", typeid(std::int64_t)},
+#endif
+#ifdef UINT8_MAX
+      {"std::uint8_t", typeid(std::uint8_t)},
+#endif
+#ifdef UINT16_MAX
+      {"std::uint16_t", typeid(std::uint16_t)},
+#endif
+#ifdef UINT32_MAX
+      {"std::uint32_t", typeid(std::uint32_t)},
+#endif
+#ifdef UINT64_MAX
+      {"std::uint64_t", typeid(std::uint64_t)},
+#endif
+      // ROOT integer types
+      {"Int_t", typeid(Int_t)},
+      {"UInt_t", typeid(UInt_t)},
+      {"Short_t", typeid(Short_t)},
+      {"UShort_t", typeid(UShort_t)},
+      {"Long_t", typeid(Long_t)},
+      {"ULong_t", typeid(ULong_t)},
+      {"Long64_t", typeid(Long64_t)},
+      {"ULong64_t", typeid(ULong64_t)},
+      // Boolean type
+      {"bool", typeid(bool)},
+      {"Bool_t", typeid(bool)},
+      // Character types
+      {"char", typeid(char)},
+      {"Char_t", typeid(char)},
+      {"signed char", typeid(signed char)},
+      {"unsigned char", typeid(unsigned char)},
+      {"UChar_t", typeid(unsigned char)},
+      {"char16_t", typeid(char16_t)},
+      {"char32_t", typeid(char32_t)},
+      // Floating-point types
+      // Standard floating-point types
+      {"float", typeid(float)},
+      {"double", typeid(double)},
+      {"long double", typeid(long double)},
+      // ROOT floating-point types
+      {"Float_t", typeid(float)},
+      {"Double_t", typeid(double)}};
+
+   if (auto it = typeName2TypeIDMap.find(name); it != typeName2TypeIDMap.end())
+      return it->second.get();
+
+   if (auto c = TClass::GetClass(name.c_str()); c && c->GetTypeInfo()) {
       return *c->GetTypeInfo();
-   } else if (name == "char" || name == "Char_t")
-      return typeid(char);
-   else if (name == "unsigned char" || name == "UChar_t")
-      return typeid(unsigned char);
-   else if (name == "int" || name == "Int_t")
-      return typeid(int);
-   else if (name == "unsigned int" || name == "UInt_t")
-      return typeid(unsigned int);
-   else if (name == "short" || name == "Short_t")
-      return typeid(short);
-   else if (name == "unsigned short" || name == "UShort_t")
-      return typeid(unsigned short);
-   else if (name == "long" || name == "Long_t")
-      return typeid(long);
-   else if (name == "unsigned long" || name == "ULong_t")
-      return typeid(unsigned long);
-   else if (name == "double" || name == "Double_t")
-      return typeid(double);
-   else if (name == "float" || name == "Float_t")
-      return typeid(float);
-   else if (name == "long long" || name == "long long int" || name == "Long64_t")
-      return typeid(Long64_t);
-   else if (name == "unsigned long long" || name == "unsigned long long int" || name == "ULong64_t")
-      return typeid(ULong64_t);
-   else if (name == "bool" || name == "Bool_t")
-      return typeid(bool);
-   else {
-      std::string msg("Cannot extract type_info of type ");
-      msg += name.c_str();
-      msg += ".";
-      throw std::runtime_error(msg);
    }
+
+   // When the type_info cannot be retrieved with TClass, it might be that the interpreter still knows about it. This
+   // happens for example when a class has been declared to the interpreter in the same program where this
+   // RDataFrame is running, but has no dictionary. We attempt to retrieve the type_info via the interpreter before
+   // giving up.
+   std::unique_ptr<TInterpreterValue> v = gInterpreter->MakeInterpreterValue();
+   if (gInterpreter->Evaluate(("typeid(" + name + ')').c_str(), *v)) {
+      auto *typeIdAsVoidPtr = v->GetAsPointer();
+      const std::type_info *ti = reinterpret_cast<const std::type_info *>(typeIdAsVoidPtr);
+      if (ti)
+         return *ti;
+   }
+
+   throw std::runtime_error("Cannot extract type_info of type " + name + ".");
 }
 
 /// Returns the name of a type starting from its type_info
 /// An empty string is returned in case of failure
 /// References and pointers are not supported since those cannot be stored in
 /// columns.
+/// Note that this function will take a lock and may be a potential source of
+/// contention in multithreaded execution.
 std::string TypeID2TypeName(const std::type_info &id)
 {
+   const static std::unordered_map<TypeInfoRef, std::string, TypeInfoRefHash, TypeInfoRefEqualComp> typeID2TypeNameMap{
+      {typeid(char), "char"},
+      {typeid(unsigned char), "unsigned char"},
+      {typeid(signed char), "signed char"},
+      {typeid(int), "int"},
+      {typeid(unsigned int), "unsigned int"},
+      {typeid(short), "short"},
+      {typeid(unsigned short), "unsigned short"},
+      {typeid(long), "long"},
+      {typeid(unsigned long), "unsigned long"},
+      {typeid(double), "double"},
+      {typeid(float), "float"},
+      {typeid(Long64_t), "Long64_t"},
+      {typeid(ULong64_t), "ULong64_t"},
+      {typeid(bool), "bool"}};
+
+   if (auto it = typeID2TypeNameMap.find(id); it != typeID2TypeNameMap.end())
+      return it->second;
+
    if (auto c = TClass::GetClass(id)) {
       return c->GetName();
-   } else if (id == typeid(char))
-      return "char";
-   else if (id == typeid(unsigned char))
-      return "unsigned char";
-   else if (id == typeid(int))
-      return "int";
-   else if (id == typeid(unsigned int))
-      return "unsigned int";
-   else if (id == typeid(short))
-      return "short";
-   else if (id == typeid(unsigned short))
-      return "unsigned short";
-   else if (id == typeid(long))
-      return "long";
-   else if (id == typeid(unsigned long))
-      return "unsigned long";
-   else if (id == typeid(double))
-      return "double";
-   else if (id == typeid(float))
-      return "float";
-   else if (id == typeid(Long64_t))
-      return "Long64_t";
-   else if (id == typeid(ULong64_t))
-      return "ULong64_t";
-   else if (id == typeid(bool))
-      return "bool";
-   else
-      return "";
+   }
+
+   return "";
+}
+
+char TypeID2ROOTTypeName(const std::type_info &tid)
+{
+   const static std::unordered_map<TypeInfoRef, char, TypeInfoRefHash, TypeInfoRefEqualComp> typeID2ROOTTypeNameMap{
+      {typeid(char), 'B'},      {typeid(Char_t), 'B'},   {typeid(unsigned char), 'b'},      {typeid(UChar_t), 'b'},
+      {typeid(int), 'I'},       {typeid(Int_t), 'I'},    {typeid(unsigned int), 'i'},       {typeid(UInt_t), 'i'},
+      {typeid(short), 'S'},     {typeid(Short_t), 'S'},  {typeid(unsigned short), 's'},     {typeid(UShort_t), 's'},
+      {typeid(long), 'G'},      {typeid(Long_t), 'G'},   {typeid(unsigned long), 'g'},      {typeid(ULong_t), 'g'},
+      {typeid(long long), 'L'}, {typeid(Long64_t), 'L'}, {typeid(unsigned long long), 'l'}, {typeid(ULong64_t), 'l'},
+      {typeid(float), 'F'},     {typeid(Float_t), 'F'},  {typeid(Double_t), 'D'},           {typeid(double), 'D'},
+      {typeid(bool), 'O'},      {typeid(Bool_t), 'O'}};
+
+   if (auto it = typeID2ROOTTypeNameMap.find(tid); it != typeID2ROOTTypeNameMap.end())
+      return it->second;
+
+   return ' ';
 }
 
 std::string ComposeRVecTypeName(const std::string &valueType)
@@ -148,9 +272,14 @@ std::string GetLeafTypeName(TLeaf *leaf, const std::string &colName)
       // this is a fixed-sized array (we do not differentiate between variable- and fixed-sized arrays)
       colType = ComposeRVecTypeName(colType);
    } else if (leaf->GetLeafCount() != nullptr && leaf->GetLenStatic() > 1) {
-      // we do not know how to deal with this branch
-      throw std::runtime_error("TTree leaf " + colName +
-                               " has both a leaf count and a static length. This is not supported.");
+      // This case is encountered when a branch is a collection (e.g. std::vector) of a user-defined class which has
+      // a data member that is a fixed-size array. Here, 'leaf' is said data member, and the user could read it
+      // partially as std::vector<std::array<T, N>>. We expose it as ROOT::RVec<std::array<T, N>> for consistency with
+      // other collection types.
+      // WARNING: Currently this considers only the possibility of a 1-dim array, as TLeaf does not expose information
+      // to get all dimension lengths of a multi-dim array in a straightforward way (e.g. with one API call).
+      auto valueType = colType;
+      colType = "ROOT::VecOps::RVec<std::array<" + valueType + ", " + std::to_string(leaf->GetLenStatic()) + ">>";
    }
 
    return colType;
@@ -218,25 +347,20 @@ std::string GetBranchOrLeafTypeName(TTree &t, const std::string &colName)
 /// Return a string containing the type of the given branch. Works both with real TTree branches and with temporary
 /// column created by Define. Throws if type name deduction fails.
 /// Note that for fixed- or variable-sized c-style arrays the returned type name will be RVec<T>.
-/// vector2rvec specifies whether typename 'std::vector<T>' should be converted to 'RVec<T>' or returned as is
-/// customColID is only used if isDefine is true, and must correspond to the custom column's unique identifier
-/// returned by its `GetID()` method.
+/// vector2RVec specifies whether typename 'std::vector<T>' should be converted to 'RVec<T>' or returned as is
 std::string ColumnName2ColumnTypeName(const std::string &colName, TTree *tree, RDataSource *ds, RDefineBase *define,
-                                      bool vector2rvec)
+                                      bool vector2RVec)
 {
    std::string colType;
 
    // must check defines first: we want Redefines to have precedence over everything else
-   if (colType.empty() && define) {
+   if (define) {
       colType = define->GetTypeName();
-   }
-
-   if (ds && ds->HasColumn(colName))
-      colType = ds->GetTypeName(colName);
-
-   if (colType.empty() && tree) {
+   } else if (ds && ds->HasColumn(colName)) {
+      colType = ROOT::Internal::RDF::GetTypeNameWithOpts(*ds, colName, vector2RVec);
+   } else if (tree) {
       colType = GetBranchOrLeafTypeName(*tree, colName);
-      if (vector2rvec && TClassEdit::IsSTLCont(colType) == ROOT::ESTLType::kSTLvector) {
+      if (vector2RVec && TClassEdit::IsSTLCont(colType) == ROOT::ESTLType::kSTLvector) {
          std::vector<std::string> split;
          int dummy;
          TClassEdit::GetSplit(colType.c_str(), split, dummy);
@@ -256,32 +380,43 @@ std::string ColumnName2ColumnTypeName(const std::string &colName, TTree *tree, R
 /// Return a space ' ' in case no match was found.
 char TypeName2ROOTTypeName(const std::string &b)
 {
-   if (b == "Char_t" || b == "char")
-      return 'B';
-   if (b == "UChar_t" || b == "unsigned char")
-      return 'b';
-   if (b == "Short_t" || b == "short" || b == "short int")
-      return 'S';
-   if (b == "UShort_t" || b == "unsigned short" || b == "unsigned short int")
-      return 's';
-   if (b == "Int_t" || b == "int")
-      return 'I';
-   if (b == "UInt_t" || b == "unsigned" || b == "unsigned int")
-      return 'i';
-   if (b == "Float_t" || b == "float")
-      return 'F';
-   if (b == "Double_t" || b == "double")
-      return 'D';
-   if (b == "Long64_t" || b == "long long" || b == "long long int")
-      return 'L';
-   if (b == "ULong64_t" || b == "unsigned long long" || b == "unsigned long long int")
-      return 'l';
-   if (b == "Long_t" || b == "long" || b == "long int")
-      return 'G';
-   if (b == "ULong_t" || b == "unsigned long" || b == "unsigned long int")
-      return 'g';
-   if (b == "Bool_t" || b == "bool")
-      return 'O';
+   const static std::unordered_map<std::string, char> typeName2ROOTTypeNameMap{{"char", 'B'},
+                                                                               {"Char_t", 'B'},
+                                                                               {"unsigned char", 'b'},
+                                                                               {"UChar_t", 'b'},
+                                                                               {"int", 'I'},
+                                                                               {"Int_t", 'I'},
+                                                                               {"unsigned", 'i'},
+                                                                               {"unsigned int", 'i'},
+                                                                               {"UInt_t", 'i'},
+                                                                               {"short", 'S'},
+                                                                               {"short int", 'S'},
+                                                                               {"Short_t", 'S'},
+                                                                               {"unsigned short", 's'},
+                                                                               {"unsigned short int", 's'},
+                                                                               {"UShort_t", 's'},
+                                                                               {"long", 'G'},
+                                                                               {"long int", 'G'},
+                                                                               {"Long_t", 'G'},
+                                                                               {"unsigned long", 'g'},
+                                                                               {"unsigned long int", 'g'},
+                                                                               {"ULong_t", 'g'},
+                                                                               {"double", 'D'},
+                                                                               {"Double_t", 'D'},
+                                                                               {"float", 'F'},
+                                                                               {"Float_t", 'F'},
+                                                                               {"long long", 'L'},
+                                                                               {"long long int", 'L'},
+                                                                               {"Long64_t", 'L'},
+                                                                               {"unsigned long long", 'l'},
+                                                                               {"unsigned long long int", 'l'},
+                                                                               {"ULong64_t", 'l'},
+                                                                               {"bool", 'O'},
+                                                                               {"Bool_t", 'O'}};
+
+   if (auto it = typeName2ROOTTypeNameMap.find(b); it != typeName2ROOTTypeNameMap.end())
+      return it->second;
+
    return ' ';
 }
 
@@ -329,21 +464,41 @@ void InterpreterDeclare(const std::string &code)
    }
 }
 
-Long64_t InterpreterCalc(const std::string &code, const std::string &context)
+void InterpreterCalc(const std::string &code, const std::string &context)
 {
+   if (code.empty())
+      return;
+
    R__LOG_DEBUG(10, RDFLogChannel()) << "Jitting and executing the following code:\n\n" << code << '\n';
 
-   TInterpreter::EErrorCode errorCode(TInterpreter::kNoError);
-   auto res = gInterpreter->Calc(code.c_str(), &errorCode);
-   if (errorCode != TInterpreter::EErrorCode::kNoError) {
-      std::string msg = "\nAn error occurred during just-in-time compilation";
-      if (!context.empty())
-         msg += " in " + context;
-      msg += ". The lines above might indicate the cause of the crash\nAll RDF objects that have not run their event "
-             "loop yet should be considered in an invalid state.\n";
-      throw std::runtime_error(msg);
+   TInterpreter::EErrorCode errorCode(TInterpreter::kNoError); // storage for cling errors
+
+   auto callCalc = [&errorCode, &context](const std::string &codeSlice) {
+      gInterpreter->Calc(codeSlice.c_str(), &errorCode);
+      if (errorCode != TInterpreter::EErrorCode::kNoError) {
+         std::string msg = "\nAn error occurred during just-in-time compilation";
+         if (!context.empty())
+            msg += " in " + context;
+         msg +=
+            ". The lines above might indicate the cause of the crash\nAll RDF objects that have not run their event "
+            "loop yet should be considered in an invalid state.\n";
+         throw std::runtime_error(msg);
+      }
+   };
+
+   // Call Calc every 1000 newlines in order to avoid jitting a very large function body, which is slow:
+   // see https://github.com/root-project/root/issues/9312 and https://github.com/root-project/root/issues/7604
+   std::size_t substr_start = 0;
+   std::size_t substr_end = 0;
+   while (substr_end != std::string::npos && substr_start != code.size() - 1) {
+      for (std::size_t i = 0u; i < 1000u && substr_end != std::string::npos; ++i) {
+         substr_end = code.find('\n', substr_end + 1);
+      }
+      const std::string subs = code.substr(substr_start, substr_end - substr_start);
+      substr_start = substr_end;
+
+      callCalc(subs);
    }
-   return res;
 }
 
 bool IsInternalColumn(std::string_view colName)
@@ -367,6 +522,208 @@ unsigned int GetColumnWidth(const std::vector<std::string>& names, const unsigne
    return columnWidth;
 }
 
+void CheckReaderTypeMatches(const std::type_info &colType, const std::type_info &requestedType,
+                            const std::string &colName)
+{
+   // We explicitly support certain type conversions
+   const bool explicitlySupported = [&colType, &requestedType]() {
+      // bool as unsigned char is common to circumvent the std::vector<bool> specialization.
+      if (colType == typeid(bool) && requestedType == typeid(unsigned char))
+         return true;
+      // char as unsigned char allows reading a vector of char as a Python numpy array of integers, avoiding the
+      // automatic conversion of 'char *' to string in Python. For more info, see
+      // https://github.com/root-project/root/issues/22554
+      if (colType == typeid(char) && requestedType == typeid(unsigned char))
+         return true;
+
+      return false;
+   }();
+
+   // Here we compare names and not typeinfos since they may come from two different contexts: a compiled
+   // and a jitted one.
+   const auto diffTypes = (0 != std::strcmp(colType.name(), requestedType.name()));
+   auto inheritedType = [&]() {
+      auto colTClass = TClass::GetClass(colType);
+      return colTClass && colTClass->InheritsFrom(TClass::GetClass(requestedType));
+   };
+
+   if (!explicitlySupported && diffTypes && !inheritedType()) {
+      const auto tName = TypeID2TypeName(requestedType);
+      const auto colTypeName = TypeID2TypeName(colType);
+      std::string errMsg = "RDataFrame: type mismatch: column \"" + colName + "\" is being used as ";
+      if (tName.empty()) {
+         errMsg += requestedType.name();
+         errMsg += " (extracted from type info)";
+      } else {
+         errMsg += tName;
+      }
+      errMsg += " but the Define or Vary node advertises it as ";
+      if (colTypeName.empty()) {
+         auto &id = colType;
+         errMsg += id.name();
+         errMsg += " (extracted from type info)";
+      } else {
+         errMsg += colTypeName;
+      }
+      throw std::runtime_error(errMsg);
+   }
+}
+
+bool IsStrInVec(const std::string &str, const std::vector<std::string> &vec)
+{
+   return std::find(vec.cbegin(), vec.cend(), str) != vec.cend();
+}
+
+auto RStringCache::Insert(const std::string &string) -> decltype(fStrings)::const_iterator
+{
+   {
+      std::shared_lock l{fMutex};
+      if (auto it = fStrings.find(string); it != fStrings.end())
+         return it;
+   }
+
+   // TODO: Would be nicer to use a lock upgrade strategy a-la TVirtualRWMutex
+   // but that is unfortunately not usable outside the already available ROOT mutexes
+   std::unique_lock l{fMutex};
+   if (auto it = fStrings.find(string); it != fStrings.end())
+      return it;
+
+   return fStrings.insert(string).first;
+}
+
+ROOT::RDF::Experimental::RDatasetSpec RetrieveSpecFromJson(const std::string &jsonFile)
+{
+      const nlohmann::ordered_json fullData = nlohmann::ordered_json::parse(std::ifstream(jsonFile));
+   if (!fullData.contains("samples") || fullData["samples"].empty()) {
+      throw std::runtime_error(
+         R"(The input specification does not contain any samples. Please provide the samples in the specification like:
+{
+   "samples": {
+      "sampleA": {
+         "trees": ["tree1", "tree2"],
+         "files": ["file1.root", "file2.root"],
+         "metadata": {"lumi": 1.0, }
+      },
+      "sampleB": {
+         "trees": ["tree3", "tree4"],
+         "files": ["file3.root", "file4.root"],
+         "metadata": {"lumi": 0.5, }
+      },
+      ...
+   },
+})");
+   }
+
+   ROOT::RDF::Experimental::RDatasetSpec spec;
+   for (const auto &keyValue : fullData["samples"].items()) {
+      const std::string &sampleName = keyValue.key();
+      const auto &sample = keyValue.value();
+      // TODO: if requested in https://github.com/root-project/root/issues/11624
+      // allow union-like types for trees and files, see: https://github.com/nlohmann/json/discussions/3815
+      if (!sample.contains("trees")) {
+         throw std::runtime_error("A list of tree names must be provided for sample " + sampleName + ".");
+      }
+      std::vector<std::string> trees = sample["trees"];
+      if (!sample.contains("files")) {
+         throw std::runtime_error("A list of files must be provided for sample " + sampleName + ".");
+      }
+      std::vector<std::string> files = sample["files"];
+      if (!sample.contains("metadata")) {
+         spec.AddSample( ROOT::RDF::Experimental::RSample{sampleName, trees, files});
+      } else {
+         ROOT::RDF::Experimental::RMetaData m;
+         for (const auto &metadata : sample["metadata"].items()) {
+            const auto &val = metadata.value();
+            if (val.is_string())
+               m.Add(metadata.key(), val.get<std::string>());
+            else if (val.is_number_integer())
+               m.Add(metadata.key(), val.get<int>());
+            else if (val.is_number_float())
+               m.Add(metadata.key(), val.get<double>());
+            else
+               throw std::logic_error("The metadata keys can only be of type [string|int|double].");
+         }
+         spec.AddSample( ROOT::RDF::Experimental::RSample{sampleName, trees, files, m});
+      }
+   }
+   if (fullData.contains("friends")) {
+      for (const auto &friends : fullData["friends"].items()) {
+         std::string alias = friends.key();
+         std::vector<std::string> trees = friends.value()["trees"];
+         std::vector<std::string> files = friends.value()["files"];
+         if (files.size() != trees.size() && trees.size() > 1)
+            throw std::runtime_error("Mismatch between trees and files in a friend.");
+         spec.WithGlobalFriends(trees, files, alias);
+      }
+   }
+
+   if (fullData.contains("range")) {
+      std::vector<int> range = fullData["range"];
+
+      if (range.size() == 1)
+         spec.WithGlobalRange({range[0]});
+      else if (range.size() == 2)
+         spec.WithGlobalRange({range[0], range[1]});
+   }
+   return spec;
+};
+
 } // end NS RDF
 } // end NS Internal
 } // end NS ROOT
+
+std::string
+ROOT::Internal::RDF::GetTypeNameWithOpts(const ROOT::RDF::RDataSource &df, std::string_view colName, bool vector2RVec)
+{
+   return df.GetTypeNameWithOpts(colName, vector2RVec);
+}
+
+const std::vector<std::string> &ROOT::Internal::RDF::GetTopLevelFieldNames(const ROOT::RDF::RDataSource &df)
+{
+   return df.GetTopLevelFieldNames();
+}
+
+const std::vector<std::string> &ROOT::Internal::RDF::GetColumnNamesNoDuplicates(const ROOT::RDF::RDataSource &df)
+{
+   return df.GetColumnNamesNoDuplicates();
+}
+
+void ROOT::Internal::RDF::CallInitializeWithOpts(ROOT::RDF::RDataSource &ds,
+                                                 const std::set<std::string> &suppressErrorsForMissingColumns)
+{
+   ds.InitializeWithOpts(suppressErrorsForMissingColumns);
+}
+
+std::string ROOT::Internal::RDF::DescribeDataset(ROOT::RDF::RDataSource &ds)
+{
+   return ds.DescribeDataset();
+}
+
+ROOT::RDF::RSampleInfo ROOT::Internal::RDF::CreateSampleInfo(
+   const ROOT::RDF::RDataSource &ds, unsigned int slot,
+   const std::unordered_map<std::string, ROOT::RDF::Experimental::RSample *> &sampleMap)
+{
+   return ds.CreateSampleInfo(slot, sampleMap);
+}
+
+void ROOT::Internal::RDF::RunFinalChecks(const ROOT::RDF::RDataSource &ds, bool nodesLeftNotRun)
+{
+   ds.RunFinalChecks(nodesLeftNotRun);
+}
+
+void ROOT::Internal::RDF::ProcessMT(ROOT::RDF::RDataSource &ds, ROOT::Detail::RDF::RLoopManager &lm)
+{
+   ds.ProcessMT(lm);
+}
+
+std::unique_ptr<ROOT::Detail::RDF::RColumnReaderBase>
+ROOT::Internal::RDF::CreateColumnReader(ROOT::RDF::RDataSource &ds, unsigned int slot, std::string_view col,
+                                        const std::type_info &tid, TTreeReader *treeReader)
+{
+   return ds.CreateColumnReader(slot, col, tid, treeReader);
+}
+
+std::vector<ROOT::RDF::Experimental::RSample> ROOT::Internal::RDF::MoveOutSamples(ROOT::RDF::Experimental::RDatasetSpec &spec)
+{
+   return std::move(spec.fSamples);
+}

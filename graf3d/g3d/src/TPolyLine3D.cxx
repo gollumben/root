@@ -17,13 +17,12 @@
 #include "TVirtualViewer3D.h"
 #include "TBuffer3D.h"
 #include "TBuffer3DTypes.h"
-#include "TGeometry.h"
+#include "TGeometryTransformer.h"
 #include "TMath.h"
 
 #include <cassert>
 #include <iostream>
 
-ClassImp(TPolyLine3D);
 
 /** \class TPolyLine3D
 \ingroup g3d
@@ -75,7 +74,7 @@ Begin_Macro(source)
    TView *view = TView::CreateView(1);
    view->SetRange(0,0,0,2,2,2);
    const Int_t n = 500;
-   r = new TRandom();
+   auto r = new TRandom();
    Double_t x, y, z;
    TPolyLine3D *l = new TPolyLine3D(n);
    for (Int_t i=0;i<n;i++) {
@@ -99,9 +98,6 @@ option `L`.
 
 TPolyLine3D::TPolyLine3D()
 {
-   fN = 0;
-   fP = 0;
-   fLastPoint = -1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -112,12 +108,8 @@ TPolyLine3D::TPolyLine3D(Int_t n, Option_t *option)
 {
    fOption = option;
    SetBit(kCanDelete);
-   fLastPoint = -1;
-   if (n <= 0) {
-      fN = 0;
-      fP = 0;
+   if (n <= 0)
       return;
-   }
 
    fN = n;
    fP = new Float_t[3*fN];
@@ -132,12 +124,8 @@ TPolyLine3D::TPolyLine3D(Int_t n, Float_t const* p, Option_t *option)
 {
    fOption = option;
    SetBit(kCanDelete);
-   fLastPoint = -1;
-   if (n <= 0) {
-      fN = 0;
-      fP = 0;
+   if (n <= 0)
       return;
-   }
 
    fN = n;
    fP = new Float_t[3*fN];
@@ -155,12 +143,8 @@ TPolyLine3D::TPolyLine3D(Int_t n, Double_t const* p, Option_t *option)
 {
    fOption = option;
    SetBit(kCanDelete);
-   fLastPoint = -1;
-   if (n <= 0) {
-      fN = 0;
-      fP = 0;
+   if (n <= 0)
       return;
-   }
 
    fN = n;
    fP = new Float_t[3*fN];
@@ -178,12 +162,8 @@ TPolyLine3D::TPolyLine3D(Int_t n, Float_t const* x, Float_t const* y, Float_t co
 {
    fOption = option;
    SetBit(kCanDelete);
-   fLastPoint = -1;
-   if (n <= 0) {
-      fN = 0;
-      fP = 0;
+   if (n <= 0)
       return;
-   }
 
    fN = n;
    fP = new Float_t[3*fN];
@@ -206,12 +186,8 @@ TPolyLine3D::TPolyLine3D(Int_t n, Double_t const* x, Double_t const* y, Double_t
 {
    fOption = option;
    SetBit(kCanDelete);
-   fLastPoint = -1;
-   if (n <= 0) {
-      fN = 0;
-      fP = 0;
+   if (n <= 0)
       return;
-   }
 
    fN = n;
    fP = new Float_t[3*fN];
@@ -230,15 +206,8 @@ TPolyLine3D::TPolyLine3D(Int_t n, Double_t const* x, Double_t const* y, Double_t
 
 TPolyLine3D& TPolyLine3D::operator=(const TPolyLine3D& pl)
 {
-   if(this!=&pl) {
-      TObject::operator=(pl);
-      TAttLine::operator=(pl);
-      TAtt3D::operator=(pl);
-      fN=pl.fN;
-      fP=pl.fP;
-      fOption=pl.fOption;
-      fLastPoint=pl.fLastPoint;
-   }
+   if(this != &pl)
+      pl.TPolyLine3D::Copy(*this);
    return *this;
 }
 
@@ -255,10 +224,7 @@ TPolyLine3D::~TPolyLine3D()
 
 TPolyLine3D::TPolyLine3D(const TPolyLine3D &polyline) : TObject(polyline), TAttLine(polyline), TAtt3D(polyline)
 {
-   fP         = 0;
-   fLastPoint = 0;
-   fN         = 0;
-   ((TPolyLine3D&)polyline).TPolyLine3D::Copy(*this);
+   polyline.TPolyLine3D::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -266,19 +232,21 @@ TPolyLine3D::TPolyLine3D(const TPolyLine3D &polyline) : TObject(polyline), TAttL
 
 void TPolyLine3D::Copy(TObject &obj) const
 {
+   auto &tgt = static_cast<TPolyLine3D &>(obj);
    TObject::Copy(obj);
-   TAttLine::Copy(((TPolyLine3D&)obj));
-   ((TPolyLine3D&)obj).fN = fN;
-   if (((TPolyLine3D&)obj).fP)
-      delete [] ((TPolyLine3D&)obj).fP;
+   TAttLine::Copy(tgt);
+   tgt.fN = fN;
+   if (tgt.fP)
+      delete [] tgt.fP;
    if (fN > 0) {
-      ((TPolyLine3D&)obj).fP = new Float_t[3*fN];
-      for (Int_t i=0; i<3*fN;i++)  {((TPolyLine3D&)obj).fP[i] = fP[i];}
+      tgt.fP = new Float_t[3*fN];
+      for (Int_t i=0; i<3*fN;i++)
+         tgt.fP[i] = fP[i];
    } else {
-      ((TPolyLine3D&)obj).fP = 0;
+      tgt.fP = nullptr;
    }
-   ((TPolyLine3D&)obj).fOption = fOption;
-   ((TPolyLine3D&)obj).fLastPoint = fLastPoint;
+   tgt.fOption = fOption;
+   tgt.fLastPoint = fLastPoint;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -535,14 +503,14 @@ void TPolyLine3D::Paint(Option_t * /* option */ )
       }
 
       // Transform points
-      if (gGeometry && !buffer.fLocalFrame) {
+      if (ROOT::Internal::currentTGeometryTransformer && !buffer.fLocalFrame) {
          Double_t dlocal[3];
          Double_t dmaster[3];
          for (UInt_t j=0; j<buffer.NbPnts(); j++) {
             dlocal[0] = buffer.fPnts[3*j];
             dlocal[1] = buffer.fPnts[3*j+1];
             dlocal[2] = buffer.fPnts[3*j+2];
-            gGeometry->Local2Master(&dlocal[0],&dmaster[0]);
+            ROOT::Internal::currentTGeometryTransformer(&dlocal[0], &dmaster[0]);
             buffer.fPnts[3*j]   = dmaster[0];
             buffer.fPnts[3*j+1] = dmaster[1];
             buffer.fPnts[3*j+2] = dmaster[2];
@@ -586,25 +554,24 @@ void TPolyLine3D::Print(Option_t *option) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream.
 
-void TPolyLine3D::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
+void TPolyLine3D::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   char quote = '"';
-   out<<"   "<<std::endl;
-   if (gROOT->ClassSaved(TPolyLine3D::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TPolyLine3D *";
+   TString arrarg;
+   if (Size() > 0) {
+      std::vector<Double_t> arr(Size() * 3);
+      for (Int_t i = 0; i < Size() * 3; i++)
+         arr[i] = fP[i];
+      arrarg = SavePrimitiveVector(out, "pline3D", Size() * 3, arr.data(), kTRUE);
+      arrarg.Append(".data(), ");
    }
-   Int_t size=Size();
-   out<<"pline3D = new TPolyLine3D("<<fN<<","<<quote<<fOption<<quote<<");"<<std::endl;
 
-   SaveLineAttributes(out,"pline3D",1,1,1);
+   SavePrimitiveConstructor(
+      out, Class(), "pline3D",
+      TString::Format("%d, %s\"%s\"", Size(), arrarg.Data(), TString(fOption).ReplaceSpecialCppChars().Data()),
+      arrarg.IsNull());
 
-   if (size > 0) {
-      for (Int_t i=0;i<size;i++)
-         out<<"   pline3D->SetPoint("<<i<<","<<fP[3*i]<<","<<fP[3*i+1]<<","<<fP[3*i+2]<<");"<<std::endl;
-   }
-   out<<"   pline3D->Draw();"<<std::endl;
+   SaveLineAttributes(out, "pline3D", 1, 1, 1);
+   SavePrimitiveDraw(out, "pline3D", option);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -655,7 +622,7 @@ void TPolyLine3D::SetPolyLine(Int_t n, Option_t *option)
       fN = 0;
       fLastPoint = -1;
       delete [] fP;
-      fP = 0;
+      fP = nullptr;
       return;
    }
    fN = n;
@@ -676,7 +643,7 @@ void TPolyLine3D::SetPolyLine(Int_t n, Float_t *p, Option_t *option)
       fN = 0;
       fLastPoint = -1;
       delete [] fP;
-      fP = 0;
+      fP = nullptr;
       return;
    }
    fN = n;
@@ -705,7 +672,7 @@ void TPolyLine3D::SetPolyLine(Int_t n, Double_t *p, Option_t *option)
       fN = 0;
       fLastPoint = -1;
       delete [] fP;
-      fP = 0;
+      fP = nullptr;
       return;
    }
    fN = n;

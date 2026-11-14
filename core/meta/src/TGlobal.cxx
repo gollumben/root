@@ -22,7 +22,6 @@ variables (accessible via TROOT::GetListOfGlobals()).
 #include "TROOT.h"
 
 
-ClassImp(TGlobal);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default TGlobal ctor.
@@ -58,6 +57,10 @@ TGlobal &TGlobal::operator=(const TGlobal &rhs)
          fInfo = gCling->DataMemberInfo_FactoryCopy(rhs.fInfo);
          SetName(gCling->DataMemberInfo_Name(fInfo));
          SetTitle(gCling->DataMemberInfo_Title(fInfo));
+      } else {
+         fInfo = nullptr;
+         SetName(rhs.GetName());
+         SetTitle(rhs.GetTitle());
       }
    }
    return *this;

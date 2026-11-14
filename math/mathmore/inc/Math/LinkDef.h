@@ -3,7 +3,7 @@
 
 
 
-#ifdef __CINT__
+#ifdef __CLING__
 
 #pragma extra_include "Math/IFunctionfwd.h";
 #pragma extra_include "Math/IFunction.h";
@@ -92,23 +92,13 @@
 
 
 
-#pragma link C++ class ROOT::Math::KelvinFunctions+;
-
 #pragma link C++ class ROOT::Math::GSLMinimizer+;
 #pragma link C++ class ROOT::Math::GSLSimAnMinimizer+;
 #pragma link C++ class ROOT::Math::GSLSimAnFunc+;
 #pragma link C++ class ROOT::Math::GSLSimAnParams+;
 #pragma link C++ class ROOT::Math::GSLSimAnnealing+;
 
-//#pragma link C++ class std::vector<ROOT::Math::IGradientFunctionMultiDim *>+;
 #pragma link C++ class ROOT::Math::GSLNLSMinimizer-;
-#pragma link C++ class ROOT::Math::LSResidualFunc-;
-
-// #ifndef _WIN32  // exclude for same problem of virtual inheritance
-// #pragma link C++ class ROOT::Math::LSResidualFunc+;
-// #else
-// #pragma link C++ class ROOT::Math::LSResidualFunc-;
-// #endif
 
 #pragma link C++ class ROOT::Math::GSLMCIntegrator+;
 #pragma link C++ class ROOT::Math::VegasParameters+;
@@ -117,4 +107,4 @@
 #pragma link C++ class ROOT::Math::GSLMultiRootFinder+;
 #pragma link C++ typedef ROOT::Math::MultiRootFinder;
 
-#endif //__CINT__
+#endif //__CLING__

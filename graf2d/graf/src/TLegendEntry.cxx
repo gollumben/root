@@ -9,14 +9,13 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include <stdio.h>
+#include <cstdio>
 
 #include "TLegendEntry.h"
 #include "TVirtualPad.h"
 #include "TROOT.h"
 #include <iostream>
 
-ClassImp(TLegendEntry);
 
 /** \class TLegendEntry
 \ingroup BasicGraphics
@@ -27,9 +26,9 @@ Storage class for one entry of a TLegend.
 ////////////////////////////////////////////////////////////////////////////////
 /// TLegendEntry do-nothing default constructor
 
-TLegendEntry::TLegendEntry(): TAttText(), TAttLine(), TAttFill(), TAttMarker()
+TLegendEntry::TLegendEntry(): TAttText(0,0,0,0,0), TAttLine(1,1,1), TAttFill(0,0), TAttMarker(1,21,1)
 {
-   fObject = 0;
+   fObject = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -51,7 +50,7 @@ TLegendEntry::TLegendEntry(): TAttText(), TAttLine(), TAttFill(), TAttMarker()
 TLegendEntry::TLegendEntry(const TObject* obj, const char* label, Option_t* option )
              :TAttText(0,0,0,0,0), TAttLine(1,1,1), TAttFill(0,0), TAttMarker(1,21,1)
 {
-   fObject = 0;
+   fObject = nullptr;
    if ( !label && obj ) fLabel = obj->GetTitle();
    else                 fLabel = label;
    fOption = option;
@@ -61,9 +60,9 @@ TLegendEntry::TLegendEntry(const TObject* obj, const char* label, Option_t* opti
 ////////////////////////////////////////////////////////////////////////////////
 /// TLegendEntry copy constructor
 
-TLegendEntry::TLegendEntry( const TLegendEntry &entry ) : TObject(entry), TAttText(entry), TAttLine(entry), TAttFill(entry), TAttMarker(entry)
+TLegendEntry::TLegendEntry(const TLegendEntry &entry) : TObject(entry), TAttText(entry), TAttLine(entry), TAttFill(entry), TAttMarker(entry)
 {
-   ((TLegendEntry&)entry).Copy(*this);
+   entry.TLegendEntry::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -71,7 +70,7 @@ TLegendEntry::TLegendEntry( const TLegendEntry &entry ) : TObject(entry), TAttTe
 
 TLegendEntry::~TLegendEntry()
 {
-   fObject = 0;
+   fObject = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -111,25 +110,33 @@ void TLegendEntry::Print( Option_t *) const
 /// Save this TLegendEntry as C++ statements on output stream out
 ///  to be used with the SaveAs .C option
 
-void TLegendEntry::SaveEntry(std::ostream &out, const char* name )
+void TLegendEntry::SaveEntry(std::ostream &out, const char* name)
 {
-   char quote = '"';
-   if ( gROOT->ClassSaved( TLegendEntry::Class() ) ) {
-      out << "   entry=";
-   } else {
-      out << "   TLegendEntry *entry=";
+   if (gROOT->ClassSaved(TLegendEntry::Class()))
+      out << "   legentry = ";
+   else
+      out << "   TLegendEntry *legentry = ";
+
+   TString objname = fObject ? fObject->GetName() : "NULL";
+   out << name << "->AddEntry(\"" << objname << "\",\"" << TString(fLabel).ReplaceSpecialCppChars() << "\",\""
+       << TString(fOption).ReplaceSpecialCppChars() << "\");\n";
+   // if default style is detected - copy attributes from object
+   // it can happen when legend was not paint before writing into the file
+   if (fObject && GetFillStyle() == 0 && GetFillColor() == 0 && GetLineStyle() == 1 && GetLineColor() == 1 && GetLineWidth() == 1) {
+      TString opt = fOption;
+      opt.ToLower();
+      if (opt.Contains("f") && fObject->InheritsFrom(TAttFill::Class()))
+         dynamic_cast<TAttFill*>(fObject)->Copy(*this);
+      if (opt.Contains("p") && fObject->InheritsFrom(TAttMarker::Class()))
+         dynamic_cast<TAttMarker*>(fObject)->Copy(*this);
+      if ((opt.Contains("l") || opt.Contains("f")) && fObject->InheritsFrom(TAttLine::Class()))
+         dynamic_cast<TAttLine*>(fObject)->Copy(*this);
    }
-   TString objname = "NULL";
-   if ( fObject ) objname = fObject->GetName();
-   TString tL(fLabel);
-   tL.ReplaceAll("\\","\\\\");
-   tL.ReplaceAll("\"","\\\"");
-   out << name << "->AddEntry("<<quote<<objname<<quote<<","<<quote<<
-      tL.Data()<<quote<<","<<quote<<fOption.Data()<<quote<<");"<<std::endl;
-   SaveFillAttributes(out,"entry",0,0);
-   SaveLineAttributes(out,"entry",0,0,0);
-   SaveMarkerAttributes(out,"entry",0,0,0);
-   SaveTextAttributes(out,"entry",0,0,0,0,0);
+
+   SaveFillAttributes(out, "legentry", 0, 0);
+   SaveLineAttributes(out, "legentry", 1, 1, 1);
+   SaveMarkerAttributes(out, "legentry", 1, 21, 1);
+   SaveTextAttributes(out, "legentry", 0, 0, 0, 0, 0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -146,10 +153,9 @@ void TLegendEntry::SetObject(TObject* obj )
 ////////////////////////////////////////////////////////////////////////////////
 /// (re)set the obj pointed to by this entry
 
-void TLegendEntry::SetObject( const char* objectName)
+void TLegendEntry::SetObject(const char* objectName)
 {
-   TObject* obj = 0;
-   TList* padprimitives = gPad->GetListOfPrimitives();
-   if (padprimitives) obj = padprimitives->FindObject( objectName );
-   if (obj) SetObject( obj );
+   TList *padprimitives = gPad ? gPad->GetListOfPrimitives() : nullptr;
+   TObject *obj = padprimitives ? padprimitives->FindObject(objectName) : nullptr;
+   if (obj) SetObject(obj);
 }

@@ -7,11 +7,12 @@
 //------------------------------------------------------------------------------
 
 // Removing the cwd on Unix works but on Windows cannot be done.
-// RUN: %mkdir "%T/Remove"
-// RUN: cd "%T/Remove"
-// RUN: %rmdir "%T/Remove"
+// RUN: rm -rf %t.dir && mkdir -p %t.dir
+// RUN: %mkdir "%t.dir/Remove"
+// RUN: cd "%t.dir/Remove"
+// RUN: %rmdir "%t.dir/Remove"
 // RUN: %cling %s -Xclang -verify 2>&1 | FileCheck %s
-// REQUIRES: not_system-windows
+// UNSUPPORTED: system-windows
 
 extern "C" {
   int printf(const char*, ...);

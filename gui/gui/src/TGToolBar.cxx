@@ -41,12 +41,11 @@ Often used in combination with a TGHorizontal3DLine.
 #include "TMap.h"
 
 
-ClassImp(TGToolBar);
 
 ////////////////////////////////////////////////////////////////////////////////
 
 TGToolBar::TGToolBar(const TGWindow *p, UInt_t w, UInt_t h,
-                     UInt_t options, ULong_t back) :
+                     UInt_t options, Pixel_t back) :
                      TGCompositeFrame(p, w, h, options, back)
 
 {
@@ -114,7 +113,7 @@ TGButton *TGToolBar::AddButton(const TGWindow *w, ToolBarData_t *button, Int_t s
    fTrash->Add(pbut);
    fTrash->Add(layout);
 
-   fMapOfButtons->Add(pbut, (TObject*)((Long_t)button->fId));
+   fMapOfButtons->Add(pbut, (TObject*)((Longptr_t)button->fId));
 
    Connect(pbut, "Pressed()" , "TGToolBar", this, "ButtonPressed()");
    Connect(pbut, "Released()", "TGToolBar", this, "ButtonReleased()");
@@ -141,7 +140,7 @@ TGButton *TGToolBar::AddButton(const TGWindow *w, TGPictureButton *pbut, Int_t s
    fTrash->Add(pbut);
    fTrash->Add(layout);
 
-   fMapOfButtons->Add(pbut, (TObject*)((Long_t)pbut->WidgetId()));
+   fMapOfButtons->Add(pbut, (TObject*)((Longptr_t)pbut->WidgetId()));
 
    Connect(pbut, "Pressed()" , "TGToolBar", this, "ButtonPressed()");
    Connect(pbut, "Released()", "TGToolBar", this, "ButtonReleased()");
@@ -160,7 +159,7 @@ TGButton *TGToolBar::GetButton(Int_t id) const
    TGButton *item = 0;
 
    while ((item = (TGButton*)next())) {
-      if ((Long_t)fMapOfButtons->GetValue(item) == id) break;   // found
+      if ((Longptr_t)fMapOfButtons->GetValue(item) == id) break;   // found
    }
 
    return item;
@@ -169,7 +168,7 @@ TGButton *TGToolBar::GetButton(Int_t id) const
 ////////////////////////////////////////////////////////////////////////////////
 /// changes id for button.
 
-void TGToolBar::SetId(TGButton *button, Long_t id)
+void TGToolBar::SetId(TGButton *button, Longptr_t id)
 {
    TPair *a = (TPair*) fMapOfButtons->FindObject(button);
    if (a) {
@@ -181,13 +180,13 @@ void TGToolBar::SetId(TGButton *button, Long_t id)
 /// Finds and returns the id of the button.
 /// Returns -1 if the button is not a member of this group.
 
-Long_t TGToolBar::GetId(TGButton *button) const
+Longptr_t TGToolBar::GetId(TGButton *button) const
 {
    TPair *a = (TPair*) fMapOfButtons->FindObject(button);
    if (a)
-      return Long_t(a->Value());
+      return (Longptr_t)a->Value();
    else
-      return Long_t(-1);
+      return (Longptr_t)-1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -230,7 +229,7 @@ void TGToolBar::ButtonPressed()
 
    TPair *a = (TPair*) fMapOfButtons->FindObject(btn);
    if (a) {
-      Int_t id = (Int_t)Long_t(a->Value());
+      Int_t id = (Int_t)Longptr_t(a->Value());
       Pressed(id);
    }
 }
@@ -245,7 +244,7 @@ void TGToolBar::ButtonReleased()
 
    TPair *a = (TPair*) fMapOfButtons->FindObject(btn);
    if (a) {
-      Int_t id = (Int_t)Long_t(a->Value());
+      Int_t id = (Int_t)Longptr_t(a->Value());
       Released(id);
    }
 }
@@ -260,7 +259,7 @@ void TGToolBar::ButtonClicked()
 
    TPair *a = (TPair*) fMapOfButtons->FindObject(btn);
    if (a) {
-      Int_t id = (Int_t)Long_t(a->Value());
+      Int_t id = (Int_t)Longptr_t(a->Value());
       Clicked(id);
    }
 }
@@ -270,75 +269,57 @@ void TGToolBar::ButtonClicked()
 
 void TGToolBar::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   auto extra_args = SaveCtorArgs(out);
 
-   out << std::endl;
-   out << "   // tool bar" << std::endl;
+   out << "\n   // tool bar\n";
 
-   out << "   TGToolBar *";
-   out << GetName() << " = new TGToolBar(" << fParent->GetName()
-       << "," << GetWidth() << "," << GetHeight();
+   out << "   TGToolBar *" << GetName() << " = new TGToolBar(" << fParent->GetName() << "," << GetWidth() << ","
+       << GetHeight() << extra_args << ");\n";
 
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (!GetOptions()) {
-         out <<");" << std::endl;
-      } else {
-         out << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
-
-   char quote = '"';
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
    int i = 0;
 
-   TGFrameElement *f;
    TIter next(GetList());
 
-   while ((f = (TGFrameElement *) next())) {
+   while (auto f = static_cast<TGFrameElement *>(next())) {
       if (f->fFrame->InheritsFrom(TGPictureButton::Class())) {
          if (!gROOT->ClassSaved(TGPictureButton::Class())) {
             //  declare a structure used for picture buttons
-            out << std::endl << "   ToolBarData_t t;" << std::endl;
+            out << "   ToolBarData_t toolbardata;\n";
          }
 
          TGPictureButton *pb = (TGPictureButton *)f->fFrame;
          TString picname = gSystem->UnixPathName(pb->GetPicture()->GetName());
          gSystem->ExpandPathName(picname);
 
-         out << "   t.fPixmap = " << quote << picname << quote << ";" << std::endl;
-         out << "   t.fTipText = " << quote
-             << pb->GetToolTip()->GetText()->GetString() << quote << ";" << std::endl;
+         out << "   toolbardata.fPixmap = \"" << picname.ReplaceSpecialCppChars() << "\";\n";
+         out << "   toolbardata.fTipText = \""
+             << TString(pb->GetToolTip()->GetText()->GetString()).ReplaceSpecialCppChars() << "\";\n";
+         if (pb->GetState() == kButtonDown)
+            out << "   toolbardata.fStayDown = kTRUE;\n";
+          else
+            out << "   toolbardata.fStayDown = kFALSE;\n";
+         out << "   toolbardata.fId = " << i + 1 << ";\n";
+         out << "   toolbardata.fButton = nullptr;\n";
+         out << "   " << GetName() << "->AddButton(" << GetParent()->GetName() << ", &toolbardata, "
+             << f->fLayout->GetPadLeft() << ");\n";
          if (pb->GetState() == kButtonDown) {
-            out << "   t.fStayDown = kTRUE;" << std::endl;
-         } else {
-            out << "   t.fStayDown = kFALSE;" << std::endl;
-         }
-         out << "   t.fId = " << i+1 << ";" << std::endl;
-         out << "   t.fButton = 0;" << std::endl;
-         out << "   " << GetName() << "->AddButton(" << GetParent()->GetName()
-             << ",&t," << f->fLayout->GetPadLeft() << ");" << std::endl;
-         if (pb->GetState() == kButtonDown) {
-            out << "   TGButton *" << pb->GetName() <<  " = t.fButton;" << std::endl;
-            out << "   " << pb->GetName() << "->SetState(kButtonDown);"  << std::endl;
+            out << "   toolbardata.fButton->SetState(kButtonDown);\n";
          }
          if (pb->GetState() == kButtonDisabled) {
-            out << "   TGButton *" << pb->GetName() <<  " = t.fButton;" << std::endl;
-            out << "   " << pb->GetName() << "->SetState(kButtonDisabled);" << std::endl;
+            out << "   toolbardata.fButton->SetState(kButtonDisabled);\n";
          }
          if (pb->GetState() == kButtonEngaged) {
-            out << "   TGButton *" << pb->GetName() <<  " = t.fButton;" << std::endl;
-            out << "   " << pb->GetName() << "->SetState(kButtonEngaged);"  << std::endl;
+            out << "   toolbardata.fButton->SetState(kButtonEngaged);\n";
          }
          i++;
       } else {
          f->fFrame->SavePrimitive(out, option);
-         out << "   " << GetName()<<"->AddFrame(" << f->fFrame->GetName();
+         out << "   " << GetName() << "->AddFrame(" << f->fFrame->GetName();
          f->fLayout->SavePrimitive(out, option);
-         out << ");"<< std::endl;
+         out << ");\n";
       }
    }
 }

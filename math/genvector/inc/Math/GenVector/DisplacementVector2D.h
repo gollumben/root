@@ -50,6 +50,8 @@ namespace ROOT {
         like global or local coordinate systems.
 
         @ingroup GenVector
+
+        @see GenVector
      */
 
      template <class CoordSystem, class Tag = DefaultCoordinateSystemTag >
@@ -66,7 +68,7 @@ namespace ROOT {
         /**
            Default constructor. Construct an empty object with zero values
         */
-        DisplacementVector2D ( ) :   fCoordinates()  { }
+        constexpr DisplacementVector2D ( ) :   fCoordinates()  { }
 
 
         /**
@@ -74,7 +76,7 @@ namespace ROOT {
            In the case of a XYVector the values are x,y
            In the case of  a polar vector they are r, phi
         */
-        DisplacementVector2D(Scalar a, Scalar b) :
+        constexpr DisplacementVector2D(Scalar a, Scalar b) :
            fCoordinates ( a , b )  { }
 
         /**
@@ -82,7 +84,7 @@ namespace ROOT {
            coordinates, or using a different Scalar type, but with same coordinate system tag
         */
         template <class OtherCoords>
-        explicit DisplacementVector2D( const DisplacementVector2D<OtherCoords, Tag> & v) :
+        explicit constexpr DisplacementVector2D( const DisplacementVector2D<OtherCoords, Tag> & v) :
            fCoordinates ( v.Coordinates() ) { }
 
 
@@ -91,7 +93,7 @@ namespace ROOT {
            but with the same coordinate system tag
         */
         template <class OtherCoords>
-        explicit DisplacementVector2D( const PositionVector2D<OtherCoords,Tag> & p) :
+        explicit constexpr DisplacementVector2D( const PositionVector2D<OtherCoords,Tag> & p) :
            fCoordinates ( p.Coordinates() ) { }
 
 
@@ -100,7 +102,7 @@ namespace ROOT {
            Precondition: v must implement methods x() and  y()
         */
         template <class ForeignVector>
-        explicit DisplacementVector2D( const ForeignVector & v) :
+        explicit constexpr DisplacementVector2D( const ForeignVector & v) :
            fCoordinates ( Cartesian2D<Scalar>( v.x(), v.y() ) ) { }
 
 
@@ -164,6 +166,7 @@ namespace ROOT {
         /**
            get internal data into 2 Scalar numbers.
            These are for example (x,y) for a cartesian vector or (r,phi) for a polar vector
+           \note Alternatively, you may use structured bindings: `auto const [a, b] = v`.
         */
         void GetCoordinates( Scalar& a, Scalar& b) const
         { fCoordinates.GetCoordinates(a, b);  }
@@ -192,6 +195,11 @@ namespace ROOT {
         }
 
         // ------ Individual element access, in various coordinate systems ------
+
+        /**
+          Dimension
+        */
+        unsigned int Dimension() const { return fDimension; };
 
         /**
            Cartesian X, converting if necessary from internal coordinate system.
@@ -385,16 +393,16 @@ namespace ROOT {
      private:
 
         CoordSystem fCoordinates;    // internal coordinate system
-
+        static constexpr unsigned int fDimension = CoordinateType::Dimension;
 
         // the following methods should not compile
 
         // this should not compile (if from a vector or points with different tag
         template <class OtherCoords, class OtherTag>
-        explicit DisplacementVector2D( const DisplacementVector2D<OtherCoords, OtherTag> & ) {}
+        explicit constexpr DisplacementVector2D( const DisplacementVector2D<OtherCoords, OtherTag> & ) {}
 
         template <class OtherCoords, class OtherTag>
-        explicit DisplacementVector2D( const PositionVector2D<OtherCoords, OtherTag> & ) {}
+        explicit constexpr DisplacementVector2D( const PositionVector2D<OtherCoords, OtherTag> & ) {}
 
         template <class OtherCoords, class OtherTag>
         DisplacementVector2D & operator=( const DisplacementVector2D<OtherCoords, OtherTag> & );
@@ -531,12 +539,32 @@ namespace ROOT {
 
      }  // op>> <>()
 
-
+     // Structured bindings
+     template <std::size_t I, class CoordSystem, class Tag>
+     typename CoordSystem::Scalar get(DisplacementVector2D<CoordSystem, Tag> const& p)
+     {
+        static_assert(I < 2);
+        if constexpr (I == 0) {
+           return p.x();
+        } else {
+           return p.y();
+        }
+     }
 
   }  // namespace Math
 
 }  // namespace ROOT
 
+// Structured bindings
+#include <tuple>
+namespace std {
+   template <class CoordSystem, class Tag>
+   struct tuple_size<ROOT::Math::DisplacementVector2D<CoordSystem, Tag>> : integral_constant<size_t, 2> {};
+   template <size_t I, class CoordSystem, class Tag>
+   struct tuple_element<I, ROOT::Math::DisplacementVector2D<CoordSystem, Tag>> {
+      static_assert(I < 2);
+      using type = typename CoordSystem::Scalar;
+   };
+}
 
 #endif /* ROOT_Math_GenVector_DisplacementVector2D  */
-

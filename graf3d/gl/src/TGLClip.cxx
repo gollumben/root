@@ -24,7 +24,7 @@ namespace
 class TGLClipPlaneLogical : public TGLLogicalShape
 {
 protected:
-   virtual void DirectDraw(TGLRnrCtx & rnrCtx) const
+   void DirectDraw(TGLRnrCtx & rnrCtx) const override
    {
       glBegin(rnrCtx.IsDrawPassFilled() ? GL_QUADS : GL_LINE_LOOP);
       glNormal3d (0.0, 0.0, 1.0);
@@ -37,7 +37,7 @@ protected:
 
 public:
    TGLClipPlaneLogical() : TGLLogicalShape() { fDLCache = kFALSE; }
-   virtual ~TGLClipPlaneLogical() {}
+   ~TGLClipPlaneLogical() override {}
 
    void Resize(Double_t ext)
    {
@@ -52,7 +52,7 @@ public:
 class TGLClipBoxLogical : public TGLLogicalShape
 {
 protected:
-   virtual void DirectDraw(TGLRnrCtx & rnrCtx) const
+   void DirectDraw(TGLRnrCtx & rnrCtx) const override
    {
       glEnable(GL_NORMALIZE);
       fBoundingBox.Draw(rnrCtx.IsDrawPassFilled());
@@ -61,7 +61,7 @@ protected:
 
 public:
    TGLClipBoxLogical() : TGLLogicalShape() { fDLCache = kFALSE; }
-   virtual ~TGLClipBoxLogical() {}
+   ~TGLClipBoxLogical() override {}
 
    void Resize(const TGLVertex3 & lowVertex, const TGLVertex3 & highVertex)
    {
@@ -81,7 +81,6 @@ approximate shape as set of planes. This plane set is used to perform
 interactive clipping using OpenGL clip planes.
 */
 
-ClassImp(TGLClip);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Construct a stand-alone physical clipping object.
@@ -140,7 +139,6 @@ rotated about the Y/Z local axes (the in-plane axes). It cannot be
 scaled.
 */
 
-ClassImp(TGLClipPlane);
 
 const float TGLClipPlane::fgColor[4] = { 1.0, 0.6, 0.2, 0.5 };
 
@@ -252,7 +250,6 @@ Concrete clip box object. Can be translated, rotated and scaled in
 all (xyz) axes. By default inside of the box is clipped away.
 */
 
-ClassImp(TGLClipBox);
 
 const float TGLClipBox::fgColor[4] = { 1.0, 0.6, 0.2, 0.3 };
 
@@ -328,7 +325,6 @@ void TGLClipBox::PlaneSet(TGLPlaneSet_t& set) const
 A collection of concrete TGLClip objects to be selected from.
 */
 
-ClassImp(TGLClipSet);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -337,7 +333,7 @@ TGLClipSet::TGLClipSet() :
    TGLOverlayElement(kViewer),
    fClipPlane   (new TGLClipPlane),
    fClipBox     (new TGLClipBox),
-   fCurrentClip (0),
+   fCurrentClip (nullptr),
    fAutoUpdate  (kTRUE),
    fShowClip    (kFALSE),
    fShowManip   (kFALSE),
@@ -560,7 +556,7 @@ void TGLClipSet::SetClipState(TGLClip::EType type, const Double_t data[6])
 TGLClip::EType TGLClipSet::GetClipType() const
 {
   TGLClip::EType type;
-   if (fCurrentClip == 0) {
+   if (fCurrentClip == nullptr) {
       type = TGLClip::kClipNone;
    } else if (fCurrentClip == fClipPlane) {
       type = TGLClip::kClipPlane;
@@ -581,7 +577,7 @@ void TGLClipSet::SetClipType(TGLClip::EType type)
 {
    switch (type) {
       case TGLClip::kClipNone: {
-         fCurrentClip = 0;
+         fCurrentClip = nullptr;
          break;
       }
       case TGLClip::kClipPlane: {

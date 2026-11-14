@@ -15,6 +15,7 @@
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Error.h"
 
 #include <vector>
 #include <deque>
@@ -64,14 +65,15 @@ namespace cling {
     // parser (incremental)
     std::unique_ptr<clang::Parser> m_Parser;
 
-    // One buffer for each command line, owner by the source file manager
-    std::deque<std::pair<llvm::MemoryBuffer*, clang::FileID>> m_MemoryBuffers;
+    /// Counts the number of direct user input lines that have been parsed.
+    unsigned InputCount = 0;
 
     // file ID of the memory buffer
     clang::FileID m_VirtualFileID;
 
-    // The next available unique sourcelocation offset.
-    unsigned m_VirtualFileLocOffset = 1; // skip the system sloc 0.
+    // The next available unique sourcelocation offset. Skip the system sloc 0
+    // and any offset that may actually exist in the virtual file.
+    unsigned m_VirtualFileLocOffset = 100;
 
     // CI owns it
     DeclCollector* m_Consumer;
@@ -173,7 +175,7 @@ namespace cling {
     ///
     const Transaction* getFirstTransaction() const {
       if (m_Transactions.empty())
-        return 0;
+        return nullptr;
       return m_Transactions.front();
     }
 
@@ -181,7 +183,7 @@ namespace cling {
     ///
     Transaction* getLastTransaction() {
       if (m_Transactions.empty())
-        return 0;
+        return nullptr;
       return m_Transactions.back();
     }
 
@@ -189,7 +191,7 @@ namespace cling {
     ///
     const Transaction* getLastTransaction() const {
       if (m_Transactions.empty())
-        return 0;
+        return nullptr;
       return m_Transactions.back();
     }
 
@@ -251,6 +253,8 @@ namespace cling {
     ///\param[in] input - The incremental input that needs to be parsed.
     ///
     EParseResult ParseInternal(llvm::StringRef input);
+
+    llvm::Error ParseOrWrapTopLevelDecl();
 
     ///\brief Create a unique name for the next llvm::Module
     ///

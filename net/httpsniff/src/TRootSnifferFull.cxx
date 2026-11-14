@@ -38,18 +38,17 @@
 #include "TRootSnifferStore.h"
 #include "THttpCallArg.h"
 
-#include <stdlib.h>
-#include <string.h>
+#include <cstdlib>
+#include <cstring>
 
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// TRootSnifferFull                                                     //
-//                                                                      //
-// Subclass of TRootSniffer, which provides access to different         //
-// ROOT collections and containers like TTree, TCanvas, ...             //
-//////////////////////////////////////////////////////////////////////////
+/** \class TRootSnifferFull
 
-ClassImp(TRootSnifferFull);
+Extends TRootSniffer for many ROOT classes
+
+Provides access to different ROOT collections and containers
+like TTree, TCanvas, TFile, ...
+*/
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor
@@ -87,10 +86,13 @@ Bool_t TRootSnifferFull::IsDrawableClass(TClass *cl)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// scans object properties
-/// here such fields as _autoload or _icon properties depending on class or object name could be assigned
+/// Scans object properties
+///
+/// here such fields as `_autoload` or `_icon` properties depending on class or object name could be assigned
 /// By default properties, coded in the Class title are scanned. Example:
-///   ClassDef(UserClassName, 1) //  class comments *SNIFF*  _field1=value _field2="string value"
+///
+///     ClassDef(UserClassName, 1) //  class comments *SNIFF*  _field1=value _field2="string value"
+///
 /// Here *SNIFF* mark is important. After it all expressions like field=value are parsed
 /// One could use double quotes to code string values with spaces.
 /// Fields separated from each other with spaces
@@ -100,8 +102,8 @@ void TRootSnifferFull::ScanObjectProperties(TRootSnifferScanRec &rec, TObject *o
    if (obj && obj->InheritsFrom(TLeaf::Class())) {
       rec.SetField("_more", "false", kFALSE);
       rec.SetField("_can_draw", "false", kFALSE);
-      rec.SetField("_player", "JSROOT.drawLeafPlayer");
-      rec.SetField("_prereq", "jq2d");
+      rec.SetField("_player", "drawLeafPlayer");
+      rec.SetField("_module", "draw_tree");
       return;
    }
 
@@ -109,7 +111,8 @@ void TRootSnifferFull::ScanObjectProperties(TRootSnifferScanRec &rec, TObject *o
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// scans key properties
+/// Scans TKey properties
+///
 /// in special cases load objects from the file
 
 void TRootSnifferFull::ScanKeyProperties(TRootSnifferScanRec &rec, TKey *key, TObject *&obj, TClass *&obj_class)
@@ -126,8 +129,8 @@ void TRootSnifferFull::ScanKeyProperties(TRootSnifferScanRec &rec, TKey *key, TO
                obj_class = obj->IsA();
          } else {
             rec.SetField("_ttree", "true", kFALSE); // indicate ROOT TTree
-            rec.SetField("_player", "JSROOT.drawTreePlayerKey");
-            rec.SetField("_prereq", "jq2d");
+            rec.SetField("_player", "drawTreePlayerKey");
+            rec.SetField("_module", "draw_tree");
             // rec.SetField("_more", "true", kFALSE); // one could allow to extend
          }
       }
@@ -135,7 +138,8 @@ void TRootSnifferFull::ScanKeyProperties(TRootSnifferScanRec &rec, TKey *key, TO
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// scans object childs (if any)
+/// Scans object childs (if any)
+///
 /// here one scans collection, branches, trees and so on
 
 void TRootSnifferFull::ScanObjectChilds(TRootSnifferScanRec &rec, TObject *obj)
@@ -143,8 +147,8 @@ void TRootSnifferFull::ScanObjectChilds(TRootSnifferScanRec &rec, TObject *obj)
    if (obj->InheritsFrom(TTree::Class())) {
       if (!rec.IsReadOnly(fReadOnly)) {
          rec.SetField("_ttree", "true", kFALSE); // indicate ROOT TTree
-         rec.SetField("_player", "JSROOT.drawTreePlayer");
-         rec.SetField("_prereq", "jq2d");
+         rec.SetField("_player", "drawTreePlayer");
+         rec.SetField("_module", "draw_tree");
       }
       ScanCollection(rec, ((TTree *)obj)->GetListOfLeaves());
    } else if (obj->InheritsFrom(TBranch::Class())) {
@@ -156,6 +160,7 @@ void TRootSnifferFull::ScanObjectChilds(TRootSnifferScanRec &rec, TObject *obj)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Returns hash value for streamer infos
+///
 /// At the moment - just number of items in streamer infos list.
 
 ULong_t TRootSnifferFull::GetStreamerInfoHash()
@@ -176,7 +181,8 @@ Bool_t TRootSnifferFull::IsStreamerInfoItem(const char *itemname)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Get hash function for specified item
-/// used to detect any changes in the specified object
+///
+/// Used to detect any changes in the specified object
 
 ULong_t TRootSnifferFull::GetItemHash(const char *itemname)
 {
@@ -188,6 +194,7 @@ ULong_t TRootSnifferFull::GetItemHash(const char *itemname)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Creates TMemFile instance, which used for objects streaming
+///
 /// One could not use TBufferFile directly,
 /// while one also require streamer infos list
 
@@ -196,10 +203,8 @@ void TRootSnifferFull::CreateMemFile()
    if (fMemFile)
       return;
 
-   TDirectory *olddir = gDirectory;
-   gDirectory = nullptr;
-   TFile *oldfile = gFile;
-   gFile = nullptr;
+   TDirectory::TContext dirCtx{nullptr};
+   TFile::TContext fileCtx{nullptr};
 
    fMemFile = new TMemFile("dummy.file", "RECREATE");
    gROOT->GetListOfFiles()->Remove(fMemFile);
@@ -231,14 +236,13 @@ void TRootSnifferFull::CreateMemFile()
    fMemFile->WriteStreamerInfo();
 
    fSinfo = fMemFile->GetStreamerInfoList();
-
-   gDirectory = olddir;
-   gFile = oldfile;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Search element with specified path
+///
 /// Returns pointer on element
+///
 /// Optionally one could obtain element class, member description
 /// and number of childs. When chld!=0, not only element is searched,
 /// but also number of childs are counted. When member!=0, any object
@@ -258,7 +262,8 @@ void *TRootSnifferFull::FindInHierarchy(const char *path, TClass **cl, TDataMemb
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// produce binary data for specified item
+/// Produce binary data for specified item
+///
 /// if "zipped" option specified in query, buffer will be compressed
 
 Bool_t TRootSnifferFull::ProduceBinary(const std::string &path, const std::string & /*query*/, std::string &res)
@@ -283,10 +288,8 @@ Bool_t TRootSnifferFull::ProduceBinary(const std::string &path, const std::strin
    // ensure that memfile exists
    CreateMemFile();
 
-   TDirectory *olddir = gDirectory;
-   gDirectory = nullptr;
-   TFile *oldfile = gFile;
-   gFile = nullptr;
+   TDirectory::TContext dirCtx{nullptr};
+   TFile::TContext fileCtx{nullptr};
 
    TObject *obj = (TObject *)obj_ptr;
 
@@ -302,9 +305,6 @@ Bool_t TRootSnifferFull::ProduceBinary(const std::string &path, const std::strin
    fMemFile->WriteStreamerInfo();
    fSinfo = fMemFile->GetStreamerInfoList();
 
-   gDirectory = olddir;
-   gFile = oldfile;
-
    res.resize(sbuf->Length());
    std::copy((const char *)sbuf->Buffer(), (const char *)sbuf->Buffer() + sbuf->Length(), res.begin());
 
@@ -314,22 +314,73 @@ Bool_t TRootSnifferFull::ProduceBinary(const std::string &path, const std::strin
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Produce ROOT file for specified item
+///
+/// File created in memory using TMemFile class.
+
+Bool_t TRootSnifferFull::ProduceRootFile(const std::string &path, const std::string & /*query*/, std::string &res)
+{
+   if (path.empty())
+      return kFALSE;
+
+   const char *path_ = path.c_str();
+   if (*path_ == '/')
+      path_++;
+
+   TClass *obj_cl = nullptr;
+   void *obj_ptr = FindInHierarchy(path_, &obj_cl);
+   if (!obj_ptr || !obj_cl)
+      return kFALSE;
+
+   const char *store_name = "object";
+
+   if (obj_cl->GetBaseClassOffset(TNamed::Class()) == 0) {
+      const char *obj_name = ((TNamed *) obj_ptr)->GetName();
+      if (obj_name && *obj_name)
+         store_name = obj_name;
+   }
+
+   TDirectory::TContext dirCtx{nullptr};
+   struct RestoreGFile {
+      TFile *oldFile{gFile};
+      ~RestoreGFile() { gFile = oldFile; }
+   } restoreGFile;
+
+   {
+      TMemFile memfile("dummy.file", "RECREATE",
+                        TString::Format("Object %s", path.c_str()),
+                        ROOT::RCompressionSetting::EDefaults::kUseCompiledDefault, 1024);
+      gROOT->GetListOfFiles()->Remove(&memfile);
+
+      memfile.WriteObjectAny(obj_ptr, obj_cl, store_name);
+      memfile.Close();
+
+      res.resize(memfile.GetSize());
+      memfile.CopyTo(res.data(), memfile.GetSize());
+   }
+
+   return kTRUE;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 /// Method to produce image from specified object
 ///
-/// Parameters:
-///    kind - image kind TImage::kPng, TImage::kJpeg, TImage::kGif
-///    path - path to object
-///    options - extra options
+///  @param kind  image kind TImage::kPng, TImage::kJpeg, TImage::kGif
+///  @param path  path to object
+///  @param options extra options
+///  @param res std::string with binary data
 ///
 /// By default, image 300x200 is produced
 /// In options string one could provide following parameters:
-///    w - image width
-///    h - image height
-///    opt - draw options
-///  For instance:
-///     http://localhost:8080/Files/hsimple.root/hpx/get.png?w=500&h=500&opt=lego1
 ///
-///  Return is std::string with binary data
+/// * w - image width
+/// * h - image height
+/// * opt - draw options
+///
+///  For instance:
+///
+///       http://localhost:8080/Files/hsimple.root/hpx/get.png?w=500&h=500&opt=lego1
 
 Bool_t TRootSnifferFull::ProduceImage(Int_t kind, const std::string &path, const std::string &options, std::string &res)
 {
@@ -352,7 +403,7 @@ Bool_t TRootSnifferFull::ProduceImage(Int_t kind, const std::string &path, const
 
    TObject *obj = (TObject *)obj_ptr;
 
-   TImage *img = TImage::Create();
+   std::unique_ptr<TImage> img(TImage::Create());
    if (!img)
       return kFALSE;
 
@@ -361,12 +412,13 @@ Bool_t TRootSnifferFull::ProduceImage(Int_t kind, const std::string &path, const
       if (gDebug > 1)
          Info("TRootSniffer", "Crate IMAGE directly from pad");
       img->FromPad((TPad *)obj);
+
    } else if (CanDrawClass(obj->IsA())) {
 
       if (gDebug > 1)
          Info("TRootSniffer", "Crate IMAGE from object %s", obj->GetName());
 
-      Int_t width(300), height(200);
+      Int_t width = 300, height = 200;
       TString drawopt;
 
       if (!options.empty()) {
@@ -379,38 +431,30 @@ Bool_t TRootSnifferFull::ProduceImage(Int_t kind, const std::string &path, const
          Int_t h = url.GetIntValueFromOptions("h");
          if (h > 10)
             height = h;
-         const char *opt = url.GetValueFromOptions("opt");
-         if (opt)
-            drawopt = opt;
+         drawopt = DecodeUrlOptionValue(url.GetValueFromOptions("opt"), kTRUE);
       }
 
       Bool_t isbatch = gROOT->IsBatch();
-      TVirtualPad *save_gPad = gPad;
+      TVirtualPad::TContext ctxt(false);
 
       if (!isbatch)
          gROOT->SetBatch(kTRUE);
 
-      TCanvas *c1 = new TCanvas("__online_draw_canvas__", "title", width, height);
-      obj->Draw(drawopt.Data());
-      img->FromPad(c1);
-      delete c1;
+      TCanvas c1("__online_draw_canvas__", "title", width, height);
+      c1.Add(obj, drawopt.Data());
+      img->FromPad(&c1);
 
       if (!isbatch)
          gROOT->SetBatch(kFALSE);
-      gPad = save_gPad;
 
    } else {
-      delete img;
       return kFALSE;
    }
 
-   TImage *im = TImage::Create();
-   im->Append(img);
-
    char *png_buffer = nullptr;
-   int size(0);
+   int size = 0;
 
-   im->GetImageBuffer(&png_buffer, &size, (TImage::EImageFileTypes)kind);
+   img->GetImageBuffer(&png_buffer, &size, (TImage::EImageFileTypes)kind);
 
    if (png_buffer && (size > 0)) {
       res.resize(size);
@@ -418,13 +462,30 @@ Bool_t TRootSnifferFull::ProduceImage(Int_t kind, const std::string &path, const
    }
 
    free(png_buffer);
-   delete im;
 
    return !res.empty();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// produce XML data for specified item
+/// Invokes TRootSniffer::ProduceIamge, converting kind into TImage::EImageFileTypes type
+
+Bool_t TRootSnifferFull::CallProduceImage(const std::string &kind, const std::string &path, const std::string &options, std::string &res)
+{
+   if (kind == "png")
+      return ProduceImage(TImage::kPng, path, options, res);
+
+   if (kind == "jpeg")
+      return ProduceImage(TImage::kJpeg, path, options, res);
+
+   if (kind == "gif")
+      return ProduceImage(TImage::kGif, path, options, res);
+
+   return kFALSE;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Produce XML data for specified item
+///
 /// For object conversion TBufferXML is used
 
 Bool_t TRootSnifferFull::ProduceXml(const std::string &path, const std::string & /*options*/, std::string &res)
@@ -446,11 +507,37 @@ Bool_t TRootSnifferFull::ProduceXml(const std::string &path, const std::string &
    return !res.empty();
 }
 
+class TArgHolderBase : public TObject {
+   public:
+      TArgHolderBase() : TObject() {}
+      virtual const void *GetPtr() const { return nullptr; }
+};
+
+template<typename T>
+class TArgHolder : public TArgHolderBase {
+   public:
+      T fValue;
+      TArgHolder(T v) : fValue(v) {}
+      const void *GetPtr() const override { return &fValue; }
+};
+
+class TArgHolderConstChar : public TArgHolderBase {
+   public:
+      TString fValue;
+      const char *fBuf = nullptr;
+      TArgHolderConstChar(const char *v) : fValue(v) { fBuf = fValue.Data(); }
+      const void *GetPtr() const override { return &fBuf; }
+};
+
+
 ////////////////////////////////////////////////////////////////////////////////
-/// execute command for specified object
-/// options include method and extra list of parameters
+/// Execute command for specified object
+///
+/// @param path the object path
+/// @param options include method and extra list of parameters
 /// sniffer should be not-readonly to allow execution of the commands
-/// reskind defines kind of result 0 - debug, 1 - json, 2 - binary
+/// @param reskind defines kind of result 0 - debug, 1 - json, 2 - binary
+/// @param res_str result string
 
 Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &options, Int_t reskind, std::string &res_str)
 {
@@ -469,7 +556,7 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
    TClass *obj_cl = nullptr;
    void *obj_ptr = FindInHierarchy(path_, &obj_cl);
    if (debug)
-      debug->append(Form("Item:%s found:%s\n", path_, obj_ptr ? "true" : "false"));
+      debug->append(TString::Format("Item:%s found:%s\n", path_, obj_ptr ? "true" : "false").Data());
    if (!obj_ptr || !obj_cl)
       return debug != nullptr;
 
@@ -481,39 +568,40 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
    TString funcname = DecodeUrlOptionValue(url.GetValueFromOptions("func"), kTRUE);
    TMethod *method = nullptr;
    TFunction *func = nullptr;
-   if (method_name != nullptr) {
+   if (method_name) {
       if (prototype.Length() == 0) {
          if (debug)
-            debug->append(Form("Search for any method with name \'%s\'\n", method_name));
+            debug->append(TString::Format("Search for any method with name \'%s\'\n", method_name).Data());
          method = obj_cl->GetMethodAllAny(method_name);
       } else {
          if (debug)
-            debug->append(Form("Search for method \'%s\' with prototype \'%s\'\n", method_name, prototype.Data()));
+            debug->append(
+               TString::Format("Search for method \'%s\' with prototype \'%s\'\n", method_name, prototype.Data())
+                  .Data());
          method = obj_cl->GetMethodWithPrototype(method_name, prototype);
       }
    }
 
    if (method) {
       if (debug)
-         debug->append(Form("Method: %s\n", method->GetPrototype()));
+         debug->append(TString::Format("Method: %s\n", method->GetPrototype()).Data());
    } else {
       if (funcname.Length() > 0) {
          if (prototype.Length() == 0) {
             if (debug)
-               debug->append(Form("Search for any function with name \'%s\'\n", funcname.Data()));
+               debug->append(TString::Format("Search for any function with name \'%s\'\n", funcname.Data()).Data());
             func = gROOT->GetGlobalFunction(funcname);
          } else {
             if (debug)
-               debug->append(
-                  Form("Search for function \'%s\' with prototype \'%s\'\n", funcname.Data(), prototype.Data()));
+               debug->append(TString::Format("Search for function \'%s\' with prototype \'%s\'\n", funcname.Data(),
+                                             prototype.Data())
+                                .Data());
             func = gROOT->GetGlobalFunctionWithPrototype(funcname, prototype);
          }
       }
 
-      if (func) {
-         if (debug)
-            debug->append(Form("Function: %s\n", func->GetPrototype()));
-      }
+      if (func && debug)
+         debug->append(TString::Format("Function: %s\n", func->GetPrototype()).Data());
    }
 
    if (!method && !func) {
@@ -543,10 +631,18 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
    garbage.SetOwner(kTRUE);     // use as garbage collection
    TObject *post_obj = nullptr; // object reconstructed from post request
    TString call_args;
+   std::vector<const void *> plain_args;
+   Bool_t can_use_plain = kTRUE, add_plain = kFALSE;
+
+   auto add_plain_arg = [&plain_args, &garbage, &add_plain](TArgHolderBase *arg) {
+      plain_args.emplace_back(arg->GetPtr());
+      garbage.Add(arg);
+      add_plain = kTRUE;
+   };
 
    TIter next(args);
-   TMethodArg *arg = nullptr;
-   while ((arg = (TMethodArg *)next()) != nullptr) {
+   while (auto arg = static_cast<TMethodArg *>(next())) {
+      add_plain = kFALSE;
 
       if ((strcmp(arg->GetName(), "rest_url_opt") == 0) && (strcmp(arg->GetFullTypeName(), "const char*") == 0) &&
           (args->GetSize() == 1)) {
@@ -557,47 +653,50 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
             return debug != nullptr;
          const char *rest_url = pos + strlen(method_name) + 7;
          if (*rest_url == '&') ++rest_url;
-         call_args.Form("\"%s\"", rest_url);
+         call_args.Append("\"");
+         call_args.Append(DecodeUrlOptionValue(rest_url, kTRUE));
+         call_args.Append("\"");
+         add_plain_arg(new TArgHolderConstChar(rest_url));
          break;
       }
 
       TString sval;
       const char *val = url.GetValueFromOptions(arg->GetName());
-      if (val) {
-         sval = DecodeUrlOptionValue(val, kFALSE);
-         val = sval.Data();
-      }
+      if (val)
+         sval = DecodeUrlOptionValue(val, kTRUE);
 
-      if ((val != nullptr) && (strcmp(val, "_this_") == 0)) {
+      Bool_t sanitize_numeric = kFALSE;
+
+      if (sval == "_this_") {
          // special case - object itself is used as argument
          sval.Form("(%s*)0x%zx", obj_cl->GetName(), (size_t)obj_ptr);
-         val = sval.Data();
-      } else if ((val != nullptr) && (fCurrentArg != nullptr) && (fCurrentArg->GetPostData() != nullptr)) {
+         add_plain_arg(new TArgHolder<void*>(obj_ptr));
+      } else if ((fCurrentArg != nullptr) && (fCurrentArg->GetPostData() != nullptr)) {
          // process several arguments which are specific for post requests
-         if (strcmp(val, "_post_object_xml_") == 0) {
+         if (fAllowPostObject && (sval == "_post_object_xml_")) {
             // post data has extra 0 at the end and can be used as null-terminated string
             post_obj = TBufferXML::ConvertFromXML((const char *)fCurrentArg->GetPostData());
-            if (!post_obj) {
+            if (!post_obj)
                sval = "0";
-            } else {
+            else {
                sval.Form("(%s*)0x%zx", post_obj->ClassName(), (size_t)post_obj);
                if (url.HasOption("_destroy_post_"))
                   garbage.Add(post_obj);
             }
-            val = sval.Data();
-         } else if (strcmp(val, "_post_object_json_") == 0) {
+            add_plain_arg(new TArgHolder<void*>(post_obj));
+         } else if (fAllowPostObject && (sval == "_post_object_json_")) {
             // post data has extra 0 at the end and can be used as null-terminated string
             post_obj = TBufferJSON::ConvertFromJSON((const char *)fCurrentArg->GetPostData());
-            if (!post_obj) {
+            if (!post_obj)
                sval = "0";
-            } else {
+            else {
                sval.Form("(%s*)0x%zx", post_obj->ClassName(), (size_t)post_obj);
                if (url.HasOption("_destroy_post_"))
                   garbage.Add(post_obj);
             }
-            val = sval.Data();
-         } else if ((strcmp(val, "_post_object_") == 0) && url.HasOption("_post_class_")) {
-            TString clname = url.GetValueFromOptions("_post_class_");
+            add_plain_arg(new TArgHolder<void*>(post_obj));
+         } else if (fAllowPostObject && (sval == "_post_object_") && url.HasOption("_post_class_")) {
+            TString clname = DecodeUrlOptionValue(url.GetValueFromOptions("_post_class_"), kTRUE);
             TClass *arg_cl = gROOT->GetClass(clname, kTRUE, kTRUE);
             if ((arg_cl != nullptr) && (arg_cl->GetBaseClassOffset(TObject::Class()) == 0) && (post_obj == nullptr)) {
                post_obj = (TObject *)arg_cl->New();
@@ -614,53 +713,125 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
                      garbage.Add(post_obj);
                }
             }
-            sval.Form("(%s*)0x%zx", clname.Data(), (size_t)post_obj);
-            val = sval.Data();
-         } else if (strcmp(val, "_post_data_") == 0) {
+            if (!post_obj)
+               sval = "0";
+            else
+               sval.Form("(%s*)0x%zx", clname.Data(), (size_t)post_obj);
+            add_plain_arg(new TArgHolder<void*>(post_obj));
+         } else if (sval == "_post_data_") {
             sval.Form("(void*)0x%zx", (size_t)fCurrentArg->GetPostData());
-            val = sval.Data();
-         } else if (strcmp(val, "_post_length_") == 0) {
+            add_plain_arg(new TArgHolder<const void*>(fCurrentArg->GetPostData()));
+         } else if (sval == "_post_length_")
             sval.Form("%ld", (long)fCurrentArg->GetPostDataLength());
-            val = sval.Data();
-         }
-      }
+         else
+            sanitize_numeric = kTRUE;
+      } else
+         sanitize_numeric = kTRUE;
 
-      if (!val)
-         val = arg->GetDefault();
+      if (sval.IsNull() && arg->GetDefault())
+         sval = arg->GetDefault();
 
       if (debug)
-         debug->append(Form("  Argument:%s Type:%s Value:%s \n", arg->GetName(), arg->GetFullTypeName(),
-                                       val ? val : "<missed>"));
-      if (!val)
-         return debug != nullptr;
+         debug->append(
+            TString::Format("  Argument:%s Type:%s Value:%s \n", arg->GetName(), arg->GetFullTypeName(), sval.Data())
+               .Data());
 
       if (call_args.Length() > 0)
          call_args += ", ";
 
-      if ((strcmp(arg->GetFullTypeName(), "const char*") == 0) || (strcmp(arg->GetFullTypeName(), "Option_t*") == 0)) {
-         int len = strlen(val);
-         if ((strlen(val) < 2) || (*val != '\"') || (val[len - 1] != '\"'))
-            call_args.Append(TString::Format("\"%s\"", val));
+      if (!add_plain) {
+         std::string tname = arg->GetTypeNormalizedName();
+         if (tname == "const char*")
+            // one can use original string, just remove optional quotes
+            add_plain_arg(new TArgHolderConstChar(DecodeUrlOptionValue(val, kTRUE, kFALSE)));
+         else if (tname == "bool")
+            add_plain_arg(new TArgHolder<bool>(!sval.IsNull() && (sval != "0") && (sval != "false")));
+         else if (tname == "double")
+            add_plain_arg(new TArgHolder<double>(std::stod(sval.Data())));
+         else if (tname == "float")
+            add_plain_arg(new TArgHolder<float>(std::stof(sval.Data())));
+         else if (tname == "int")
+            add_plain_arg(new TArgHolder<int>(std::stol(sval.Data())));
+         else if (tname == "long")
+            add_plain_arg(new TArgHolder<long>(std::stol(sval.Data())));
+         else if (tname == "short")
+            add_plain_arg(new TArgHolder<short>(std::stol(sval.Data())));
+         else if (tname == "char")
+            add_plain_arg(new TArgHolder<char>(std::stol(sval.Data())));
+         else if (tname == "unsigned int")
+            add_plain_arg(new TArgHolder<unsigned int>(std::stoul(sval.Data())));
+         else if (tname == "unisgned long")
+            add_plain_arg(new TArgHolder<unsigned long>(std::stoul(sval.Data())));
+         else if (tname == "unsigned short")
+            add_plain_arg(new TArgHolder<unsigned short>(std::stoul(sval.Data())));
+         else if (tname == "unsigned char")
+            add_plain_arg(new TArgHolder<unsigned char>(std::stoul(sval.Data())));
+         else if (!tname.empty() && tname.back() == '*' && (sval == "0" || sval == "null" || sval == "nullptr"))
+            add_plain_arg(new TArgHolder<Longptr_t>(0));
          else
-            call_args.Append(val);
-      } else {
-         call_args.Append(val);
+            can_use_plain = kFALSE; // unsupported type, plain args cannot be used
       }
+
+      Bool_t isstr = (strcmp(arg->GetFullTypeName(), "const char*") == 0) ||
+                     (strcmp(arg->GetFullTypeName(), "Option_t*") == 0) ||
+                     (strcmp(arg->GetFullTypeName(), "string") == 0);
+
+      if (isstr) {
+         // check that quotes provided for the string argument
+         // all special characters were escaped before
+         if (sval.IsNull())
+            sval = "\"\"";
+         else {
+            if (sval[0] != '"')
+               sval.Prepend("\"");
+            if (sval[sval.Length() - 1] != '"')
+               sval.Append("\"");
+         }
+      } else {
+         // for numeric types keep only numeric and alphabetic characters
+         // exclude others - especially remove all escape characters
+         if (sanitize_numeric) {
+            TString sanitized;
+            for(Size_t i = 0; i < sval.Length(); ++i) {
+               if (std::isalnum(sval[i]) || std::strchr(".:+-", sval[i]))
+                  sanitized.Append(sval[i]);
+            }
+            sval = sanitized;
+         }
+         if (sval.IsNull())
+            sval = "0";
+      }
+
+      call_args.Append(sval);
    }
 
    TMethodCall *call = nullptr;
 
    if (method != nullptr) {
-      call = new TMethodCall(obj_cl, method_name, call_args.Data());
+      if (can_use_plain) {
+         // prevent creation of huge cache
+         if (fExeCache.size() > 1000)
+            fExeCache.clear();
+         auto iter = fExeCache.find(method);
+         if (iter != fExeCache.end()) {
+            call = iter->second.get();
+         } else {
+            call = new TMethodCall();
+            call->InitWithPrototype(obj_cl, method_name, prototype.IsNull() ? nullptr : prototype.Data());
+            fExeCache.emplace(method, std::unique_ptr<TMethodCall>(call));
+         }
+      } else {
+         call = new TMethodCall(obj_cl, method_name, call_args.Data());
+         garbage.Add(call);
+      }
       if (debug)
-         debug->append(Form("Calling obj->%s(%s);\n", method_name, call_args.Data()));
+         debug->append(TString::Format("Calling obj->%s(%s);\n", method_name, call_args.Data()).Data());
    } else {
       call = new TMethodCall(funcname.Data(), call_args.Data());
+      garbage.Add(call);
       if (debug)
-         debug->append(Form("Calling %s(%s);\n", funcname.Data(), call_args.Data()));
+         debug->append(TString::Format("Calling %s(%s);\n", funcname.Data(), call_args.Data()).Data());
    }
-
-   garbage.Add(call);
 
    if (!call->IsValid()) {
       if (debug)
@@ -681,10 +852,23 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
       garbage.Add(resbuf);
    }
 
-   switch (call->ReturnType()) {
+   auto ret_type = call->ReturnType();
+   if (ret_type == TMethodCall::kOther) {
+      std::string ret_kind = func ? func->GetReturnTypeNormalizedName() : method->GetReturnTypeNormalizedName();
+      if ((ret_kind.length() > 0) && (ret_kind[ret_kind.length() - 1] == '*')) {
+         ret_kind.resize(ret_kind.length() - 1);
+         ret_cl = gROOT->GetClass(ret_kind.c_str(), kTRUE, kTRUE);
+      }
+      if (!ret_cl)
+         ret_type = TMethodCall::kNone;
+   }
+
+   switch (ret_type) {
    case TMethodCall::kLong: {
-      Longptr_t l(0);
-      if (method)
+      Longptr_t l = 0;
+      if (method && can_use_plain)
+         call->Execute(obj_ptr, plain_args.data(), plain_args.size(), &l);
+      else if (method)
          call->Execute(obj_ptr, l);
       else
          call->Execute(l);
@@ -695,8 +879,10 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
       break;
    }
    case TMethodCall::kDouble: {
-      Double_t d(0.);
-      if (method)
+      Double_t d = 0.;
+      if (method && can_use_plain)
+         call->Execute(obj_ptr, plain_args.data(), plain_args.size(), &d);
+      else if (method)
          call->Execute(obj_ptr, d);
       else
          call->Execute(d);
@@ -708,10 +894,12 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
    }
    case TMethodCall::kString: {
       char *txt = nullptr;
-      if (method)
+      if (method && can_use_plain)
+         call->Execute(obj_ptr, plain_args.data(), plain_args.size(), &txt);
+      else if (method)
          call->Execute(obj_ptr, &txt);
       else
-         call->Execute(0, &txt); // here 0 is artificial, there is no proper signature
+         call->Execute(&txt);
       if (txt != nullptr) {
          if (resbuf)
             resbuf->WriteString(txt);
@@ -721,31 +909,21 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
       break;
    }
    case TMethodCall::kOther: {
-      std::string ret_kind = func ? func->GetReturnTypeNormalizedName() : method->GetReturnTypeNormalizedName();
-      if ((ret_kind.length() > 0) && (ret_kind[ret_kind.length() - 1] == '*')) {
-         ret_kind.resize(ret_kind.length() - 1);
-         ret_cl = gROOT->GetClass(ret_kind.c_str(), kTRUE, kTRUE);
-      }
-
-      if (ret_cl != nullptr) {
-         Longptr_t l(0);
-         if (method)
-            call->Execute(obj_ptr, l);
-         else
-            call->Execute(l);
-         if (l != 0)
-            ret_obj = (void *)l;
-      } else {
-         if (method)
-            call->Execute(obj_ptr);
-         else
-            call->Execute();
-      }
-
+      Longptr_t l = 0;
+      if (method && can_use_plain)
+         call->Execute(obj_ptr, plain_args.data(), plain_args.size(), &l);
+      else if (method)
+         call->Execute(obj_ptr, l);
+      else
+         call->Execute(l);
+      if (l != 0)
+         ret_obj = (void *)l;
       break;
    }
    case TMethodCall::kNone: {
-      if (method)
+      if (method && can_use_plain)
+         call->Execute(obj_ptr, plain_args.data(), plain_args.size());
+      else if (method)
          call->Execute(obj_ptr);
       else
          call->Execute();
@@ -759,7 +937,7 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
       if (gDirectory)
          obj = gDirectory->Get(_ret_object_);
       if (debug)
-         debug->append(Form("Return object %s found %s\n", _ret_object_, obj ? "true" : "false"));
+         debug->append(TString::Format("Return object %s found %s\n", _ret_object_, obj ? "true" : "false").Data());
 
       if (obj == nullptr) {
          res = "null";
@@ -787,7 +965,7 @@ Bool_t TRootSnifferFull::ProduceExe(const std::string &path, const std::string &
    }
 
    if (debug)
-      debug->append(Form("Result = %s\n", res.Data()));
+      debug->append(TString::Format("Result = %s\n", res.Data()).Data());
 
    if (reskind == 1)
       res_str = res.Data();

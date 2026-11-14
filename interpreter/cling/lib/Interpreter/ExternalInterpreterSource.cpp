@@ -32,7 +32,7 @@ namespace {
                      cling::ExternalInterpreterSource& source):
       ASTImporter(ToContext, ToFileManager, FromContext, FromFileManager,
                   MinimalImport), m_Source(source) {}
-    virtual ~ClingASTImporter() = default;
+    ~ClingASTImporter() override = default;
 
     void Imported(Decl *From, Decl *To) override {
       ASTImporter::Imported(From, To);
@@ -111,7 +111,7 @@ namespace cling {
       const Decl* To = llvm::cantFail(m_Importer->Import(declToImport));
       assert(To && "Import did not work!");
       assert((DS.empty() ||
-              DS[0].getID() == clang::diag::err_unsupported_ast_node) &&
+              DS[0].getID() != clang::diag::err_unsupported_ast_node) &&
              "Import not supported!");
 #endif
       return;
@@ -188,7 +188,8 @@ namespace cling {
   /// Decl(s) (Contexts).
   ///
   bool ExternalInterpreterSource::FindExternalVisibleDeclsByName(
-    const DeclContext *childCurrentDeclContext, DeclarationName childDeclName) {
+      const DeclContext* childCurrentDeclContext, DeclarationName childDeclName,
+      const DeclContext* OriginalDC) {
 
     assert(childDeclName && "Child Decl name is empty");
 
@@ -268,7 +269,7 @@ namespace cling {
         DeclarationName childDeclName = parentDecl->getDeclName();
         if (auto II = childDeclName.getAsIdentifierInfo()) {
           StringRef name = II->getName();
-          if (!name.empty() && name.startswith(filter))
+          if (!name.empty() && name.starts_with(filter))
             ImportDecl(parentDecl, childDeclName, childDeclName,
                        childDeclContext);
         }

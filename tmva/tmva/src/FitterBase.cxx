@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : FitterBase                                                            *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation                                                            *
@@ -22,7 +22,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::FitterBase
@@ -43,7 +43,6 @@ Base class for TMVA fitters. Also defines generalised fitting interface
 #include "Rtypes.h"
 #include "TString.h"
 
-ClassImp(TMVA::FitterBase);
 
 #ifdef _WIN32
 /*Disable warning C4355: 'this' : used in base member initializer list*/

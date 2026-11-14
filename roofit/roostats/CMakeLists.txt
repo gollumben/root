@@ -9,71 +9,71 @@
 # @author Pere Mato, CERN
 ############################################################################
 
+set (EXTRA_DICT_OPTS)
+if (runtime_cxxmodules AND WIN32)
+  set (EXTRA_DICT_OPTS NO_CXXMODULE)
+endif()
+
+set (ROOSTATS_HEADERS
+  RooStats/AsymptoticCalculator.h
+  RooStats/BayesianCalculator.h
+  RooStats/BernsteinCorrection.h
+  RooStats/CombinedCalculator.h
+  RooStats/ConfidenceBelt.h
+  RooStats/ConfInterval.h
+  RooStats/DetailedOutputAggregator.h
+  RooStats/FeldmanCousins.h
+  RooStats/FrequentistCalculator.h
+  RooStats/Heaviside.h
+  RooStats/HybridCalculator.h
+  RooStats/HybridResult.h
+  RooStats/HypoTestCalculatorGeneric.h
+  RooStats/HypoTestCalculator.h
+  RooStats/HypoTestInverter.h
+  RooStats/HypoTestInverterPlot.h
+  RooStats/HypoTestInverterResult.h
+  RooStats/HypoTestPlot.h
+  RooStats/HypoTestResult.h
+  RooStats/IntervalCalculator.h
+  RooStats/LikelihoodInterval.h
+  RooStats/LikelihoodIntervalPlot.h
+  RooStats/MarkovChain.h
+  RooStats/MaxLikelihoodEstimateTestStat.h
+  RooStats/MCMCCalculator.h
+  RooStats/MCMCInterval.h
+  RooStats/MCMCIntervalPlot.h
+  RooStats/MetropolisHastings.h
+  RooStats/ModelConfig.h
+  RooStats/NeymanConstruction.h
+  RooStats/NumberCountingPdfFactory.h
+  RooStats/NumberCountingUtils.h
+  RooStats/NumEventsTestStat.h
+  RooStats/PdfProposal.h
+  RooStats/PointSetInterval.h
+  RooStats/ProfileInspector.h
+  RooStats/ProfileLikelihoodCalculator.h
+  RooStats/ProfileLikelihoodTestStat.h
+  RooStats/ProposalFunction.h
+  RooStats/ProposalHelper.h
+  RooStats/RatioOfProfiledLikelihoodsTestStat.h
+  RooStats/RooStatsUtils.h
+  RooStats/SamplingDistPlot.h
+  RooStats/SamplingDistribution.h
+  RooStats/SequentialProposal.h
+  RooStats/SimpleInterval.h
+  RooStats/SimpleLikelihoodRatioTestStat.h
+  RooStats/SPlot.h
+  RooStats/TestStatistic.h
+  RooStats/TestStatSampler.h
+  RooStats/ToyMCImportanceSampler.h
+  RooStats/ToyMCSampler.h
+  RooStats/UniformProposal.h
+  RooStats/UpperLimitMCSModule.h
+)
+
 ROOT_STANDARD_LIBRARY_PACKAGE(RooStats
   HEADERS
-    RooStats/AsymptoticCalculator.h
-    RooStats/BayesianCalculator.h
-    RooStats/BernsteinCorrection.h
-    RooStats/CombinedCalculator.h
-    RooStats/ConfidenceBelt.h
-    RooStats/ConfInterval.h
-    RooStats/DebuggingSampler.h
-    RooStats/DebuggingTestStat.h
-    RooStats/DetailedOutputAggregator.h
-    RooStats/FeldmanCousins.h
-    RooStats/FrequentistCalculator.h
-    RooStats/Heaviside.h
-    RooStats/HLFactory.h
-    RooStats/HybridCalculator.h
-    RooStats/HybridCalculatorOriginal.h
-    RooStats/HybridPlot.h
-    RooStats/HybridResult.h
-    RooStats/HypoTestCalculatorGeneric.h
-    RooStats/HypoTestCalculator.h
-    RooStats/HypoTestInverter.h
-    RooStats/HypoTestInverterOriginal.h
-    RooStats/HypoTestInverterPlot.h
-    RooStats/HypoTestInverterResult.h
-    RooStats/HypoTestPlot.h
-    RooStats/HypoTestResult.h
-    RooStats/IntervalCalculator.h
-    RooStats/LikelihoodInterval.h
-    RooStats/LikelihoodIntervalPlot.h
-    RooStats/MarkovChain.h
-    RooStats/MaxLikelihoodEstimateTestStat.h
-    RooStats/MCMCCalculator.h
-    RooStats/MCMCInterval.h
-    RooStats/MCMCIntervalPlot.h
-    RooStats/MetropolisHastings.h
-    RooStats/MinNLLTestStat.h
-    RooStats/ModelConfig.h
-    RooStats/NeymanConstruction.h
-    RooStats/NumberCountingPdfFactory.h
-    RooStats/NumberCountingUtils.h
-    RooStats/NumEventsTestStat.h
-    RooStats/PdfProposal.h
-    RooStats/PointSetInterval.h
-    RooStats/ProfileInspector.h
-    RooStats/ProfileLikelihoodCalculator.h
-    RooStats/ProfileLikelihoodTestStat.h
-    RooStats/ProofConfig.h
-    RooStats/ProposalFunction.h
-    RooStats/ProposalHelper.h
-    RooStats/RatioOfProfiledLikelihoodsTestStat.h
-    RooStats/RooStatsUtils.h
-    RooStats/SamplingDistPlot.h
-    RooStats/SamplingDistribution.h
-    RooStats/SequentialProposal.h
-    RooStats/SimpleInterval.h
-    RooStats/SimpleLikelihoodRatioTestStat.h
-    RooStats/SPlot.h
-    RooStats/TestStatistic.h
-    RooStats/TestStatSampler.h
-    RooStats/ToyMCImportanceSampler.h
-    RooStats/ToyMCSampler.h
-    RooStats/ToyMCStudy.h
-    RooStats/UniformProposal.h
-    RooStats/UpperLimitMCSModule.h
+    ${ROOSTATS_HEADERS}
   SOURCES
     src/AsymptoticCalculator.cxx
     src/BayesianCalculator.cxx
@@ -83,14 +83,10 @@ ROOT_STANDARD_LIBRARY_PACKAGE(RooStats
     src/FeldmanCousins.cxx
     src/FrequentistCalculator.cxx
     src/Heaviside.cxx
-    src/HLFactory.cxx
     src/HybridCalculator.cxx
-    src/HybridCalculatorOriginal.cxx
-    src/HybridPlot.cxx
     src/HybridResult.cxx
     src/HypoTestCalculatorGeneric.cxx
     src/HypoTestInverter.cxx
-    src/HypoTestInverterOriginal.cxx
     src/HypoTestInverterPlot.cxx
     src/HypoTestInverterResult.cxx
     src/HypoTestPlot.cxx
@@ -102,7 +98,6 @@ ROOT_STANDARD_LIBRARY_PACKAGE(RooStats
     src/MCMCInterval.cxx
     src/MCMCIntervalPlot.cxx
     src/MetropolisHastings.cxx
-    src/ModelConfig.cxx
     src/NeymanConstruction.cxx
     src/NumberCountingPdfFactory.cxx
     src/NumberCountingUtils.cxx
@@ -122,7 +117,6 @@ ROOT_STANDARD_LIBRARY_PACKAGE(RooStats
     src/SPlot.cxx
     src/ToyMCImportanceSampler.cxx
     src/ToyMCSampler.cxx
-    src/ToyMCStudy.cxx
     src/UniformProposal.cxx
     src/UpperLimitMCSModule.cxx
   DICTIONARY_OPTIONS
@@ -136,10 +130,25 @@ ROOT_STANDARD_LIBRARY_PACKAGE(RooStats
     Hist
     Matrix
     MathCore
-    Minuit
-    Foam
     Graf
     Gpad
+  LIBRARIES
+    Minuit
+    Foam
+  ${EXTRA_DICT_OPTS}
+)
+
+set(RELATIVE_INC_HEADERS ${ROOSTATS_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+target_sources(
+      RooStats
+      PRIVATE
+      FILE_SET private_header_files
+      TYPE HEADERS
+      BASE_DIRS inc/
+      FILES
+          ${RELATIVE_INC_HEADERS}
+          inc/LinkDef.h # seemingly this is not being used in ROOT_STANDARD_LIBRARY_PACKAGE call
 )
 
 ROOT_ADD_TEST_SUBDIRECTORY(test)

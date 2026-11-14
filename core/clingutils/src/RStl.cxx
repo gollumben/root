@@ -15,9 +15,6 @@
 #include "RStl.h"
 #include "TClassEdit.h"
 #include "TClingUtils.h"
-using namespace TClassEdit;
-
-#include <stdio.h>
 
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclTemplate.h"
@@ -29,7 +26,10 @@ using namespace TClassEdit;
 #include "clang/Sema/Template.h"
 #include "clang/Frontend/CompilerInstance.h"
 
-#include "Varargs.h"
+#include <cstdarg>
+#include <cstdio>
+
+using namespace TClassEdit;
 
 //
 // ROOT::Internal::RStl is the rootcint STL handling class.
@@ -89,17 +89,22 @@ void ROOT::Internal::RStl::GenerateTClassFor(const clang::QualType &type, const 
       }
    }
 
-   fList.insert( ROOT::TMetaUtils::AnnotatedRecordDecl(++fgCount,
-                                                       thisType.getTypePtr(),
-                                                       stlclass,
-                                                       "",
-                                                       false /* for backward compatibility rather than 'true' .. neither really make a difference */,
-                                                       false,
-                                                       false,
-                                                       false,
-                                                       -1,
-                                                       interp,
-                                                       normCtxt) );
+   // clang-format off
+   fList.insert(ROOT::TMetaUtils::AnnotatedRecordDecl(++fgCount,
+                                                      thisType.getTypePtr(),
+                                                      stlclass,
+                                                      "",
+                                                      false, /* for backward compatibility rather than 'true' ..
+                                                                neither really make a difference */
+                                                      false,
+                                                      false,
+                                                      false,
+                                                      -1,
+                                                      0,
+                                                      "",
+                                                      interp,
+                                                      normCtxt));
+   // clang-format on
 
    // fprintf(stderr,"Registered the STL class %s as needing a dictionary\n",R__GetQualifiedName(*stlclass).c_str());
 
@@ -149,7 +154,20 @@ void ROOT::Internal::RStl::GenerateTClassFor(const char *requestedName, const cl
       }
    }
 
-   fList.insert( ROOT::TMetaUtils::AnnotatedRecordDecl(++fgCount,stlclass,requestedName,true,false,false,false,-1, interp,normCtxt) );
+   // clang-format off
+   fList.insert(ROOT::TMetaUtils::AnnotatedRecordDecl(++fgCount,
+                                                      stlclass,
+                                                      requestedName,
+                                                      true,
+                                                      false,
+                                                      false,
+                                                      false,
+                                                      -1,
+                                                      0,
+                                                      "",
+                                                      interp,
+                                                      normCtxt));
+   // clang-format on
 
    TClassEdit::TSplitType splitType( requestedName, (TClassEdit::EModType)(TClassEdit::kLong64 | TClassEdit::kDropStd) );
    for(unsigned int i=0; i <  templateCl->getTemplateArgs().size(); ++i) {
@@ -209,7 +227,7 @@ void ROOT::Internal::RStl::WriteClassInit(std::ostream &ostr,
          const cling::LookupHelper& lh = interp.getLookupHelper();
          result = llvm::dyn_cast_or_null<clang::CXXRecordDecl>(lh.findScope(iter->GetNormalizedName(),
                                                                             cling::LookupHelper::NoDiagnostics,
-                                                                            0)
+                                                                            nullptr)
                                                                );
 
          if (!result || !iter->GetRecordDecl()->getDefinition()) {

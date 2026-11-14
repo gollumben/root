@@ -31,10 +31,6 @@
  THbookFile can be browsed via TBrowser.
 */
 
-#include <cstdlib>
-#include <cstring>
-#include <cctype>
-
 #include "TROOT.h"
 #include "THbookFile.h"
 #include "TH2.h"
@@ -49,7 +45,12 @@
 #include "TSystem.h"
 #include "TMath.h"
 #include "strlcpy.h"
-#include "snprintf.h"
+
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cctype>
 
 // NOTE: THe following comments and declarations are a duplicate
 // of those in main/src/h2root.cxx
@@ -137,6 +138,11 @@ static Int_t gLastEntry = -1;
 # define type_of_call
 # define DEFCHAR  const char*
 # define PASSCHAR(string) string
+
+// As recommended in
+// https://gcc.gnu.org/onlinedocs/gfortran/Argument-passing-conventions.html
+using fortran_charlen_t = size_t;
+
 #else
 # define hlimit  HLIMIT
 # define hldir   HLDIR
@@ -177,8 +183,8 @@ static Int_t gLastEntry = -1;
 extern "C" void  type_of_call hlimit(const int&);
 #ifndef WIN32
 extern "C" void  type_of_call hropen(const int&,DEFCHAR,DEFCHAR,DEFCHAR,
-                        const int&,const int&,const int,const int,const int);
-extern "C" void  type_of_call hrend(DEFCHAR,const int);
+                        const int&,const int&,fortran_charlen_t,fortran_charlen_t,fortran_charlen_t);
+extern "C" void  type_of_call hrend(DEFCHAR,fortran_charlen_t);
 #else
 extern "C" void  type_of_call hropen(const int&,DEFCHAR,DEFCHAR,DEFCHAR,
                         const int&,const int&);
@@ -189,7 +195,7 @@ extern "C" void  type_of_call hrin(const int&,const int&,const int&);
 extern "C" void  type_of_call hnoent(const int&,const int&);
 #ifndef WIN32
 extern "C" void  type_of_call hgive(const int&,DEFCHAR,const int&,const float&,const float&,
-   const int&,const float&,const float&,const int&,const int&,const int);
+   const int&,const float&,const float&,const int&,const int&,fortran_charlen_t);
 #else
 extern "C" void  type_of_call hgive(const int&,DEFCHAR,const int&,const float&,const float&,
    const int&,const float&,const float&,const int&,const int&);
@@ -198,8 +204,8 @@ extern "C" void  type_of_call hgive(const int&,DEFCHAR,const int&,const float&,c
   //SUBROUTINE HGNT1(IDD,BLKNA1,VAR,IOFFST,NVAR,IDNEVT,IERROR)
 #ifndef WIN32
 extern "C" void  type_of_call hgiven(const int&,DEFCHAR,const int&,DEFCHAR,
-   const float&,const float&,const int,const int);
-extern "C" void  type_of_call hgnt1(const int&,DEFCHAR,DEFCHAR,const int&,const int&,const int&,const int&,const int,const int);
+   const float&,const float&,fortran_charlen_t,fortran_charlen_t);
+extern "C" void  type_of_call hgnt1(const int&,DEFCHAR,DEFCHAR,const int&,const int&,const int&,const int&,fortran_charlen_t,fortran_charlen_t);
 #else
 extern "C" void  type_of_call hgiven(const int&,DEFCHAR,const int&,DEFCHAR,
    const float&,const float&);
@@ -207,17 +213,17 @@ extern "C" void  type_of_call hgnt1(const int&,DEFCHAR,DEFCHAR,const int&,const 
 #endif
 
 #ifndef WIN32
-extern "C" void  type_of_call hntvar2(const int&,const int&,DEFCHAR,DEFCHAR,DEFCHAR,int&,int&,int&,int&,int&,const int,const int, const int);
-extern "C" void  type_of_call hntvar3(const int&,const int&,DEFCHAR, const int);
+extern "C" void  type_of_call hntvar2(const int&,const int&,DEFCHAR,DEFCHAR,DEFCHAR,int&,int&,int&,int&,int&,fortran_charlen_t,fortran_charlen_t, fortran_charlen_t);
+extern "C" void  type_of_call hntvar3(const int&,const int&,DEFCHAR, fortran_charlen_t);
 #else
 extern "C" void  type_of_call hntvar2(const int&,const int&,DEFCHAR,DEFCHAR,DEFCHAR,int&,int&,int&,int&,int&);
 extern "C" void  type_of_call hntvar3(const int&,const int&,DEFCHAR);
 #endif
 
 #ifndef WIN32
-extern "C" void  type_of_call hbnam(const int&,DEFCHAR,const int&,DEFCHAR,const int&,const int, const int);
+extern "C" void  type_of_call hbnam(const int&,DEFCHAR,const std::int64_t&,DEFCHAR,const int&,fortran_charlen_t, fortran_charlen_t);
 #else
-extern "C" void  type_of_call hbnam(const int&,DEFCHAR,const int&,DEFCHAR,const int&);
+extern "C" void  type_of_call hbnam(const int&,DEFCHAR,const std::int64_t&,DEFCHAR,const int&);
 #endif
 
 extern "C" void  type_of_call hgnpar(const int&,const char *,const int);
@@ -237,22 +243,21 @@ extern "C" void  type_of_call hix(const int&,const int&,const float&);
 extern "C" void  type_of_call hijxy(const int&,const int&,const int&,const float&,const float&);
 extern "C" float type_of_call hije(const int&,const int&,const int&);
 #ifndef WIN32
-extern "C" void  type_of_call hcdir(DEFCHAR,DEFCHAR ,const int,const int);
-extern "C" void  type_of_call hldir(DEFCHAR,DEFCHAR ,const int,const int);
+extern "C" void  type_of_call hcdir(DEFCHAR,DEFCHAR ,fortran_charlen_t,fortran_charlen_t);
+extern "C" void  type_of_call hldir(DEFCHAR,DEFCHAR ,fortran_charlen_t,fortran_charlen_t);
 #else
 extern "C" void  type_of_call hcdir(DEFCHAR,DEFCHAR);
 extern "C" void  type_of_call hldir(DEFCHAR,DEFCHAR);
 #endif
 
 Bool_t THbookFile::fgPawInit = kFALSE;
-Int_t  *THbookFile::fgLuns   = 0;
+Int_t  *THbookFile::fgLuns   = nullptr;
 
-ClassImp(THbookFile);
 
 ////////////////////////////////////////////////////////////////////////////////
 ///the constructor
 
-THbookFile::THbookFile() : TNamed(),fLun(0),fLrecl(0)
+THbookFile::THbookFile() : fLun(0),fLrecl(0)
 {
    fList = new TList();
    fKeys = new TList();
@@ -312,8 +317,8 @@ THbookFile::THbookFile(const char *fname, Int_t lrecl)
    if (ier || quest[0]) {
       fgLuns[fLun-10]=0;
       fLun  = 0;
-      fList = 0;
-      fKeys = 0;
+      fList = nullptr;
+      fKeys = nullptr;
       MakeZombie();
       return;
    }
@@ -453,10 +458,10 @@ TObject *THbookFile::Get(Int_t idd)
       id = quest[20];
       if (id == idd) break;
    }
-   if (id == 0) return 0;
+   if (id == 0) return nullptr;
    if (id != idd) {
       printf("Error cannot find ID = %d\n",idd);
-      return 0;
+      return nullptr;
    }
 
    int i999 = 999;
@@ -473,12 +478,12 @@ TObject *THbookFile::Get(Int_t idd)
    hrin(id,i999,0);
    if (quest[0]) {
       printf("Error cannot read ID = %d\n",id);
-      return 0;
+      return nullptr;
    }
    hdcofl();
    lcid  = hcbook[10];
    lcont = lq[lcid-1];
-   TObject *obj = 0;
+   TObject *obj = nullptr;
    if (hcbits[3]) {
       if (iq[lcid-2] == 2) obj = ConvertRWN(id);
       else                 obj = ConvertCWN(id);
@@ -586,8 +591,7 @@ Bool_t THbookFile::IsOpen() const
 
 void THbookFile::SetBranchAddress(Int_t id, const char *bname, void *add)
 {
-   Int_t *iadd = (Int_t*)add;
-   Int_t &aadd = *iadd;
+   std::int64_t aadd = reinterpret_cast<std::int64_t>(add);
 #ifndef WIN32
    hbnam(id,PASSCHAR(bname),aadd,PASSCHAR("$SET"),0,strlen(bname),4);
 #else
@@ -611,7 +615,7 @@ TFile *THbookFile::Convert2root(const char *rootname, Int_t /*lrecl*/,
    opt.ToLower();
 
    Int_t nch = strlen(rootname);
-   char *rfile=0;
+   char *rfile=nullptr;
    if (nch) {
       rfile = new char[nch+1];
       strlcpy(rfile,rootname,nch+1);
@@ -633,10 +637,10 @@ TFile *THbookFile::Convert2root(const char *rootname, Int_t /*lrecl*/,
    gSystem->Exec(cmd);
 
    delete [] cmd;
-   if (opt.Contains("no")) {delete [] rfile; return 0;}
+   if (opt.Contains("no")) {delete [] rfile; return nullptr;}
    TFile *f = new TFile(rfile);
    delete [] rfile;
-   if (f->IsZombie()) {delete f; f = 0;}
+   if (f->IsZombie()) {delete f; f = nullptr;}
    return f;
 }
 
@@ -679,8 +683,8 @@ TObject *THbookFile::ConvertCWN(Int_t id)
 #endif
 
    Int_t bufpos = 0;
-   Int_t isachar = 0;
-   Int_t isabool = 0;
+   //Int_t isachar = 0;
+   //Int_t isabool = 0;
    char fullname[64];
    char name[32];
    char block[32];
@@ -694,10 +698,11 @@ TObject *THbookFile::ConvertCWN(Int_t id)
 
    char *bigbuf = tree->MakeX(500000);
 
+   std::int64_t add = reinterpret_cast<std::int64_t>(&bigbuf[0]);
 #ifndef WIN32
-   hbnam(id,PASSCHAR(" "),bigbuf[0],PASSCHAR("$CLEAR"),0,1,6);
+   hbnam(id,PASSCHAR(" "),add,PASSCHAR("$CLEAR"),0,1,6);
 #else
-   hbnam(id,PASSCHAR(" "),bigbuf[0],PASSCHAR("$CLEAR"),0);
+   hbnam(id,PASSCHAR(" "),add,PASSCHAR("$CLEAR"),0);
 #endif
 
    UInt_t varNumber = 0;
@@ -751,7 +756,7 @@ TObject *THbookFile::ConvertCWN(Int_t id)
          varNumber = 0;
          strlcpy(oldblock,block,32);
          oldischar = ischar;
-         Long_t add= (Long_t)&bigbuf[bufpos];
+         add = reinterpret_cast<std::int64_t>(&bigbuf[bufpos]);
          Int_t lblock   = strlen(block);
 #ifndef WIN32
          hbnam(id,PASSCHAR(block),add,PASSCHAR("$SET"),ischar,lblock,4);
@@ -772,9 +777,17 @@ TObject *THbookFile::ConvertCWN(Int_t id)
       // to be done
       boolflag[i] = -10;
       charflag[i] = 0;
-      if (itype == 4) {isabool++; boolflag[i] = bufpos; lenbool[i] = ielem;}
+      if (itype == 4) {
+         //isabool++;
+         boolflag[i] = bufpos;
+         lenbool[i] = ielem;
+      }
       bufpos += isize*ielem;
-      if (ischar) {isachar++; charflag[i] = bufpos-1; lenchar[i] = isize*ielem;}
+      if (ischar) {
+         //isachar++;
+         charflag[i] = bufpos - 1;
+         lenchar[i] = isize * ielem;
+      }
       TObjArray *ll= branch->GetListOfLeaves();
       TLeaf *leaf = (TLeaf*)ll->UncheckedAt(0);
       if (!leaf) continue;
@@ -941,7 +954,7 @@ TObject *THbookFile::Convert1D(Int_t id)
       h1 = new TH1F(idname,chtitl,ncx,xmin,xmax);
    }
    if (hcbits[8]) h1->Sumw2();
-   TGraph *gr = 0;
+   TGraph *gr = nullptr;
    if (hcbits[11]) {
       gr = new TGraph(ncx);
       h1->GetListOfFunctions()->Add(gr);

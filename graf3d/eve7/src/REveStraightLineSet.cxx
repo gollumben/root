@@ -11,6 +11,7 @@
 
 #include <ROOT/REveStraightLineSet.hxx>
 #include <ROOT/REveRenderData.hxx>
+#include <ROOT/REveManager.hxx>
 #include <ROOT/REveProjectionManager.hxx>
 
 #include "TClass.h"
@@ -32,7 +33,7 @@ REveStraightLineSet::REveStraightLineSet(const std::string& n, const std::string
    fRnrMarkers    (kTRUE),
    fRnrLines      (kTRUE),
    fDepthTest     (kTRUE),
-   fLastLine      (0)
+   fLastLine      (nullptr)
 {
    InitMainTrans();
    fPickable = kTRUE;
@@ -162,12 +163,21 @@ Int_t REveStraightLineSet::WriteCoreJson(nlohmann::json &j, Int_t rnr_offset)
 
    j["fLinePlexSize"] = fLinePlex.Size();
    j["fMarkerPlexSize"] = fMarkerPlex.Size();
+   // j["fLineColor"] = fLineColor; // streamed as fMainColor
    j["fLineWidth"] = fLineWidth;
    j["fLineStyle"] = fLineStyle;
+   j["fMarkerColor"] = fMarkerColor;
    j["fMarkerSize"] = fMarkerSize;
    j["fMarkerStyle"] = fMarkerStyle;
    j["fSecondarySelect"] = fAlwaysSecSelect;
 
+   if (fMarkerSize && gEve->IsRCore()) {
+      int x, y;
+      int ms = fMarkerPlex.Size();
+      REveRenderData::CalcTextureSize(ms, 1, x, y);
+      j["fTexX"] = x;
+      j["fTexY"] = y;
+   }
    return ret;
 }
 
@@ -177,6 +187,9 @@ Int_t REveStraightLineSet::WriteCoreJson(nlohmann::json &j, Int_t rnr_offset)
 void REveStraightLineSet::BuildRenderData()
 {
    int nVertices =  fLinePlex.Size() * 2 + fMarkerPlex.Size();
+   if (nVertices == 0)
+      return;
+
    fRenderData = std::make_unique<REveRenderData>("makeStraightLineSet", 3 * nVertices, 0, nVertices);
 
    // printf("REveStraightLineSet::BuildRenderData id = %d \n", GetElementId());
@@ -214,16 +227,10 @@ TClass* REveStraightLineSet::ProjectedClass(const REveProjection*) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Compute bounding-box.
-/// Virtual from TAttBBox.
+/// Fill the bounding box (virtual from REveElement).
 
 void REveStraightLineSet::ComputeBBox()
 {
-   if (fLinePlex.Size() == 0 && fMarkerPlex.Size() == 0) {
-      BBoxZero();
-      return;
-   }
-
    BBoxInit();
 
    REveChunkManager::iterator li(fLinePlex);
@@ -245,7 +252,6 @@ void REveStraightLineSet::ComputeBBox()
 Projected replica of a REveStraightLineSet.
 */
 
-ClassImp(REveStraightLineSetProjected);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -271,7 +277,7 @@ void REveStraightLineSetProjected::SetProjection(REveProjectionManager* mng,
 
 void REveStraightLineSetProjected::SetDepthLocal(Float_t d)
 {
-   SetDepthCommon(d, this, fBBox);
+   SetDepthCommon(d, this);
 
    REveChunkManager::iterator li(fLinePlex);
    while (li.next())
@@ -298,7 +304,8 @@ void REveStraightLineSetProjected::UpdateProjection()
    REveProjection&      proj = * fManager->GetProjection();
    REveStraightLineSet& orig = * dynamic_cast<REveStraightLineSet*>(fProjectable);
 
-   REveTrans *trans = orig.PtrMainTrans(kFALSE);
+   REveTrans mt;
+   const REveTrans *trans = fManager->GetModelTrans(&orig, mt);
 
    BBoxClear();
 
@@ -347,4 +354,5 @@ void REveStraightLineSetProjected::UpdateProjection()
       proj.ProjectPointfv(trans, m.fV, pp, fDepth);
       AddMarker(pp, m.fLineId);
    }
+   StampObjProps();
 }

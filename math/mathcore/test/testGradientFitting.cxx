@@ -1,6 +1,7 @@
 // @(#)root/test:$Id$
 // Author: Alejandro García Montoro 08/2017
 
+#include "RConfigure.h"
 #include "Fit/BinData.h"
 #include "Fit/UnBinData.h"
 #include "Fit/Fitter.h"
@@ -20,26 +21,26 @@
 template <class T>
 class GradFunc2D : public ROOT::Math::IParamMultiGradFunctionTempl<T> {
 public:
-   void SetParameters(const double *p) {
+   void SetParameters(const double *p) override {
       std::copy(p, p + NPar(), fParameters);
       // compute integral in interval [0,1][0,1]
       fIntegral = Integral(p);
    }
 
-   const double *Parameters() const { return fParameters; }
+   const double *Parameters() const override { return fParameters; }
 
-   ROOT::Math::IBaseFunctionMultiDimTempl<T> *Clone() const
+   ROOT::Math::IBaseFunctionMultiDimTempl<T> *Clone() const override
    {
       GradFunc2D<T> *f = new GradFunc2D<T>();
       f->SetParameters(fParameters);
       return f;
    }
 
-   unsigned int NDim() const { return 2; }
+   unsigned int NDim() const override { return 2; }
 
-   unsigned int NPar() const { return 5; }
+   unsigned int NPar() const override { return 5; }
 
-   void ParameterGradient(const T *x, const double * p, T *grad) const
+   void ParameterGradient(const T *x, const double * p, T *grad) const override
    {
       if (p == nullptr) {
          ParameterGradient(x, fParameters, grad);
@@ -72,14 +73,14 @@ private:
       return fval;
    }
 
-   T DoEvalPar(const T *x, const double *p) const
+   T DoEvalPar(const T *x, const double *p) const override
    {
       if (p == nullptr)
          return DoEvalPar(x, fParameters);
       return p[0] * FVal(x,p) / fIntegral;
    }
 
-   T DoParameterDerivative(const T *x, const double *p, unsigned int ipar) const
+   T DoParameterDerivative(const T *x, const double *p, unsigned int ipar) const override
    {
       std::vector<T> grad(NPar());
       ParameterGradient(x, p, &grad[0]);
@@ -106,7 +107,7 @@ using ScalarBinned = GradientFittingTestTraits<Double_t, ROOT::Fit::BinData, Lik
 using ScalarUnBinned = GradientFittingTestTraits<Double_t, ROOT::Fit::UnBinData, LikelihoodFitType>;
 
 // Typedefs of GradientTestTraits for vectorial (binned and unbinned) data
-#ifdef R__HAS_VECCORE
+#ifdef R__HAS_STD_EXPERIMENTAL_SIMD
 using VectorialChi2 = GradientFittingTestTraits<ROOT::Double_v, ROOT::Fit::BinData, Chi2FitType>;
 using VectorialBinned = GradientFittingTestTraits<ROOT::Double_v, ROOT::Fit::BinData, LikelihoodFitType>;
 using VectorialUnBinned = GradientFittingTestTraits<ROOT::Double_v, ROOT::Fit::UnBinData, LikelihoodFitType>;
@@ -117,7 +118,7 @@ int printLevel = 0;
 template <class T>
 class GradientFittingTest : public ::testing::Test {
 protected:
-   virtual void SetUp()
+   void SetUp() override
    {
       // Create TF2 from model function and initialize the fit function
       std::stringstream streamTF2;
@@ -259,7 +260,7 @@ protected:
 };
 
 // Types used by Google Test to instantiate the tests.
-#ifdef R__HAS_VECCORE
+#ifdef R__HAS_STD_EXPERIMENTAL_SIMD
 typedef ::testing::Types<ScalarChi2, ScalarBinned, ScalarUnBinned, VectorialChi2, VectorialBinned, VectorialUnBinned> TestTypes;
 
 //typedef ::testing::Types<ScalarBinned,VectorialBinned> TestTypes;
@@ -278,12 +279,15 @@ TYPED_TEST_P(GradientFittingTest, Sequential)
    EXPECT_TRUE(TestFixture::RunFit(ROOT::EExecutionPolicy::kSequential));
 }
 
+#ifdef R__HAS_IMT
 TYPED_TEST_P(GradientFittingTest, Multithread)
 {
    EXPECT_TRUE(TestFixture::RunFit(ROOT::EExecutionPolicy::kMultiThread));
 }
-
 REGISTER_TYPED_TEST_SUITE_P(GradientFittingTest,Sequential,Multithread);
+#else
+REGISTER_TYPED_TEST_SUITE_P(GradientFittingTest,Sequential);
+#endif
 
 INSTANTIATE_TYPED_TEST_SUITE_P(GradientFitting, GradientFittingTest, TestTypes);
 

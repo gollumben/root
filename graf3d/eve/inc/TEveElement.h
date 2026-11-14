@@ -45,7 +45,7 @@ public:
       TGListTree*     fTree;
       TGListTreeItem* fItem;
 
-      TEveListTreeInfo() : fTree(0), fItem(0) {}
+      TEveListTreeInfo() : fTree(nullptr), fItem(nullptr) {}
       TEveListTreeInfo(TGListTree* lt, TGListTreeItem* lti) : fTree(lt), fItem(lti) {}
       TEveListTreeInfo(const TEveListTreeInfo& l) : fTree(l.fTree), fItem(l.fItem) {}
       virtual ~TEveListTreeInfo() {}
@@ -80,13 +80,13 @@ protected:
    List_t           fParents;              //  List of parents.
    List_t           fChildren;             //  List of children.
    TEveCompound    *fCompound;             //  Compound this object belongs to.
-   TEveElement     *fVizModel;             //! Element used as model from VizDB.
+   TEveElement     *fVizModel;             ///<! Element used as model from VizDB.
    TString          fVizTag;               //  Tag used to query VizDB for model element.
 
-   Int_t            fNumChildren;          //!
-   Int_t            fParentIgnoreCnt;      //! Counter for parents that are ignored in ref-counting.
-   Int_t            fTopItemCnt;           //! Counter for top-level list-tree items that prevent automatic destruction.
-   Int_t            fDenyDestroy;          //! Deny-destroy count.
+   Int_t            fNumChildren;          ///<!
+   Int_t            fParentIgnoreCnt;      ///<! Counter for parents that are ignored in ref-counting.
+   Int_t            fTopItemCnt;           ///<! Counter for top-level list-tree items that prevent automatic destruction.
+   Int_t            fDenyDestroy;          ///<! Deny-destroy count.
    Bool_t           fDestroyOnZeroRefCnt;  //  Auto-destruct when ref-count reaches zero.
 
    Bool_t           fRnrSelf;                 //  Render this element.
@@ -99,10 +99,10 @@ protected:
    Color_t         *fMainColorPtr;         //  Pointer to main-color variable.
    TEveTrans       *fMainTrans;            //  Pointer to main transformation matrix.
 
-   sLTI_t           fItems;                //! Set of list-tree-items.
+   sLTI_t           fItems;                ///<! Set of list-tree-items.
 
    TRef             fSource;               //  External object that is represented by this element.
-   void            *fUserData;             //! Externally assigned and controlled user data.
+   void            *fUserData;             ///<! Externally assigned and controlled user data.
 
    virtual void PreDeleteElement();
    virtual void RemoveElementsInternal();
@@ -138,7 +138,7 @@ public:
    Bool_t         ApplyVizTag(const TString& tag, const TString& fallback_tag="");
 
    virtual void PropagateVizParamsToProjecteds();
-   virtual void PropagateVizParamsToElements(TEveElement* el=0);
+   virtual void PropagateVizParamsToElements(TEveElement* el=nullptr);
    virtual void CopyVizParams(const TEveElement* el);
    virtual void CopyVizParamsFromDB();
    void         SaveVizParams (std::ostream& out, const TString& tag, const TString& var);
@@ -171,10 +171,10 @@ public:
    Bool_t  HasChildren()   const { return  fNumChildren != 0; }
 
    Bool_t       HasChild(TEveElement* el);
-   TEveElement* FindChild(const TString& name, const TClass* cls=0);
-   TEveElement* FindChild(TPRegexp& regexp, const TClass* cls=0);
-   Int_t        FindChildren(List_t& matches, const TString&  name, const TClass* cls=0);
-   Int_t        FindChildren(List_t& matches, TPRegexp& regexp, const TClass* cls=0);
+   TEveElement* FindChild(const TString& name, const TClass* cls=nullptr);
+   TEveElement* FindChild(TPRegexp& regexp, const TClass* cls=nullptr);
+   Int_t        FindChildren(List_t& matches, const TString&  name, const TClass* cls=nullptr);
+   Int_t        FindChildren(List_t& matches, TPRegexp& regexp, const TClass* cls=nullptr);
    TEveElement* FirstChild() const;
    TEveElement* LastChild () const;
 
@@ -268,7 +268,7 @@ public:
    Color_t* GetMainColorPtr()        const   { return fMainColorPtr; }
    void     SetMainColorPtr(Color_t* color)  { fMainColorPtr = color; }
 
-   virtual Bool_t  HasMainColor() const { return fMainColorPtr != 0; }
+   virtual Bool_t  HasMainColor() const { return fMainColorPtr != nullptr; }
    virtual Color_t GetMainColor() const { return fMainColorPtr ? *fMainColorPtr : 0; }
    virtual void    SetMainColor(Color_t color);
    void            SetMainColorPixel(Pixel_t pixel);
@@ -284,7 +284,7 @@ public:
    virtual void    PropagateMainTransparencyToProjecteds(Char_t t, Char_t old_t);
 
    virtual Bool_t     CanEditMainTrans() const { return fCanEditMainTrans; }
-   virtual Bool_t     HasMainTrans()     const { return fMainTrans != 0;   }
+   virtual Bool_t     HasMainTrans()     const { return fMainTrans != nullptr;   }
    virtual TEveTrans* PtrMainTrans(Bool_t create=kTRUE);
    virtual TEveTrans& RefMainTrans();
    virtual void       InitMainTrans(Bool_t can_edit=kTRUE);
@@ -310,10 +310,10 @@ public:
 
 protected:
    Bool_t  fPickable;
-   Bool_t  fSelected;             //!
-   Bool_t  fHighlighted;          //!
-   Short_t fImpliedSelected;      //!
-   Short_t fImpliedHighlighted;   //!
+   Bool_t  fSelected;             ///<!
+   Bool_t  fHighlighted;          ///<!
+   Short_t fImpliedSelected;      ///<!
+   Short_t fImpliedHighlighted;   ///<!
 
    enum ECompoundSelectionColorBits
    {
@@ -327,7 +327,15 @@ protected:
 
    enum EDestruct
    {
+// clang++ <v20 (-Wshadow) complains about shadowing GuiTypes.h global variable kNone. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
       kNone,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
       kStandard,
       kAnnihilate
    };
@@ -390,8 +398,8 @@ public:
    };
 
 protected:
-   UChar_t      fChangeBits;  //!
-   Char_t       fDestructing; //!
+   UChar_t      fChangeBits;  ///<!
+   Char_t       fDestructing; ///<!
 
 public:
    void StampColorSelection() { AddStamp(kCBColorSelection); }
@@ -442,33 +450,33 @@ public:
    TEveElementList(const char* n="TEveElementList", const char* t="",
                    Bool_t doColor=kFALSE, Bool_t doTransparency=kFALSE);
    TEveElementList(const TEveElementList& e);
-   virtual ~TEveElementList() {}
+   ~TEveElementList() override {}
 
-   virtual TObject* GetObject(const TEveException& /*eh*/="TEveElementList::GetObject ") const
+   TObject* GetObject(const TEveException& /*eh*/="TEveElementList::GetObject ") const override
    { const TObject* obj = this; return const_cast<TObject*>(obj); }
 
-   virtual TEveElementList* CloneElement() const;
+   TEveElementList* CloneElement() const override;
 
-   virtual const char* GetElementName()  const { return GetName();  }
-   virtual const char* GetElementTitle() const { return GetTitle(); }
+   const char* GetElementName()  const override { return GetName();  }
+   const char* GetElementTitle() const override { return GetTitle(); }
 
-   virtual void SetElementName (const char* name)
+   void SetElementName (const char* name) override
    { TNamed::SetName(name); NameTitleChanged(); }
 
-   virtual void SetElementTitle(const char* title)
+   void SetElementTitle(const char* title) override
    { TNamed::SetTitle(title); NameTitleChanged(); }
 
-   virtual void SetElementNameTitle(const char* name, const char* title)
+   void SetElementNameTitle(const char* name, const char* title) override
    { TNamed::SetNameTitle(name, title); NameTitleChanged(); }
 
    TClass* GetChildClass() const { return fChildClass; }
    void    SetChildClass(TClass* c) { fChildClass = c; }
 
-   virtual Bool_t  AcceptElement(TEveElement* el);
+   Bool_t  AcceptElement(TEveElement* el) override;
 
-   virtual TClass* ProjectedClass(const TEveProjection* p) const;
+   TClass* ProjectedClass(const TEveProjection* p) const override;
 
-   ClassDef(TEveElementList, 0); // List of TEveElement objects with a possibility to limit the class of accepted elements.
+   ClassDefOverride(TEveElementList, 0); // List of TEveElement objects with a possibility to limit the class of accepted elements.
 };
 
 
@@ -485,12 +493,12 @@ private:
 
 public:
    TEveElementListProjected();
-   virtual ~TEveElementListProjected() {}
+   ~TEveElementListProjected() override {}
 
-   virtual void UpdateProjection();
-   virtual TEveElement* GetProjectedAsElement() { return this; }
+   void UpdateProjection() override;
+   TEveElement* GetProjectedAsElement() override { return this; }
 
-   ClassDef(TEveElementListProjected, 0); // Projected TEveElementList.
+   ClassDefOverride(TEveElementListProjected, 0); // Projected TEveElementList.
 };
 
 #endif

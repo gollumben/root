@@ -5,14 +5,29 @@
 # For the list of contributors see $ROOTSYS/README/CREDITS.
 
 add_subdirectory(batchcompute)
+add_subdirectory(codegen)
+if(NOT WIN32)
+  add_subdirectory(multiprocess)
+endif()
 add_subdirectory(roofitcore)
 add_subdirectory(roofit)
 if(mathmore)
   add_subdirectory(roofitmore)
 endif()
 add_subdirectory(roostats)
-if(xml)
-  add_subdirectory(histfactory)
+add_subdirectory(histfactory)
+add_subdirectory(hs3)
+if(NOT MSVC)
+  add_subdirectory(xroofit)
 endif()
-add_subdirectory(RDataFrameHelpers)
 
+set(roofit_etc_files
+  etc/HistFactorySchema.dtd
+)
+
+foreach(roofit_etc_file ${roofit_etc_files})
+  configure_file("${CMAKE_CURRENT_SOURCE_DIR}/${roofit_etc_file}" "${CMAKE_BINARY_DIR}/${roofit_etc_file}" COPYONLY)
+endforeach()
+
+install(FILES ${roofit_etc_files} DESTINATION ${CMAKE_INSTALL_SYSCONFDIR})
+install(DIRECTORY man/ DESTINATION ${CMAKE_INSTALL_MANDIR} ${DIR_PERMISSIONS})

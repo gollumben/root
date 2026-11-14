@@ -12,7 +12,6 @@
 #include <ROOT/Browsable/RElement.hxx>
 
 namespace ROOT {
-namespace Experimental {
 namespace Browsable {
 
 /** \class RGroup
@@ -20,7 +19,6 @@ namespace Browsable {
 \brief Group of browsable elements - combines several different elements together.
 \author Sergey Linev <S.Linev@gsi.de>
 \date 2019-11-22
-\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 */
 
 class RGroup : public RElement {
@@ -49,9 +47,7 @@ public:
    auto &GetChilds() const { return fChilds; }
 };
 
-
 } // namespace Browsable
-} // namespace Experimental
 } // namespace ROOT
 
 #endif

@@ -13,13 +13,13 @@
 \ingroup Base
 
 This class represents a RFC 3986 compatible URI.
-See http://rfc.net/rfc3986.html.
+\see https://doi.org/10.17487/RFC3986
 It provides member functions to set and return the different
 the different parts of an URI. The functionality is that of
 a validating parser.
 */
 
-#include <ctype.h>    // for tolower()
+#include <cctype>    // for tolower()
 #include "TUri.h"
 #include "TObjArray.h"
 #include "TObjString.h"
@@ -27,10 +27,10 @@ a validating parser.
 
 //RFC3986:
 // pchar = unreserved / pct-encoded / sub-delims / ":" / "@"
-const char* const kURI_pchar        = "(?:[[:alpha:][:digit:]-._~!$&'()*+,;=:@]|%[0-9A-Fa-f][0-9A-Fa-f])";
+const char* const kURI_pchar        = "(?:[[:alpha:][:digit:]\\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f][0-9A-Fa-f])";
 
 //unreserved characters, see chapter 2.3
-const char* const kURI_unreserved   = "[[:alpha:][:digit:]-._~]";
+const char* const kURI_unreserved   = "[[:alpha:][:digit:]\\-._~]";
 
 // reserved characters, see chapter
 // reserved      = gen-delims / sub-delims
@@ -44,7 +44,6 @@ const char* const kURI_unreserved   = "[[:alpha:][:digit:]-._~]";
 //const char* const kURI_subdelims    = "[!$&'()*+,;=]";
 
 
-ClassImp(TUri);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor that calls SetUri with a complete URI.
@@ -270,7 +269,7 @@ Bool_t TUri::SetScheme(const TString &scheme)
 Bool_t TUri::IsScheme(const TString &string)
 {
    return TPRegexp(
-             "^[[:alpha:]][[:alpha:][:digit:]+-.]*$"
+             "^[[:alpha:]][[:alpha:][:digit:]+\\-.]*$"
           ).Match(string);
 }
 
@@ -824,7 +823,7 @@ const TString TUri::PctEncode(const TString &source)
          // reserved character -> encode to 2 digit hex
          // preceded by '%'
          char buffer[4];
-         sprintf(buffer, "%%%02X", source[i]);
+         snprintf(buffer, 4, "%%%02X", source[i]);
          sink = sink + buffer;
       }
    }
@@ -900,7 +899,7 @@ Bool_t TUri::IsPathAbsolute(const TString &string)
 Bool_t TUri::IsPathNoscheme(const TString &string)
 {
    return (TPRegexp(
-              TString("^(([[:alpha:][:digit:]-._~!$&'()*+,;=@]|%[0-9A-Fa-f][0-9A-Fa-f])+)(/") + TString(kURI_pchar) + "*)*$"
+              TString("^(([[:alpha:][:digit:]\\-._~!$&'()*+,;=@]|%[0-9A-Fa-f][0-9A-Fa-f])+)(/") + TString(kURI_pchar) + "*)*$"
            ).Match(string) > 0);
 }
 
@@ -950,7 +949,7 @@ Bool_t TUri::IsPort(const TString &string)
 Bool_t TUri::IsRegName(const TString &string)
 {
    return (TPRegexp(
-              "^([[:alpha:][:digit:]-._~!$&'()*+,;=]|%[0-9A-Fa-f][0-9A-Fa-f])*$").Match(string) > 0);
+              "^([[:alpha:][:digit:]\\-._~!$&'()*+,;=]|%[0-9A-Fa-f][0-9A-Fa-f])*$").Match(string) > 0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

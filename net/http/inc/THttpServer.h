@@ -36,6 +36,7 @@ protected:
    std::unique_ptr<TRootSniffer> fSniffer; ///<! sniffer provides access to ROOT objects hierarchy
    Bool_t fTerminated{kFALSE};          ///<! termination flag, disables all requests processing
    Long_t fMainThrdId{0};               ///<! id of the thread for processing requests
+   Long_t fProcessingThrdId{0};         ///<! id of the thread where events are recently processing
    Bool_t fOwnThread{kFALSE};           ///<! true when specialized thread allocated for processing requests
    std::thread fThrd;                   ///<! own thread
    Bool_t fWSOnly{kFALSE};              ///<! when true, handle only websockets / longpoll engine
@@ -51,6 +52,7 @@ protected:
    std::string fDrawPage;        ///<! file name for drawing of single element
    std::string fDrawPageCont;    ///<! content of draw html page
    std::string fCors;            ///<! CORS: sets Access-Control-Allow-Origin header for ProcessRequest responses
+   std::string fCorsCredentials; ///<! CORS: add Access-Control-Allow-Credentials: true response header
 
    std::mutex fMutex;                                        ///<! mutex to protect list with arguments
    std::queue<std::shared_ptr<THttpCallArg>> fArgs;          ///<! submitted arguments
@@ -68,7 +70,7 @@ protected:
 
    std::string BuildWSEntryPage();
 
-   void ReplaceJSROOTLinks(std::shared_ptr<THttpCallArg> &arg);
+   void ReplaceJSROOTLinks(std::shared_ptr<THttpCallArg> &arg, const std::string &version = "");
 
    static Bool_t VerifyFilePath(const char *fname);
 
@@ -79,7 +81,7 @@ public:
    THttpServer(const char *engine = "http:8080");
    virtual ~THttpServer();
 
-   Bool_t CreateEngine(const char *engine);
+   virtual Bool_t CreateEngine(const char *engine);
 
    Bool_t IsAnyEngine() const { return fEngines.GetSize() > 0; }
 
@@ -91,6 +93,10 @@ public:
    Bool_t IsReadOnly() const;
 
    void SetReadOnly(Bool_t readonly = kTRUE);
+
+   Bool_t IsAllowPostObject() const;
+
+   void SetAllowPostObject(Bool_t allow_post_obj);
 
    Bool_t IsWSOnly() const;
 
@@ -111,6 +117,15 @@ public:
 
    /** Returns specified CORS domain */
    const char *GetCors() const { return fCors.c_str(); }
+
+   /** Enable/disable usage Access-Control-Allow-Credentials response header */
+   void SetCorsCredentials(const std::string &value = "true") { fCorsCredentials = value; }
+
+   /** Returns kTRUE if Access-Control-Allow-Credentials header should be used */
+   Bool_t IsCorsCredentials() const { return !fCorsCredentials.empty(); }
+
+   /** Returns specified CORS credentials value - if any */
+   const char *GetCorsCredentials() const { return fCorsCredentials.c_str(); }
 
    /** set name of top item in objects hierarchy */
    void SetTopName(const char *top) { fTopName = top; }

@@ -24,89 +24,56 @@ the number of degrees of freedom and the probability of the chi-squared
 is store in the summary dataset.
 **/
 
-#include "Riostream.h"
-
+#include "RooAbsPdf.h"
 #include "RooDataSet.h"
 #include "RooRealVar.h"
-#include "TString.h"
-#include "RooFit.h"
 #include "RooFitResult.h"
 #include "RooChi2MCSModule.h"
 #include "RooMsgService.h"
-#include "RooChi2Var.h"
 #include "RooDataHist.h"
 #include "TMath.h"
 #include "RooGlobalFunc.h"
 
-using namespace std;
-
-ClassImp(RooChi2MCSModule);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-RooChi2MCSModule::RooChi2MCSModule() :
-  RooAbsMCStudyModule("RooChi2MCSModule","RooChi2Module"),
-  _data(0), _chi2(0), _ndof(0), _chi2red(0), _prob(0)
-
-{
-  // Constructor of module
-}
+RooChi2MCSModule::RooChi2MCSModule() : RooAbsMCStudyModule("RooChi2MCSModule", "RooChi2Module") {}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy constructor
 
-RooChi2MCSModule::RooChi2MCSModule(const RooChi2MCSModule& other) :
-  RooAbsMCStudyModule(other),
-  _data(0), _chi2(0), _ndof(0), _chi2red(0), _prob(0)
-{
-}
+RooChi2MCSModule::RooChi2MCSModule(const RooChi2MCSModule &other) : RooAbsMCStudyModule(other) {}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Destructor
 
-RooChi2MCSModule:: ~RooChi2MCSModule()
-{
-  if (_chi2) {
-    delete _chi2 ;
-  }
-  if (_ndof) {
-    delete _ndof ;
-  }
-  if (_chi2red) {
-    delete _chi2red ;
-  }
-  if (_prob) {
-    delete _prob ;
-  }
-  if (_data) {
-    delete _data ;
-  }
-}
+RooChi2MCSModule::~RooChi2MCSModule() = default;
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Initialize module after attachment to RooMCStudy object
 
-Bool_t RooChi2MCSModule::initializeInstance()
+bool RooChi2MCSModule::initializeInstance()
 {
-  // Construct variable that holds -log(L) fit with null hypothesis for given parameter
-  _chi2     = new RooRealVar("chi2","chi^2",0) ;
-  _ndof     = new RooRealVar("ndof","number of degrees of freedom",0) ;
-  _chi2red  = new RooRealVar("chi2red","reduced chi^2",0) ;
-  _prob     = new RooRealVar("prob","prob(chi2,ndof)",0) ;
+   // Construct variable that holds -log(L) fit with null hypothesis for given parameter
+   _chi2 = std::make_unique<RooRealVar>("chi2", "chi^2", 0);
+   _ndof = std::make_unique<RooRealVar>("ndof", "number of degrees of freedom", 0);
+   _chi2red = std::make_unique<RooRealVar>("chi2red", "reduced chi^2", 0);
+   _prob = std::make_unique<RooRealVar>("prob", "prob(chi2,ndof)", 0);
 
-  // Create new dataset to be merged with RooMCStudy::fitParDataSet
-  _data = new RooDataSet("Chi2Data","Additional data for Chi2 study",RooArgSet(*_chi2,*_ndof,*_chi2red,*_prob)) ;
+   // Create new dataset to be merged with RooMCStudy::fitParDataSet
+   _data = std::make_unique<RooDataSet>("Chi2Data", "Additional data for Chi2 study",
+                                        RooArgSet(*_chi2, *_ndof, *_chi2red, *_prob));
 
-  return kTRUE ;
+   return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Initialize module at beginning of RooCMStudy run
 
-Bool_t RooChi2MCSModule::initializeRun(Int_t /*numSamples*/)
+bool RooChi2MCSModule::initializeRun(Int_t /*numSamples*/)
 {
   _data->reset() ;
-  return kTRUE ;
+  return true ;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -114,39 +81,37 @@ Bool_t RooChi2MCSModule::initializeRun(Int_t /*numSamples*/)
 /// calculations of this module so that it is merged with
 /// RooMCStudy::fitParDataSet() by RooMCStudy
 
-RooDataSet* RooChi2MCSModule::finalizeRun()
+RooDataSet *RooChi2MCSModule::finalizeRun()
 {
-  return _data ;
+   return _data.get();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Bin dataset and calculate chi2 of p.d.f w.r.t binned dataset
 
-Bool_t RooChi2MCSModule::processAfterFit(Int_t /*sampleNum*/)
+bool RooChi2MCSModule::processAfterFit(bool fitOk)
 {
+  if(!fitOk)
+     return true;
+
   RooAbsData* data = genSample() ;
+  std::unique_ptr<RooDataHist> binnedDataOwned;
   RooDataHist* binnedData = dynamic_cast<RooDataHist*>(data) ;
-  Bool_t deleteData(kFALSE) ;
   if (!binnedData) {
-    deleteData = kTRUE ;
-    binnedData = ((RooDataSet*)data)->binnedClone() ;
+    binnedDataOwned = std::unique_ptr<RooDataHist>{static_cast<RooDataSet*>(data)->binnedClone()};
+    binnedData = binnedDataOwned.get();
   }
 
-  RooChi2Var chi2Var("chi2Var","chi2Var",*fitModel(),*binnedData,RooFit::Extended(extendedGen()),RooFit::DataError(RooAbsData::SumW2)) ;
+  std::unique_ptr<RooAbsReal> chi2Var{fitModel()->createChi2(*binnedData,RooFit::Extended(extendedGen()),RooFit::DataError(RooAbsData::SumW2))};
 
-  RooArgSet* floatPars = (RooArgSet*) fitParams()->selectByAttrib("Constant",kFALSE) ;
+  std::unique_ptr<RooArgSet> floatPars{fitParams()->selectByAttrib("Constant",false)};
 
-  _chi2->setVal(chi2Var.getVal()) ;
-  _ndof->setVal(binnedData->numEntries()-floatPars->getSize()-1) ;
+  _chi2->setVal(chi2Var->getVal()) ;
+  _ndof->setVal(binnedData->numEntries()-floatPars->size()-1) ;
   _chi2red->setVal(_chi2->getVal()/_ndof->getVal()) ;
   _prob->setVal(TMath::Prob(_chi2->getVal(),static_cast<int>(_ndof->getVal()))) ;
 
   _data->add(RooArgSet(*_chi2,*_ndof,*_chi2red,*_prob)) ;
 
-  if (deleteData) {
-    delete binnedData ;
-  }
-  delete floatPars ;
-
-  return kTRUE ;
+  return true ;
 }

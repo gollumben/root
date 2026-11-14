@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate Data analysis       *
  * Package: TMVA                                                                  *
  * Class  : Ranking                                                               *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation (see header for description)                               *
@@ -21,7 +21,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::Ranking
@@ -38,7 +38,6 @@ Ranking for variables in method (implementation)
 
 #include <iomanip>
 
-ClassImp(TMVA::Ranking);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// default constructor
@@ -126,9 +125,9 @@ void TMVA::Ranking::Print() const
    Log() << kINFO << hline << Endl;
    for (std::vector<Rank>::const_iterator ir = fRanking.begin(); ir != fRanking.end(); ++ir ) {
       Log() << kINFO
-            << Form( "%4i : ",(*ir).GetRank() )
-            << std::setw(TMath::Max(maxL+0,9)) << (*ir).GetVariable().Data()
-            << Form( " : %3.3e", (*ir).GetRankValue() ) << Endl;
+            << TString::Format( "%4i : ",(*ir).GetRank() )
+            << std::setw(std::max(maxL+0,9)) << (*ir).GetVariable().Data()
+            << TString::Format( " : %3.3e", (*ir).GetRankValue() ) << Endl;
    }
    Log() << kINFO << hline << Endl;
 }

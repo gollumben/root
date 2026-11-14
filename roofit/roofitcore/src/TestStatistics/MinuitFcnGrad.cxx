@@ -1,33 +1,77 @@
-// Author: Patrick Bos, Netherlands eScience Center / NIKHEF 2021
+/*
+ * Project: RooFit
+ * Authors:
+ *   PB, Patrick Bos, Netherlands eScience Center, p.bos@esciencecenter.nl
+ *
+ * Copyright (c) 2021, CERN
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted according to the terms
+ * listed in LICENSE (http://roofit.sourceforge.net/license.txt)
+ */
 
-/*****************************************************************************
- * RooFit
- * Authors:                                                                  *
- *   WV, Wouter Verkerke, UC Santa Barbara, verkerke@slac.stanford.edu       *
- *   DK, David Kirkby,    UC Irvine,         dkirkby@uci.edu                 *
- *                                                                           *
- * Copyright (c) 2000-2021, Regents of the University of California          *
- *                          and Stanford University. All rights reserved.    *
- *                                                                           *
- * Redistribution and use in source and binary forms,                        *
- * with or without modification, are permitted according to the terms        *
- * listed in LICENSE (http://roofit.sourceforge.net/license.txt)             *
- *****************************************************************************/
-
-#include "TestStatistics/MinuitFcnGrad.h"
+#include "MinuitFcnGrad.h"
 
 #include "RooMinimizer.h"
 #include "RooMsgService.h"
 #include "RooAbsPdf.h"
+#include "RooNaNPacker.h"
 
-#include <iomanip>  // std::setprecision
+#include <Minuit2/Minuit2Minimizer.h>
+#include <Minuit2/FCNBase.h>
+
+#include <iomanip> // std::setprecision
 
 namespace RooFit {
 namespace TestStatistics {
 
+namespace {
+
+class MinuitGradFunctor : public ROOT::Minuit2::FCNBase {
+public:
+   MinuitGradFunctor(MinuitFcnGrad const &fcn, double errorLevel) : _fcn{fcn}, _up{errorLevel} {}
+
+   double operator()(std::vector<double> const &v) const override { return _fcn(v.data()); }
+   double Up() const override { return _up; }
+   void SetErrorDef(double val) override { _up = val; }
+   bool HasGradient() const override { return true; }
+   std::vector<double> Gradient(std::vector<double> const &params) const override
+   {
+      std::vector<double> grad(_fcn.getNDim());
+      _fcn.Gradient(params.data(), grad.data());
+      return grad;
+   }
+   // Unhide the 4-argument overload from FCNBase, which forwards to Gradient().
+   // Otherwise GCC's -Woverloaded-virtual (enabled with -Werror on some CI
+   // targets) complains because we only override the 5-argument overload here.
+   using FCNBase::GradientWithPrevResult;
+   std::vector<double> GradientWithPrevResult(std::vector<double> const &v, double *previous_grad, double *previous_g2,
+                                              double *previous_gstep, double fValAtV) const override
+   {
+      std::vector<double> output(v.size());
+      _fcn.GradientWithPrevResult(v.data(), output.data(), previous_grad, previous_g2, previous_gstep, fValAtV);
+      return output;
+   }
+   ROOT::Minuit2::GradientParameterSpace gradParameterSpace() const override
+   {
+      return _fcn.returnsInMinuit2ParameterSpace() ? ROOT::Minuit2::GradientParameterSpace::Internal
+                                                   : ROOT::Minuit2::GradientParameterSpace::External;
+   }
+
+   // TODO: Implement this
+   bool SecondDerivativeAlwaysVanishes(unsigned int /*i*/, unsigned int /*j*/) const override { return false; }
+
+private:
+   MinuitFcnGrad const &_fcn;
+   double _up;
+};
+
+} // namespace
+
 /** \class MinuitFcnGrad
  *
- * \brief Minuit-RooMinimizer interface which synchronizes parameter data and coordinates evaluation of likelihood (gradient) values
+ * \brief Minuit-RooMinimizer interface which synchronizes parameter data and coordinates evaluation of likelihood
+ * (gradient) values
  *
  * This class provides an interface between RooFit and Minuit. It synchronizes parameter values from Minuit, calls
  * calculator classes to evaluate likelihood and likelihood gradient values and returns them to Minuit. The Wrapper
@@ -40,70 +84,85 @@ namespace TestStatistics {
  * likelihood object, or to use a higher level entry point like RooAbsPdf::fitTo() or RooAbsPdf::createNLL().
  */
 
-double MinuitFcnGrad::DoEval(const double *x) const
+/// \param[in] absL The input likelihood.
+/// \param[in] context RooMinimizer that creates and owns this class.
+/// \param[in] parameters The vector of ParameterSettings objects that describe the parameters used in the Minuit
+/// \param[in] likelihoodMode Lmode
+/// \param[in] likelihoodGradientMode Lgrad
+/// \param[in] verbose true for verbose output
+/// Fitter. Note that these must match the set used in the Fitter used by \p context! It can be passed in from
+/// RooMinimizer with fitter()->Config().ParamsSettings().
+MinuitFcnGrad::MinuitFcnGrad(const std::shared_ptr<RooFit::TestStatistics::RooAbsL> &absL, RooMinimizer *context,
+                             std::vector<ROOT::Fit::ParameterSettings> &parameters, LikelihoodMode likelihoodMode,
+                             LikelihoodGradientMode likelihoodGradientMode)
+   : RooAbsMinimizerFcn(*absL->getParameters(), context), _minuitInternalX(getNDim(), 0), _minuitExternalX(getNDim(), 0)
 {
-   Bool_t parameters_changed = syncParameterValuesFromMinuitCalls(x, false);
+   synchronizeParameterSettings(parameters);
+
+   _calculationIsClean = std::make_unique<WrapperCalculationCleanFlags>();
+
+   SharedOffset shared_offset;
+
+   if (likelihoodMode == LikelihoodMode::multiprocess &&
+       likelihoodGradientMode == LikelihoodGradientMode::multiprocess) {
+      _likelihood = LikelihoodWrapper::create(likelihoodMode, absL, _calculationIsClean, shared_offset);
+      _likelihoodInGradient =
+         LikelihoodWrapper::create(LikelihoodMode::serial, absL, _calculationIsClean, shared_offset);
+   } else {
+      _likelihood = LikelihoodWrapper::create(likelihoodMode, absL, _calculationIsClean, shared_offset);
+      _likelihoodInGradient = _likelihood;
+   }
+
+   _gradient = LikelihoodGradientWrapper::create(likelihoodGradientMode, absL, _calculationIsClean, getNDim(), _context,
+                                                 shared_offset);
+
+   applyToLikelihood([&](auto &l) { l.synchronizeParameterSettings(parameters); });
+   _gradient->synchronizeParameterSettingsImpl(parameters);
+
+   // Note: can be different than RooGradMinimizerFcn/LikelihoodGradientSerial, where default options are passed
+   // (ROOT::Math::MinimizerOptions::DefaultStrategy() and ROOT::Math::MinimizerOptions::DefaultErrorDef())
+   applyToLikelihood([&](auto &l) { l.synchronizeWithMinimizer(ROOT::Math::MinimizerOptions()); });
+   _gradient->synchronizeWithMinimizer(ROOT::Math::MinimizerOptions());
+}
+
+/// Make sure the offsets are up to date
+///
+/// If the offsets need to be updated, this function triggers a likelihood evaluation.
+/// The likelihood will make sure the offset is set correctly in their shared_ptr
+/// offsets object, that is also shared with possible other LikelihoodWrapper members
+/// of MinuitFcnGrad and also the LikelihoodGradientWrapper member. Other necessary
+/// synchronization steps are also performed from the Wrapper child classes (e.g.
+/// sending the values to workers from MultiProcess::Jobs).
+void MinuitFcnGrad::syncOffsets() const
+{
+   if (_likelihood->isOffsetting() && (_evalCounter == 0 || offsets_reset_)) {
+      _likelihoodInGradient->evaluate();
+      offsets_reset_ = false;
+   }
+}
+
+double MinuitFcnGrad::operator()(const double *x) const
+{
+   syncParameterValuesFromMinuitCalls(x, false);
+
+   syncOffsets();
 
    // Calculate the function for these parameters
-//   RooAbsReal::setHideOffset(kFALSE);
-   likelihood->evaluate();
-   double fvalue = likelihood->getResult().Sum();
-   calculation_is_clean->likelihood = true;
-//   RooAbsReal::setHideOffset(kTRUE);
+   auto &likelihoodHere(_likelihoodInGradient && _gradient->isCalculating() ? *_likelihoodInGradient : *_likelihood);
+   likelihoodHere.evaluate();
+   double fvalue = likelihoodHere.getResult().Sum();
+   _calculationIsClean->likelihood = true;
 
-   if (!parameters_changed) {
-      return fvalue;
-   }
-
-   if (!std::isfinite(fvalue) || RooAbsReal::numEvalErrors() > 0 || fvalue > 1e30) {
-
-      if (_printEvalErrors >= 0) {
-
-         if (_doEvalErrorWall) {
-            oocoutW(static_cast<RooAbsArg *>(nullptr), Eval)
-               << "RooGradMinimizerFcn: Minimized function has error status." << std::endl
-               << "Returning maximum FCN so far (" << _maxFCN
-               << ") to force MIGRAD to back out of this region. Error log follows" << std::endl;
-         } else {
-            oocoutW(static_cast<RooAbsArg *>(nullptr), Eval)
-               << "RooGradMinimizerFcn: Minimized function has error status but is ignored" << std::endl;
-         }
-
-         Bool_t first(kTRUE);
-         ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << "Parameter values: ";
-         for (const auto rooAbsArg : *_floatParamList) {
-            auto var = static_cast<const RooRealVar*>(rooAbsArg);
-            if (first) {
-               first = kFALSE;
-            } else {
-               ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << ", ";
-            }
-            ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << var->GetName() << "=" << var->getVal();
-         }
-         ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << std::endl;
-
-         RooAbsReal::printEvalErrors(ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval), _printEvalErrors);
-         ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << std::endl;
-      }
-
-      if (_doEvalErrorWall) {
-         fvalue = _maxFCN + 1;
-      }
-
-      RooAbsReal::clearEvalErrorLog();
-      _numBadNLL++;
-   } else if (fvalue > _maxFCN) {
-      _maxFCN = fvalue;
-   }
+   fvalue = applyEvalErrorHandling(fvalue);
 
    // Optional logging
-   if (_verbose) {
-      std::cout << "\nprevFCN" << (likelihood->isOffsetting() ? "-offset" : "") << " = " << std::setprecision(10)
+   if (cfg().verbose) {
+      std::cout << "\nprevFCN" << (likelihoodHere.isOffsetting() ? "-offset" : "") << " = " << std::setprecision(10)
                 << fvalue << std::setprecision(4) << "  ";
       std::cout.flush();
    }
 
-   _evalCounter++;
+   finishDoEval();
    return fvalue;
 }
 
@@ -140,80 +199,94 @@ double MinuitFcnGrad::DoEval(const double *x) const
 /// happens when Minuit tries out values that lay outside the RooFit parameter's range(s). RooFit's setVal (called
 /// inside SetPdfParamVal) then clips the RooAbsArg's value to one of the range limits, instead of setting it to the
 /// value Minuit intended. When this happens, i.e. syncParameterValuesFromMinuitCalls is called with
-/// minuit_internal = false and the values do not match the previous values stored in minuit_internal_x_ *but* the
-/// values after SetPdfParamVal did not get set to the intended value, the minuit_internal_roofit_x_mismatch_ flag is
+/// minuit_internal = false and the values do not match the previous values stored in _minuitInternalX *but* the
+/// values after SetPdfParamVal did not get set to the intended value, the _minuitInternalRooFitXMismatch flag is
 /// set. This information can be used by calculators, if desired, for instance when a calculator does not want to make
 /// use of the range information in the RooAbsArg parameters.
 bool MinuitFcnGrad::syncParameterValuesFromMinuitCalls(const double *x, bool minuit_internal) const
 {
-   bool a_parameter_has_been_updated = false;
+   bool aParamWasUpdated = false;
    if (minuit_internal) {
       if (!returnsInMinuit2ParameterSpace()) {
-         throw std::logic_error("Updating Minuit-internal parameters only makes sense for (gradient) calculators that are defined in Minuit-internal parameter space.");
+         throw std::logic_error("Updating Minuit-internal parameters only makes sense for (gradient) calculators that "
+                                "are defined in Minuit-internal parameter space.");
       }
 
-      for (std::size_t ix = 0; ix < NDim(); ++ix) {
-         bool parameter_changed = (x[ix] != minuit_internal_x_[ix]);
+      for (std::size_t ix = 0; ix < getNDim(); ++ix) {
+         bool parameter_changed = (x[ix] != _minuitInternalX[ix]);
          if (parameter_changed) {
-            minuit_internal_x_[ix] = x[ix];
+            _minuitInternalX[ix] = x[ix];
          }
-         a_parameter_has_been_updated |= parameter_changed;
+         aParamWasUpdated |= parameter_changed;
       }
 
-      if(a_parameter_has_been_updated) {
-         calculation_is_clean->set_all(false);
-         likelihood->updateMinuitInternalParameterValues(minuit_internal_x_);
-         gradient->updateMinuitInternalParameterValues(minuit_internal_x_);
+      if (aParamWasUpdated) {
+         _calculationIsClean->set_all(false);
+         applyToLikelihood([&](auto &l) { l.updateMinuitInternalParameterValues(_minuitInternalX); });
+         _gradient->updateMinuitInternalParameterValues(_minuitInternalX);
       }
    } else {
-      bool a_parameter_is_mismatched = false;
+      bool aParamIsMismatched = false;
 
-      for (std::size_t ix = 0; ix < NDim(); ++ix) {
-         // Note: the return value of SetPdfParamVal does not always mean that the parameter's value in the RooAbsReal changed since last
-         // time! If the value was out of range bin, setVal was still called, but the value was not updated.
+      for (std::size_t ix = 0; ix < getNDim(); ++ix) {
+         // Note: the return value of SetPdfParamVal does not always mean that the parameter's value in the RooAbsReal
+         // changed since last time! If the value was out of range bin, setVal was still called, but the value was not
+         // updated.
          SetPdfParamVal(ix, x[ix]);
-         minuit_external_x_[ix] = x[ix];
-         // The above is why we need minuit_external_x_. The minuit_external_x_ vector can also be passed to
+         _minuitExternalX[ix] = x[ix];
+         // The above is why we need _minuitExternalX. The _minuitExternalX vector can also be passed to
          // LikelihoodWrappers, if needed, but typically they will make use of the RooFit parameters directly. However,
          // we log in the flag below whether they are different so that calculators can use this information.
-         bool parameter_changed = (x[ix] != minuit_external_x_[ix]);
-         a_parameter_has_been_updated |= parameter_changed;
-         a_parameter_is_mismatched |= (((RooRealVar *)_floatParamList->at(ix))->getVal() != minuit_external_x_[ix]);
+         bool parameter_changed = (x[ix] != _minuitExternalX[ix]);
+         aParamWasUpdated |= parameter_changed;
+         aParamIsMismatched |= (floatableParam(ix).getVal() != _minuitExternalX[ix]);
       }
 
-      minuit_internal_roofit_x_mismatch_ = a_parameter_is_mismatched;
+      _minuitInternalRooFitXMismatch = aParamIsMismatched;
 
-      if(a_parameter_has_been_updated) {
-         calculation_is_clean->set_all(false);
-         likelihood->updateMinuitExternalParameterValues(minuit_external_x_);
-         gradient->updateMinuitExternalParameterValues(minuit_external_x_);
+      if (aParamWasUpdated) {
+         _calculationIsClean->set_all(false);
+         applyToLikelihood([&](auto &l) { l.updateMinuitExternalParameterValues(_minuitExternalX); });
+         _gradient->updateMinuitExternalParameterValues(_minuitExternalX);
       }
    }
-   return a_parameter_has_been_updated;
+   return aParamWasUpdated;
 }
-
 
 void MinuitFcnGrad::Gradient(const double *x, double *grad) const
 {
+   _calculatingGradient = true;
    syncParameterValuesFromMinuitCalls(x, returnsInMinuit2ParameterSpace());
-   gradient->fillGradient(grad);
+   syncOffsets();
+   _gradient->fillGradient(grad);
+   _calculatingGradient = false;
 }
 
-double MinuitFcnGrad::DoDerivative(const double * /*x*/, unsigned int /*icoord*/) const
+void MinuitFcnGrad::GradientWithPrevResult(const double *x, double *grad, double *previous_grad, double *previous_g2,
+                                           double *previous_gstep, double fValAtX) const
 {
-   throw std::runtime_error("MinuitFcnGrad::DoDerivative is not implemented, please use Gradient instead.");
+   _calculatingGradient = true;
+   syncParameterValuesFromMinuitCalls(x, returnsInMinuit2ParameterSpace());
+   syncOffsets();
+   _gradient->fillGradientWithPrevResult(grad, previous_grad, previous_g2, previous_gstep, fValAtX);
+   _calculatingGradient = false;
 }
 
-Bool_t
-MinuitFcnGrad::Synchronize(std::vector<ROOT::Fit::ParameterSettings> &parameters, Bool_t optConst, Bool_t verbose)
+bool MinuitFcnGrad::Synchronize(std::vector<ROOT::Fit::ParameterSettings> &parameters)
 {
-   Bool_t returnee = synchronizeParameterSettings(parameters, optConst, verbose);
-   likelihood->synchronizeParameterSettings(parameters);
-   gradient->synchronizeParameterSettings(parameters);
+   bool returnee = synchronizeParameterSettings(parameters);
+   applyToLikelihood([&](auto &l) { l.synchronizeParameterSettings(parameters); });
+   _gradient->synchronizeParameterSettings(parameters);
 
-   likelihood->synchronizeWithMinimizer(_context->fitter()->Config().MinimizerOptions());
-   gradient->synchronizeWithMinimizer(_context->fitter()->Config().MinimizerOptions());
+   applyToLikelihood([&](auto &l) { l.synchronizeWithMinimizer(_context->fitter()->Config().MinimizerOptions()); });
+   _gradient->synchronizeWithMinimizer(_context->fitter()->Config().MinimizerOptions());
    return returnee;
+}
+
+void MinuitFcnGrad::initMinimizer(ROOT::Math::Minimizer &minim, RooMinimizer * /*context*/)
+{
+   auto &minuit = dynamic_cast<ROOT::Minuit2::Minuit2Minimizer &>(minim);
+   minuit.SetFCN(getNDim(), std::make_unique<MinuitGradFunctor>(*this, minim.ErrorDef()));
 }
 
 } // namespace TestStatistics

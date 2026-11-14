@@ -23,6 +23,8 @@ class TControlBar;
 class TCanvas : public TPad {
 
 friend class TCanvasImp;
+friend class TWebCanvas;
+friend class TPad;      // to create/reset painter for PS drawing
 friend class TThread;
 friend class TInterpreter;
 
@@ -53,6 +55,7 @@ protected:
    TPad         *fSelectedPad;     ///<! Pad containing currently selected object
    TPad         *fClickSelectedPad;///<! Pad containing currently click-selected object
    TPad         *fPadSave;         ///<! Pointer to saved pad in HandleInput
+   Int_t         fHandlingInput;   ///<! use to implement posponded update of canvas
    TCanvasImp   *fCanvasImp;       ///<! Window system specific canvas implementation
    TContextMenu *fContextMenu;     ///<! Context menu pointer
    Bool_t        fBatch;           ///<! True when in batchmode
@@ -60,8 +63,11 @@ protected:
    Bool_t        fRetained;        ///< Retain structure flag
    Bool_t        fUseGL;           ///<! True when rendering is with GL
    Bool_t        fDrawn;           ///<! Set to True when the Draw method is called
+   Bool_t        fUpdated;         ///<! Set to True when Update method was called
    //
    TVirtualPadPainter *fPainter;   ///<! Canvas (pad) painter.
+
+   TVirtualPad *fHilightPadBorder = nullptr; ///<! pad which border will be hilghlighrt when paint canvas
 
    static Bool_t fgIsFolder;       ///< Indicates if canvas can be browsed as a folder
 
@@ -75,6 +81,7 @@ private:
 
    //Initialize PadPainter.
    void     CreatePainter();
+   Bool_t   EnsurePSPainter(Bool_t create, TVirtualPadPainter *&oldp);
 
 protected:
    void     ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
@@ -101,7 +108,7 @@ public:
    TCanvas(const char *name, const char *title, Int_t wtopx, Int_t wtopy,
            Int_t ww, Int_t wh);
    TCanvas(const char *name, Int_t ww, Int_t wh, Int_t winid);
-   virtual ~TCanvas();
+   ~TCanvas() override;
 
    //-- used by friend TThread class
    void Constructor();
@@ -123,13 +130,13 @@ public:
    virtual void      EditorBar();
    void              EmbedInto(Int_t winid, Int_t ww, Int_t wh);
    void              EnterLeave(TPad *prevSelPad, TObject *prevSelObj);
-   void              FeedbackMode(Bool_t set);
+   void              FeedbackMode(Bool_t set) override;
    void              Flush();
    void              UseCurrentStyle() override; // *MENU*
    void              ForceUpdate();
    const char       *GetDISPLAY() const {return fDISPLAY.Data();}
    TContextMenu     *GetContextMenu() const {return fContextMenu;};
-   Int_t             GetDoubleBuffer() const {return fDoubleBuffer;}
+   Int_t             GetDoubleBuffer() const override { return fDoubleBuffer; }
    Int_t             GetEvent() const override { return fEvent; }
    Int_t             GetEventX() const override { return fEventX; }
    Int_t             GetEventY() const override { return fEventY; }
@@ -160,6 +167,8 @@ public:
    UInt_t            GetWindowHeight() const { return fWindowHeight; }
    UInt_t            GetWw() const override { return fCw; }
    UInt_t            GetWh() const override { return fCh; }
+   UInt_t            GetPadWidth() const override { return fCw; }
+   UInt_t            GetPadHeight() const override { return fCh; }
    virtual void      GetCanvasPar(Int_t &wtopx, Int_t &wtopy, UInt_t &ww, UInt_t &wh)
                      {wtopx=GetWindowTopX(); wtopy=fWindowTopY; ww=fWindowWidth; wh=fWindowHeight;}
    virtual void      HandleInput(EEventType button, Int_t x, Int_t y);
@@ -167,11 +176,12 @@ public:
    virtual void      HighlightConnect(const char *slot);
    void              Iconify();
    Bool_t            IsBatch() const override { return fBatch; }
-   Bool_t            IsDrawn() { return fDrawn; }
+   Bool_t            IsDrawn() const { return fDrawn; }
+   Bool_t            IsUpdated() const { return fUpdated; }
    Bool_t            IsFolder() const override;
    Bool_t            IsGrayscale();
    Bool_t            IsRetained() const override { return fRetained; }
-   Bool_t            IsWeb() const;
+   Bool_t            IsWeb() const override;
    void              ls(Option_t *option="") const override;
    void              MoveOpaque(Int_t set=1);
    Bool_t            OpaqueMoving() const override { return TestBit(kMoveOpaque); }
@@ -186,7 +196,8 @@ public:
    virtual void      Cleared(TVirtualPad *pad);                                        // *SIGNAL*
    void              Closed() override;                                                // *SIGNAL*
    void              RaiseWindow();
-   void              ResetDrawn() { fDrawn=kFALSE; }
+   void              ResetDrawn() { fDrawn = kFALSE; }
+   void              ResetUpdated() { fUpdated = kFALSE; }
    virtual void      Resize(Option_t *option="");
    void              ResizeOpaque(Int_t set=1);
    void              SaveSource(const char *filename="", Option_t *option="");
@@ -198,7 +209,7 @@ public:
    void              SetGrayscale(Bool_t set = kTRUE); // *TOGGLE* *GETTER=IsGrayscale
    void              SetWindowPosition(Int_t x, Int_t y);
    void              SetWindowSize(UInt_t ww, UInt_t wh);
-   void              SetCanvasImp(TCanvasImp *i) { fCanvasImp = i; }
+   void              SetCanvasImp(TCanvasImp *i);
    void              SetCanvasSize(UInt_t ww, UInt_t wh) override; // *MENU*
    void              SetHighLightColor(Color_t col) { fHighLightColor = col; }
    void              SetSelected(TObject *obj) override;
@@ -219,6 +230,7 @@ public:
    virtual void      ToggleEditor();
    virtual void      ToggleToolTips();
    void              Update() override;
+   void              UpdateAsync() override;
 
    Bool_t              UseGL() const { return fUseGL; }
    void                SetSupportGL(Bool_t support) {fUseGL = support;}
@@ -227,6 +239,8 @@ public:
 
    static TCanvas   *MakeDefCanvas();
    static Bool_t     SupportAlpha();
+
+   static Bool_t     SaveAll(const std::vector<TPad *>& = {}, const char *filename = "", Option_t *option = "");
 
    ClassDefOverride(TCanvas,8)  //Graphics canvas
 };

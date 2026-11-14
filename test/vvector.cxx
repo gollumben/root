@@ -20,13 +20,14 @@
 //////////////////////////////////////////////////////////////////////////
 
 //_____________________________batch only_____________________
-#ifndef __CINT__
+#ifndef __CLING__
 
 #include "TFile.h"
-#include <iostream>
-#include "snprintf.h"
 #include "TVectorD.h"
 #include "TMath.h"
+
+#include <iostream>
+#include <cstdio>
 
 void stress_vector       (Int_t verbose);
 void stress_allocation   ();
@@ -180,14 +181,14 @@ void stress_allocation()
 //                Test uniform element operations
 //
 class SinAction : public TElementActionD {
-  void Operation(Double_t &element) const { element = TMath::Sin(element); }
+  void Operation(Double_t &element) const override { element = TMath::Sin(element); }
   public:
     SinAction() { }
 };
 
 class CosAction : public TElementPosActionD {
   Double_t factor;
-  void Operation(Double_t &element) const { element = TMath::Cos(factor*fI); }
+  void Operation(Double_t &element) const override { element = TMath::Cos(factor*fI); }
   public:
     CosAction() { }
     CosAction(Int_t no_elems): factor(2*TMath::Pi()/no_elems) { }
@@ -298,7 +299,7 @@ void stress_element_op(Int_t vsize)
       std::cout << "\nCheck out to see that sin^2(x) + cos^2(x) = 1" << std::endl;
     for (Int_t i = v.GetLwb(); i <= v.GetUpb(); i++)
       v(i) = 2*TMath::Pi()/v.GetNoElements()*i;
-#ifndef __CINT__
+#ifndef __CLING__
     SinAction s;
     v.Apply(s);
     CosAction c(v.GetNoElements());
@@ -319,7 +320,7 @@ void stress_element_op(Int_t vsize)
 
   if (gVerbose)
     std::cout << "\nVerify constructor with initialization" << std::endl;
-#ifndef __CINT__
+#ifndef __CLING__
   TVectorD vi(0,4,0.0,1.0,2.0,3.0,4.0,"END");
 #else
   Double_t vval[] = {0.0,1.0,2.0,3.0,4.0};

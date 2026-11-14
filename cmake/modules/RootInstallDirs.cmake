@@ -14,14 +14,12 @@
 #  DATADIR          - read-only architecture-independent data (DATAROOTDIR/root)
 #  MANDIR           - man documentation (DATAROOTDIR/man)
 #  MACRODIR         - ROOT macros (DATAROOTDIR/macros)
-#  CINTINCDIR       - CINT include files (LIBDIR/cint)
 #  ICONDIR          - icons (DATAROOTDIR/icons)
 #  SRCDIR           - sources (DATAROOTDIR/src)
 #  FONTDIR          - fonts (DATAROOTDIR/fonts)
 #  DOCDIR           - documentation root (DATAROOTDIR/doc/PROJECT_NAME)
 #  TUTDIR           - tutorials (DOCDIR/tutorials)
 #  CMAKEDIR         - cmake modules (DATAROOTDIR/cmake)
-#  ELISPDIR         - lisp files (DATAROOTDIR/emacs/site-lisp)
 #
 # Each CMAKE_INSTALL_<dir> value may be passed to the DESTINATION options of
 # install() commands for the corresponding file type.  If the includer does
@@ -94,15 +92,6 @@ endif()
 # the cache and store the defaults in local variables if the cache values are
 # not set explicitly.  This auto-updates the defaults as DATAROOTDIR changes.
 
-if(NOT CMAKE_INSTALL_CINTINCDIR)
-  if(gnuinstall)
-    set(CMAKE_INSTALL_CINTINCDIR "" CACHE PATH "cint includes and libraries libraries  (LIBDIR/cint)")
-    set(CMAKE_INSTALL_CINTINCDIR "${CMAKE_INSTALL_LIBDIR}/cint")
-  else()
-    set(CMAKE_INSTALL_CINTINCDIR "cint" CACHE PATH "cint includes and libraries libraries (cint)")
-  endif()
-endif()
-
 if(NOT CMAKE_INSTALL_DATADIR)
   set(CMAKE_INSTALL_DATADIR "" CACHE PATH "read-only architecture-independent data (DATAROOTDIR)/root")
   if(gnuinstall)
@@ -166,6 +155,15 @@ if(NOT CMAKE_INSTALL_OPENUI5DIR)
   endif()
 endif()
 
+if(NOT CMAKE_INSTALL_FRAMEWORKSDIR)
+  set(CMAKE_INSTALL_FRAMEWORKSDIR "" CACHE PATH "Frameworks (DATADIR/Frameworks)")
+  if(gnuinstall)
+    set(CMAKE_INSTALL_FRAMEWORKSDIR "${CMAKE_INSTALL_DATADIR}/Frameworks")
+  else()
+    set(CMAKE_INSTALL_FRAMEWORKSDIR "Frameworks")
+  endif()
+endif()
+
 if(NOT CMAKE_INSTALL_SRCDIR)
   set(CMAKE_INSTALL_SRCDIR "" CACHE PATH "sources (DATADIR/src)")
   if(gnuinstall)
@@ -181,15 +179,6 @@ if(NOT CMAKE_INSTALL_CMAKEDIR)
     set(CMAKE_INSTALL_CMAKEDIR "${CMAKE_INSTALL_DATADIR}/cmake")
   else()
     set(CMAKE_INSTALL_CMAKEDIR "cmake")
-  endif()
-endif()
-
-if(NOT CMAKE_INSTALL_ELISPDIR)
-  set(CMAKE_INSTALL_ELISPDIR "" CACHE PATH "Lisp files (DATAROOTDIR/emacs/site-lisp)")
-  if(gnuinstall)
-    set(CMAKE_INSTALL_ELISPDIR "${CMAKE_INSTALL_DATAROOTDIR}/emacs/site-lisp")
-  else()
-    set(CMAKE_INSTALL_ELISPDIR "emacs/site-lisp")
   endif()
 endif()
 
@@ -211,7 +200,6 @@ if(NOT CMAKE_INSTALL_TUTDIR)
   endif()
 endif()
 
-
 #-----------------------------------------------------------------------------
 
 mark_as_advanced(
@@ -223,13 +211,14 @@ mark_as_advanced(
   CMAKE_INSTALL_DATAROOTDIR
   CMAKE_INSTALL_DATADIR
   CMAKE_INSTALL_MACRODIR
-  CMAKE_INSTALL_CINTINCDIR
   CMAKE_INSTALL_ICONDIR
   CMAKE_INSTALL_FONTDIR
+  CMAKE_INSTALL_JSROOTDIR
+  CMAKE_INSTALL_OPENUI5DIR
+  CMAKE_INSTALL_FRAMEWORKSDIR
   CMAKE_INSTALL_SRCDIR
   CMAKE_INSTALL_DOCDIR
   CMAKE_INSTALL_TUTDIR
-  CMAKE_INSTALL_ELISPDIR
   CMAKE_INSTALL_CMAKEDIR
   )
 
@@ -244,13 +233,14 @@ foreach(dir BINDIR
             DATAROOTDIR
             DATADIR
             MACRODIR
-            CINTINCDIR
             ICONDIR
             FONTDIR
+            JSROOTDIR
+            OPENUI5DIR
+            FRAMEWORKSDIR
             SRCDIR
             DOCDIR
             TUTDIR
-            ELISPDIR
             CMAKEDIR )
   if(NOT IS_ABSOLUTE ${CMAKE_INSTALL_${dir}})
     set(CMAKE_INSTALL_FULL_${dir} "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_${dir}}")

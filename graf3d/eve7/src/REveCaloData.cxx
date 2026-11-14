@@ -23,6 +23,7 @@
 
 #include <cassert>
 #include <algorithm>
+#include <memory>
 #include <set>
 
 #include <nlohmann/json.hpp>
@@ -128,6 +129,9 @@ REveCaloData::REveCaloData(const char* n, const char* t):
    // Constructor.
 }
 
+REveCaloData::~REveCaloData() {}
+void REveCaloData::SetSelector(REveCaloDataSelector* iSelector) { fSelector.reset(iSelector); }
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Process newly selected cells with given select-record.
 
@@ -155,7 +159,7 @@ void REveCaloData::ProcessSelection(vCellId_t& sel_cells, UInt_t selectionId, Bo
 /// Populate set impSelSet with derived / dependant elements.
 ///
 
-void REveCaloData::FillImpliedSelectedSet(Set_t& impSelSet)
+void REveCaloData::FillImpliedSelectedSet(Set_t& impSelSet, const std::set<int>&)
 {
    // printf("REveCaloData::FillImpliedSelectedSet\n");
    for (auto &n : fNieces)
@@ -648,7 +652,7 @@ X axis is used for eta and Y axis for phi.
 REveCaloDataHist::REveCaloDataHist():
    REveCaloData(),
 
-   fHStack(0)
+   fHStack(nullptr)
 {
    fHStack = new THStack();
    fEps    = 1e-5;
@@ -807,8 +811,8 @@ void REveCaloDataHist::GetCellData(const REveCaloData::CellId_t &id,
 Int_t REveCaloDataHist::AddHistogram(TH2F* hist)
 {
    if (!fEtaAxis) {
-      fEtaAxis.reset(new TAxis(*hist->GetXaxis()));
-      fPhiAxis.reset(new TAxis(*hist->GetYaxis()));
+      fEtaAxis = std::make_unique<TAxis>(*hist->GetXaxis());
+      fPhiAxis = std::make_unique<TAxis>(*hist->GetYaxis());
    }
    fHStack->Add(hist);
    fSliceInfos.push_back(SliceInfo_t());

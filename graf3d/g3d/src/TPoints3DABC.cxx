@@ -12,7 +12,6 @@
 #include "TPoints3DABC.h"
 #include "TMath.h"
 
-ClassImp(TPoints3DABC);
 
 /** \class TPoints3DABC
 \ingroup g3d
@@ -130,7 +129,7 @@ Int_t TPoints3DABC::GetN() const
 
 Float_t *TPoints3DABC::GetP() const
 {
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

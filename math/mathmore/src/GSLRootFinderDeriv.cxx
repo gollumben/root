@@ -46,7 +46,7 @@ namespace Math {
 
 
 GSLRootFinderDeriv::GSLRootFinderDeriv() :
-   fFunction(0), fS(0),
+   fFunction(nullptr), fS(nullptr),
    fRoot(0), fPrevRoot(0),
    fIter(0), fStatus(-1),
    fValidPoint(false)
@@ -60,20 +60,6 @@ GSLRootFinderDeriv::~GSLRootFinderDeriv()
    // delete function wrapper
    if (fFunction) delete fFunction;
 }
-
-GSLRootFinderDeriv::GSLRootFinderDeriv(const GSLRootFinderDeriv &) : IRootFinderMethod()
-{
-}
-
-GSLRootFinderDeriv & GSLRootFinderDeriv::operator = (const GSLRootFinderDeriv &rhs)
-{
-   // private operator=
-   if (this == &rhs) return *this;  // time saving self-test
-
-   return *this;
-}
-
-
 
 
 bool GSLRootFinderDeriv::SetFunction(  GSLFuncPointer f, GSLFuncPointer df, GSLFdFPointer Fdf, void * p, double xstart) {

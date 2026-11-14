@@ -33,15 +33,14 @@
 
 // A tokenizer that converts raw HTML into a linked list of HTML elements.
 
+#include "TGHtml.h"
+#include "TGHtmlTokens.h"
+#include "strlcpy.h"
+
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
 #include <cctype>
-
-#include "TGHtml.h"
-#include "TGHtmlTokens.h"
-#include "strlcpy.h"
-#include "snprintf.h"
 
 //----------------------------------------------------------------------
 
@@ -581,7 +580,6 @@ int TGHtml::Tokenize()
    int pIsInNoScript = 0;
    int pIsInNoFrames = 0;
 #endif
-   int sawdot = 0;
    int inLi = 0;
 
    static char null[1] = { "" };
@@ -595,7 +593,6 @@ int TGHtml::Tokenize()
 
    while ((c = z[n]) != 0) {
 
-      sawdot--;
       if (c == -64 && z[n+1] == -128) {
          n += 2;
          continue;
@@ -696,16 +693,6 @@ int TGHtml::Tokenize()
              (c = z[n+i]) != 0 && isspace((unsigned char)c) && c != '\n' && c != '\r';
               i++) { }
          if (c == '\r' && z[n+i+1] == '\n') ++i;
-#if 0  // this is certainly NOT OK, since it alters pre-formatted text
-         if (sawdot == 1) {
-            pElem = new TGHtmlTextElement(2);
-            strcpy(((TGHtmlTextElement *)pElem)->fZText, " ");
-            pElem->fElId = ++fIdind;
-            pElem->fOffs = n;
-            pElem->fCount = 1;
-            AppendElement(pElem);
-         }
-#endif
          pElem = new TGHtmlSpaceElement;
          if (pElem == 0) goto incomplete;
          ((TGHtmlSpaceElement *)pElem)->fW = 0;
@@ -733,7 +720,6 @@ int TGHtml::Tokenize()
 
          // Ordinary text
          for (i = 1; (c = z[n+i]) != 0 && !isspace((unsigned char)c) && c != '<'; i++) {}
-         if (z[n+i-1] == '.' || z[n+i-1] == '!' || z[n+i-1] == '?') sawdot = 2;
          if (c == 0) goto incomplete;
          if (fIPlaintext != 0 && z[n] == '<') {
             switch (fIPlaintext) {
@@ -948,11 +934,6 @@ makeMarkupEntry:
 #endif
             case Html_NOSCRIPT:
                break;
-               // coverity[unreachable]
-               if (!fHasScript) break;
-#ifdef pIsInMeachnism
-               pIsInNoScript = 1;
-#endif
             case Html_SCRIPT:
 #ifdef pIsInMeachnism
                pIsInScript = 1;

@@ -18,7 +18,6 @@ It is used in context menu "selectors" for picking up a value.
 
 #include "TToggleGroup.h"
 
-ClassImp(TToggleGroup);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -31,7 +30,7 @@ TToggleGroup::TToggleGroup()
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy constructor
 
-TToggleGroup::TToggleGroup(const TToggleGroup& rhs) : TNamed(rhs),fToggles(0)
+TToggleGroup::TToggleGroup(const TToggleGroup& rhs) : TNamed(rhs), fToggles(nullptr)
 {
    fToggles = (TOrdCollection*)rhs.fToggles->Clone();
 }
@@ -101,7 +100,7 @@ void TToggleGroup::Select(Int_t idx)
 void TToggleGroup::Select(TToggle *t)
 {
    TIter next(fToggles);
-   TToggle *i = 0;
+   TToggle *i = nullptr;
 
    // Untoggle toggled , and toggle this one if it's present on a list!
 

@@ -21,14 +21,16 @@ namespace Experimental {
 class REveDataCollection;
 class REveElement;
 
-class REveCollectionCompound : public REveCompound // ?? Should this be in as REveDataSimpleProxyBuilder.hxx ?????
+class REveCollectionCompound : public REveCompound
 {
 private:
    REveDataCollection *fCollection{nullptr};   
 public:
    REveCollectionCompound(REveDataCollection *c);
-   virtual ~REveCollectionCompound();
-   virtual REveElement *GetSelectionMaster() override;
+   ~REveCollectionCompound() override;
+   REveElement *GetSelectionMaster() override;
+
+   bool fUsed{false};
 };
 
 //
@@ -39,29 +41,28 @@ class REveDataSimpleProxyBuilder : public REveDataProxyBuilderBase
 
 public:
    REveDataSimpleProxyBuilder();
-   virtual ~REveDataSimpleProxyBuilder();
+   ~REveDataSimpleProxyBuilder() override;
 
    struct SPBProduct {
       std::map<int, REveCollectionCompound*> map;
-      int lastChildIdx{0};
    }; 
    
    typedef  std::map<REveElement*, std::unique_ptr<SPBProduct*> > EProductMap_t;
 
-   virtual REveElement* CreateProduct(const std::string& viewType, const REveViewContext*) override;
+   REveElement* CreateProduct(const std::string& viewType, const REveViewContext*) override;
 
 protected:
-   void Build(const REveDataCollection* iCollection, REveElement* product, const REveViewContext*) override;
+   void BuildProduct(const REveDataCollection* iCollection, REveElement* product, const REveViewContext*) override;
 
-   void BuildViewType(const REveDataCollection* iCollection, REveElement* product, const std::string& viewType, const REveViewContext*) override;
+   void BuildProductViewType(const REveDataCollection* iCollection, REveElement* product, const std::string& viewType, const REveViewContext*) override;
 
    // Called once for every item in collection, the void* points to the
    // item properly offset in memory.
-   virtual void Build(const void* data, int index, REveElement* iCollectionHolder, const REveViewContext*) = 0;
-   virtual void BuildViewType(const void* data, int index, REveElement* iCollectionHolder, const std::string& viewType, const REveViewContext*) = 0;
+   virtual void BuildItem(const void* data, int index, REveElement* iCollectionHolder, const REveViewContext*) = 0;
+   virtual void BuildItemViewType(const void* data, int index, REveElement* iCollectionHolder, const std::string& viewType, const REveViewContext*) = 0;
 
    void ModelChanges(const REveDataCollection::Ids_t& iIds, Product* p) override;
-   void FillImpliedSelected(REveElement::Set_t& impSet, Product* p) override;
+   void FillImpliedSelected(REveElement::Set_t& impSet, const std::set<int>& sec_idcs, Product* p) override;
    void Clean() override; // Utility
    REveCollectionCompound* CreateCompound(bool set_color=true, bool propagate_color_to_all_children=false);
 

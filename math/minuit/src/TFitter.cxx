@@ -22,7 +22,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 /// \class TFitter
-/// \legacy{TFitter}
+/// \legacy{TFitter, Consider switching to ROOT::Fit::Fitter.}
 ///
 /// The ROOT standard fitter based on TMinuit
 ///
@@ -31,7 +31,6 @@
 extern void F2Fit(Int_t &npar, Double_t *gin, Double_t &f, Double_t *u, Int_t flag);
 extern void F3Fit(Int_t &npar, Double_t *gin, Double_t &f, Double_t *u, Int_t flag);
 
-ClassImp(TFitter);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor
@@ -40,8 +39,8 @@ TFitter::TFitter(Int_t maxpar)
 {
    fMinuit = new TMinuit(maxpar);
    fNlog = 0;
-   fSumLog = 0;
-   fCovar = 0;
+   fSumLog = nullptr;
+   fCovar = nullptr;
    SetName("MinuitFitter");
 }
 
@@ -72,7 +71,7 @@ Double_t TFitter::Chisquare(Int_t , Double_t * )  const
 
 void TFitter::Clear(Option_t *)
 {
-   if (fCovar)  {delete [] fCovar; fCovar = 0;}
+   if (fCovar)  {delete [] fCovar; fCovar = nullptr;}
    fMinuit->mncler();
 
    //reset the internal Minuit random generator to its initial state
@@ -88,7 +87,7 @@ void TFitter::Clear(Option_t *)
 
 Int_t TFitter::ExecuteCommand(const char *command, Double_t *args, Int_t nargs)
 {
-   if (fCovar)  {delete [] fCovar; fCovar = 0;}
+   if (fCovar)  {delete [] fCovar; fCovar = nullptr;}
    Int_t ierr = 0;
    fMinuit->mnexcm(command,args,nargs,ierr);
    return ierr;
@@ -99,7 +98,7 @@ Int_t TFitter::ExecuteCommand(const char *command, Double_t *args, Int_t nargs)
 
 void TFitter::FixParameter(Int_t ipar)
 {
-   if (fCovar)  {delete [] fCovar; fCovar = 0;}
+   if (fCovar)  {delete [] fCovar; fCovar = nullptr;}
    fMinuit->FixParameter(ipar);
 }
 
@@ -123,18 +122,18 @@ void TFitter::GetConfidenceIntervals(Int_t n, Int_t ndim, const Double_t *x, Dou
    Int_t npar_real = f->GetNpar();
    Double_t *grad = new Double_t[npar_real];
    Double_t *sum_vector = new Double_t[npar];
-   Bool_t *fixed=0;
+   Bool_t *fixed=nullptr;
    Double_t al, bl;
    if (npar_real != npar){
       fixed = new Bool_t[npar_real];
       memset(fixed,0,npar_real*sizeof(Bool_t));
 
       for (Int_t ipar=0; ipar<npar_real; ipar++){
-         fixed[ipar]=0;
+         fixed[ipar]=false;
          f->GetParLimits(ipar,al,bl);
          if (al*bl != 0 && al >= bl) {
             //this parameter is fixed
-            fixed[ipar]=1;
+            fixed[ipar]=true;
          }
       }
    }
@@ -551,7 +550,7 @@ void  TFitter::PrintResults(Int_t level, Double_t amin) const
 
 void TFitter::ReleaseParameter(Int_t ipar)
 {
-   if (fCovar)  {delete [] fCovar; fCovar = 0;}
+   if (fCovar)  {delete [] fCovar; fCovar = nullptr;}
    fMinuit->Release(ipar);
 }
 
@@ -560,7 +559,7 @@ void TFitter::ReleaseParameter(Int_t ipar)
 
 void TFitter::SetFCN(void (*fcn)(Int_t &, Double_t *, Double_t &f, Double_t *, Int_t))
 {
-   if (fCovar)  {delete [] fCovar; fCovar = 0;}
+   if (fCovar)  {delete [] fCovar; fCovar = nullptr;}
    TVirtualFitter::SetFCN(fcn);
    fMinuit->SetFCN(fcn);
 }
@@ -570,7 +569,7 @@ void TFitter::SetFCN(void (*fcn)(Int_t &, Double_t *, Double_t &f, Double_t *, I
 
 void TFitter::SetFitMethod(const char *name)
 {
-   if (fCovar)  {delete [] fCovar; fCovar = 0;}
+   if (fCovar)  {delete [] fCovar; fCovar = nullptr;}
    if (!strcmp(name,"F2Minimizer")) SetFCN(F2Fit);
    if (!strcmp(name,"F3Minimizer")) SetFCN(F3Fit);
 }
@@ -587,7 +586,7 @@ void TFitter::SetFitMethod(const char *name)
 
 Int_t TFitter::SetParameter(Int_t ipar,const char *parname,Double_t value,Double_t verr,Double_t vlow, Double_t vhigh)
 {
-   if (fCovar)  {delete [] fCovar; fCovar = 0;}
+   if (fCovar)  {delete [] fCovar; fCovar = nullptr;}
    Int_t ierr = 0;
    fMinuit->mnparm(ipar,parname,value,verr,vlow,vhigh,ierr);
    return ierr;

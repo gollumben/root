@@ -11,7 +11,6 @@
 
 #include "ASTTransformer.h"
 #include "AutoSynthesizer.h"
-#include "BackendPasses.h"
 #include "CheckEmptyTransactionTransformer.h"
 #include "ClingPragmas.h"
 #include "DeclCollector.h"
@@ -54,6 +53,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CrashRecoveryContext.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/MemoryBuffer.h"
 
 #include <stdio.h>
@@ -163,14 +163,15 @@ namespace {
 
     void HandleDiagnostic(DiagnosticsEngine::Level DiagLevel,
                           const Diagnostic &Info) override {
+      if (Info.getID() == diag::warn_falloff_nonvoid) {
+        DiagLevel = DiagnosticsEngine::Error;
+      }
       if (Ignoring()) {
         if (Info.getID() == diag::warn_unused_expr
+            || Info.getID() == diag::warn_unused_result
             || Info.getID() == diag::warn_unused_call
             || Info.getID() == diag::warn_unused_comparison)
           return; // ignore!
-        if (Info.getID() == diag::warn_falloff_nonvoid_function) {
-          DiagLevel = DiagnosticsEngine::Error;
-        }
         if (Info.getID() == diag::ext_return_has_expr) {
           // An error that we need to suppress.
           auto Diags = const_cast<DiagnosticsEngine*>(Info.getDiags());
@@ -204,7 +205,7 @@ namespace {
   public:
     FilteringDiagConsumer(DiagnosticsEngine& Diags, bool Own)
       : DiagnosticsOverride(Diags, Own) {}
-    virtual ~FilteringDiagConsumer() { setTargetConsumer(nullptr); }
+    ~FilteringDiagConsumer() override { setTargetConsumer(nullptr); }
 
     /// \brief Sets the DiagnosticConsumer that sees `HandleDiagnostic()` calls.
     /// \param[in] Consumer - The target DiagnosticConsumer, or `nullptr` to
@@ -274,7 +275,7 @@ static void HandlePlugins(CompilerInstance& CI,
     PluginASTAction::ActionType PluginActionType = P->getActionType();
     assert(PluginActionType != clang::PluginASTAction::ReplaceAction);
 
-    if (P->ParseArgs(CI, CI.getFrontendOpts().PluginArgs[it->getName()])) {
+    if (P->ParseArgs(CI, CI.getFrontendOpts().PluginArgs[it->getName().str()])) {
       std::unique_ptr<ASTConsumer> PluginConsumer
         = P->CreateASTConsumer(CI, /*InputFile*/ "");
       if (PluginActionType == clang::PluginASTAction::AddBeforeMainAction)
@@ -291,8 +292,9 @@ namespace cling {
       : m_Interpreter(interp) {
     std::unique_ptr<cling::DeclCollector> consumer;
     consumer.reset(m_Consumer = new cling::DeclCollector());
-    m_CI.reset(CIFactory::createCI("", interp->getOptions(), llvmdir,
-                                   std::move(consumer), moduleExtensions));
+    m_CI.reset(CIFactory::createCI("\n", interp->getOptions(), llvmdir,
+                                   std::make_optional(std::move(consumer)),
+                                   moduleExtensions));
 
     if (!m_CI) {
       cling::errs() << "Compiler instance could not be created.\n";
@@ -314,14 +316,12 @@ namespace cling {
 
     DiagnosticsEngine& Diag = m_CI->getDiagnostics();
     if (m_CI->getFrontendOpts().ProgramAction != frontend::ParseSyntaxOnly) {
-      auto CG
-        = std::unique_ptr<clang::CodeGenerator>(CreateLLVMCodeGen(Diag,
-                                                               makeModuleName(),
-                                                    m_CI->getHeaderSearchOpts(),
-                                                    m_CI->getPreprocessorOpts(),
-                                                         m_CI->getCodeGenOpts(),
-                                               *m_Interpreter->getLLVMContext())
-                                                );
+      auto CG = m_Interpreter->withLLVMContextDo([&](llvm::LLVMContext* Ctx) {
+        return std::unique_ptr<clang::CodeGenerator>(CreateLLVMCodeGen(
+            Diag, makeModuleName(), &m_CI->getVirtualFileSystem(),
+            m_CI->getHeaderSearchOpts(), m_CI->getPreprocessorOpts(),
+            m_CI->getCodeGenOpts(), *Ctx));
+      });
       m_CodeGen = CG.get();
       assert(m_CodeGen);
       if (!Consumers.empty()) {
@@ -359,9 +359,9 @@ namespace cling {
       Transaction* PchT = beginTransaction(CO);
       DiagnosticErrorTrap Trap(Diags);
       m_CI->createPCHExternalASTSource(PCHFileName,
-                                       true /*DisablePCHValidation*/,
+                                       DisableValidationForModuleKind::All,
                                        true /*AllowPCHWithCompilerErrors*/,
-                                       0 /*DeserializationListener*/,
+                                       nullptr /*DeserializationListener*/,
                                        true /*OwnsDeserializationListener*/);
       result.push_back(endTransaction(PchT));
       if (Trap.hasErrorOccurred()) {
@@ -555,9 +555,9 @@ namespace cling {
   }
 
   llvm::Module* IncrementalParser::StartModule() {
-    return getCodeGenerator()->StartModule(makeModuleName(),
-                                           *m_Interpreter->getLLVMContext(),
-                                           getCI()->getCodeGenOpts());
+    return m_Interpreter->withLLVMContextDo([&](llvm::LLVMContext* Ctx) {
+      return getCodeGenerator()->StartModule(makeModuleName(), *Ctx);
+    });
   }
 
   void IncrementalParser::commitTransaction(ParseResultTransaction& PRT,
@@ -642,6 +642,8 @@ namespace cling {
       Transaction* prevConsumerT = m_Consumer->getTransaction();
       m_Consumer->setTransaction(T);
       Transaction* nestedT = beginTransaction(T->getCompilationOpts());
+      // Process used vtables and generate implicit bodies.
+      getCI()->getSema().DefineUsedVTables();
       // Pull all template instantiations in that came from the consumers.
       getCI()->getSema().PerformPendingInstantiations();
 #ifdef _WIN32
@@ -650,10 +652,10 @@ namespace cling {
       // They will seriously confuse the Parser when entering the next
       // source file. So lex until we are EOF.
       Token Tok;
-      Tok.setKind(tok::eof);
+      Tok.setKind(tok::annot_repl_input_end);
       do {
         getCI()->getSema().getPreprocessor().Lex(Tok);
-      } while (Tok.isNot(tok::eof));
+      } while (Tok.isNot(tok::annot_repl_input_end));
 #endif
 
       ParseResultTransaction nestedPRT = endTransaction(nestedT);
@@ -679,6 +681,8 @@ namespace cling {
           // Interpreter::unload
           //   IncrementalParser::deregisterTransaction
           //     TransactionPool::releaseTransaction
+          PRT.setPointer(nullptr);
+          PRT.setInt(kFailed);
           m_Interpreter->unload(*T);
           return;
         }
@@ -722,6 +726,14 @@ namespace cling {
       if (InterpreterCallbacks* callbacks = m_Interpreter->getCallbacks())
         callbacks->TransactionCodeGenStarted(*T);
 
+      // Update CodeGen to current optimization level, which might be different
+      // from what it had when constructed.
+      auto &CGOpts = m_CI->getCodeGenOpts();
+      CGOpts.OptimizationLevel = T->getCompilationOpts().OptLevel;
+      CGOpts.setInlining((CGOpts.OptimizationLevel == 0)
+                         ? CodeGenOptions::OnlyAlwaysInlining
+                         : CodeGenOptions::NormalInlining);
+
       // The initializers are emitted to the symbol "_GLOBAL__sub_I_" + filename.
       // Make that unique!
       deserT = beginTransaction(CompilationOptions());
@@ -757,13 +769,13 @@ namespace cling {
 
     if (Transaction* Parent = T.getParent()) {
       Parent->removeNestedTransaction(&T);
-      T.setParent(0);
+      T.setParent(nullptr);
     } else {
       if (&T == m_Transactions.back()) {
         // Remove from the queue
         m_Transactions.pop_back();
         if (!m_Transactions.empty())
-          m_Transactions.back()->setNext(0);
+          m_Transactions.back()->setNext(nullptr);
       } else {
         // If T is not the last transaction it must not be a previous
         // transaction either, but a "disconnected" one, i.e. one that
@@ -847,22 +859,19 @@ namespace cling {
 
     Sema& S = getCI()->getSema();
 
-    const CompilationOptions& CO
-       = m_Consumer->getTransaction()->getCompilationOpts();
-
     // Recover resources if we crash before exiting this method.
     llvm::CrashRecoveryContextCleanupRegistrar<Sema> CleanupSema(&S);
 
     Preprocessor& PP = m_CI->getPreprocessor();
     if (!PP.getCurrentLexer()) {
        PP.EnterSourceFile(m_CI->getSourceManager().getMainFileID(),
-                          0, SourceLocation());
+             nullptr, SourceLocation());
     }
     assert(PP.isIncrementalProcessingEnabled() && "Not in incremental mode!?");
-    PP.enableIncrementalProcessing();
 
     smallstream source_name;
-    source_name << "input_line_" << (m_MemoryBuffers.size() + 1);
+    // FIXME: Pre-increment to avoid failing tests.
+    source_name << "input_line_" << ++InputCount;
 
     // Create an uninitialized memory buffer, copy code in and append "\n"
     size_t InputSize = input.size(); // don't include trailing 0
@@ -880,94 +889,108 @@ namespace cling {
     // candidates for example
     SourceLocation NewLoc = getNextAvailableUniqueSourceLoc();
 
-    llvm::MemoryBuffer* MBNonOwn = MB.get();
-
     // Create FileID for the current buffer.
     FileID FID;
     // Create FileEntry and FileID for the current buffer.
     // Enabling the completion point only works on FileEntries.
-    const clang::FileEntry* FE
-      = SM.getFileManager().getVirtualFile(source_name.str(), InputSize,
-                                           0 /* mod time*/);
+    FileEntryRef FE =
+        SM.getFileManager().getVirtualFileRef(source_name.str(), InputSize,
+                                              0 /* mod time*/);
     SM.overrideFileContents(FE, std::move(MB));
-    FID = SM.createFileID(FE, NewLoc, SrcMgr::C_User);
-    if (CO.CodeCompletionOffset != -1) {
-      // The completion point is set one a 1-based line/column numbering.
-      // It relies on the implementation to account for the wrapper extra line.
-      PP.SetCodeCompletionPoint(FE, 1/* start point 1-based line*/,
-                                CO.CodeCompletionOffset+1/* 1-based column*/);
-    }
 
-    m_MemoryBuffers.push_back(std::make_pair(MBNonOwn, FID));
+    // Ensure HeaderFileInfo exists before lookup to prevent assertion
+    HeaderSearch& HS = PP.getHeaderSearchInfo();
+    HS.getFileInfo(FE);
+
+    FID = SM.createFileID(FE, NewLoc, SrcMgr::C_User);
 
     // NewLoc only used for diags.
-    PP.EnterSourceFile(FID, /*DirLookup*/0, NewLoc);
+    PP.EnterSourceFile(FID, /*DirLookup*/nullptr, NewLoc);
     m_Consumer->getTransaction()->setBufferFID(FID);
 
-    DiagnosticsEngine& Diags = getCI()->getDiagnostics();
-
-    FilteringDiagConsumer::RAAI RAAITmp(*m_DiagConsumer, CO.IgnorePromptDiags);
-
-    DiagnosticErrorTrap Trap(Diags);
-    Sema::SavePendingInstantiationsRAII SavedPendingInstantiations(S);
-
-    Parser::DeclGroupPtrTy ADecl;
-    while (!m_Parser->ParseTopLevelDecl(ADecl)) {
-      // If we got a null return and something *was* parsed, ignore it.  This
-      // is due to a top-level semicolon, an action override, or a parse error
-      // skipping something.
-      if (Trap.hasErrorOccurred())
-        m_Consumer->getTransaction()->setIssuedDiags(Transaction::kErrors);
-      if (ADecl)
-        m_Consumer->HandleTopLevelDecl(ADecl.get());
-    };
-    // If never entered the while block, there's a chance an error occured
-    if (Trap.hasErrorOccurred())
-      m_Consumer->getTransaction()->setIssuedDiags(Transaction::kErrors);
-
-    if (CO.CodeCompletionOffset != -1) {
-      assert((int)SM.getFileOffset(PP.getCodeCompletionLoc())
-             == CO.CodeCompletionOffset
-             && "Completion point wrongly set!");
-      assert(PP.isCodeCompletionReached()
-             && "Code completion set but not reached!");
-
-      // Let's ignore this transaction:
-      m_Consumer->getTransaction()->setIssuedDiags(Transaction::kErrors);
-
-      return kSuccess;
+    llvm::Error res = ParseOrWrapTopLevelDecl();
+    if (res) {
+      llvm::consumeError(std::move(res));
+      return kFailed;
     }
 
-#ifdef _WIN32
-    // Microsoft-specific:
-    // Late parsed templates can leave unswallowed "macro"-like tokens.
-    // They will seriously confuse the Parser when entering the next
-    // source file. So lex until we are EOF.
-    Token Tok;
-    Tok.setKind(tok::eof);
-    do {
-      PP.Lex(Tok);
-    } while (Tok.isNot(tok::eof));
-#endif
+    if (PP.getLangOpts().DelayedTemplateParsing) {
+      // Microsoft-specific:
+      // Late parsed templates can leave unswallowed "macro"-like tokens.
+      // They will seriously confuse the Parser when entering the next
+      // source file. So lex until we are EOF.
+      Token Tok;
+      do {
+        PP.Lex(Tok);
+      } while (Tok.isNot(tok::annot_repl_input_end));
+    }
 
-#ifndef NDEBUG
     Token AssertTok;
     PP.Lex(AssertTok);
-    assert(AssertTok.is(tok::eof) && "Lexer must be EOF when starting incremental parse!");
-#endif
+    assert(AssertTok.is(tok::annot_repl_input_end) &&
+           "Lexer must be EOF when starting incremental parse!");
 
-    // Process any TopLevelDecls generated by #pragma weak.
-    for (llvm::SmallVector<Decl*,2>::iterator I = S.WeakTopLevelDecls().begin(),
-         E = S.WeakTopLevelDecls().end(); I != E; ++I) {
-      m_Consumer->HandleTopLevelDecl(DeclGroupRef(*I));
-    }
-
+    DiagnosticsEngine& Diags = getCI()->getDiagnostics();
     if (m_Consumer->getTransaction()->getIssuedDiags() == Transaction::kErrors)
       return kFailed;
     else if (Diags.getNumWarnings())
       return kSuccessWithWarnings;
 
     return kSuccess;
+  }
+
+  llvm::Error IncrementalParser::ParseOrWrapTopLevelDecl() {
+    // Recover resources if we crash before exiting this method.
+    Sema& S = getCI()->getSema();
+    DiagnosticsEngine& Diags = getCI()->getDiagnostics();
+
+    const CompilationOptions& CO =
+        m_Consumer->getTransaction()->getCompilationOpts();
+    FilteringDiagConsumer::RAAI RAAITmp(*m_DiagConsumer, CO.IgnorePromptDiags);
+
+    llvm::CrashRecoveryContextCleanupRegistrar<Sema> CleanupSema(&S);
+    Sema::GlobalEagerInstantiationScope GlobalInstantiations(
+        S, /*Enabled=*/true, /*AtEndOfTU=*/true);
+    Sema::LocalEagerInstantiationScope LocalInstantiations(S,
+                                                           /*AtEndOfTU=*/true);
+
+    // Skip previous eof due to last incremental input.
+    if (m_Parser->getCurToken().is(tok::annot_repl_input_end)) {
+      m_Parser->ConsumeAnyToken();
+    }
+
+    Parser::DeclGroupPtrTy ADecl;
+    Sema::ModuleImportState ImportState;
+    for (bool AtEOF = m_Parser->ParseFirstTopLevelDecl(ADecl, ImportState);
+         !AtEOF; AtEOF = m_Parser->ParseTopLevelDecl(ADecl, ImportState)) {
+      if (ADecl && !m_Consumer->HandleTopLevelDecl(ADecl.get())) {
+        m_Consumer->getTransaction()->setIssuedDiags(Transaction::kErrors);
+        return llvm::make_error<llvm::StringError>(
+            "Parsing failed. "
+            "The consumer rejected a decl",
+            std::error_code());
+      }
+    }
+
+    // If never entered the while block, there's a chance an error occured
+    if (Diags.hasErrorOccurred()) {
+      m_Consumer->getTransaction()->setIssuedDiags(Transaction::kErrors);
+      // Diags.Reset(/*soft=*/true);
+      // Diags.getClient()->clear();
+      return llvm::make_error<llvm::StringError>("Parsing failed.",
+                                                 std::error_code());
+    }
+
+    // Process any TopLevelDecls generated by #pragma weak.
+    for (Decl* D : S.WeakTopLevelDecls()) {
+      DeclGroupRef DGR(D);
+      m_Consumer->HandleTopLevelDecl(DGR);
+    }
+
+    LocalInstantiations.perform();
+    GlobalInstantiations.perform();
+
+    return llvm::Error::success();
   }
 
   void IncrementalParser::printTransactionStructure() const {
@@ -991,10 +1014,12 @@ namespace cling {
       // Don't protect against crashes if we cannot run anything.
       // cling might also be in a PCH-generation mode; don't inject our Sema
       // pointer into the PCH.
-      if (!isCUDADevice)
+#ifndef CLING_WITH_ADAPTIVECPP
+      if (!isCUDADevice && m_Interpreter->getOptions().PtrCheck)
         ASTTransformers.emplace_back(
             new NullDerefProtectionTransformer(m_Interpreter));
-      else
+#endif
+      if (isCUDADevice)
         ASTTransformers.emplace_back(
             new DeviceKernelInliner(TheSema));
     }

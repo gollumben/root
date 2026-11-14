@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : VariableNormalizeTransform                                            *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation (see header for description)                               *
@@ -24,7 +24,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::VariableNormalizeTransform
@@ -50,14 +50,17 @@ Linear interpolation class
 #include <iomanip>
 #include <cfloat>
 
-ClassImp(TMVA::VariableNormalizeTransform);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor
 
-TMVA::VariableNormalizeTransform::VariableNormalizeTransform( DataSetInfo& dsi )
-: VariableTransformBase( dsi, Types::kNormalized, "Norm" )
+TMVA::VariableNormalizeTransform::VariableNormalizeTransform( DataSetInfo& dsi, TString strcor )
+: VariableTransformBase( dsi, Types::kNormalized, "Norm" ),
+   fNoOffset(kFALSE)
 {
+   if (strcor=="Scale") {fNoOffset = kTRUE;
+      SetName("Scale");
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -144,10 +147,16 @@ const TMVA::Event* TMVA::VariableNormalizeTransform::Transform( const TMVA::Even
 
       min = minVector.at(iidx);
       max = maxVector.at(iidx);
-      Float_t offset = min;
-      Float_t scale  = 1.0/(max-min);
 
-      Float_t valnorm = (val-offset)*scale * 2 - 1;
+      Float_t valnorm;
+      if (!fNoOffset) {
+         Float_t offset = min;
+         Float_t scale  = 1.0/(max-min);
+         valnorm        = (val-offset)*scale * 2 - 1;
+      } else {
+         fabs(max)>fabs(min) ? valnorm=val/fabs(max) : valnorm=val/fabs(min);
+      }
+
       output.push_back( valnorm );
 
       ++iidx;
@@ -189,10 +198,16 @@ const TMVA::Event* TMVA::VariableNormalizeTransform::InverseTransform(const TMVA
 
       min = minVector.at(iidx);
       max = maxVector.at(iidx);
-      Float_t offset = min;
-      Float_t scale  = 1.0/(max-min);
 
-      Float_t valnorm = offset+((val+1)/(scale * 2));
+      Float_t valnorm;
+      if (!fNoOffset) {
+         Float_t offset = min;
+         Float_t scale  = 1.0/(max-min);
+         valnorm = offset+((val+1)/(scale * 2));
+      } else {
+         fabs(max)>fabs(min) ? valnorm=val*fabs(max) : valnorm=val*fabs(min);
+      }
+
       output.push_back( valnorm );
 
       ++iidx;
@@ -283,13 +298,20 @@ std::vector<TString>* TMVA::VariableNormalizeTransform::GetTransformationStrings
 
       Char_t type = (*itGet).first;
       UInt_t idx  = (*itGet).second;
-      Float_t offset = min;
-      Float_t scale  = 1.0/(max-min);
+      Float_t offset;
+      Float_t scale;
+      if (!fNoOffset) {
+         offset = min;
+         scale  = 1.0/(max-min);
+      } else {
+         offset = 0.;
+         fabs(max)>fabs(min) ? scale=.5/fabs(max) : scale=.5/fabs(min);
+      }
       TString str("");
       VariableInfo& varInfo = (type=='v'?fDsi.GetVariableInfo(idx):(type=='t'?fDsi.GetTargetInfo(idx):fDsi.GetSpectatorInfo(idx)));
 
-      if (offset < 0) str = Form( "2*%g*([%s] + %g) - 1", scale, varInfo.GetLabel().Data(), -offset );
-      else            str = Form( "2*%g*([%s] - %g) - 1", scale, varInfo.GetLabel().Data(),  offset );
+      if (offset < 0) str = TString::Format( "2*%g*([%s] + %g) - 1", scale, varInfo.GetLabel().Data(), -offset );
+      else            str = TString::Format( "2*%g*([%s] - %g) - 1", scale, varInfo.GetLabel().Data(),  offset );
       (*strVec)[iinp] = str;
 
       ++iinp;
@@ -330,6 +352,7 @@ void TMVA::VariableNormalizeTransform::AttachXMLTo(void* parent)
 {
    void* trfxml = gTools().AddChild(parent, "Transform");
    gTools().AddAttr(trfxml, "Name", "Normalize");
+   gTools().AddAttr(trfxml, "UseOffsetOrNot", (fNoOffset?"NoOffset":"UseOffset") );
    VariableTransformBase::AttachXMLTo( trfxml );
 
    Int_t numC = (GetNClasses()<= 1)?1:GetNClasses()+1;
@@ -354,6 +377,17 @@ void TMVA::VariableNormalizeTransform::AttachXMLTo(void* parent)
 
 void TMVA::VariableNormalizeTransform::ReadFromXML( void* trfnode )
 {
+   fNoOffset = kFALSE;
+   if (gTools().HasAttr(trfnode, "UseOffsetOrNot")) {
+      TString UseOffsetOrNot;
+
+      gTools().ReadAttr(trfnode, "UseOffsetOrNot", UseOffsetOrNot);
+
+      if (UseOffsetOrNot == "NoOffset")
+         fNoOffset = kTRUE;
+      else
+         fNoOffset = kFALSE;
+   }
    Bool_t newFormat = kFALSE;
 
    void* inpnode = NULL;
@@ -541,7 +575,6 @@ void TMVA::VariableNormalizeTransform::PrintTransformation( std::ostream& /* o *
          Log() << kINFO << "Transformation for all classes based on these ranges:" << Endl;
       else
          Log() << kINFO << "Transformation for class " << icls << " based on these ranges:" << Endl;
-      UInt_t iinp = 0;
       for( ItVarTypeIdxConst itGet = fGet.begin(), itGetEnd = fGet.end(); itGet != itGetEnd; ++itGet ){
          Char_t type = (*itGet).first;
          UInt_t idx  = (*itGet).second;
@@ -549,7 +582,6 @@ void TMVA::VariableNormalizeTransform::PrintTransformation( std::ostream& /* o *
          TString typeString = (type=='v'?"Variable: ": (type=='t'?"Target : ":"Spectator : ") );
          Log() << typeString.Data() << std::setw(20) << fMin[icls][idx] << std::setw(20) << fMax[icls][idx] << Endl;
 
-         ++iinp;
       }
    }
 }

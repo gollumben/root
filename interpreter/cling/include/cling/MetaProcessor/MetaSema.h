@@ -16,7 +16,7 @@
 #include "clang/Basic/FileManager.h" // for DenseMap<FileEntry*>
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/Optional.h"
+#include <optional>
 
 namespace llvm {
   class StringRef;
@@ -37,7 +37,6 @@ namespace cling {
     bool m_IsQuitRequested;
 
     llvm::DenseMap<const clang::FileEntry*, const Transaction*> m_FEToTransaction;
-    llvm::DenseMap<const Transaction*, const clang::FileEntry*> m_TransactionToFE;
   public:
     enum SwitchMode {
       kOff = 0,
@@ -61,7 +60,7 @@ namespace cling {
     ///\param[out] transaction - Transaction containing the loaded file.
     ///
     ActionResult actOnLCommand(llvm::StringRef file,
-                               Transaction** transaction = 0);
+                               Transaction** transaction = nullptr);
 
     ///\brief O command sets the optimization level.
     ///
@@ -153,7 +152,7 @@ namespace cling {
     ///
     ///\param[in] mode - either on/off or toggle.
     ///
-    void actOndebugCommand(llvm::Optional<int> mode) const;
+    void actOndebugCommand(std::optional<int> mode) const;
 
     ///\brief Prints out the the Debug information of the state changes.
     ///
@@ -204,12 +203,10 @@ namespace cling {
     ///\brief Prints out class CINT-like style.
     ///
     ///\param[in] className - the specific class to be printed.
+    ///\param[in] verbose - set to true for more verbosity
+    ///\note if empty class name, all classes are printed
     ///
-    void actOnclassCommand(llvm::StringRef className) const;
-
-    ///\brief Prints out class CINT-like style more verbosely.
-    ///
-    void actOnClassCommand() const;
+    void actOnClassCommand(llvm::StringRef className, bool verbose) const;
 
     ///\brief Prints out namespace names.
     ///

@@ -6,7 +6,7 @@
     \brief Advanced 3-dimensional spectra processing functions
     \author Miroslav Morhac
 
- \legacy{TSpectrum3}
+ \legacy{TSpectrum3, For modeling a spectrum fitting and estimating the background one can use RooFit while for deconvolution and unfolding one can use TUnfold.}
 
   This class contains advanced spectra processing functions.
 
@@ -38,21 +38,21 @@
 
   These NIM papers are also available as Postscript files from:
 
- - [SpectrumDec.ps.gz](ftp://root.cern.ch/root/SpectrumDec.ps.gz)
- - [SpectrumSrc.ps.gz](ftp://root.cern.ch/root/SpectrumSrc.ps.gz)
- - [SpectrumBck.ps.gz](ftp://root.cern.ch/root/SpectrumBck.ps.gz)
+ - [SpectrumDec.ps.gz](ftp://root.cern/root/SpectrumDec.ps.gz)
+ - [SpectrumSrc.ps.gz](ftp://root.cern/root/SpectrumSrc.ps.gz)
+ - [SpectrumBck.ps.gz](ftp://root.cern/root/SpectrumBck.ps.gz)
 
  See also the
- [online documentation](https://root.cern.ch/guides/tspectrum-manual) and
- [tutorials](https://root.cern.ch/doc/master/group__tutorial__spectrum.html).
+ [online documentation](https://root.cern/guides/tspectrum-manual) and
+ [tutorials](https://root.cern/doc/master/group__tutorial__spectrum.html).
 */
 
 #include "TSpectrum3.h"
-#include "TH1.h"
+#include "TH3.h"
 #include "TMath.h"
+#include "TVirtualPad.h"
 #define PEAK_WINDOW 1024
 
-ClassImp(TSpectrum3);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -109,17 +109,92 @@ TSpectrum3::~TSpectrum3()
 ///   This function calculates background spectrum from source in h.
 ///   The result is placed in the vector pointed by spectrum pointer.
 ///
-/// Function parameters:
-///  - spectrum:  pointer to the vector of source spectrum
-///  - size:      length of spectrum and working space vectors
-///  - number_of_iterations, for details we refer to manual
+///   Function parameters:
+///   - h: input 3-d histogram
+///   - nIterX, nIterY, nIterZ, iterations for X and Y and Z axes
+///     Increasing number of iterations make the result smoother and lower.
+///   - option: may contain one of the following options
+///      - direction of change of clipping window
+///               - possible values=kBackIncreasingWindow
+///                                 kBackDecreasingWindow
+///      - filterType-determines the algorithm of the filtering
+///               - possible values=kBackSuccessiveFiltering
+///                                 kBackOneStepFiltering
+///      - "same" : if this option is specified, the resulting background
+///                 histogram is superimposed on the picture in the current pad.
+///                 Default is "goff" ie no graphics output
 
-const char *TSpectrum3::Background(const TH1 * h, Int_t number_of_iterations,
-                                   Option_t * option)
+TH1 *TSpectrum3::Background(const TH1 *h, Int_t nIterX, Int_t nIterY, Int_t nIterZ, Option_t *option)
 {
-   Error("Background","function not yet implemented: h=%s, iter=%d, option=%sn"
-        , h->GetName(), number_of_iterations, option);
-   return 0;
+   if (h == nullptr)
+      return nullptr;
+   Int_t dimension = h->GetDimension();
+   if (dimension != 3) {
+      Error("Background", "Only implemented for 3-d histograms");
+      return nullptr;
+   }
+   TString opt = option;
+   opt.ToLower();
+
+   // set options
+   Int_t direction = kBackDecreasingWindow;
+   if (opt.Contains("backincreasingwindow"))
+      direction = kBackIncreasingWindow;
+   Int_t filterType = kBackSuccessiveFiltering;
+   if (opt.Contains("backonestepfiltering"))
+      filterType = kBackOneStepFiltering;
+   Int_t firstX = h->GetXaxis()->GetFirst();
+   Int_t lastX = h->GetXaxis()->GetLast();
+   Int_t sizeX = lastX - firstX + 1;
+   Int_t firstY = h->GetYaxis()->GetFirst();
+   Int_t lastY = h->GetYaxis()->GetLast();
+   Int_t sizeY = lastY - firstY + 1;
+   Int_t firstZ = h->GetZaxis()->GetFirst();
+   Int_t lastZ = h->GetZaxis()->GetLast();
+   Int_t sizeZ = lastZ - firstZ + 1;
+   Int_t i, j, k;
+   Double_t ***source = new Double_t **[sizeX];
+   for (i = 0; i < sizeX; i++) {
+      source[i] = new Double_t *[sizeY];
+      for (j = 0; j < sizeY; j++) {
+         source[i][j] = new Double_t[sizeZ];
+         for (k = 0; k < sizeZ; k++)
+            source[i][j][k] = h->GetBinContent(i + firstX, j + firstY, k + firstZ);
+      }
+   }
+
+   // find background (source is input and in output contains the background
+   Background(source, sizeX, sizeY, sizeZ, nIterX, nIterY, nIterZ, direction, filterType);
+
+   // create output histogram containing background
+   // only bins in the range of the input histogram are filled
+   Int_t nch = strlen(h->GetName());
+   char *hbname = new char[nch + 20];
+   snprintf(hbname, nch + 20, "%s_background", h->GetName());
+   TH3 *hb = (TH3 *)h->Clone(hbname);
+   hb->Reset();
+   hb->GetListOfFunctions()->Delete();
+   for (i = 0; i < sizeX; i++)
+      for (j = 0; j < sizeY; j++)
+         for (k = 0; k < sizeZ; k++)
+            hb->SetBinContent(i + firstX, j + firstY, k + firstZ, source[i][j][k]);
+   hb->SetEntries(sizeX * sizeY * sizeZ);
+
+   // if option "same is specified, draw the result in the pad
+   if (opt.Contains("same")) {
+      if (gPad)
+         delete gPad->GetPrimitive(hbname);
+      hb->Draw("same");
+   }
+   for (i = 0; i < sizeX; i++) {
+      for (j = 0; j < sizeY; j++) {
+         delete[] source[i][j];
+      }
+      delete[] source[i];
+   }
+   delete[] source;
+   delete[] hbname;
+   return hb;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -162,7 +237,7 @@ void TSpectrum3::Print(Option_t *) const
 Int_t TSpectrum3::Search(const TH1 * hin, Double_t sigma,
                              Option_t * option, Double_t threshold)
 {
-   if (hin == 0)
+   if (hin == nullptr)
       return 0;
    Int_t dimension = hin->GetDimension();
    if (dimension != 3) {
@@ -764,7 +839,7 @@ const char *TSpectrum3::Background(Double_t***spectrum,
       delete[] working_space[i];
    }
    delete[] working_space;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -894,7 +969,7 @@ const char* TSpectrum3::SmoothMarkov(Double_t***source, Int_t ssizex, Int_t ssiz
          delete[] working_space[i];
       }
       delete [] working_space;
-      return 0;
+      return nullptr;
    }
 
    nom = 0;
@@ -1407,7 +1482,7 @@ const char* TSpectrum3::SmoothMarkov(Double_t***source, Int_t ssizex, Int_t ssiz
       delete[] working_space[i];
    }
    delete[] working_space;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1802,7 +1877,7 @@ const char *TSpectrum3::Deconvolution(Double_t***source, const Double_t***resp,
       delete[] working_space[i];
    }
    delete [] working_space;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1956,7 +2031,7 @@ Int_t TSpectrum3::SearchHighRes(const Double_t***source,Double_t***dest, Int_t s
    Double_t lda,ldb,ldc,area,maximum;
    Int_t xmin,xmax,l,peak_index = 0,sizex_ext=ssizex + 4 * number_of_iterations,sizey_ext = ssizey + 4 * number_of_iterations,sizez_ext = ssizez + 4 * number_of_iterations,shift = 2 * number_of_iterations;
    Int_t ymin,ymax,zmin,zmax,i,j;
-   Double_t a,b,maxch,plocha = 0,plocha_markov = 0;
+   Double_t a,b,maxch,plocha_markov = 0;
    Double_t nom,nip,nim,sp,sm,spx,spy,smx,smy,spz,smz;
    Double_t p1,p2,p3,p4,p5,p6,p7,p8,s1,s2,s3,s4,s5,s6,s7,s8,s9,s10,s11,s12,r1,r2,r3,r4,r5,r6;
    Int_t x,y,z;
@@ -2381,8 +2456,6 @@ Int_t TSpectrum3::SearchHighRes(const Double_t***source,Double_t***dest, Int_t s
                working_space[i][j][k] = 0;
                if(maxch < working_space[i][j][k + 2 * sizez_ext])
                   maxch = working_space[i][j][k + 2 * sizez_ext];
-
-               plocha += working_space[i][j][k + 2 * sizez_ext];
             }
          }
       }
@@ -3179,7 +3252,7 @@ Int_t TSpectrum3::SearchFast(const Double_t***source, Double_t***dest, Int_t ssi
 
 {
    Int_t i,j,k,l,li,lj,lk,lmin,lmax,xmin,xmax,ymin,ymax,zmin,zmax;
-   Double_t maxch,plocha = 0,plocha_markov = 0;
+   Double_t maxch,plocha_markov = 0;
    Double_t nom,nip,nim,sp,sm,spx,spy,smx,smy,spz,smz;
    Double_t norma,val,val1,val2,val3,val4,val5,val6,val7,val8,val9,val10,val11,val12,val13,val14,val15,val16,val17,val18,val19,val20,val21,val22,val23,val24,val25,val26;
    Double_t a,b,s,f,maximum;
@@ -3610,8 +3683,6 @@ Int_t TSpectrum3::SearchFast(const Double_t***source, Double_t***dest, Int_t ssi
                working_space[i][j][k] = 0;
                if(maxch < working_space[i][j][k + 2 * sizez_ext])
                   maxch = working_space[i][j][k + 2 * sizez_ext];
-
-               plocha += working_space[i][j][k + 2 * sizez_ext];
             }
          }
       }
@@ -4338,4 +4409,13 @@ Int_t TSpectrum3::SearchFast(const Double_t***source, Double_t***dest, Int_t ssi
    delete[] working_space;
    fNPeaks = peak_index;
    return fNPeaks;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// static function (called by TH3), interface to TSpectrum3::Background
+
+TH1 *TSpectrum3::StaticBackground(const TH1 *hist, Int_t nIterX, Int_t nIterY, Int_t nIterZ, Option_t *option)
+{
+   TSpectrum3 s;
+   return s.Background(hist, nIterX, nIterY, nIterZ, option);
 }

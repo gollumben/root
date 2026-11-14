@@ -19,47 +19,39 @@ private:
 
    std::string fNX;
    std::string fNY;
-   std::vector<size_t> fShape;
+   std::vector<Dim> fShape;
 
 public:
    ROperator_Sigmoid(){}
    ROperator_Sigmoid(std::string nameX, std::string nameY):
-      fNX(UTILITY::Clean_name(nameX)), fNY(UTILITY::Clean_name(nameY)){}
+      fNX(UTILITY::Clean_name(nameX)), fNY(UTILITY::Clean_name(nameY)){
+         fInputTensorNames = { fNX };
+         fOutputTensorNames = { fNY };
+      }
 
-   std::vector<ETensorType> TypeInference(std::vector<ETensorType> input){
-      return input;
-   }
-
-   std::vector<std::vector<size_t>> ShapeInference(std::vector<std::vector<size_t>> input){
-      auto ret = input; //suggest copy to compiler
-      return ret;
-   }
-
-   void Initialize(RModel& model){
+   void Initialize(RModel& model) override {
       if (model.CheckIfTensorAlreadyExist(fNX) == false){   //input must be a graph input, or already initialized intermediate tensor
          throw std::runtime_error("TMVA SOFIE Sigmoid Op Input Tensor is not found in model");
       }
-      fShape = model.GetTensorShape(fNX);
+      fShape = model.GetDimTensorShape(fNX);
       model.AddIntermediateTensor(fNY, model.GetTensorType(fNX), fShape);
    }
 
 
-   std::string Generate(std::string OpName){
-      OpName = "op_" + OpName;
+   std::string Generate(std::string opName) override {
       if (fShape.empty()){
-         throw std::runtime_error("TMVA SOFIE Transpose Sigmoid called to Generate without being initialized first");
+         throw std::runtime_error("TMVA SOFIE Operator Sigmoid called to Generate without being initialized first");
       }
       std::stringstream out;
-      int length = 1;
-      for(auto& i: fShape){
-         length *= i;
-      }
-      out << "\t" << "for (int id = 0; id < " << length << " ; id++){\n";
-      out << "\t\t" << "tensor_" << fNY << "[id] = 1 / (1 + std::exp( - tensor_"  << fNX << "[id]));\n";
-      out << "\t}\n";
+      auto length = ConvertDimShapeToLength(fShape);
+      out << "\n//------ Sigmoid -- " << opName << "\n";
+      out << SP << "for (int id = 0; id < " << length << " ; id++){\n";
+      out << SP << SP  << "tensor_" << fNY << "[id] = 1 / (1 + std::exp( - tensor_"  << fNX << "[id]));\n";
+      out << SP << "}\n";
       return out.str();
    }
 
+   std::vector<std::string> GetStdLibs() override { return { std::string("cmath") };}
 };
 
 }//SOFIE

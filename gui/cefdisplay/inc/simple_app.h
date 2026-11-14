@@ -1,13 +1,12 @@
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2017-06-29
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 // Copyright (c) 2013 The Chromium Embedded Framework Authors. All rights
 // reserved. Use of this source code is governed by a BSD-style license that
 // can be found in the LICENSE file.
 
 /*************************************************************************
- * Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2023, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -35,63 +34,56 @@ class SimpleApp : public CefApp,
                   /*, public CefRenderProcessHandler */
                   public CefBrowserProcessHandler {
 protected:
-   bool fUseViewes{false};  ///<! is views framework used
+   bool fUseViewes = false;  ///<! is views framework used
+   bool fSupressLog = false; ///<! supress log output when possible
    THttpServer *fFirstServer; ///<! first server
    std::string fFirstUrl;   ///<! first URL to open
    std::string fFirstContent; ///<! first page content open
    CefRect fFirstRect;      ///<! original width
    bool fFirstHeadless{false}; ///<! is first window is headless
    RCefWebDisplayHandle *fNextHandle{nullptr}; ///< next handle where browser will be created
+   bool fNextHeadless = false; ///< if next handle display is headless
 
    CefRefPtr<GuiHandler> fGuiHandler; ///<! normal handler
 
 public:
-   SimpleApp(bool use_viewes,
+   SimpleApp(bool use_viewes, bool supress_log,
              THttpServer *serv = nullptr, const std::string &url = "", const std::string &cont = "",
              int width = 0, int height = 0, bool headless = false);
 
-   void SetNextHandle(RCefWebDisplayHandle *handle);
+   void SetNextHandle(RCefWebDisplayHandle *handle, bool headless);
 
    // CefApp methods:
-   virtual CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
+   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
 
-#if defined(OS_LINUX)
-#if CEF_VERSION_MAJOR < 95
    // only on Linux special print handler is required to return PDF size
-   virtual CefRefPtr<CefPrintHandler> GetPrintHandler() override { return this; }
-#endif
-#endif
+   // CefRefPtr<CefPrintHandler> GetPrintHandler() override { return this; }
    // virtual CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override { return this; }
 
-   virtual void OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) override;
+   void OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) override;
 
    // CefBrowserProcessHandler methods:
-   virtual void OnContextInitialized() override;
+   void OnContextInitialized() override;
 
-   virtual void
-   OnBeforeCommandLineProcessing(const CefString &process_type, CefRefPtr<CefCommandLine> command_line) override;
+   void OnBeforeCommandLineProcessing(const CefString &process_type, CefRefPtr<CefCommandLine> command_line) override;
 
-   virtual void OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command_line) override;
+   void OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command_line) override;
 
 #if defined(OS_LINUX)
    // CefPrintHandler methods
-#if CEF_VERSION_MAJOR < 95
-   virtual CefSize GetPdfPaperSize(int device_units_per_inch) override { return CefSize(device_units_per_inch*8.25, device_units_per_inch*11.75); }
-#else
-   virtual CefSize GetPdfPaperSize(CefRefPtr<CefBrowser>, int device_units_per_inch) override { return CefSize(device_units_per_inch*8.25, device_units_per_inch*11.75); }
-#endif
-   virtual bool OnPrintDialog( CefRefPtr< CefBrowser > browser, bool has_selection, CefRefPtr< CefPrintDialogCallback > callback ) override { return false; }
-   virtual bool OnPrintJob( CefRefPtr< CefBrowser > browser, const CefString& document_name, const CefString& pdf_file_path, CefRefPtr< CefPrintJobCallback > callback ) override { return false; }
-   virtual void OnPrintReset( CefRefPtr< CefBrowser > browser ) override {}
-   virtual void OnPrintSettings( CefRefPtr< CefBrowser > browser, CefRefPtr< CefPrintSettings > settings, bool get_defaults ) override {}
-   virtual void OnPrintStart( CefRefPtr< CefBrowser > browser ) override {}
+   CefSize GetPdfPaperSize(CefRefPtr<CefBrowser>, int device_units_per_inch) override { return CefSize(device_units_per_inch*8.25, device_units_per_inch*11.75); }
+   bool OnPrintDialog( CefRefPtr< CefBrowser > browser, bool has_selection, CefRefPtr< CefPrintDialogCallback > callback ) override { return false; }
+   bool OnPrintJob( CefRefPtr< CefBrowser > browser, const CefString& document_name, const CefString& pdf_file_path, CefRefPtr< CefPrintJobCallback > callback ) override { return false; }
+   void OnPrintReset( CefRefPtr< CefBrowser > browser ) override {}
+   void OnPrintSettings( CefRefPtr< CefBrowser > browser, CefRefPtr< CefPrintSettings > settings, bool get_defaults ) override {}
+   void OnPrintStart( CefRefPtr< CefBrowser > browser ) override {}
 #endif
 
 
-   void StartWindow(THttpServer *serv, const std::string &url, const std::string &cont, CefRect &rect);
+   void StartWindow(THttpServer *serv, const std::string &url, const std::string &cont, CefRect &rect, bool is_headless = false);
 
    // CefRenderProcessHandler methods
-   // virtual void OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+   // void OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
    //                              CefRefPtr<CefV8Context> context) override;
 
 private:

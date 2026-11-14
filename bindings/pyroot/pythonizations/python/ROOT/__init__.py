@@ -8,108 +8,224 @@
 # For the list of contributors see $ROOTSYS/README/CREDITS.                    #
 ################################################################################
 
-from os import environ
+from __future__ import annotations
 
-# Prevent cppyy's check for the PCH
-environ['CLING_STANDARD_PCH'] = 'none'
+import atexit
+import builtins
+import os
+import platform
+import sys
+import types
+from importlib.abc import Loader, MetaPathFinder
+from importlib.machinery import ModuleSpec
+from importlib.metadata import PackageNotFoundError, version
 
-# Prevent cppyy's check for extra header directory
-environ['CPPYY_API_PATH'] = 'none'
+from . import _asan  # noqa: F401  # imported for side effects for setup specific to AddressSanitizer environments
+from ._facade import ROOTFacade
+from ._python_version import _root_python_version
 
-# Prevent cppyy from filtering ROOT libraries
-environ['CPPYY_NO_ROOT_FILTER'] = '1'
+_runtime_version = platform.python_version()
 
-import cppyy
-if not 'ROOTSYS' in environ:
-    # Revert setting made by cppyy
-    cppyy.gbl.gROOT.SetBatch(False)
 
-# import libROOTPythonizations with Python version number
-import sys, importlib
-major, minor = sys.version_info[0:2]
-librootpyz_mod_name = 'libROOTPythonizations{}_{}'.format(major, minor)
-importlib.import_module(librootpyz_mod_name)
+def _major_minor(v):
+    return ".".join(v.split(".")[:2])
 
-# ensure 'import libROOTPythonizations' will find the versioned module
-sys.modules['libROOTPythonizations'] = sys.modules[librootpyz_mod_name]
 
-import ROOT.pythonization as pyz
+# Check for Python ABI compatibility with this ROOT build. This check prevents
+# hard crashes and undefined behavior, yielding helpful error messages instead.
+if _major_minor(_runtime_version) != _major_minor(_root_python_version):
+    import textwrap
 
-import functools
-import pkgutil
-
-def pythonization(lazy = True):
+    message = f"""
+    ROOT was built for Python {_root_python_version}, but you are running Python {_runtime_version}.
+    Python major.minor versions must match. Use a matching Python or ROOT build.
     """
-    Pythonizor decorator to be used in pythonization modules for pythonizations.
-    These pythonizations functions are invoked upon usage of the class.
-    Parameters
-    ----------
-    lazy : boolean
-        If lazy is true, the class is pythonized upon first usage, otherwise
-        upon import of the ROOT module.
-    """
-    def pythonization_impl(fn):
-        """
-        The real decorator. This structure is adopted to deal with parameters
-        fn : function
-            Function that implements some pythonization.
-            The function must accept two parameters: the class
-            to be pythonized and the name of that class.
-        """
-        if lazy:
-            cppyy.py.add_pythonization(fn)
-        else:
-            fn()
-    return pythonization_impl
+    raise ImportError(textwrap.dedent(message))
 
-# Trigger the addition of the pythonizations
-exclude = [ '_rdf_utils' ]
-for _, module_name, _ in  pkgutil.walk_packages(pyz.__path__):
-    if module_name not in exclude:
-        module = importlib.import_module(pyz.__name__ + '.' + module_name)
+# The libROOTPythonizations CPython extension is in the same directory as the
+# ROOT Python module, but to find the other ROOT libraries we need to also add
+# the path of the ROOT library directory (only needed on Windows). For example,
+# if the ROOT Python module is in $ROOTSYS/bin/ROOT/__init__.py, the libraries
+# are usually in $ROOTSYS/bin.
+if "win32" in sys.platform:
+    root_module_path = os.path.dirname(__file__)  # expected to be ${CMAKE_INSTALL_PYTHONDIR}/ROOT
+    root_install_pythondir = os.path.dirname(root_module_path)  # expected to be ${CMAKE_INSTALL_PYTHONDIR}
+    os.add_dll_directory(root_install_pythondir)
+
+# Build cache of commonly used python strings (the cache is python intern, so
+# all strings are shared python-wide, not just in PyROOT).
+# See: https://docs.python.org/3.2/library/sys.html?highlight=sys.intern#sys.intern
+_cached_strings = []
+for s in ["Branch", "FitFCN", "ROOT", "SetBranchAddress", "SetFCN", "_TClass__DynamicCast", "__class__"]:
+    _cached_strings.append(sys.intern(s))
 
 # Check if we are in the IPython shell
-if major == 3:
-    import builtins
-else:
-    import __builtin__ as builtins  
+_is_ipython = hasattr(builtins, "__IPYTHON__")
 
-_is_ipython = hasattr(builtins, '__IPYTHON__')
+
+class _PoisonedDunderAll:
+    """
+    Dummy class used to trigger an ImportError on wildcard imports if the
+    `__all__` attribute of a module is an instance of this class.
+    """
+
+    def __getitem__(self, _):
+        import textwrap
+
+        message = """
+        Wildcard import e.g. `from module import *` is bad practice, so it is disallowed in ROOT. Please import explicitly.
+        """
+        raise ImportError(textwrap.dedent(message))
+
+
+# Prevent `from ROOT import *` by setting the __all__ attribute to something
+# that will raise an ImportError on item retrieval.
+__all__ = _PoisonedDunderAll()
 
 # Configure ROOT facade module
-import sys
-from ._facade import ROOTFacade
-sys.modules[__name__] = ROOTFacade(sys.modules[__name__], _is_ipython)
+_root_facade = ROOTFacade(sys.modules[__name__], _is_ipython)
+sys.modules[__name__] = _root_facade
+
+# Configure meta-path finder for ROOT namespaces, following the Python
+# documentation and an example:
+#
+#   * https://docs.python.org/3/library/importlib.html#module-importlib.abc
+#
+#   * https://python.plainenglish.io/metapathfinders-or-how-to-change-python-import-behavior-a1cf3b5a13ec
+
+
+def _can_be_module(obj) -> bool:
+    """
+    Determine if an object can be used as a Python module. This is the case for
+    objects that are actually of ModuleType, or C++ namespaces from cppyy.
+    """
+
+    # If the type is the module type, it can trivially be a module.
+    if isinstance(obj, types.ModuleType):
+        return True
+
+    # Check if the object represents a C++ namespace. Since cppyy has no
+    # dedicated Python type for C++ namespaces, we check for this using the
+    # representation of the object.
+    if repr(obj).startswith("<namespace "):
+        return True
+
+    return False
+
+
+def _lookup_root_module(fullname: str) -> Optional[Union[types.ModuleType, cppyy.types.Scope]]:  # noqa: F821
+    """
+    Recursively looks up attributes of the ROOT facade, using a full module
+    name, and return it if it can be used as a ROOT submodule. This is the case
+    if the attribute is a C++ namespace or an actual Python module type. If no
+    matching attribute is found, return None.
+    """
+    keys = fullname.split(".")[1:]
+    ret = _root_facade
+    for part in keys:
+        ret = getattr(ret, part, None)
+        if ret is None or not _can_be_module(ret):
+            return None
+    return ret
+
+
+class _RootNamespaceLoader(Loader):
+    """
+    Custom loader for modules under the ROOT namespace.
+    """
+
+    def is_package(self, fullname: str) -> bool:
+        """
+        Indicates whether the given attribute of the ROOT facade can be
+        considered a package.
+
+        This is decided by the _lookup_root_module function.
+        """
+        return _lookup_root_module(fullname) is not None
+
+    def create_module(self, spec: ModuleSpec):
+        out = _lookup_root_module(spec.name)
+        # Prevent wildcard import for the submodule by setting the __all__
+        # attribute to something that will raise an ImportError on item
+        # retrieval.
+        out.__all__ = _PoisonedDunderAll()
+        return out
+
+    def exec_module(self, module):
+        pass
+
+
+class _RootNamespaceFinder(MetaPathFinder):
+    """
+    Finder for modules under the ROOT namespace.
+    """
+
+    def find_spec(self, fullname: str, path, target=None) -> ModuleSpec:
+        from importlib.util import spec_from_loader
+
+        if not fullname.startswith("ROOT."):
+            # This finder only finds ROOT.*
+            return None
+        if _lookup_root_module(fullname) is None:
+            return None
+        return spec_from_loader(fullname, _RootNamespaceLoader())
+
+
+namespace_finder = _RootNamespaceFinder()
+if namespace_finder not in sys.meta_path:
+    sys.meta_path.append(namespace_finder)
 
 # Configuration for usage from Jupyter notebooks
 if _is_ipython:
     from IPython import get_ipython
+
     ip = get_ipython()
-    if hasattr(ip,"kernel"):
-        import JupyROOT
-        import JsMVA
+    if hasattr(ip, "kernel"):
+        from . import _jupyroot  # noqa: F401  # imported the side effect of setting up JupyROOT
 
-# Register cleanup
-import atexit
-def cleanup():
-    # If spawned, stop thread which processes ROOT events
+# importlib.metadata.version reads distribution metadata from the package's
+# .dist-info folder, which is typically generated by the package manager.
+# An installed ROOT wheel distribution will contain this metadata,
+# and version("ROOT") will succeed. However, ROOT built or installed
+# through any other channel (e.g. from source) has no .dist-info folder,
+# so the corresponding metadata is missing, therefore version("ROOT") raises
+# PackageNotFoundError, despite `import ROOT` succeeding in the same environment.
+# See: https://docs.python.org/3/library/importlib.metadata.html
+try:
+    if "a" in version("ROOT"):
+        import warnings
+
+        warnings.warn(
+            "This distribution of ROOT is in alpha stage. Feedback is welcome and appreciated. "
+            "Feel free to reach out to the user forum for questions and general feedback at "
+            "https://github.com/root-project/root/issues. "
+            "Do not rely on this distribution for production purposes.",
+            stacklevel=2,  # emit the warning in the caller
+        )
+except PackageNotFoundError:
+    pass
+
+
+def _cleanup():
+    # Delete TBrowser instances while the GUI event loop is still alive,
+    # which fixed https://github.com/root-project/root/issues/21912.
+    #
+    # The cleanup is kept tight on purpose. A previous version called
+    # TROOT::EndOfProcessCleanups() outright (removed in commit e9d2803), which
+    # also ran gInterpreter->ResetGlobals() and ShutDown() and interfered with
+    # Python objects still alive at exit time, by cleaning up objects that
+    # might be referenced by other Python proxies outside the control of gROOT.
     facade = sys.modules[__name__]
-    if 'app' in facade.__dict__ and hasattr(facade.__dict__['app'], 'process_root_events'):
-        facade.__dict__['app'].keep_polling = False
-        facade.__dict__['app'].process_root_events.join()
 
-    if 'libROOTPythonizations' in sys.modules:
-        backend = sys.modules['libROOTPythonizations']
+    # Skip if the C++ runtime was never initialized (i.e. _finalSetup did
+    # not run): nothing to clean up, and we don't want to drag cppyy in.
+    if "_cppyy" not in facade.__dict__:
+        return
 
-        # Make sure all the objects regulated by PyROOT are deleted and their
-        # Python proxies are properly nonified.
-        backend.ClearProxiedObjects()
+    if not getattr(facade.PyConfig, "ShutDown", True):
+        return
 
-        from ROOT import PyConfig
-        if PyConfig.ShutDown:
-            # Hard teardown: run part of the gROOT shutdown sequence.
-            # Running it here ensures that it is done before any ROOT libraries
-            # are off-loaded, with unspecified order of static object destruction.
-            backend.gROOT.EndOfProcessCleanups()
+    facade.gROOT.GetListOfBrowsers().Delete()
 
-atexit.register(cleanup)
+
+atexit.register(_cleanup)

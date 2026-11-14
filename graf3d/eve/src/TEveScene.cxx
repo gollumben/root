@@ -33,21 +33,20 @@ By setting the fHierarchical flag, positions of children get
 calculated by multiplying the transformation matrices of all parents.
 */
 
-ClassImp(TEveScene);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
 TEveScene::TEveScene(const char* n, const char* t) :
    TEveElementList(n, t),
-   fPad    (0),
-   fGLScene(0),
+   fPad    (nullptr),
+   fGLScene(nullptr),
    fChanged      (kFALSE),
    fSmartRefresh (kTRUE),
    fHierarchical (kFALSE)
 {
    fPad = new TEvePad;
-   fPad->GetListOfPrimitives()->Add(this);
+   fPad->Add(this);
    fGLScene = new TGLScenePad(fPad);
    fGLScene->SetName(n);
    fGLScene->SetAutoDestruct(kFALSE);
@@ -59,14 +58,14 @@ TEveScene::TEveScene(const char* n, const char* t) :
 
 TEveScene::TEveScene(TGLScenePad* gl_scene, const char* n, const char* t) :
    TEveElementList(n, t),
-   fPad    (0),
+   fPad    (nullptr),
    fGLScene(gl_scene),
    fChanged      (kFALSE),
    fSmartRefresh (kTRUE),
    fHierarchical (kFALSE)
 {
    fPad = new TEvePad;
-   fPad->GetListOfPrimitives()->Add(this);
+   fPad->Add(this);
    fGLScene->SetPad(fPad);
    fGLScene->SetName(n);
    fGLScene->SetAutoDestruct(kFALSE);
@@ -158,7 +157,7 @@ void TEveScene::RetransHierarchicallyRecurse(TEveElement* el, const TEveTrans& t
 
    if (el->GetRnrSelf() && el != this)
    {
-      fGLScene->UpdatePhysioLogical(el->GetRenderObject(eh), t.Array(), 0);
+      fGLScene->UpdatePhysioLogical(el->GetRenderObject(eh), t.Array(), nullptr);
    }
 
    if (el->GetRnrChildren())
@@ -229,7 +228,6 @@ const TGPicture* TEveScene::GetListTreeIcon(Bool_t)
 List of Scenes providing common operations on TEveScene collections.
 */
 
-ClassImp(TEveSceneList);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.

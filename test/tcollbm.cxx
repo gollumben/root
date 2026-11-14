@@ -1,9 +1,6 @@
 // @(#)root/test:$Id$
 // Author: Nikolay Root   05/07/98
 
-#include <cstdlib>
-#include <iostream>
-#include "snprintf.h"
 #include "TCollection.h"
 #include "TSortedList.h"
 #include "TObjArray.h"
@@ -15,6 +12,11 @@
 
 #include "TStopwatch.h"
 #include "TRandom.h"
+
+#include <cstdlib>
+#include <iostream>
+#include <cstdio>
+
 //
 // This program benchmarks access time to objects by name or index
 // for TObjArray,TOrdCollection,TList,TSortedList,THashList,TBtree,
@@ -98,9 +100,9 @@ public:
   Double_t DoTest();         // Tests multiplexsor
 
   void        CleanUp()    { fColl->Delete(); }
-  void        Dump() const { fColl->Dump(); }
+  void        Dump() const override { fColl->Dump(); }
 
-  virtual const char* GetName() const
+  const char* GetName() const override
   { return fColl->ClassName(); }
 
   Tester() :
@@ -111,7 +113,7 @@ public:
       if(!strcmp(GetName(),"TObjArray"))    fWhat = Array;
       if(!strcmp(GetName(),"TBtree"))       fWhat = BTree;
   }
-  virtual ~Tester() { if(fColl) delete fColl; }
+  ~Tester() override { if(fColl) delete fColl; }
 };
 
 void Tester::Fill() {

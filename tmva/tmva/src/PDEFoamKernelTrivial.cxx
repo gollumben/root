@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Classes: PDEFoamKernelTrivial                                                  *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation of trivial PDEFoam kernel                                  *
@@ -22,7 +22,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::PDEFoamKernelTrivial
@@ -42,7 +42,6 @@ function returns the cell value, given an event 'txvec'.
 
 #include <vector>
 
-ClassImp(TMVA::PDEFoamKernelTrivial);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor for streamer

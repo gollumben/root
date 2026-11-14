@@ -23,6 +23,7 @@ namespace ROOT {
 namespace Detail {
 namespace RDF {
 class RMergeableValueBase;
+class RNodeBase;
 } // namespace RDF
 } // namespace Detail
 } // namespace ROOT
@@ -39,10 +40,13 @@ class GraphNode;
 class RJittedAction : public RActionBase {
 private:
    std::unique_ptr<RActionBase> fConcreteAction;
+   std::shared_ptr<ROOT::Detail::RDF::RNodeBase> fPrevNode;
 
 public:
-   RJittedAction(RLoopManager &lm);
-   ~RJittedAction() { fLoopManager->Deregister(this); }
+   RJittedAction(RLoopManager &lm, const ROOT::RDF::ColumnNames_t &columns, const RColumnRegister &colRegister,
+                 const std::vector<std::string> &prevVariations,
+                 std::shared_ptr<ROOT::Detail::RDF::RNodeBase> prevNode = nullptr);
+   ~RJittedAction();
 
    void SetAction(std::unique_ptr<RActionBase> a) { fConcreteAction = std::move(a); }
 
@@ -56,12 +60,17 @@ public:
    bool HasRun() const final;
    void SetHasRun() final;
 
-   std::shared_ptr<GraphDrawing::GraphNode> GetGraph();
+   std::shared_ptr<GraphDrawing::GraphNode>
+   GetGraph(std::unordered_map<void *, std::shared_ptr<GraphDrawing::GraphNode>> &visitedMap) final;
 
    // Helper for RMergeableValue
    std::unique_ptr<ROOT::Detail::RDF::RMergeableValueBase> GetMergeableValue() const final;
 
    ROOT::RDF::SampleCallback_t GetSampleCallback() final;
+
+   std::unique_ptr<RActionBase> MakeVariedAction(std::vector<void *> &&results) final;
+   std::unique_ptr<ROOT::Internal::RDF::RActionBase> CloneAction(void *newResult) final;
+   std::shared_ptr<ROOT::Detail::RDF::RNodeBase> MoveOutPrevNode();
 };
 
 } // ns RDF

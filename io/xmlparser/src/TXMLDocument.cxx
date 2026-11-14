@@ -11,7 +11,7 @@
 
 /**
 \class TXMLDocument
-\ingroup IO
+\ingroup io_xml
 
 TXMLDocument contains a pointer to an xmlDoc structure, after the
 parser returns a tree built during the document analysis.
@@ -22,7 +22,6 @@ parser returns a tree built during the document analysis.
 #include <libxml/tree.h>
 
 
-ClassImp(TXMLDocument);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TXMLDocument constructor.
@@ -32,7 +31,7 @@ TXMLDocument::TXMLDocument(_xmlDoc *doc) : fXMLDoc(doc)
    if (fXMLDoc) {
       fRootNode = new TXMLNode(xmlDocGetRootElement(fXMLDoc));
    } else {
-      fRootNode = 0;
+      fRootNode = nullptr;
    }
 }
 
@@ -62,7 +61,7 @@ const char *TXMLDocument::Version() const
 {
    if (fXMLDoc)
       return (const char *) fXMLDoc->version;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -73,7 +72,7 @@ const char *TXMLDocument::Encoding() const
 {
    if (fXMLDoc)
       return (const char *) fXMLDoc->encoding;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -83,5 +82,5 @@ const char *TXMLDocument::URL() const
 {
    if (fXMLDoc)
       return (const char *) fXMLDoc->URL;
-   return 0;
+   return nullptr;
 }

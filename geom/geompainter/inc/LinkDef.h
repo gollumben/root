@@ -7,15 +7,13 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifdef __CINT__
+#ifdef __CLING__
 
 #pragma link off all globals;
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class TGeoPainter+;
-#pragma link C++ class TGeoChecker+;
-#pragma link C++ class TGeoTrack+;
-#pragma link C++ class TGeoOverlap+;
+#pragma link C++ class TGeoPainter + ;
+#pragma link C++ class TGeoTrack + ;
 
 #endif

@@ -54,9 +54,6 @@ Service classes of the tab widget.
 const TGFont *TGTab::fgDefaultFont = nullptr;
 const TGGC   *TGTab::fgDefaultGC = nullptr;
 
-ClassImp(TGTabElement);
-ClassImp(TGTabLayout);
-ClassImp(TGTab);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -64,7 +61,7 @@ ClassImp(TGTab);
 
 TGTabElement::TGTabElement(const TGWindow *p, TGString *text, UInt_t w, UInt_t h,
                            GContext_t norm, FontStruct_t font,
-                           UInt_t options, ULong_t back) :
+                           UInt_t options, Pixel_t back) :
    TGFrame(p, w, h, options, back)
 {
    fClosePic     = 0;
@@ -85,7 +82,7 @@ TGTabElement::TGTabElement(const TGWindow *p, TGString *text, UInt_t w, UInt_t h
       fTWidth = gVirtualX->TextWidth(fFontStruct, fText->GetString(), fText->GetLength());
    gVirtualX->GetFontProperties(fFontStruct, max_ascent, max_descent);
    fTHeight = max_ascent + max_descent;
-   Resize(TMath::Max(fTWidth+12, (UInt_t)45), fTHeight+6);
+   Resize(std::max(fTWidth+12, (UInt_t)45), fTHeight+6);
    fEnabled = kTRUE;
    gVirtualX->GrabButton(fId, kAnyButton, kAnyModifier, kButtonPressMask |
                          kPointerMotionMask, kNone, kNone);
@@ -202,9 +199,9 @@ Bool_t TGTabElement::HandleButton(Event_t *event)
 TGDimension TGTabElement::GetDefaultSize() const
 {
    if (fShowClose && fClosePic && fClosePicD)
-      return TGDimension(TMath::Max(fTWidth+30, (UInt_t)45), fTHeight+6);
+      return TGDimension(std::max(fTWidth+30, (UInt_t)45), fTHeight+6);
    else
-      return TGDimension(TMath::Max(fTWidth+12, (UInt_t)45), fTHeight+6);
+      return TGDimension(std::max(fTWidth+12, (UInt_t)45), fTHeight+6);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -232,9 +229,9 @@ void TGTabElement::ShowClose(Bool_t show)
    TGTab* main = (TGTab*)fParent;
    fShowClose = show;
    if (fShowClose && fClosePic && fClosePicD)
-      Resize(TMath::Max(fTWidth+30, (UInt_t)45), fTHeight+6);
+      Resize(std::max(fTWidth+30, (UInt_t)45), fTHeight+6);
    else
-      Resize(TMath::Max(fTWidth+12, (UInt_t)45), fTHeight+6);
+      Resize(std::max(fTWidth+12, (UInt_t)45), fTHeight+6);
    if (main)
       main->GetLayoutManager()->Layout();
 }
@@ -329,7 +326,7 @@ TGDimension TGTabLayout::GetDefaultSize() const
 
 TGTab::TGTab(const TGWindow *p, UInt_t w, UInt_t h,
              GContext_t norm, FontStruct_t font,
-             UInt_t options, ULong_t back) :
+             UInt_t options, Pixel_t back) :
    TGCompositeFrame(p, w, h, options, back)
 {
    fMsgWindow  = p;
@@ -784,13 +781,11 @@ TGLayoutManager *TGTab::GetLayoutManager() const
 
 void TGTab::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
-
    // font + GC
-   option = GetName()+5;         // unique digit id of the name
+   option = GetName() + 5; // unique digit id of the name
    TString parGC, parFont;
-   parFont.Form("%s::GetDefaultFontStruct()",IsA()->GetName());
-   parGC.Form("%s::GetDefaultGC()()",IsA()->GetName());
+   parFont.Form("%s::GetDefaultFontStruct()", IsA()->GetName());
+   parGC.Form("%s::GetDefaultGC()()", IsA()->GetName());
 
    if ((GetDefaultFontStruct() != fFontStruct) || (GetDefaultGC()() != fNormGC)) {
       TGFont *ufont = gClient->GetResourcePool()->GetFontPool()->FindFont(fFontStruct);
@@ -806,80 +801,54 @@ void TGTab::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
       }
    }
 
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   auto extra_args = SaveCtorArgs(out);
 
-   out << std::endl << "   // tab widget" << std::endl;
+   out << "\n   // tab widget\n";
 
-   out << "   TGTab *";
-   out << GetName() << " = new TGTab(" << fParent->GetName()
-       << "," << GetWidth() << "," << GetHeight();
+   out << "   TGTab *" << GetName() << " = new TGTab(" << fParent->GetName() << "," << GetWidth() << "," << GetHeight();
 
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (GetOptions() == kChildFrame) {
-         if (fFontStruct == GetDefaultFontStruct()) {
-            if (fNormGC == GetDefaultGC()()) {
-               out <<");" << std::endl;
-            } else {
-               out << "," << parGC.Data() <<");" << std::endl;
-            }
-         } else {
-            out << "," << parGC.Data() << "," << parFont.Data() <<");" << std::endl;
-         }
-      } else {
-         out << "," << parGC.Data() << "," << parFont.Data() << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << parGC.Data() << "," << parFont.Data() << "," << GetOptionString()  << ",ucolor);" << std::endl;
-   }
+   if (!extra_args.IsNull() || (fFontStruct != GetDefaultFontStruct()))
+      out << "," << parGC << "," << parFont << extra_args;
+   else if (fNormGC != GetDefaultGC()())
+      out << "," << parGC;
+   out << ");\n";
+
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
-   TGCompositeFrame *cf;
-   TGLayoutManager * lm;
-   for (Int_t i=0; i<GetNumberOfTabs(); i++) {
-      cf = GetTabContainer(i);
-      if (!cf || !GetTabTab(i)) continue;
-      out << std::endl << "   // container of " << quote
-          << GetTabTab(i)->GetString() << quote << std::endl;
-      out << "   TGCompositeFrame *" << cf->GetName() << ";" << std::endl;
-      out << "   " << cf->GetName() << " = " << GetName()
-                   << "->AddTab(" << quote << GetTabTab(i)->GetString()
-                   << quote << ");" << std::endl;
-      lm = cf->GetLayoutManager();
+   for (Int_t i = 0; i < GetNumberOfTabs(); i++) {
+      auto cf = GetTabContainer(i);
+      if (!cf || !GetTabTab(i))
+         continue;
+      out << "\n   // container of \"" << GetTabTab(i)->GetString() << "\"\n";
+      out << "   TGCompositeFrame *" << cf->GetName() << " = " << GetName() << "->AddTab(\""
+          << GetTabTab(i)->GetString() << "\");\n";
+      auto lm = cf->GetLayoutManager();
       if (lm) {
-         if ((cf->GetOptions() & kHorizontalFrame) &&
-            (lm->InheritsFrom(TGHorizontalLayout::Class()))) {
-            ;
-         } else if ((GetOptions() & kVerticalFrame) &&
-            (lm->InheritsFrom(TGVerticalLayout::Class()))) {
-            ;
-         } else {
-            out << "   " << cf->GetName() <<"->SetLayoutManager(";
+         if (!((cf->GetOptions() & kHorizontalFrame) && lm->InheritsFrom(TGHorizontalLayout::Class())) &&
+             !((GetOptions() & kVerticalFrame) && lm->InheritsFrom(TGVerticalLayout::Class()))) {
+            out << "   " << cf->GetName() << "->SetLayoutManager(";
             lm->SavePrimitive(out, option);
-            out << ");" << std::endl;
+            out << ");\n";
          }
          if (!IsEnabled(i)) {
-            out << "   " << GetName() << "->SetEnabled(" << i << ", kFALSE);" << std::endl;
+            out << "   " << GetName() << "->SetEnabled(" << i << ", kFALSE);\n";
          }
       }
       cf->SavePrimitiveSubframes(out, option);
 
       if (GetTabTab(i)->IsCloseShown()) {
-         out << "   TGTabElement *tab" << i << " = "
-             << GetName() << "->GetTabTab(" << i << ");" << std::endl;
-         out << "   tab" << i << "->ShowClose(kTRUE);" << std::endl;
+         out << "   TGTabElement *tab" << i << " = " << GetName() << "->GetTabTab(" << i << ");\n";
+         out << "   tab" << i << "->ShowClose(kTRUE);\n";
       }
       if (GetTabTab(i)->GetBackground() != GetTabTab(i)->GetDefaultFrameBackground()) {
          GetTabTab(i)->SaveUserColor(out, option);
-         out << "   TGTabElement *tab" << i << " = "
-             << GetName() << "->GetTabTab(" << i << ");" << std::endl;
-         out << "   tab" << i << "->ChangeBackground(ucolor);" << std::endl;
+         out << "   TGTabElement *tab" << i << " = " << GetName() << "->GetTabTab(" << i << ");\n";
+         out << "   tab" << i << "->ChangeBackground(ucolor);\n";
       }
-
    }
-   out << std::endl << "   " << GetName() << "->SetTab(" << GetCurrent() << ");" << std::endl;
-   out << std::endl << "   " << GetName() << "->Resize(" << GetName()
-       << "->GetDefaultSize());" << std::endl;
+   out << "\n   " << GetName() << "->SetTab(" << GetCurrent() << ");\n";
+   out <<  "   " << GetName() << "->Resize(" << GetName() << "->GetDefaultSize());\n";
 }
 
 // __________________________________________________________________________

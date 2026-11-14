@@ -1,10 +1,10 @@
 // Tests for the RooAbsCollection and derived classes
 // Authors: Stephan Hageboeck, CERN  05/2020
-#include "RooArgSet.h"
-#include "RooRealVar.h"
-#include "RooHelpers.h"
+#include <RooArgSet.h>
+#include <RooHelpers.h>
+#include <RooRealVar.h>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 /// ROOT-10845 IsOnHeap() always returned false.
 TEST(RooArgSet, IsOnHeap) {
@@ -73,4 +73,94 @@ TEST(RooArgSet, FromVector) {
   RooArgSet theSet(vars.begin(), vars.end(), "Hallo");
   EXPECT_EQ(theSet.size(), 2);
   EXPECT_STREQ(theSet.GetName(), "Hallo");
+}
+
+TEST(RooArgSet, InsertAndDeduplicate) {
+  RooArgList list;
+  RooArgList list2;
+  for (unsigned int i = 0; i < 4; ++i) {
+    char name[] = {char('a'+i), '\0'};
+    list.addOwned(std::make_unique<RooRealVar>(name, name, 0.));
+  }
+  for (unsigned int i = 0; i < 5; ++i) {
+    char name[] = {char('a'+i), '\0'};
+    list2.addOwned(std::make_unique<RooRealVar>(name, name, 0.));
+    name[0] = char('a'+ 4 - i);
+    list2.addOwned(std::make_unique<RooRealVar>(name, name, 0.));
+  }
+
+  // Silence deduplication error messages
+  RooHelpers::HijackMessageStream hijack(RooFit::ERROR, RooFit::InputArguments);
+
+  RooArgSet set{list};
+  EXPECT_EQ(set.size(), list.size());
+
+  RooArgSet set2{list2};
+  EXPECT_EQ(set2.size(), list2.size()/2);
+
+  RooArgSet set3{list};
+  set3.add(list2);
+  EXPECT_EQ(set3.size(), set.size() + 1);
+  EXPECT_EQ(set3[set3.size()-1], & list2[1]);
+
+  RooArgSet set4{list, list2};
+  EXPECT_EQ(set4.size(), set.size() + 1);
+}
+
+TEST(RooArgSet, HashAssistedFind) {
+  RooArgList list;
+  RooArgList list2;
+  for (unsigned int i = 0; i < 4; ++i) {
+    char name[] = {char('a'+i), '\0'};
+    list.addOwned(std::make_unique<RooRealVar>(name, name, 0.));
+  }
+  for (unsigned int i = 0; i < 5; ++i) {
+    char name[] = {char('a'+i), '\0'};
+    list2.addOwned(std::make_unique<RooRealVar>(name, name, 0.));
+    name[0] = char('a'+ 4 - i);
+    list2.addOwned(std::make_unique<RooRealVar>(name, name, 0.));
+  }
+
+  // Silence deduplication error messages
+  RooHelpers::HijackMessageStream hijack(RooFit::ERROR, RooFit::InputArguments);
+
+  RooArgSet set{list};
+  set.useHashMapForFind(true);
+  EXPECT_FALSE(set.add(RooRealVar("a", "a", 0)));
+  EXPECT_EQ(set.size(), list.size());
+
+  set.add(list2);
+  EXPECT_EQ(set.size(), 5);
+
+  // Renaming would invalidate the old hash map. Test that it gets regenerated correctly:
+  list[0].SetName("a'");
+  EXPECT_EQ(set.find("a"), nullptr);
+  EXPECT_EQ(set.find("a'"), & list[0]);
+}
+
+// Previously in: roottest/root/roofitstats/read_scientific_notation.py
+TEST(RooArgSet, TextFileIO)
+{
+   const double xVal = 1000000;
+   const double xMin = 10000;
+   const double xMax = 1000000;
+
+   std::stringstream ss;
+   {
+      RooRealVar x{"x", "x", xVal, xMin, xMax};
+      RooArgSet aset{x};
+
+      aset.writeToStream(ss, false);
+   }
+
+   std::istringstream iss{ss.str()};
+
+   RooRealVar x{"x", "x", 10, 1, 100};
+   RooArgSet aset{x};
+   aset.readFromStream(iss, false, nullptr, nullptr);
+
+   // Test that both value and range have been updated correctly:
+   EXPECT_EQ(x.getVal(), xVal);
+   EXPECT_EQ(x.getMin(), xMin);
+   EXPECT_EQ(x.getMax(), xMax);
 }

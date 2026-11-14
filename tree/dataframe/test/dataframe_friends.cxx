@@ -28,24 +28,31 @@ protected:
    static void SetUpTestCase()
    {
       ROOT::RDataFrame d(kSizeSmall);
-      d.Define("x", [] { return 1; }).Snapshot<int>("t", kFile1, {"x"});
-      d.Define("y", [] { return 2; }).Snapshot<int>("t2", kFile2, {"y"});
+      d.Define("x", [] { return 1; }).Snapshot("t", kFile1, {"x"});
+      d.Define("y", [] { return 2; }).Snapshot("t2", kFile2, {"y"});
 
-      TFile f(kFile3, "RECREATE");
-      TTree t("t3", "t3");
+      // NOTE(vpadulan): these TFile and TTree are created on the heap to work around a know bug that can
+      // cause a TObject to be incorrectly marked as "on heap" and attempted to be freed despite
+      // living on the stack.
+      // The bug is caused by the magic bit pattern `kObjectAllocMemValue` used by TStorage to
+      // mark a heap object appearing by chance on the stack.
+      // This is not a problem with a clear solution and in fact the whole heap detection system relies on UB,
+      // so for now we are forced to work around the bug rather than fixing it.
+      auto f = std::make_unique<TFile>(kFile3, "RECREATE");
+      auto t = std::make_unique<TTree>("t3", "t3");
       float arr[4];
-      t.Branch("arr", arr, "arr[4]/F");
-      for (auto i : ROOT::TSeqU(4)) {
-         for (auto j : ROOT::TSeqU(4)) {
+      t->Branch("arr", arr, "arr[4]/F");
+      for (auto i : ROOT::TSeqU(kSizeSmall)) {
+         for (auto j : ROOT::TSeqU(kSizeSmall)) {
             arr[j] = i + j;
          }
-         t.Fill();
+         t->Fill();
       }
-      t.Write();
+      f->Write();
 
       ROOT::RDataFrame d2(kSizeBig);
-      d2.Define("x", [] { return 4; }).Snapshot<int>("t", kFile4, {"x"});
-      d2.Define("y", [] { return 5; }).Snapshot<int>("t2", kFile5, {"y"});
+      d2.Define("x", [] { return 4; }).Snapshot("t", kFile4, {"x"});
+      d2.Define("y", [] { return 5; }).Snapshot("t2", kFile5, {"y"});
    }
 
    static void TearDownTestCase()
@@ -221,15 +228,15 @@ TEST_F(RDFAndFriends, FriendAliasMT)
    ROOT::EnableImplicitMT(4u);
    TFile f1(kFile1);
    auto t1 = f1.Get<TTree>("t");
-   TFile f2(kFile4);
-   auto t2 = f2.Get<TTree>("t");
+   TFile f2(kFile2);
+   auto t2 = f2.Get<TTree>("t2");
    t1->AddFriend(t2, "myfriend");
    ROOT::RDataFrame d(*t1);
    auto x = d.Min<int>("x");
-   auto t = d.Take<int>("myfriend.x");
+   auto t = d.Take<int>("myfriend.y");
    EXPECT_EQ(*x, 1);
    for (auto v : t)
-      EXPECT_EQ(v, 4);
+      EXPECT_EQ(v, 2);
    ROOT::DisableImplicitMT();
 }
 
@@ -258,55 +265,69 @@ TEST_F(RDFAndFriends, FriendChainMT)
    ROOT::DisableImplicitMT();
 }
 
+#endif // R__USE_IMT
+
 // ROOT-9559
 void FillIndexedFriend(const char *mainfile, const char *auxfile)
 {
+   // NOTE(vpadulan): these TFile and TTree are created on the heap to work around a know bug that can
+   // cause a TObject to be incorrectly marked as "on heap" and attempted to be freed despite
+   // living on the stack.
+   // The bug is caused by the magic bit pattern `kObjectAllocMemValue` used by TStorage to
+   // mark a heap object appearing by chance on the stack.
+   // This is not a problem with a clear solution and in fact the whole heap detection system relies on UB,
+   // so for now we are forced to work around the bug rather than fixing it.
+
    // Start by creating main Tree
-   TFile f(mainfile, "RECREATE");
-   TTree mainTree("mainTree", "mainTree");
-   int idx;
-   mainTree.Branch("idx", &idx);
-   int x;
-   mainTree.Branch("x", &x);
+   {
+      auto f = std::make_unique<TFile>(mainfile, "RECREATE");
+      auto mainTree = std::make_unique<TTree>("mainTree", "mainTree");
+      int idx;
+      mainTree->Branch("idx", &idx);
+      int x;
+      mainTree->Branch("x", &x);
 
-   idx = 1;
-   x = 1;
-   mainTree.Fill();
-   idx = 1;
-   x = 2;
-   mainTree.Fill();
-   idx = 1;
-   x = 3;
-   mainTree.Fill();
-   idx = 2;
-   x = 4;
-   mainTree.Fill();
-   idx = 2;
-   x = 5;
-   mainTree.Fill();
-   mainTree.Write();
-   f.Close();
-
+      idx = 1;
+      x = 1;
+      mainTree->Fill();
+      idx = 1;
+      x = 2;
+      mainTree->Fill();
+      idx = 1;
+      x = 3;
+      mainTree->Fill();
+      idx = 2;
+      x = 4;
+      mainTree->Fill();
+      idx = 2;
+      x = 5;
+      mainTree->Fill();
+      mainTree->Write();
+      f->Write();
+   }
    // And aux tree
-   TFile f2(auxfile, "RECREATE");
-   TTree auxTree("auxTree", "auxTree");
-   auxTree.Branch("idx", &idx);
-   int y;
-   auxTree.Branch("y", &y);
-   idx = 2;
-   y = 5;
-   auxTree.Fill();
-   idx = 1;
-   y = 7;
-   auxTree.Fill();
-   auxTree.Write();
-   f2.Close();
+   {
+      auto f2 = std::make_unique<TFile>(auxfile, "RECREATE");
+      auto auxTree = std::make_unique<TTree>("auxTree", "auxTree");
+      int idx;
+      auxTree->Branch("idx", &idx);
+      int y;
+      auxTree->Branch("y", &y);
+      idx = 2;
+      y = 5;
+      auxTree->Fill();
+      idx = 1;
+      y = 7;
+      auxTree->Fill();
+      auxTree->Write();
+      f2->Write();
+   }
 }
 
-TEST(RDFAndFriendsNoFixture, IndexedFriend)
+void TestIndexedFriendChain()
 {
-   auto mainFile = "IndexedFriend_main.root";
-   auto auxFile = "IndexedFriend_aux.root";
+   auto mainFile = "IndexedFriendChain_main.root";
+   auto auxFile = "IndexedFriendChain_aux.root";
    FillIndexedFriend(mainFile, auxFile);
 
    TChain mainChain("mainTree", "mainTree");
@@ -321,14 +342,70 @@ TEST(RDFAndFriendsNoFixture, IndexedFriend)
    auto x = df.Take<int>("x");
    auto y = df.Take<int>("auxTree.y");
 
-   std::vector<int> refx{{1,2,3,4,5}};
+   std::vector<int> refx{{1, 2, 3, 4, 5}};
    EXPECT_TRUE(std::equal(x->begin(), x->end(), refx.begin()));
-   std::vector<int> refy{{7,7,7,5,5}};
+   std::vector<int> refy{{7, 7, 7, 5, 5}};
    EXPECT_TRUE(std::equal(y->begin(), y->end(), refy.begin()));
 
    gSystem->Unlink(mainFile);
    gSystem->Unlink(auxFile);
 }
+
+void TestIndexedFriendTree()
+{
+   auto mainFile = "IndexedFriendTree_main.root";
+   auto auxFile = "IndexedFriendTree_aux.root";
+   FillIndexedFriend(mainFile, auxFile);
+
+   TFile mainF(mainFile);
+   auto *mainTree = mainF.Get<TTree>("mainTree");
+   EXPECT_NE(mainTree, nullptr);
+
+   TFile auxF(auxFile);
+   auto *auxTree = auxF.Get<TTree>("auxTree");
+   EXPECT_NE(auxTree, nullptr);
+
+   auxTree->BuildIndex("idx");
+   mainTree->AddFriend(auxTree);
+
+   auto df = ROOT::RDataFrame(*mainTree);
+   auto x = df.Take<int>("x");
+   auto y = df.Take<int>("auxTree.y");
+
+   std::vector<int> refx{{1, 2, 3, 4, 5}};
+   EXPECT_TRUE(std::equal(x->begin(), x->end(), refx.begin()));
+   std::vector<int> refy{{7, 7, 7, 5, 5}};
+   EXPECT_TRUE(std::equal(y->begin(), y->end(), refy.begin()));
+
+   gSystem->Unlink(mainFile);
+   gSystem->Unlink(auxFile);
+}
+
+TEST(RDFAndFriendsNoFixture, IndexedFriendChain)
+{
+   TestIndexedFriendChain();
+}
+
+TEST(RDFAndFriendsNoFixture, IndexedFriendTree)
+{
+   TestIndexedFriendTree();
+}
+
+#ifdef R__USE_IMT
+TEST(RDFAndFriendsNoFixture, IndexedFriendChainMT)
+{
+   ROOT::EnableImplicitMT();
+   TestIndexedFriendChain();
+   ROOT::DisableImplicitMT();
+}
+
+TEST(RDFAndFriendsNoFixture, IndexedFriendTreeMT)
+{
+   ROOT::EnableImplicitMT();
+   TestIndexedFriendTree();
+   ROOT::DisableImplicitMT();
+}
+#endif // R__USE_IMT
 
 // Test for https://github.com/root-project/root/issues/6741
 TEST(RDFAndFriendsNoFixture, AutomaticFriendsLoad)
@@ -336,21 +413,25 @@ TEST(RDFAndFriendsNoFixture, AutomaticFriendsLoad)
    const auto fname = "rdf_automaticfriendsloadtest.root";
    {
       // write a TTree and its friend to the same file
-      TFile f(fname, "recreate");
-      TTree t1("t1", "t1");
-      TTree t2("t2", "t2");
+      // NOTE(vpadulan): these TFile and TTree are created on the heap to work around a know bug that can
+      // cause a TObject to be incorrectly marked as "on heap" and attempted to be freed despite
+      // living on the stack.
+      // The bug is caused by the magic bit pattern `kObjectAllocMemValue` used by TStorage to
+      // mark a heap object appearing by chance on the stack.
+      // This is not a problem with a clear solution and in fact the whole heap detection system relies on UB,
+      // so for now we are forced to work around the bug rather than fixing it.
+      auto f = std::make_unique<TFile>(fname, "recreate");
+      auto t1 = std::make_unique<TTree>("t1", "t1");
+      auto t2 = std::make_unique<TTree>("t2", "t2");
       int x = 42;
-      t2.Branch("x", &x);
-      t1.Fill();
-      t2.Fill();
-      t1.AddFriend(&t2);
-      t1.Write();
-      t2.Write();
-      f.Close();
+      t2->Branch("x", &x);
+      t1->Fill();
+      t2->Fill();
+      t1->AddFriend(t2.get());
+      t1->Write();
+      t2->Write();
    }
    EXPECT_EQ(ROOT::RDataFrame("t1", fname).Max<int>("t2.x").GetValue(), 42);
 
    gSystem->Unlink(fname);
 }
-
-#endif // R__USE_IMT

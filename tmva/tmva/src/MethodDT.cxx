@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodDT (DT = Decision Trees)                                         *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Analysis of Boosted Decision Trees                                        *
@@ -21,7 +21,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::MethodDT
@@ -119,7 +119,6 @@ using std::vector;
 
 REGISTER_METHOD(DT)
 
-ClassImp(TMVA::MethodDT);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// the standard constructor for just an ordinar "decision trees"
@@ -395,7 +394,6 @@ void TMVA::MethodDT::Train( void )
    if (fPruneMethod != DecisionTree::kNoPruning) fTree->PruneTree();
 
    TMVA::DecisionTreeNode::SetIsTraining(false);
-   ExitFromTraining();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

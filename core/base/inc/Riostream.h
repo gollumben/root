@@ -12,6 +12,7 @@
 #ifndef ROOT_Riostream
 #define ROOT_Riostream
 
+#warning "This header is deprecated and will be removed after ROOT 7. Use instead <fstream>, <iostream> or <iomanip>."
 
 //////////////////////////////////////////////////////////////////////////
 //                                                                      //
@@ -21,6 +22,12 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
+#ifdef __APPLE__
+// Workaround for https://github.com/llvm/llvm-project/issues/138683
+// Include <chrono> before <fstream> to ensure _FilesystemClock is defined
+// Can be removed once the upstream issue is fixed.
+#include <chrono>
+#endif
 #include <fstream>
 #include <iostream>
 #include <iomanip>

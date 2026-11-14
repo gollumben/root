@@ -15,7 +15,6 @@
 #include <ROOT/REveElement.hxx>
 #include <ROOT/REveVector.hxx>
 
-#include "TAttBBox.h"
 #include "TColor.h"
 
 namespace ROOT {
@@ -26,9 +25,7 @@ namespace Experimental {
 // Abstract base-class for 2D/3D shapes.
 // =========================================================================
 
-class REveShape : public REveElement,
-                  public TAttBBox
-{
+class REveShape : public REveElement {
 private:
    REveShape(const REveShape &) = delete;
    REveShape &operator=(const REveShape &) = delete;
@@ -37,36 +34,42 @@ public:
    typedef std::vector<REveVector2> vVector2_t;
 
 protected:
-   Color_t fFillColor; // fill color of polygons
-   Color_t fLineColor; // outline color of polygons
-   Float_t fLineWidth; // outline width of polygons
+   Color_t fFillColor = 7;   // fill color of polygons
+   Color_t fLineColor = 12;  // outline color of polygons
+   UChar_t fFillAlpha = 255; // alpha of the fill
+   UChar_t fLineAlpha = 255; // alpha of outline
+   Float_t fLineWidth = 1;   // outline width of polygons
 
-   Bool_t fDrawFrame;      // draw frame
-   Bool_t fHighlightFrame; // highlight frame / all shape
-   Bool_t fMiniFrame;      // draw minimal frame
+   Bool_t fDrawFrame      = true;  // draw frame
+   Bool_t fHighlightFrame = false; // highlight frame / all shape
+   Bool_t fMiniFrame      = true;  // draw minimal frame
 
 public:
    REveShape(const std::string &n = "REveShape", const std::string &t = "");
-   virtual ~REveShape();
+   ~REveShape() override;
 
    Int_t WriteCoreJson(nlohmann::json &j, Int_t rnr_offset) override;
 
    // Rendering parameters.
    void SetMainColor(Color_t color) override;
 
-   virtual Color_t GetFillColor() const { return fFillColor; }
-   virtual Color_t GetLineColor() const { return fLineColor; }
-   virtual Float_t GetLineWidth() const { return fLineWidth; }
-   virtual Bool_t GetDrawFrame() const { return fDrawFrame; }
-   virtual Bool_t GetHighlightFrame() const { return fHighlightFrame; }
-   virtual Bool_t GetMiniFrame() const { return fMiniFrame; }
+   Color_t GetFillColor() const { return fFillColor; }
+   Color_t GetLineColor() const { return fLineColor; }
+   UChar_t GetFillAlpha() const { return fFillAlpha; }
+   UChar_t GetLineAlpha() const { return fLineAlpha; }
+   Float_t GetLineWidth() const { return fLineWidth; }
+   Bool_t GetDrawFrame() const { return fDrawFrame; }
+   Bool_t GetHighlightFrame() const { return fHighlightFrame; }
+   Bool_t GetMiniFrame() const { return fMiniFrame; }
 
-   virtual void SetFillColor(Color_t c) { fFillColor = c; }
-   virtual void SetLineColor(Color_t c) { fLineColor = c; }
-   virtual void SetLineWidth(Float_t lw) { fLineWidth = lw; }
-   virtual void SetDrawFrame(Bool_t f) { fDrawFrame = f; }
-   virtual void SetHighlightFrame(Bool_t f) { fHighlightFrame = f; }
-   virtual void SetMiniFrame(Bool_t r) { fMiniFrame = r; }
+   void SetFillColor(Color_t c) { fFillColor = c; StampObjProps(); }
+   void SetLineColor(Color_t c) { fLineColor = c; StampObjProps(); }
+   void SetFillAlpha(UChar_t c) { fFillAlpha = c; StampObjProps(); }
+   void SetLineAlpha(UChar_t c) { fLineAlpha = c; StampObjProps(); }
+   void SetLineWidth(Float_t lw) { fLineWidth = lw; StampObjProps(); }
+   void SetDrawFrame(Bool_t f) { fDrawFrame = f; StampObjProps(); }
+   void SetHighlightFrame(Bool_t f) { fHighlightFrame = f; StampObjProps(); }
+   void SetMiniFrame(Bool_t r) { fMiniFrame = r; StampObjProps(); }
 
    // ----------------------------------------------------------------
 
@@ -75,7 +78,7 @@ public:
 
    // ----------------------------------------------------------------
 
-   // Abstract function from TAttBBox:
+   // From REveElement:
    // virtual void ComputeBBox();
 
    // ----------------------------------------------------------------

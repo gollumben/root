@@ -20,7 +20,6 @@
 #include <TGTextEntry.h>
 #include <TClass.h>
 
-ClassImp(TStructNodeEditor);
 
 //________________________________________________________________________
 //////////////////////////////////////////////////////////////////////////
@@ -203,7 +202,7 @@ TStructNodeProperty* TStructNodeEditor::FindNodeProperty(TStructNode* node)
       }
    }
 
-   return NULL;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

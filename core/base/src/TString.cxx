@@ -23,6 +23,14 @@ strings (<15 on 64-bit and <11 on 32-bit) are contained in the
 TString internal data structure without the need for mallocing the
 required space.
 
+\note TString can store a maximum of MaxSize()=2147483646 characters; ie 2147483647 bytes if you include the terminating null.
+Trying to allocate larger buffers might throw std::bad_alloc or raise
+Fatal errors or lead to undefined behavior. Likewise, there is no safety
+check if you pass a Long64_t to the class functions, they will be silently
+rounded to Int_t and lead to an integer overflow (negative value).
+For future designs, consider using std::string instead, which has a larger
+maximum size.
+
 Substring operations are provided by the TSubString class, which
 holds a reference to the original string and its data, along with
 the offset and length of the substring. To retrieve the substring
@@ -36,12 +44,7 @@ as a TString, construct a TString from it, eg:
 */
 
 #include <ROOT/RConfig.hxx>
-#include <stdlib.h>
-#include <ctype.h>
-#include <list>
-#include <algorithm>
 
-#include "Varargs.h"
 #include "strlcpy.h"
 #include "TString.h"
 #include "TBuffer.h"
@@ -54,6 +57,11 @@ as a TString, construct a TString from it, eg:
 #include "TVirtualMutex.h"
 #include "ThreadLocalStorage.h"
 
+#include <cstdarg>
+#include <cstdlib>
+#include <cctype>
+#include <list>
+#include <algorithm>
 
 #if defined(R__WIN32)
 #define strtoull _strtoui64
@@ -63,7 +71,6 @@ as a TString, construct a TString from it, eg:
 namespace std { using ::list; }
 #endif
 
-ClassImp(TString);
 
 // Amount to shift hash values to avoid clustering
 const UInt_t kHashShift = 5;
@@ -126,6 +133,11 @@ TString::TString(const std::string &s)
 
 TString::TString(const char *cs, Ssiz_t n)
 {
+   if (!cs) {
+      Error("TString::TString", "NULL input string!");
+      Zero();
+      return;
+   }
    if (n < 0) {
       Error("TString::TString", "Negative length!");
       Zero();
@@ -230,7 +242,12 @@ TString::TString(const char *a1, Ssiz_t n1, const char *a2, Ssiz_t n2)
    }
    if (!a1) n1 = 0;
    if (!a2) n2 = 0;
-   Ssiz_t tot = n1+n2;
+   Long64_t tot = static_cast<Long64_t>(n1)+n2; // Final string length, use 64-bit long instead of 32-bit int to check for overflows
+   if (tot > MaxSize()) {
+      Error("TString::TString", "Too large number of characters!");
+      Zero();
+      return;
+   }
    char *data = Init(tot, tot);
    if (a1) memcpy(data,    a1, n1);
    if (a2) memcpy(data+n1, a2, n2);
@@ -247,6 +264,7 @@ TString::~TString()
 ////////////////////////////////////////////////////////////////////////////////
 /// Private member function returning an empty string representation of
 /// size capacity and containing nchar characters.
+/// \warning If nchar > MaxSize(), then Fatal() is raised and only MaxSize() elements are allocated
 
 char *TString::Init(Ssiz_t capacity, Ssiz_t nchar)
 {
@@ -258,8 +276,12 @@ char *TString::Init(Ssiz_t capacity, Ssiz_t nchar)
       Error("*TString::Init", "Negative length!");
       nchar = 0;
    }
+   if (nchar > capacity) {
+      Error("TString::Init", "capacity is smaller than nchar (%d > %d)", nchar, capacity);
+      nchar = capacity;
+   }
    if (capacity > MaxSize()) {
-      Error("TString::Init", "capacity too large (%d, max = %d)", capacity, MaxSize());
+      Fatal("TString::Init", "capacity too large (%d, max = %d)", capacity, MaxSize());
       capacity = MaxSize();
       if (nchar > capacity)
          nchar = capacity;
@@ -378,6 +400,7 @@ TString& TString::operator=(const TSubString &substr)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Append character c rep times to string.
+/// \warning If length+rep exceeds MaxSize(), then Fatal() is raised and only MaxSize()-length elements are added
 
 TString& TString::Append(char c, Ssiz_t rep)
 {
@@ -388,10 +411,10 @@ TString& TString::Append(char c, Ssiz_t rep)
       return *this;
    }
    Ssiz_t len = Length();
-   Ssiz_t tot = len + rep;  // Final string length
+   Long64_t tot = static_cast<Long64_t>(len) + rep;  // Final string length, use 64-bit long instead of 32-bit int to check for overflows
 
    if (tot > MaxSize()) {
-      Error("TString::Append", "rep too large (%d, max = %d)", rep, MaxSize()-len);
+      Fatal("TString::Append", "rep too large (%d, max = %d)", rep, MaxSize()-len);
       tot = MaxSize();
       rep = tot - len;
    }
@@ -691,13 +714,13 @@ UInt_t TString::Hash(ECaseCompare cmp) const
    typedef unsigned __int64 uint64_t;
 #else // defined(_MSC_VER)
    // Other compilers
-#include <stdint.h>
+#include <cstdint>
 #endif // !defined(_MSC_VER)
 
    // From MurmurHash.cpp:
 #if defined(_MSC_VER)
    // Microsoft Visual Studio
-#include <stdlib.h>
+#include <cstdlib>
 #define ROTL64(x,y)     _rotl64(x,y)
 #define BIG_CONSTANT(x) (x)
 #else   // defined(_MSC_VER)
@@ -957,6 +980,7 @@ Bool_t TString::MaybeWildcard() const
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Prepend character c rep times to string.
+/// \warning If length+rep exceeds MaxSize(), then Fatal() is raised and only MaxSize()-length elements are added
 
 TString& TString::Prepend(char c, Ssiz_t rep)
 {
@@ -964,10 +988,10 @@ TString& TString::Prepend(char c, Ssiz_t rep)
       return *this;
 
    Ssiz_t len = Length();
-   Ssiz_t tot = len + rep;  // Final string length
+   Long64_t tot = static_cast<Long64_t>(len) + rep;  // Final string length, use 64-bit long instead of 32-bit int to check for overflows
 
    if (tot > MaxSize()) {
-      Error("TString::Prepend", "rep too large (%d, max = %d)", rep, MaxSize()-len);
+      Fatal("TString::Prepend", "rep too large (%d, max = %d)", rep, MaxSize()-len);
       tot = MaxSize();
       rep = tot - len;
    }
@@ -1017,16 +1041,20 @@ TString &TString::Replace(Ssiz_t pos, Ssiz_t n1, const char *cs, Ssiz_t n2)
       return *this;
    }
 
-   n1 = TMath::Min(n1, len - pos);
+   n1 = std::min(n1, len - pos);
    if (!cs) n2 = 0;
 
-   Ssiz_t tot = len - n1 + n2;  // Final string length
+   Long64_t tot = static_cast<Long64_t>(len) - n1 + n2;  // Final string length, use 64-bit long instead of 32-bit int to check for overflows
+   if (tot > MaxSize()) {
+      Error("TString::Replace", "Too large number of characters!");
+      return *this;
+   }
    Ssiz_t rem = len - n1 - pos; // Length of remnant at end of string
 
    Ssiz_t capac = Capacity();
    char *p = GetPointer();
 
-   if (capac - len + n1 >= n2) {
+   if (capac >= tot) {
       if (n1 != n2) {
          if (rem) {
             if (n1 > n2) {
@@ -1084,6 +1112,18 @@ TString& TString::ReplaceAll(const char *s1, Ssiz_t ls1, const char *s2,
    }
    return *this;
 }
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Find special characters which are typically used in `printf()` calls
+/// and replace them by appropriate escape sequences. Result can be
+/// stored as string argument in ROOT macros. The content of TString will be changed!
+
+TString &TString::ReplaceSpecialCppChars()
+{
+   return ReplaceAll("\\","\\\\").ReplaceAll("\"","\\\"").ReplaceAll("\n","\\n").ReplaceAll("\t","\\t");
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Remove char c at begin and/or end of string (like Strip()) but
@@ -1182,16 +1222,17 @@ void TString::AssertElement(Ssiz_t i) const
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Calculate a nice capacity greater than or equal to newCap.
+/// \warning Fatal() is raised if newCap > MaxSize()
+/// \return Resulting recommended capacity (after clamping, if needed)
 
 Ssiz_t TString::AdjustCapacity(Ssiz_t oldCap, Ssiz_t newCap)
 {
    Ssiz_t ms = MaxSize();
-   if (newCap > ms - 1) {
-      Error("TString::AdjustCapacity", "capacity too large (%d, max = %d)",
+   if (newCap > ms) {
+      Fatal("TString::AdjustCapacity", "capacity too large (%d, max = %d)",
             newCap, ms);
    }
-   Ssiz_t cap = oldCap < ms / 2 - kAlignment ?
-                Recommend(TMath::Max(newCap, 2 * oldCap)) : ms - 1;
+   Ssiz_t cap = oldCap <= ms / 2 ? Recommend(std::max(newCap, 2 * oldCap)) : ms;
    return cap;
 }
 
@@ -1205,12 +1246,18 @@ void TString::Clear()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Clear string and make sure it has a capacity of nc.
+/// \warning If nc > MaxSize(), then Fatal() is raised, and only MaxSize()
+/// elements are allocated if Fatal does not abort
+/// \return Resulting allocated capacity (after clamping, if needed)
 
-void TString::Clobber(Ssiz_t nc)
+Ssiz_t TString::Clobber(Ssiz_t nc)
 {
    if (nc > MaxSize()) {
-      Error("TString::Clobber", "capacity too large (%d, max = %d)", nc, MaxSize());
-      nc = MaxSize();
+      Fatal("TString::Clobber", "capacity too large (%d, max = %d)", nc, MaxSize());
+      // In the rare case where Fatal does not abort, we erase, clamp and continue
+      UnLink();
+      Zero();
+      nc = MaxSize(); // Clamping after deleting to avoid corruption
    }
 
    if (nc < kMinCap) {
@@ -1228,11 +1275,13 @@ void TString::Clobber(Ssiz_t nc)
       SetLongSize(0);
       data[0] = 0;
    }
+   return nc;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Make self a distinct copy with capacity of at least tot, where tot cannot
 /// be smaller than the current length. Preserve previous contents.
+/// \warning If tot > MaxSize(), then Fatal() is raised and only MaxSize() elements are allocated
 
 void TString::Clone(Ssiz_t tot)
 {
@@ -1240,7 +1289,7 @@ void TString::Clone(Ssiz_t tot)
    if (len >= tot) return;
 
    if (tot > MaxSize()) {
-      Error("TString::Clone", "tot too large (%d, max = %d)", tot, MaxSize());
+      Fatal("TString::Clone", "tot too large (%d, max = %d)", tot, MaxSize());
       tot = MaxSize();
    }
 
@@ -1307,7 +1356,81 @@ void TString::ReadBuffer(char *&buffer)
 
    char *data = Init(nchars, nchars);
 
-   for (int i = 0; i < nchars; i++) frombuf(buffer, &data[i]);
+   memcpy(data, buffer, nchars);
+   buffer += nchars;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Safer version of ReadBuffer(char *&buffer), doing bound checks on the given buffer.
+/// This overload should be preferred over the other, which should be considered unsafe.
+/// \return The amount of bytes read from the buffer, or 0 in case of errors.
+
+std::size_t TString::ReadBuffer(char *&buffer, std::size_t bufsize)
+{
+   // NOTE: this is not a lambda because we want [[nodiscard]].
+   struct {
+      TString *fOuter;
+      std::size_t fRemainingBufSize;
+
+      [[nodiscard]] bool operator()(std::size_t additionalBytesNeeded)
+      {
+         if (R__unlikely(additionalBytesNeeded > fRemainingBufSize)) {
+            Error("TString::ReadBuffer", "given buffer is too small (%zu B remaining, need at least %zu more)",
+                  fRemainingBufSize, additionalBytesNeeded);
+            fOuter->UnLink();
+            fOuter->Zero();
+            return false;
+         }
+         fRemainingBufSize -= additionalBytesNeeded;
+         return true;
+      }
+   } ConsumeBufCapacity{this, bufsize};
+
+   if (!ConsumeBufCapacity(1)) {
+      return 0;
+   }
+
+   UnLink();
+   Zero();
+
+   UChar_t strLength;
+   Int_t   nchars;
+
+   // frombuf needs a non-const buffer, although it actually doesn't modify it.
+   char *buf = const_cast<char *>(buffer);
+   frombuf(buf, &strLength);
+   if (strLength == 255) {
+      if (!ConsumeBufCapacity(sizeof(nchars))) {
+         return 0;
+      }
+      frombuf(buf, &nchars);
+   } else {
+      nchars = strLength;
+   }
+
+   if (nchars < 0) {
+      Error("TString::ReadBuffer", "found case with nwh=%d and nchars=%d", strLength, nchars);
+      return 0;
+   }
+
+   if (!ConsumeBufCapacity(nchars)) {
+      return 0;
+   }
+
+   char *data;
+   try {
+      data = Init(nchars, nchars);
+   } catch (const std::bad_alloc &ex) {
+      Error("TString::ReadBuffer", "out of memory trying to allocate a string of %d bytes.", nchars);
+      return 0;
+   }
+
+   assert(data);
+   memcpy(data, buf, nchars);
+
+   std::size_t nbytesRead = bufsize - ConsumeBufCapacity.fRemainingBufSize;
+   buffer += nbytesRead;
+   return nbytesRead;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2059,7 +2182,7 @@ TString TString::Itoa(Int_t value, Int_t base)
    Int_t quotient = value;
    // Translating number to string with base:
    do {
-      buf += "0123456789abcdefghijklmnopqrstuvwxyz"[ TMath::Abs(quotient % base) ];
+      buf += "0123456789abcdefghijklmnopqrstuvwxyz"[ std::abs(quotient % base) ];
       quotient /= base;
    } while (quotient);
    // Append the negative sign
@@ -2111,7 +2234,7 @@ TString TString::LLtoa(Long64_t value, Int_t base)
    Long64_t quotient = value;
    // Translating number to string with base:
    do {
-      buf += "0123456789abcdefghijklmnopqrstuvwxyz"[ TMath::Abs(quotient % base) ];
+      buf += "0123456789abcdefghijklmnopqrstuvwxyz"[ std::abs(quotient % base) ];
       quotient /= base;
    } while (quotient);
    // Append the negative sign
@@ -2267,33 +2390,34 @@ TObjArray *TString::Tokenize(const TString &delim) const
 
 void TString::FormImp(const char *fmt, va_list ap)
 {
-   Ssiz_t buflen = 20 + 20 * strlen(fmt);    // pick a number, any strictly positive number
-   Clobber(buflen);
+   va_list ap_len;
+   va_copy(ap_len, ap);
 
-   va_list sap;
-   R__VA_COPY(sap, ap);
+   // First pass: determine required size (excluding '\0')
+   int n = vsnprintf(nullptr, 0, fmt, ap_len);
+   va_end(ap_len);
 
-   int n, vc = 0;
-again:
-   n = vsnprintf(GetPointer(), buflen, fmt, ap);
-   // old vsnprintf's return -1 if string is truncated new ones return
-   // total number of characters that would have been written
-   if (n == -1 || n >= buflen) {
-      if (n == -1)
-         buflen *= 2;
-      else
-         buflen = n+1;
-      Clobber(buflen);
-      va_end(ap);
-      R__VA_COPY(ap, sap);
-      vc = 1;
-      goto again;
+   if (n < 0) {
+      // Formatting error
+      Clear();
+      return;
    }
-   va_end(sap);
-   if (vc)
-      va_end(ap);
 
-   SetSize(strlen(Data()));
+   // Request enough space (including null terminator)
+   Ssiz_t needed = Clobber(n + 1);
+
+   // Safety: Clobber may clamp to MaxSize
+   if (needed <= 0 || needed <= n) {
+      Clear();
+      return;
+   }
+
+   va_list ap_out;
+   va_copy(ap_out, ap);
+   vsnprintf(GetPointer(), needed, fmt, ap_out);
+   va_end(ap_out);
+
+   SetSize(n);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2304,18 +2428,18 @@ again:
 ///   TString formatted;
 ///   formatted.Form("%s in <%s>: %s", type, location, msg);
 ///
-///   lines.emplace_back(TString::Format("Welcome to ROOT %s%%shttp://root.cern.ch",
+///   lines.emplace_back(TString::Format("Welcome to ROOT %s%%shttp://root.cern",
 ///                      gROOT->GetVersion()));
 /// ~~~
 ///
 /// Note: this is not to be confused with ::Format and ::Form (in the global namespace)
 /// which returns a const char* and relies on a thread-local static character buffer.
 
-void TString::Form(const char *va_(fmt), ...)
+void TString::Form(const char *fmt, ...)
 {
    va_list ap;
-   va_start(ap, va_(fmt));
-   FormImp(va_(fmt), ap);
+   va_start(ap, fmt);
+   FormImp(fmt, ap);
    va_end(ap);
 }
 
@@ -2324,7 +2448,7 @@ void TString::Form(const char *va_(fmt), ...)
 /// descriptor and return a TString. Similar to TString::Form() but it is
 /// not needed to first create a TString.
 /// ~~~ {.cpp}
-///   lines.emplace_back(TString::Format("Welcome to ROOT %s%%shttp://root.cern.ch",
+///   lines.emplace_back(TString::Format("Welcome to ROOT %s%%shttp://root.cern",
 ///                      gROOT->GetVersion()));
 ///   TString formatted;
 ///   formatted.Form("%s in <%s>: %s", type, location, msg);
@@ -2333,12 +2457,12 @@ void TString::Form(const char *va_(fmt), ...)
 /// Note: this is not to be confused with ::Format and ::Form (in the global namespace)
 /// which returns a const char* and relies on a thread-local static character buffer.
 
-TString TString::Format(const char *va_(fmt), ...)
+TString TString::Format(const char *fmt, ...)
 {
    va_list ap;
-   va_start(ap, va_(fmt));
+   va_start(ap, fmt);
    TString str;
-   str.FormImp(va_(fmt), ap);
+   str.FormImp(fmt, ap);
    va_end(ap);
    return str;
 }
@@ -2368,7 +2492,7 @@ static char *SlowFormat(const char *format, va_list ap, int hint)
    }
 
    va_list sap;
-   R__VA_COPY(sap, ap);
+   va_copy(sap, ap);
 
    int n = vsnprintf(slowBuffer, slowBufferSize, format, ap);
    // old vsnprintf's return -1 if string is truncated new ones return
@@ -2381,7 +2505,7 @@ static char *SlowFormat(const char *format, va_list ap, int hint)
          return nullptr; // int overflow!
       }
       va_end(ap);
-      R__VA_COPY(ap, sap);
+      va_copy(ap, sap);
       char *buf = SlowFormat(format, ap, n);
       va_end(sap);
       va_end(ap);
@@ -2417,14 +2541,14 @@ static char *Format(const char *format, va_list ap)
       buf = gFormbuf;
 
    va_list sap;
-   R__VA_COPY(sap, ap);
+   va_copy(sap, ap);
 
    int n = vsnprintf(buf, fld_size, format, ap);
    // old vsnprintf's return -1 if string is truncated new ones return
    // total number of characters that would have been written
    if (n == -1 || n >= fld_size) {
       va_end(ap);
-      R__VA_COPY(ap, sap);
+      va_copy(ap, sap);
       buf = SlowFormat(format, ap, n);
       va_end(sap);
       va_end(ap);
@@ -2444,11 +2568,11 @@ static char *Format(const char *format, va_list ap)
 /// be overwritten downstream. Use Form() results immediately or use
 /// TString::Format() instead.
 
-char *Form(const char *va_(fmt), ...)
+char *Form(const char *fmt, ...)
 {
    va_list ap;
-   va_start(ap,va_(fmt));
-   char *b = Format(va_(fmt), ap);
+   va_start(ap, fmt);
+   char *b = Format(fmt, ap);
    va_end(ap);
    return b;
 }
@@ -2458,14 +2582,14 @@ char *Form(const char *va_(fmt), ...)
 /// Appends a newline. If gPrintViaErrorHandler is true it will print via the
 /// currently active ROOT error handler.
 
-void Printf(const char *va_(fmt), ...)
+void Printf(const char *fmt, ...)
 {
    va_list ap;
-   va_start(ap,va_(fmt));
+   va_start(ap, fmt);
    if (gPrintViaErrorHandler)
-      ErrorHandler(kPrint, nullptr, va_(fmt), ap);
+      ErrorHandler(kPrint, nullptr, fmt, ap);
    else {
-      char *b = Format(va_(fmt), ap);
+      char *b = Format(fmt, ap);
       printf("%s\n", b);
       fflush(stdout);
    }

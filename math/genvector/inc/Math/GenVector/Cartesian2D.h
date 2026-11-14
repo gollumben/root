@@ -31,6 +31,8 @@ namespace Math {
        (x, y coordinates)
 
        @ingroup GenVector
+
+       @see GenVector
    */
 
 template <class T = double>
@@ -40,10 +42,12 @@ public :
 
    typedef T Scalar;
 
+   static constexpr unsigned int Dimension = 2U;
+
    /**
       Default constructor  with x=y=0
    */
-   Cartesian2D() : fX(0.0), fY(0.0)  {  }
+   constexpr Cartesian2D() noexcept = default;
 
    /**
       Constructor from x,y  coordinates
@@ -55,26 +59,8 @@ public :
       X() and Y()
    */
    template <class CoordSystem>
-   explicit Cartesian2D(const CoordSystem & v)
+   explicit constexpr Cartesian2D(const CoordSystem & v)
       : fX(v.X()), fY(v.Y()) {  }
-
-
-   // for g++  3.2 and 3.4 on 32 bits found that the compiler generated copy ctor and assignment are much slower
-   // re-implement them ( there is no no need to have them with g++4)
-   /**
-      copy constructor
-    */
-   Cartesian2D(const Cartesian2D & v) :
-      fX(v.X()), fY(v.Y())  {  }
-
-   /**
-      assignment operator
-    */
-   Cartesian2D & operator= (const Cartesian2D & v) {
-      fX = v.X();
-      fY = v.Y();
-      return *this;
-   }
 
    /**
       Set internal data based on 2 Scalar numbers
@@ -161,7 +147,7 @@ public :
    // ============= Overloads for improved speed ==================
 
    template <class T2>
-   explicit Cartesian2D( const Polar2D<T2> & v )
+   explicit constexpr Cartesian2D( const Polar2D<T2> & v )
    {
       const Scalar r = v.R(); // re-using this instead of calling v.X() and v.Y()
       // is the speed improvement
@@ -188,7 +174,7 @@ public :
 
 
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 
    // ====== Set member functions for coordinates in other systems =======
 
@@ -204,9 +190,8 @@ private:
    /**
       (Contiguous) data containing the coordinates values x and y
    */
-   T  fX;
-   T  fY;
-
+   T fX{0};
+   T fY{0};
 };
 
 
@@ -215,7 +200,7 @@ private:
 } // end namespace ROOT
 
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 // need to put here setter methods to resolve nasty cyclical dependencies
 // I need to include other coordinate systems only when Cartesian is already defined
 // since they depend on it

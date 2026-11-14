@@ -37,19 +37,12 @@
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/Sema.h"
 
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/Format.h"
 
 #include <locale>
 #include <string>
-
-// GCC 4.x doesn't have the proper UTF-8 conversion routines. So use the
-// LLVM conversion routines (which require a buffer 4x string length).
-#if !defined(__GLIBCXX__) || (__GNUC__ >= 5)
- #include <codecvt>
-#else
- #define LLVM_UTF8
- #include "llvm/Support/ConvertUTF.h"
-#endif
 
 using namespace cling;
 
@@ -114,8 +107,12 @@ static std::string printQualType(clang::ASTContext& Ctx, clang::QualType QT) {
   const QualType QTNonRef = QT.getNonReferenceType();
 
   PrintingPolicy Policy(Ctx.getPrintingPolicy());
+  // Print the Allocator in STL containers, for instance.
+  Policy.SuppressDefaultTemplateArgs = false;
   // DefinitionShadower: do not prepend `__cling_N5xxx::` to qualified names
   Policy.SuppressUnwrittenScope = true;
+  // Print 'a<b<c> >' rather than 'a<b<c>>'.
+  Policy.SplitTemplateClosers = true;
   class LocalPrintingPolicyRAII {
   public:
     LocalPrintingPolicyRAII(ASTContext& Ctx, PrintingPolicy& PPol)
@@ -173,7 +170,7 @@ static std::string printAddress(const void* Ptr, const char Prfx = 0) {
   Strm << Ptr;
   if (!utils::isAddressValid(Ptr))
     Strm << kInvalidAddr;
-  return Strm.str();
+  return Strm.str().str();
 }
 
 } // anonymous namespace
@@ -217,7 +214,7 @@ namespace cling {
     else
       Strm << Val;
     Strm << "'";
-    return Strm.str();
+    return Strm.str().str();
   }
 
   CLING_LIB_EXPORT
@@ -240,56 +237,56 @@ namespace cling {
   std::string printValue(const short *val) {
     cling::smallstream strm;
     strm << *val;
-    return strm.str();
+    return strm.str().str();
   }
 
   CLING_LIB_EXPORT
   std::string printValue(const unsigned short *val) {
     cling::smallstream strm;
     strm << *val;
-    return strm.str();
+    return strm.str().str();
   }
 
   CLING_LIB_EXPORT
   std::string printValue(const int *val) {
     cling::smallstream strm;
     strm << *val;
-    return strm.str();
+    return strm.str().str();
   }
 
   CLING_LIB_EXPORT
   std::string printValue(const unsigned int *val) {
     cling::smallstream strm;
     strm << *val;
-    return strm.str();
+    return strm.str().str();
   }
 
   CLING_LIB_EXPORT
   std::string printValue(const long *val) {
     cling::smallstream strm;
     strm << *val;
-    return strm.str();
+    return strm.str().str();
   }
 
   CLING_LIB_EXPORT
   std::string printValue(const unsigned long *val) {
     cling::smallstream strm;
     strm << *val;
-    return strm.str();
+    return strm.str().str();
   }
 
   CLING_LIB_EXPORT
   std::string printValue(const long long *val) {
     cling::smallstream strm;
     strm << *val;
-    return strm.str();
+    return strm.str().str();
   }
 
   CLING_LIB_EXPORT
   std::string printValue(const unsigned long long *val) {
     cling::smallstream strm;
     strm << *val;
-    return strm.str();
+    return strm.str().str();
   }
 
   // Reals
@@ -297,14 +294,14 @@ namespace cling {
   std::string printValue(const float *val) {
     cling::smallstream strm;
     strm << llvm::format("%#.6g", *val) << 'f';
-    return strm.str();
+    return strm.str().str();
   }
 
   CLING_LIB_EXPORT
   std::string printValue(const double *val) {
     cling::smallstream strm;
     strm << llvm::format("%#.8g", *val);
-    return strm.str();
+    return strm.str().str();
   }
 
   CLING_LIB_EXPORT
@@ -312,7 +309,7 @@ namespace cling {
     cling::smallstream strm;
     strm << llvm::format("%#.8Lg", *val) << 'L';
     //strm << llvm::format("%Le", *val) << 'L';
-    return strm.str();
+    return strm.str().str();
   }
 
   // Char pointers
@@ -340,7 +337,7 @@ namespace cling {
     if (!IsValid) {
       cling::smallstream Strm;
       Strm << static_cast<const void*>(Start) << kInvalidAddr;
-      return Strm.str();
+      return Strm.str().str();
     }
 
     if (*Start == 0)
@@ -354,7 +351,7 @@ namespace cling {
       Strm << *Start++;
     Strm << "\"";
 
-    return Strm.str();
+    return Strm.str().str();
   }
 
   CLING_LIB_EXPORT
@@ -390,7 +387,6 @@ namespace cling {
     return quoteString(std::string(Str, Str[N-1] == 0 ? (N-1) : N), Prefix);
   }
 
-#ifdef LLVM_UTF8
   using llvm::ConversionResult;
   using llvm::ConversionFlags;
   using llvm::lenientConversion;
@@ -449,23 +445,6 @@ namespace cling {
     Result.resize(ResultPtr - &Result[0]);
     return quoteString(std::move(Result), Prfx);
   }
-
-#else // !LLVM_UTF8
-
-  template <class T> struct CharTraits { typedef T value_type; };
-#if defined(_WIN32) // Likely only to be needed when _MSC_VER < 19??
-  template <> struct CharTraits<char16_t> { typedef unsigned short value_type; };
-  template <> struct CharTraits<char32_t> { typedef unsigned int value_type; };
-#endif
-
-  template <typename T>
-  static std::string encodeUTF8(const T* const Str, size_t N, const char Prfx) {
-    typedef typename CharTraits<T>::value_type value_type;
-    std::wstring_convert<std::codecvt_utf8_utf16<value_type>, value_type> Convert;
-    const value_type* Src = reinterpret_cast<const value_type*>(Str);
-    return quoteString(Convert.to_bytes(Src, Src + N), Prfx);
-  }
-#endif // LLVM_UTF8
 
   template <typename T>
   std::string utf8Value(const T* const Str, size_t N, const char Prefix,
@@ -554,7 +533,7 @@ namespace cling {
     llvm::raw_svector_ostream Strm(Buf);
     Strm << Prefix << "'\\" << Esc
          << llvm::format_hex_no_prefix(unsigned(*Src), sizeof(T)*2) << "'";
-    return Strm.str();
+    return Strm.str().str();
   }
 
   CLING_LIB_EXPORT
@@ -571,6 +550,7 @@ namespace cling {
   std::string printValue(const wchar_t *Val) {
     return toUnicode(Val, 'L', 'x');
   }
+
 } // end namespace cling
 
 namespace {
@@ -615,11 +595,21 @@ static const char* BuildAndEmitVPWrapperBody(cling::Interpreter &Interp,
   clang::Expr *OverldExpr
     = clang::UnresolvedLookupExpr::Create(Ctx, nullptr /*namingClass*/,
                                           NNSLBld.getTemporary(),
-                                  clang::DeclarationNameInfo(PVDN, noSrcLoc),
+                                          clang::DeclarationNameInfo(PVDN, noSrcLoc),
                                           /*RequiresADL*/false,
-                                          R.isOverloadedResult(),
                                           R.begin(),
-                                          R.end());
+                                          R.end(),
+                                          /*KnownDependent=*/false,
+                                          /*KnownInstantiationDependent=*/false);
+
+  // For `auto foo = bar;` decls, we are interested in the deduced type, i.e.
+  // AutoType 0x55e5ac848030 'int *' sugar
+  // `-PointerType 0x55e5ac847f70 'int *' << this type
+  //   `-BuiltinType 0x55e5ab517420 'int'
+  if (auto AT = llvm::dyn_cast<clang::AutoType>(QT.getTypePtr())) {
+    if (AT->isDeduced())
+      QT = AT->getDeducedType();
+  }
 
   if (auto PT = llvm::dyn_cast<clang::PointerType>(QT.getTypePtr())) {
     // Normalize `X*` to `const void*`, invoke `printValue(const void**)`,
@@ -629,9 +619,7 @@ static const char* BuildAndEmitVPWrapperBody(cling::Interpreter &Interp,
         && !Ctx.hasSameType(QTPointeeUnqual, Ctx.WCharTy)
         && !Ctx.hasSameType(QTPointeeUnqual, Ctx.Char16Ty)
         && !Ctx.hasSameType(QTPointeeUnqual, Ctx.Char32Ty)) {
-      QT = Ctx.VoidTy;
-      QT.addConst();
-      QT = Ctx.getPointerType(QT);
+      QT = Ctx.getPointerType(Ctx.VoidTy.withConst());
     }
   } else if (auto RTy
              = llvm::dyn_cast<clang::ReferenceType>(QT.getTypePtr())) {
@@ -660,7 +648,7 @@ static const char* BuildAndEmitVPWrapperBody(cling::Interpreter &Interp,
     return "ERROR in cling's callPrintValue(): cannot build return expression";
 
   auto *Body
-    = clang::CompoundStmt::Create(Ctx, {RetStmt.get()}, noSrcLoc, noSrcLoc);
+    = clang::CompoundStmt::Create(Ctx, {RetStmt.get()}, {}, noSrcLoc, noSrcLoc);
   WrapperFD->setBody(Body);
   auto &Consumer = Interp.getCI()->getASTConsumer();
   Consumer.HandleTopLevelDecl(clang::DeclGroupRef(WrapperFD));
@@ -688,7 +676,7 @@ static std::string callPrintValue(const Value& V, const void* Val) {
     name += "_callPrintValue";
     clang::DeclarationName DeclName = &Ctx.Idents.get(name);
     clang::QualType FnTy
-      = Ctx.getFunctionType(clang::QualType(StdStringTD->getTypeForDecl(), 0), {},
+      = Ctx.getFunctionType(StdStringTD->getASTContext().getTypeDeclType(StdStringTD), {},
                             clang::FunctionProtoType::ExtProtoInfo());
     clang::FunctionDecl *WrapperFD
       = clang::FunctionDecl::Create(Ctx,
@@ -751,7 +739,7 @@ static std::string printEnumValue(const Value &V) {
   const clang::EnumType *EnumTy = Ty.getNonReferenceType()->getAs<clang::EnumType>();
   assert(EnumTy && "ValuePrinter.cpp: ERROR, printEnumValue invoked for a non enum type.");
   clang::EnumDecl *ED = EnumTy->getDecl();
-  uint64_t value = V.getULL();
+  uint64_t value = V.getULongLong();
   bool IsFirst = true;
   llvm::APSInt ValAsAPSInt = C.MakeIntValue(value, Ty);
   for (clang::EnumDecl::enumerator_iterator I = ED->enumerator_begin(),
@@ -765,8 +753,8 @@ static std::string printEnumValue(const Value &V) {
     }
   }
   enumString << " : " << printQualType(C, ED->getIntegerType()) << " "
-    << ValAsAPSInt.toString(/*Radix = */10);
-  return enumString.str();
+             << toString(ValAsAPSInt, /*Radix = */10);
+  return enumString.str().str();
 }
 
 static std::string printFunctionValue(const Value &V, const void *ptr,
@@ -777,7 +765,7 @@ static std::string printFunctionValue(const Value &V, const void *ptr,
   Interpreter &Interp = *const_cast<Interpreter *>(V.getInterpreter());
   const Transaction *T = Interp.getLastWrapperTransaction();
   if (!T)
-    return o.str();
+    return o.str().str();
 
   if (clang::FunctionDecl *WrapperFD = T->getWrapperFD()) {
     clang::ASTContext &C = V.getASTContext();
@@ -846,7 +834,7 @@ static std::string printFunctionValue(const Value &V, const void *ptr,
       o << '\n';
     }
   }
-  return o.str();
+  return o.str().str();
 }
 
 static std::string printStringType(const Value &V, const clang::Type* Type) {
@@ -888,40 +876,40 @@ static std::string printUnpackedClingValue(const Value &V) {
     if (CXXRD->isLambda())
       return printAddress(V.getPtr(), '@');
 
-    std::string Str = printStringType(V, CXXRD->getTypeForDecl());
+    std::string Str = printStringType(V, C.getCanonicalTagType(CXXRD).getTypePtr());
     if (!Str.empty())
       return Str;
   } else if (const clang::BuiltinType *BT
       = llvm::dyn_cast<clang::BuiltinType>(Td.getCanonicalType().getTypePtr())) {
     switch (BT->getKind()) {
       case clang::BuiltinType::Bool:
-        return executePrintValue<bool>(V, V.getLL());
+        return executePrintValue<bool>(V, V.castAs<bool>());
 
       case clang::BuiltinType::Char_S:
-        return executePrintValue<signed char>(V, V.getLL());
+        return executePrintValue<signed char>(V, V.castAs<signed char>());
       case clang::BuiltinType::SChar:
-        return executePrintValue<signed char>(V, V.getLL());
+         return executePrintValue<signed char>(V, V.castAs<signed char>());
       case clang::BuiltinType::Short:
-        return executePrintValue<short>(V, V.getLL());
+        return executePrintValue<short>(V, V.castAs<short>());
       case clang::BuiltinType::Int:
-        return executePrintValue<int>(V, V.getLL());
+        return executePrintValue<int>(V, V.castAs<int>());
       case clang::BuiltinType::Long:
-        return executePrintValue<long>(V, V.getLL());
+        return executePrintValue<long>(V, V.castAs<long>());
       case clang::BuiltinType::LongLong:
-        return executePrintValue<long long>(V, V.getLL());
+        return executePrintValue<long long>(V, V.castAs<long long>());
 
       case clang::BuiltinType::Char_U:
-        return executePrintValue<unsigned char>(V, V.getULL());
+        return executePrintValue<unsigned char>(V, V.castAs<unsigned char>());
       case clang::BuiltinType::UChar:
-        return executePrintValue<unsigned char>(V, V.getULL());
+        return executePrintValue<unsigned char>(V, V.castAs<unsigned char>());
       case clang::BuiltinType::UShort:
-        return executePrintValue<unsigned short>(V, V.getULL());
+        return executePrintValue<unsigned short>(V, V.castAs<unsigned short>());
       case clang::BuiltinType::UInt:
-        return executePrintValue<unsigned int>(V, V.getULL());
+        return executePrintValue<unsigned int>(V, V.castAs<unsigned int>());
       case clang::BuiltinType::ULong:
-        return executePrintValue<unsigned long>(V, V.getULL());
+        return executePrintValue<unsigned long>(V, V.castAs<unsigned long>());
       case clang::BuiltinType::ULongLong:
-        return executePrintValue<unsigned long long>(V, V.getULL());
+        return executePrintValue<unsigned long long>(V, V.castAs<unsigned long long>());
 
       case clang::BuiltinType::Float:
         return executePrintValue<float>(V, V.getFloat());
@@ -965,7 +953,7 @@ namespace cling {
     } else
       strm << "<<<invalid>>> " << printAddress(value, '@');
 
-    return strm.str();
+    return strm.str().str();
   }
 
   namespace valuePrinterInternal {

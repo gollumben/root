@@ -22,7 +22,6 @@ output list.
 #include "TSelectorList.h"
 #include "TMethodCall.h"
 
-ClassImp(TSelectorList);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// If the class of obj has the SetDirectory(TDirectory*) method
@@ -30,20 +29,20 @@ ClassImp(TSelectorList);
 /// selector list or owned by the list and not by the directory that
 /// was active when they were created. Returns true in case of success.
 
-Bool_t TSelectorList::UnsetDirectory(TObject *obj)
+bool TSelectorList::UnsetDirectory(TObject *obj)
 {
    if (!obj || !obj->IsA())
-      return kFALSE;
+      return false;
 
    TMethodCall callEnv;
    callEnv.InitWithPrototype(obj->IsA(), "SetDirectory", "TDirectory*");
    if (!callEnv.IsValid())
-      return kFALSE;
+      return false;
 
-   callEnv.SetParam((Long_t) 0);
+   callEnv.SetParam((Longptr_t) nullptr);
    callEnv.Execute(obj);
 
-   return kTRUE;
+   return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -52,23 +51,23 @@ Bool_t TSelectorList::UnsetDirectory(TObject *obj)
 /// look up objects in different output lists by name. Returns true
 /// in case name is unique.
 
-Bool_t TSelectorList::CheckDuplicateName(TObject *obj)
+bool TSelectorList::CheckDuplicateName(TObject *obj)
 {
    if (!obj)
-      return kFALSE;
+      return false;
 
    TObject *org = FindObject(obj->GetName());
    if (org == obj) {
       Error("CheckDuplicateName","object with name: %s already in the list",obj->GetName());
-      return kFALSE;
+      return false;
    }
 
    if (org) {
       Error("CheckDuplicateName","an object with the same name: %s is already in the list",obj->GetName());
-      return kFALSE;
+      return false;
    }
 
-   return kTRUE;
+   return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -122,6 +121,16 @@ void TSelectorList::AddAt(TObject *obj, Int_t idx)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Add to the list, with options.
+
+void TSelectorList::AddAt(TObject *obj, Int_t idx, Option_t *opt)
+{
+   UnsetDirectory(obj);
+   if (CheckDuplicateName(obj))
+      THashList::AddAt(obj, idx, opt);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Add to the list.
 
 void TSelectorList::AddAfter(const TObject *after, TObject *obj)
@@ -142,6 +151,26 @@ void TSelectorList::AddAfter(TObjLink *after, TObject *obj)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Add to the list, with options.
+
+void TSelectorList::AddAfter(const TObject *after, TObject *obj, Option_t *opt)
+{
+   UnsetDirectory(obj);
+   if (CheckDuplicateName(obj))
+      THashList::AddAfter(after, obj, opt);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Add to the list, with options.
+
+void TSelectorList::AddAfter(TObjLink *after, TObject *obj, Option_t *opt)
+{
+   UnsetDirectory(obj);
+   if (CheckDuplicateName(obj))
+      THashList::AddAfter(after, obj, opt);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Add to the list.
 
 void TSelectorList::AddBefore(const TObject *before, TObject *obj)
@@ -159,4 +188,24 @@ void TSelectorList::AddBefore(TObjLink *before, TObject *obj)
    UnsetDirectory(obj);
    if (CheckDuplicateName(obj))
       THashList::AddBefore(before, obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Add to the list, with options.
+
+void TSelectorList::AddBefore(const TObject *before, TObject *obj, Option_t *opt)
+{
+   UnsetDirectory(obj);
+   if (CheckDuplicateName(obj))
+      THashList::AddBefore(before, obj, opt);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Add to the list, with options.
+
+void TSelectorList::AddBefore(TObjLink *before, TObject *obj, Option_t *opt)
+{
+   UnsetDirectory(obj);
+   if (CheckDuplicateName(obj))
+      THashList::AddBefore(before, obj, opt);
 }

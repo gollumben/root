@@ -26,45 +26,19 @@
 
 #include "llvm/IR/Constants.h"
 
-namespace cling {
-using namespace clang;
+namespace {
+  using namespace clang;
 
-///\brief Return whether `D' is a template that was first instantiated non-
-/// locally, i.e. in a PCH/module. If `D' is not an instantiation, return false.
-bool DeclUnloader::isInstantiatedInPCH(const Decl *D) {
-  SourceManager &SM = D->getASTContext().getSourceManager();
-  if (const auto FD = dyn_cast<FunctionDecl>(D))
-    return FD->isTemplateInstantiation() &&
-           !SM.isLocalSourceLocation(FD->getPointOfInstantiation());
-  else if (const auto CTSD = dyn_cast<ClassTemplateSpecializationDecl>(D))
-    return !SM.isLocalSourceLocation(CTSD->getPointOfInstantiation());
-  else if (const auto VTSD = dyn_cast<VarTemplateSpecializationDecl>(D))
-    return !SM.isLocalSourceLocation(VTSD->getPointOfInstantiation());
-  return false;
-}
-
-void DeclUnloader::resetDefinitionData(TagDecl *decl) {
-  auto canon = dyn_cast<CXXRecordDecl>(decl->getCanonicalDecl());
-  assert(canon && "Only CXXRecordDecl have DefinitionData");
-  for (auto iter = canon->getMostRecentDecl(); iter;
-       iter = iter->getPreviousDecl()) {
-    auto declcxx = dyn_cast<CXXRecordDecl>(iter);
-    assert(declcxx && "Only CXXRecordDecl have DefinitionData");
-    declcxx->DefinitionData = nullptr;
+  constexpr bool isDefinition(void*) { return false; }
+  bool isDefinition(TagDecl* R) {
+    return R->isCompleteDefinition() && isa<CXXRecordDecl>(R);
   }
-}
 
-constexpr static bool isDefinition(void*) { return false; }
-static bool isDefinition(TagDecl* R) {
-  return R->isCompleteDefinition() && isa<CXXRecordDecl>(R);
-}
-
-// Copied and adapted from: ASTReaderDecl.cpp
-template<typename DeclT>
-static void removeRedeclFromChain(DeclT* R) {
-  //RedeclLink is a protected member.
-  struct RedeclDerived : public Redeclarable<DeclT> {
-     // FIXME: Report this false positive diagnostic to clang.
+  // Copied and adapted from: ASTReaderDecl.cpp
+  template <typename DeclT> void removeRedeclFromChain(DeclT* R) {
+    // RedeclLink is a protected member.
+    struct RedeclDerived : public Redeclarable<DeclT> {
+      // FIXME: Report this false positive diagnostic to clang.
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-local-typedef"
@@ -91,132 +65,95 @@ static void removeRedeclFromChain(DeclT* R) {
       getLink(First).setLatest(Latest);
     }
 #ifdef __clang__
-#pragma clang diagnostic push
+#pragma clang diagnostic pop
 #endif // __clang__
-  };
+    };
 
-  assert(R != R->getFirstDecl() && "Cannot remove only redecl from chain");
+    assert(R != R->getFirstDecl() && "Cannot remove only redecl from chain");
 
-  const bool isdef = isDefinition(R);
+    const bool isdef = isDefinition(R);
 
-  // In the following cases, A marks the first, Z the most recent and
-  // R the decl to be removed from the chain.
-  DeclT* Prev = R->getPreviousDecl();
-  if (R == R->getMostRecentDecl()) {
-    // A -> .. -> R
-    RedeclDerived::setLatest(Prev);
-  } else {
-    // Find the next redecl, starting at the end
-    DeclT* Next = R->getMostRecentDecl();
-    while (Next && Next->getPreviousDecl() != R)
-      Next = Next->getPreviousDecl();
-    if (!Next) {
-      // R is not (yet?) wired up.
-      return;
-    }
-
-    if (R->getPreviousDecl()) {
-      // A -> .. -> R -> .. -> Z
-      RedeclDerived::skipPrev(Next);
+    // In the following cases, A marks the first, Z the most recent and
+    // R the decl to be removed from the chain.
+    DeclT* Prev = R->getPreviousDecl();
+    if (R == R->getMostRecentDecl()) {
+      // A -> .. -> R
+      RedeclDerived::setLatest(Prev);
     } else {
-      assert(R->getFirstDecl() == R && "Logic error");
-      // R -> .. -> Z
-      RedeclDerived::setFirst(Next);
-    }
-  }
-  // If the decl was the definition, the other decl might have their
-  // DefinitionData pointing to it.
-  // This is really need only if DeclT is a TagDecl or derived.
-  if (isdef) {
-     DeclUnloader::resetDefinitionData(Prev);
-  }
-}
+      // Find the next redecl, starting at the end
+      DeclT* Next = R->getMostRecentDecl();
+      while (Next && Next->getPreviousDecl() != R)
+        Next = Next->getPreviousDecl();
+      if (!Next) {
+        // R is not (yet?) wired up.
+	return;
+      }
 
-///\brief Adds the previous declaration into the lookup map on DC.
-/// @param[in] D - The decl that is being removed.
-/// @param[in] DC - The DeclContext to add the previous declaration of D.
-///\returns the previous declaration.
-///
-static Decl* handleRedelaration(Decl* D, DeclContext* DC) {
-  NamedDecl* ND = dyn_cast<NamedDecl>(D);
-  if (!ND)
-    return nullptr;
-
-  DeclarationName Name = ND->getDeclName();
-  if (Name.isEmpty())
-    return nullptr;
-
-  NamedDecl* MostRecent = ND->getMostRecentDecl();
-  NamedDecl* MostRecentNotThis = MostRecent;
-  if (MostRecentNotThis == ND) {
-    MostRecentNotThis = dyn_cast_or_null<NamedDecl>(ND->getPreviousDecl());
-    if (!MostRecentNotThis || MostRecentNotThis == ND)
-      return MostRecentNotThis;
-  }
-
-  if (StoredDeclsMap* Map = DC->getPrimaryContext()->getLookupPtr()) {
-    StoredDeclsMap::iterator Pos = Map->find(Name);
-    if (Pos != Map->end() && !Pos->second.isNull()) {
-      DeclContext::lookup_result decls = Pos->second.getLookupResult();
-      // FIXME: A decl meant to be added in the lookup already exists
-      // in the lookup table. My assumption is that the DeclUnloader
-      // adds it here. This needs to be investigated mode. For now
-      // std::find gets promoted from assert to condition :)
-      // DeclContext::lookup_result::iterator is not an InputIterator
-      // (const member, thus no op=(const iterator&)), thus we cannot use
-      // std::find. MSVC actually cares!
-      auto hasDecl = [](const DeclContext::lookup_result& Result,
-                        const NamedDecl* Needle) -> bool {
-        for (auto IDecl: Result) {
-          if (IDecl == Needle)
-            return true;
-        }
-        return false;
-      };
-      if (!hasDecl(decls, MostRecentNotThis) && hasDecl(decls, ND)) {
-        // The decl was registered in the lookup, update it.
-        Pos->second.HandleRedeclaration(MostRecentNotThis,
-                                        /*IsKnownNewer*/ true);
+      if (R->getPreviousDecl()) {
+        // A -> .. -> R -> .. -> Z
+        RedeclDerived::skipPrev(Next);
+      } else {
+        assert(R->getFirstDecl() == R && "Logic error");
+        // R -> .. -> Z
+        RedeclDerived::setFirst(Next);
       }
     }
-  }
-  return MostRecentNotThis;
-}
-
-///\brief Removes given declaration from the chain of redeclarations.
-/// Rebuilds the chain and sets properly first and last redeclaration.
-/// @param[in] R - The redeclarable, its chain to be rebuilt.
-/// @param[in] DC - Remove the redecl's lookup entry from this DeclContext.
-///
-///\returns the most recent redeclaration in the new chain.
-///
-template <typename T>
-bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC) {
-  if (R->getFirstDecl() == R) {
-    // This is the only element in the chain.
-    return true;
+    // If the decl was the definition, the other decl might have their
+    // DefinitionData pointing to it.
+    // This is really need only if DeclT is a TagDecl or derived.
+    if (isdef)
+      cling::DeclUnloader::resetDefinitionData(Prev);
   }
 
-  // Make sure we update the lookup maps, because the removed decl might
-  // be registered in the lookup and still findable.
-  T* MostRecentNotThis = (T*)handleRedelaration((T*)R, DC);
+  ///\brief Adds the previous declaration into the lookup map on DC.
+  /// @param[in] D - The decl that is being removed.
+  /// @param[in] DC - The DeclContext to add the previous declaration of D.
+  ///\returns the previous declaration.
+  ///
+  Decl* handleRedelaration(Decl* D, DeclContext* DC) {
+    NamedDecl* ND = dyn_cast<NamedDecl>(D);
+    if (!ND)
+      return nullptr;
 
-  // Set a new latest redecl.
-  removeRedeclFromChain((T*)R);
+    DeclarationName Name = ND->getDeclName();
+    if (Name.isEmpty())
+      return nullptr;
 
-#ifndef NDEBUG
-  // Validate redecl chain by iterating through it.
-  std::set<clang::Redeclarable<T>*> CheckUnique;
-  (void)CheckUnique;
-  for (auto RD: MostRecentNotThis->redecls()) {
-    assert(CheckUnique.insert(RD).second && "Dupe redecl chain element");
-    (void)RD;
+    NamedDecl* MostRecent = ND->getMostRecentDecl();
+    NamedDecl* MostRecentNotThis = MostRecent;
+    if (MostRecentNotThis == ND) {
+      MostRecentNotThis = dyn_cast_or_null<NamedDecl>(ND->getPreviousDecl());
+      if (!MostRecentNotThis || MostRecentNotThis == ND)
+        return MostRecentNotThis;
+    }
+
+    if (StoredDeclsMap* Map = DC->getPrimaryContext()->getLookupPtr()) {
+      StoredDeclsMap::iterator Pos = Map->find(Name);
+      if (Pos != Map->end() && !Pos->second.isNull()) {
+        DeclContext::lookup_result decls = Pos->second.getLookupResult();
+        // FIXME: A decl meant to be added in the lookup already exists
+        // in the lookup table. My assumption is that the DeclUnloader
+        // adds it here. This needs to be investigated mode. For now
+        // std::find gets promoted from assert to condition :)
+        // DeclContext::lookup_result::iterator is not an InputIterator
+        // (const member, thus no op=(const iterator&)), thus we cannot use
+        // std::find. MSVC actually cares!
+        auto hasDecl = [](const DeclContext::lookup_result& Result,
+                          const NamedDecl* Needle) -> bool {
+          for (auto IDecl: Result) {
+            if (IDecl == Needle)
+              return true;
+          }
+          return false;
+        };
+        if (!hasDecl(decls, MostRecentNotThis) && hasDecl(decls, ND)) {
+          // The decl was registered in the lookup, update it.
+          Pos->second.addOrReplaceDecl(MostRecentNotThis);
+        }
+      }
+    }
+    return MostRecentNotThis;
   }
-#else
-  (void)MostRecentNotThis; // templated function issues a lot -Wunused-variable
-#endif
-  return true;
-}
 
   // Copied and adapted from GlobalDCE.cpp
   class GlobalValueEraser {
@@ -248,10 +185,10 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
       for (Globals::iterator I = VisitedGlobals.begin(),
              E = VisitedGlobals.end(); I != E; ++I)
         if (GlobalVariable* GVar = dyn_cast<GlobalVariable>(*I)) {
-          GVar->setInitializer(0);
+          GVar->setInitializer(nullptr);
         }
         else if (GlobalAlias* GA = dyn_cast<GlobalAlias>(*I)) {
-          GA->setAliasee(0);
+          GA->setAliasee(nullptr);
         }
         else {
           Function* F = cast<Function>(*I);
@@ -269,7 +206,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
             continue;
 
           // Required by ::DwarfEHPrepare::InsertUnwindResumeCalls (in the JIT)
-          if ((*I)->getName().equals("_Unwind_Resume"))
+          if ((*I)->getName() == "_Unwind_Resume")
             continue;
 
           m_CodeGen->forgetGlobal(*I);
@@ -286,11 +223,10 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     }
 
   private:
-
     /// Find values that are marked as llvm.used.
     void FindUsedValues(const llvm::Module& m) {
       for (const llvm::GlobalVariable& GV : m.globals()) {
-        if (!GV.getName().startswith("llvm.used"))
+        if (!GV.getName().starts_with("llvm.used"))
           continue;
 
         const llvm::ConstantArray* Inits
@@ -298,7 +234,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
 
         for (unsigned i = 0, e = Inits->getNumOperands(); i != e; ++i) {
           llvm::Value *Operand
-            = Inits->getOperand(i)->stripPointerCastsNoFollowAliases();
+            = Inits->getOperand(i)->stripPointerCasts();
           VisitedGlobals.erase(cast<llvm::GlobalValue>(Operand));
         }
 
@@ -372,7 +308,223 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     }
   };
 
+  // Remove a decl and possibly it's parent entry in lookup tables.
+  static void eraseDeclFromMap(StoredDeclsMap* Map, NamedDecl* ND) {
+    assert(Map && ND && "eraseDeclFromMap recieved NULL value(s)");
+    // Make sure we the decl doesn't exist in the lookup tables.
+    StoredDeclsMap::iterator Pos = Map->find(ND->getDeclName());
+    if (Pos != Map->end()) {
+      StoredDeclsList& List = Pos->second;
+      // In some cases clang puts an entry in the list without a decl pointer.
+      // Clean it up.
+      if (List.isNull()) {
+        Map->erase(Pos);
+        return;
+      }
+      List.remove(ND);
+      if (List.isNull())
+        Map->erase(Pos);
+    }
+  }
+
+  template <class EntryType>
+  void removeSpecializationImpl(llvm::FoldingSetVector<EntryType>& Specs,
+                                const EntryType* Entry) {
+    // Remove only Entry from Specs, keep all others.
+    llvm::FoldingSetVector<EntryType> Keep;
+    for (auto& Spec : Specs) {
+      if (&Spec != Entry) {
+        // Avoid assertion on add.
+        Spec.SetNextInBucket(nullptr);
+        Keep.InsertNode(&Spec);
+      }
+    }
+
+    std::swap(Specs, Keep);
+  }
+
+  // Template instantiation of templated function first creates a canonical
+  // declaration and after the actual template specialization. For example:
+  // template<typename T> T TemplatedF(T t);
+  // template<> int TemplatedF(int i) { return i + 1; } creates:
+  // 1. Canonical decl: int TemplatedF(int i);
+  // 2. int TemplatedF(int i){ return i + 1; }
+  //
+  // The template specialization is attached to the list of specialization of
+  // the templated function.
+  // When TemplatedF is looked up it finds the templated function and the
+  // lookup is extended by the templated function with its specializations.
+  // In the end we don't need to remove the canonical decl because, it
+  // doesn't end up in the lookup table.
+  //
+  class FunctionTemplateDeclExt : public FunctionTemplateDecl {
+  public:
+    static llvm::FoldingSetVector<FunctionTemplateSpecializationInfo>&
+    getSpecializations(FunctionTemplateDecl* self) {
+      return static_cast<FunctionTemplateDeclExt*>(self)
+          ->getCommonPtr()
+          ->Specializations;
+    }
+    static void removeSpecialization(FunctionTemplateDecl* self,
+                                     const FunctionDecl* spec) {
+      assert(self && spec && "Cannot be null!");
+      assert(spec == spec->getCanonicalDecl() &&
+             "Not the canonical specialization!?");
+
+      auto* This = static_cast<FunctionTemplateDeclExt*>(self);
+      auto& specs = This->getCommonPtr()->Specializations;
+      removeSpecializationImpl(specs, spec->getTemplateSpecializationInfo());
+
+#ifndef NDEBUG
+      const TemplateArgumentList* args = spec->getTemplateSpecializationArgs();
+      void* InsertPos = nullptr;
+      assert(!self->findSpecialization(args->asArray(), InsertPos) &&
+             "Finds the removed decl again!");
+#endif
+    }
+  };
+
+  // A template specialization is attached to the list of specialization of
+  // the templated class.
+  //
+  class ClassTemplateDeclExt : public ClassTemplateDecl {
+  public:
+    static llvm::FoldingSetVector<ClassTemplateSpecializationDecl>&
+    getSpecializations(ClassTemplateDecl* self) {
+      return static_cast<ClassTemplateDeclExt*>(self)
+          ->getCommonPtr()
+          ->Specializations;
+    }
+    static void removeSpecialization(ClassTemplateDecl* self,
+                                     ClassTemplateSpecializationDecl* spec) {
+      assert(!isa<ClassTemplatePartialSpecializationDecl>(spec) &&
+             "Use removePartialSpecialization");
+      assert(self && spec && "Cannot be null!");
+      assert(spec == spec->getCanonicalDecl() &&
+             "Not the canonical specialization!?");
+
+      auto* This = static_cast<ClassTemplateDeclExt*>(self);
+      auto& specs = This->getCommonPtr()->Specializations;
+      removeSpecializationImpl(specs, spec);
+    }
+
+    static void
+    removePartialSpecialization(ClassTemplateDecl* self,
+                                ClassTemplatePartialSpecializationDecl* spec) {
+      assert(self && spec && "Cannot be null!");
+      assert(spec == spec->getCanonicalDecl() &&
+             "Not the canonical specialization!?");
+
+      auto* This = static_cast<ClassTemplateDeclExt*>(self);
+      auto& specs = This->getPartialSpecializations();
+      removeSpecializationImpl(specs, spec);
+    }
+  };
+
+  // A template specialization is attached to the list of specialization of
+  // the templated variable.
+  //
+  class VarTemplateDeclExt : public VarTemplateDecl {
+  public:
+    static llvm::FoldingSetVector<VarTemplateSpecializationDecl>&
+    getSpecializations(VarTemplateDecl* self) {
+      return static_cast<VarTemplateDeclExt*>(self)
+          ->getCommonPtr()
+          ->Specializations;
+    }
+    static void removeSpecialization(VarTemplateDecl* self,
+                                     VarTemplateSpecializationDecl* spec) {
+      assert(!isa<VarTemplatePartialSpecializationDecl>(spec) &&
+             "Use removePartialSpecialization");
+      assert(self && spec && "Cannot be null!");
+      assert(spec == spec->getCanonicalDecl() &&
+             "Not the canonical specialization!?");
+
+      auto* This = static_cast<VarTemplateDeclExt*>(self);
+      auto& specs = This->getCommonPtr()->Specializations;
+      removeSpecializationImpl(specs, spec);
+    }
+
+    static void
+    removePartialSpecialization(VarTemplateDecl* self,
+                                VarTemplatePartialSpecializationDecl* spec) {
+      assert(self && spec && "Cannot be null!");
+      assert(spec == spec->getCanonicalDecl() &&
+             "Not the canonical specialization!?");
+
+      auto* This = static_cast<VarTemplateDeclExt*>(self);
+      auto& specs = This->getPartialSpecializations();
+      removeSpecializationImpl(specs, spec);
+    }
+  };
+} // end anonymous namespace
+
+namespace cling {
+  using namespace clang;
+
+  void DeclUnloader::resetDefinitionData(TagDecl* decl) {
+    auto canon = dyn_cast<CXXRecordDecl>(decl->getCanonicalDecl());
+    assert(canon && "Only CXXRecordDecl have DefinitionData");
+    for (auto iter = canon->getMostRecentDecl(); iter;
+         iter = iter->getPreviousDecl()) {
+      auto declcxx = dyn_cast<CXXRecordDecl>(iter);
+      assert(declcxx && "Only CXXRecordDecl have DefinitionData");
+      declcxx->DefinitionData = nullptr;
+    }
+  }
+
+  ///\brief Removes given declaration from the chain of redeclarations.
+  /// Rebuilds the chain and sets properly first and last redeclaration.
+  /// @param[in] R - The redeclarable, its chain to be rebuilt.
+  /// @param[in] DC - Remove the redecl's lookup entry from this DeclContext.
+  ///
+  ///\returns the most recent redeclaration in the new chain.
+  ///
+  template <typename T>
+  bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R,
+                                       DeclContext* DC) {
+    if (R->getFirstDecl() == R) {
+      // This is the only element in the chain.
+      return true;
+    }
+
+    // Make sure we update the lookup maps, because the removed decl might
+    // be registered in the lookup and still findable.
+    T* MostRecentNotThis = (T*)handleRedelaration((T*)R, DC);
+
+    // Set a new latest redecl.
+    removeRedeclFromChain((T*)R);
+
+#ifndef NDEBUG
+    // Validate redecl chain by iterating through it.
+    std::set<clang::Redeclarable<T>*> CheckUnique;
+    (void)CheckUnique;
+    for (auto RD : MostRecentNotThis->redecls()) {
+      assert(CheckUnique.insert(RD).second && "Dupe redecl chain element");
+      (void)RD;
+    }
+#else
+    (void)
+        MostRecentNotThis; // templated function issues a lot -Wunused-variable
+#endif
+    return true;
+  }
+
   DeclUnloader::~DeclUnloader() {
+    // LLVM22 introduced UnsubstitutedConstraintSatisfactionCache:
+    // https://github.com/llvm/llvm-project/commit/e9972de
+    //
+    // This causes some stale results to persist across transactions
+    // For example, evaluating is_default_constructible_v<Inner<int>> for an
+    // incomplete Inner<int> caches the 'false' value here.
+    // Completing Inner<int> in the next transaction will see the cached 'false'
+    // instead of re-evaluating.
+    //
+    // Assuming rollback of this is a rare event.
+    // There is a TODO in clang to make this a private member, so this solution
+    // is not ideal.
+    // TODO: Look for a better solution.
+    m_Sema->UnsubstitutedConstraintSatisfactionCache.clear();
     SourceManager& SM = m_Sema->getSourceManager();
     for (FileIDs::iterator I = m_FilesToUncache.begin(),
            E = m_FilesToUncache.end(); I != E; ++I) {
@@ -393,66 +545,38 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
 
   bool DeclUnloader::VisitDecl(Decl* D) {
     assert(D && "The Decl is null");
+    if (auto* TLSD = dyn_cast<TopLevelStmtDecl>(D)) {
+      if (!TLSD->getStmt()) {
+        // Special case for TopLevelStmt. The change llvm/llvm-project@4b70d17bcf
+        // caused an invalid TopLevelStatement to be added to the AST, which
+        // can trigger assertions.
+        if (DeclContext *DC = TLSD->getDeclContext())
+          DC->removeDecl(TLSD); // unlink from TU
+        return true;
+      }
+    }
     CollectFilesToUncache(D->getBeginLoc());
 
     DeclContext* DC = D->getLexicalDeclContext();
 
-    if (DC->containsDecl(D))
-      DC->removeDecl(D);
+    if (DC->containsDecl(D)) {
+      if (auto* ND = dyn_cast<NamedDecl>(D)) {
+        auto* LookupDC = DC;
+        while (LookupDC->getDeclKind() == Decl::LinkageSpec ||
+               LookupDC->getDeclKind() == Decl::Export)
+          LookupDC = LookupDC->getParent();
+
+        if (!LookupDC->noload_lookup(ND->getDeclName()).empty())
+          DC->removeDecl(D);
+      } else {
+        DC->removeDecl(D);
+      }
+    }
 
     // With the bump allocator this is a no-op.
     m_Sema->getASTContext().Deallocate(D);
     return true;
   }
-
-  // Remove a decl and possibly it's parent entry in lookup tables.
-  static void eraseDeclFromMap(StoredDeclsMap* Map, NamedDecl* ND) {
-    assert(Map && ND && "eraseDeclFromMap recieved NULL value(s)");
-    // Make sure we the decl doesn't exist in the lookup tables.
-    StoredDeclsMap::iterator Pos = Map->find(ND->getDeclName());
-    if (Pos != Map->end()) {
-      // Most decls only have one entry in their list, special case it.
-      if (Pos->second.getAsDecl() == ND) {
-        // This is the only decl, no need to call Pos->second.remove(ND);
-        // as it only sets data to nullptr, just remove the entire entry
-        Map->erase(Pos);
-      }
-      else if (StoredDeclsList::DeclsTy* Vec = Pos->second.getAsVector()) {
-        // Otherwise iterate over the list with entries with the same name.
-        for (NamedDecl* NDi : *Vec) {
-          if (NDi == ND)
-            Pos->second.remove(ND);
-        }
-        if (Vec->empty())
-          Map->erase(Pos);
-      }
-      else if (Pos->second.isNull()) // least common case
-        Map->erase(Pos);
-    }
-  }
-
-#ifndef NDEBUG
-  // Make sure we the decl doesn't exist in the lookup tables.
-  static void checkDeclIsGone(StoredDeclsMap* Map, NamedDecl* ND) {
-    assert(Map && ND && "checkDeclIsGone recieved NULL value(s)");
-    StoredDeclsMap::iterator Pos = Map->find(ND->getDeclName());
-    if ( Pos != Map->end()) {
-      // Most decls only have one entry in their list, special case it.
-      if (NamedDecl* OldD = Pos->second.getAsDecl())
-        assert(OldD != ND && "Lookup entry still exists.");
-      else if (StoredDeclsList::DeclsTy* Vec = Pos->second.getAsVector()) {
-        // Otherwise iterate over the list with entries with the same name.
-        // TODO: Walk the redeclaration chain if the entry was a redeclaration.
-
-        for (StoredDeclsList::DeclsTy::const_iterator I = Vec->begin(),
-               E = Vec->end(); I != E; ++I)
-          assert(*I != ND && "Lookup entry still exists.");
-      }
-      else
-        assert(Pos->second.isNull() && "!?");
-    }
-  }
-#endif
 
   bool DeclUnloader::VisitNamedDecl(NamedDecl* ND) {
     bool Successful = VisitDecl(ND);
@@ -476,19 +600,16 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
 
     // Cleanup the lookup tables.
     // DeclContexts like EnumDecls don't have lookup maps.
-    if (StoredDeclsMap* Map = DC->getPrimaryContext()->getLookupPtr()) {
+    // FIXME: Remove once we upstream this patch: D119675
+    if (StoredDeclsMap* Map = DC->getPrimaryContext()->getLookupPtr())
       eraseDeclFromMap(Map, ND);
-#ifndef NDEBUG
-      checkDeclIsGone(Map, ND);
-#endif
-    }
 
     return Successful;
   }
 
   bool DeclUnloader::VisitDeclaratorDecl(DeclaratorDecl* DD) {
     // VisitDeclaratorDecl: ValueDecl
-    auto found = std::find(m_Sema->UnusedFileScopedDecls.begin(/*ExtSource*/0,
+    auto found = std::find(m_Sema->UnusedFileScopedDecls.begin(/*ExtSource*/nullptr,
                                                                /*Local*/true),
                            m_Sema->UnusedFileScopedDecls.end(), DD);
     if (found != m_Sema->UnusedFileScopedDecls.end())
@@ -506,7 +627,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     Successful &= VisitNamedDecl(USD);
 
     // Unregister from the using decl that it shadows.
-    USD->getUsingDecl()->removeShadowDecl(USD);
+    USD->getIntroducer()->removeShadowDecl(USD);
 
     return Successful;
   }
@@ -524,6 +645,15 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     // * variables and parameters with dependent context;
     // * mangled names for parameters;
     if (!isa<ParmVarDecl>(VD) && !VD->getDeclContext()->isDependentContext()) {
+      // Exception variables without identifiers are not added to scope and will
+      // fail in the steps after the `if` block.
+      // Assuming this rule extends to non-exception variables too.
+      if (!VD->getIdentifier()) {
+        DeclContext* DC = VD->getLexicalDeclContext();
+        if (DC->containsDecl(VD))
+          DC->removeDecl(VD);
+        return true;
+      }
       // Cleanup the module if the transaction was committed and code was
       // generated. This has to go first, because it may need the AST
       // information which we will remove soon. (Eg. mangleDeclName iterates the
@@ -539,25 +669,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     return Successful;
   }
 
-  namespace {
-    typedef llvm::SmallVector<VarDecl*, 2> Vars;
-    class StaticVarCollector : public RecursiveASTVisitor<StaticVarCollector> {
-      Vars& m_V;
-    public:
-      StaticVarCollector(FunctionDecl* FD, Vars& V) : m_V(V) {
-        TraverseStmt(FD->getBody());
-      }
-      bool VisitDeclStmt(DeclStmt* DS) {
-        for(DeclStmt::decl_iterator I = DS->decl_begin(), E = DS->decl_end();
-            I != E; ++I)
-          if (VarDecl* VD = dyn_cast<VarDecl>(*I))
-            if (VD->isStaticLocal())
-              m_V.push_back(VD);
-        return true;
-      }
-    };
-  }
-  bool DeclUnloader::VisitFunctionDecl(FunctionDecl* FD) {
+  bool DeclUnloader::VisitFunctionDecl(FunctionDecl* FD, bool RemoveSpec) {
     // The Structors need to be handled differently.
     if (!isa<CXXConstructorDecl>(FD) && !isa<CXXDestructorDecl>(FD)) {
       // Cleanup the module if the transaction was committed and code was
@@ -565,15 +677,18 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
       // which we will remove soon. (Eg. mangleDeclName iterates the redecls)
       GlobalDecl GD(FD);
       MaybeRemoveDeclFromModule(GD);
+
       // Handle static locals. void func() { static int var; } is represented in
       // the llvm::Module is a global named @func.var
-      Vars V;
-      StaticVarCollector c(FD, V);
-      for (Vars::iterator I = V.begin(), E = V.end(); I != E; ++I) {
-        GlobalDecl GD(*I);
-        MaybeRemoveDeclFromModule(GD);
+      for (auto D : FunctionDecl::castToDeclContext(FD)->noload_decls()) {
+        if (auto VD = dyn_cast<VarDecl>(D))
+          if (VD->isStaticLocal()) {
+            GlobalDecl GD(VD);
+            MaybeRemoveDeclFromModule(GD);
+          }
       }
     }
+
     // VisitRedeclarable() will mess around with this!
     bool wasCanonical = FD->isCanonicalDecl();
     // FunctionDecl : DeclaratiorDecl, DeclContext, Redeclarable
@@ -581,69 +696,40 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     // DeclContext and when trying to remove them we need the full redecl chain
     // still in place.
     bool Successful = VisitDeclContext(FD);
+    // The body of member functions of a templated class only gets instantiated
+    // when the function is used, i.e.
+    // `-ClassTemplateDecl
+    //   |-TemplateTypeParmDecl referenced typename depth 0 index 0 T
+    //   |-CXXRecordDecl struct Foo definition
+    //   | |-DefinitionData
+    //   | `-CXXMethodDecl f 'T (T)'
+    //   |   |-ParmVarDecl 0x55e5787cac70 referenced x 'T'
+    //   |   `-CompoundStmt
+    //   |     `-ReturnStmt
+    //   |       `-DeclRefExpr 'T' lvalue ParmVar 0x55e5787cac70 'x' 'T'
+    //   `-ClassTemplateSpecializationDecl struct Foo definition
+    //     |-DefinitionData
+    //     |-TemplateArgument type 'int'
+    //     | `-BuiltinType 'int'
+    //     |-CXXMethodDecl f 'int (int)'    <<<< Instantiation pending
+    //     | `-ParmVarDecl x 'int':'int'
+    //     |-CXXConstructorDecl implicit used constexpr Foo 'void () noexcept'
+    //     inline default trivial
+    //
+    // Such functions should not be deleted from the AST, but returned to the
+    // 'pending instantiation' state.
+    if (auto MSI = FD->getMemberSpecializationInfo()) {
+      MSI->setPointOfInstantiation(SourceLocation());
+      MSI->setTemplateSpecializationKind(
+          TemplateSpecializationKind::TSK_ImplicitInstantiation);
+      FD->setBody(nullptr);
+      FD->setInstantiationIsPending(true);
+      return Successful;
+    }
     Successful &= VisitRedeclarable(FD, FD->getDeclContext());
     Successful &= VisitDeclaratorDecl(FD);
 
-    // Template instantiation of templated function first creates a canonical
-    // declaration and after the actual template specialization. For example:
-    // template<typename T> T TemplatedF(T t);
-    // template<> int TemplatedF(int i) { return i + 1; } creates:
-    // 1. Canonical decl: int TemplatedF(int i);
-    // 2. int TemplatedF(int i){ return i + 1; }
-    //
-    // The template specialization is attached to the list of specialization of
-    // the templated function.
-    // When TemplatedF is looked up it finds the templated function and the
-    // lookup is extended by the templated function with its specializations.
-    // In the end we don't need to remove the canonical decl because, it
-    // doesn't end up in the lookup table.
-    //
-    class FunctionTemplateDeclExt : public FunctionTemplateDecl {
-    public:
-      static void removeSpecialization(FunctionTemplateDecl* self,
-                                       const FunctionDecl* specialization) {
-        assert(self && specialization && "Cannot be null!");
-        assert(specialization == specialization->getCanonicalDecl()
-               && "Not the canonical specialization!?");
-        typedef llvm::SmallVector<FunctionDecl*, 4> Specializations;
-        typedef llvm::FoldingSetVector< FunctionTemplateSpecializationInfo> Set;
-
-        FunctionTemplateDeclExt* This = (FunctionTemplateDeclExt*) self;
-        Specializations specializations;
-        const Set& specs = This->getCommonPtr()->Specializations;
-
-        if (!specs.size()) // nothing to remove
-          return;
-
-        // Collect all the specializations without the one to remove.
-        for(Set::const_iterator I = specs.begin(),E = specs.end(); I != E; ++I){
-          assert(I->getFunction() && "Must have a specialization.");
-          if (I->getFunction() != specialization)
-            specializations.push_back(I->getFunction());
-        }
-
-        This->getCommonPtr()->Specializations.clear();
-
-        //Readd the collected specializations.
-        void* InsertPos = 0;
-        FunctionTemplateSpecializationInfo* FTSI = 0;
-        for (size_t i = 0, e = specializations.size(); i < e; ++i) {
-          FTSI = specializations[i]->getTemplateSpecializationInfo();
-          assert(FTSI && "Must not be null.");
-          // Avoid assertion on add.
-          FTSI->SetNextInBucket(0);
-          This->addSpecialization(FTSI, InsertPos);
-        }
-#ifndef NDEBUG
-        const TemplateArgumentList* args
-          = specialization->getTemplateSpecializationArgs();
-        assert(!self->findSpecialization(args->asArray(),  InsertPos)
-               && "Finds the removed decl again!");
-#endif
-      }
-    };
-
-    if (FD->isFunctionTemplateSpecialization() && wasCanonical) {
+    if (RemoveSpec && FD->isFunctionTemplateSpecialization() && wasCanonical) {
       // Only the canonical declarations are registered in the list of the
       // specializations.
       FunctionTemplateDecl* FTD
@@ -669,6 +755,10 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     }
 
     return Successful;
+  }
+
+  bool DeclUnloader::VisitFunctionDecl(FunctionDecl* FD) {
+    return VisitFunctionDecl(FD, /*RemoveSpec=*/true);
   }
 
   bool DeclUnloader::VisitCXXConstructorDecl(CXXConstructorDecl* CXXCtor) {
@@ -716,16 +806,29 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
 
   bool DeclUnloader::VisitDeclContext(DeclContext* DC) {
     bool Successful = true;
-    typedef llvm::SmallVector<Decl*, 64> Decls;
-    Decls declsToErase;
-    // Removing from single-linked list invalidates the iterators.
+    llvm::SmallVector<Decl*, 64> tagDecls, otherDecls;
+
+    // The order in which declarations are removed makes a difference, e.g.
+    // `MaybeRemoveDeclFromModule()` may require access to type information to
+    // make up the mangled name.
+    // Thus, we segregate declarations to be removed in `TagDecl`s (i.e., struct
+    // / union / class / enum) and other declarations.  Removal of `TagDecl`s
+    // is deferred until all the other declarations have been processed.
+    // Declarations in each group are iterated in reverse order.
+    // Note that removing from single-linked list invalidates the iterators.
     for (DeclContext::decl_iterator I = DC->noload_decls_begin();
          I != DC->noload_decls_end(); ++I) {
-      declsToErase.push_back(*I);
+      if (isa<TagDecl>(*I))
+        tagDecls.push_back(*I);
+      else
+        otherDecls.push_back(*I);
     }
 
-    for(Decls::reverse_iterator I = declsToErase.rbegin(),
-          E = declsToErase.rend(); I != E; ++I) {
+    for (auto I = otherDecls.rbegin(), E = otherDecls.rend(); I != E; ++I) {
+      Successful = Visit(*I) && Successful;
+      assert(Successful);
+    }
+    for (auto I = tagDecls.rbegin(), E = tagDecls.rend(); I != E; ++I) {
       Successful = Visit(*I) && Successful;
       assert(Successful);
     }
@@ -733,6 +836,22 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
   }
 
   bool DeclUnloader::VisitNamespaceDecl(NamespaceDecl* NSD) {
+    // The first declaration of an unnamed namespace, creates an implicit
+    // UsingDirectiveDecl that makes the names available in the parent DC (see
+    // `Sema::ActOnStartNamespaceDef()`).
+    // If we are reverting such first declaration, make sure we reset the
+    // anonymous namespace for the parent DeclContext so that the
+    // implicit UsingDirectiveDecl is created again when parsing the next
+    // anonymous namespace.
+    if (NSD->isAnonymousNamespace() && NSD->isFirstDecl()) {
+      auto Parent = NSD->getParent();
+      if (auto TU = dyn_cast<TranslationUnitDecl>(Parent)) {
+        TU->setAnonymousNamespace(nullptr);
+      } else if (auto NS = dyn_cast<NamespaceDecl>(Parent)) {
+        NS->setAnonymousNamespace(nullptr);
+      }
+    }
+
     // NamespaceDecl: NamedDecl, DeclContext, Redeclarable
     bool Successful = VisitDeclContext(NSD);
     Successful &= VisitRedeclarable(NSD, NSD->getDeclContext());
@@ -753,7 +872,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
       // Hopefully LSD->isExternCContext() means that it already does exist
       ExternCContextDecl* ECD = m_Sema->Context.getExternCContextDecl();
       StoredDeclsMap* Map = ECD ? ECD->getLookupPtr() : nullptr;
-      
+
       for (Decl* D : LSD->noload_decls()) {
         if (NamedDecl* ND = dyn_cast<NamedDecl>(D)) {
 
@@ -780,8 +899,9 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
   }
 
   bool DeclUnloader::VisitRecordDecl(RecordDecl* RD) {
-    if (RD->isInjectedClassName())
-      return true;
+    if (auto *R = dyn_cast_or_null<CXXRecordDecl>(RD))
+      if (R->isInjectedClassName())
+        return true;
 
     /// The injected class name in C++ is the name of the class that
     /// appears inside the class itself. For example:
@@ -797,11 +917,17 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     // The test show it can be either:
     // ... <- InjectedC <- C <- ..., i.e previous decl or
     // ... <- C <- InjectedC <- ...
+
+    bool isInjected = false;
     RecordDecl* InjectedRD = RD->getPreviousDecl();
-    if (!(InjectedRD && InjectedRD->isInjectedClassName())) {
+
+    if (auto *R = dyn_cast_or_null<CXXRecordDecl>(InjectedRD))
+      if (R->isInjectedClassName())
+        isInjected = true;
+    if (!(InjectedRD && isInjected)) {
       InjectedRD = RD->getMostRecentDecl();
       while (InjectedRD) {
-        if (InjectedRD->isInjectedClassName()
+        if (isInjected
             && InjectedRD->getPreviousDecl() == RD)
           break;
         InjectedRD = InjectedRD->getPreviousDecl();
@@ -810,7 +936,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
 
     bool Successful = true;
     if (InjectedRD) {
-      assert(InjectedRD->isInjectedClassName() && "Not injected classname?");
+      assert(isInjected && "Not injected classname?");
       Successful &= VisitRedeclarable(InjectedRD, InjectedRD->getDeclContext());
     }
 
@@ -866,8 +992,9 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
         // clang cannot mangle everything in the ms-abi.
 #ifndef NDEBUG
         utils::DiagnosticsStore Errors(m_Sema->getDiagnostics(), false, false);
-        assert(Errors.empty() || (Errors.size() == 1 &&
-               Errors[0].getMessage().startswith("cannot mangle this")));
+        assert(Errors.empty() ||
+               (Errors.size() == 1 &&
+                Errors[0].getMessage().starts_with("cannot mangle this")));
 #else
         utils::DiagnosticsOverride IgnoreMangleErrors(m_Sema->getDiagnostics());
 #endif
@@ -894,7 +1021,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
         }
       }
       // DeferredDecls exist even without Module.
-      m_CodeGen->forgetDecl(GD, mangledName);
+      m_CodeGen->forgetDecl(mangledName);
     }
   }
 
@@ -926,7 +1053,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     const MacroInfo* MI = MD->getMacroInfo();
 
     // If the macro is not defined, this is a noop undef, just return.
-    if (MI == 0)
+    if (!MI)
       return false;
 
     // Remove the pair from the macros
@@ -945,10 +1072,17 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
   bool DeclUnloader::VisitFunctionTemplateDecl(FunctionTemplateDecl* FTD) {
     bool Successful = true;
 
-    // Remove specializations:
-    for (FunctionTemplateDecl::spec_iterator I = FTD->spec_begin(),
-           E = FTD->spec_end(); I != E; ++I)
-      Successful &= Visit(*I);
+    // Remove the specializations loaded so far. Completing the redeclaration
+    // chain of a specialization can make clang lazily load further
+    // specializations of this template, growing the specialization set and
+    // invalidating any iterators over it; take a snapshot of the raw entries
+    // first.
+    llvm::SmallVector<FunctionTemplateSpecializationInfo*, 8> Specs;
+    for (auto& S : FunctionTemplateDeclExt::getSpecializations(FTD))
+      Specs.push_back(&S);
+    for (auto* Entry : Specs)
+      Successful &= VisitFunctionDecl(Entry->getFunction()->getMostRecentDecl(),
+                                      /*RemoveSpec=*/false);
 
     Successful &= VisitRedeclarableTemplateDecl(FTD);
     Successful &= VisitFunctionDecl(FTD->getTemplatedDecl());
@@ -958,111 +1092,95 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
   bool DeclUnloader::VisitClassTemplateDecl(ClassTemplateDecl* CTD) {
     // ClassTemplateDecl: TemplateDecl, Redeclarable
     bool Successful = true;
-    // Remove specializations:
-    for (ClassTemplateDecl::spec_iterator I = CTD->spec_begin(),
-           E = CTD->spec_end(); I != E; ++I)
-      Successful &= Visit(*I);
+    // Remove the specializations loaded so far. Completing the redeclaration
+    // chain of a specialization can make clang lazily load further
+    // specializations of this template, growing the specialization set and
+    // invalidating any iterators over it; take a snapshot of the raw entries
+    // first.
+    llvm::SmallVector<ClassTemplateSpecializationDecl*, 8> Specs;
+    for (auto& S : ClassTemplateDeclExt::getSpecializations(CTD))
+      Specs.push_back(&S);
+    for (auto* Entry : Specs)
+      Successful &=
+          VisitClassTemplateSpecializationDecl(Entry->getMostRecentDecl(),
+                                               /*RemoveSpec=*/false);
 
-    Successful &= VisitRedeclarableTemplateDecl(CTD);
+    // Visit all redeclarations of this template to ensure the full
+    // redecl chain is unloaded properly.
+    // Not doing this will lead to a corrupted decl chain and can cause
+    // assertions later down the line.
+    // We also need to make a copy of `CTD->redecls()` to not mess up the chain
+    llvm::SmallVector<RedeclarableTemplateDecl*> redecls(CTD->redecls());
+    for (auto* Redecl : redecls)
+      Successful &= VisitRedeclarableTemplateDecl(Redecl);
+
     Successful &= Visit(CTD->getTemplatedDecl());
     return Successful;
   }
 
-  namespace {
-  // A template specialization is attached to the list of specialization of
-  // the templated class.
-  //
-  class ClassTemplateDeclExt : public ClassTemplateDecl {
-  public:
-    static void removeSpecialization(ClassTemplateDecl* self,
-                                     ClassTemplateSpecializationDecl* spec) {
-      assert(!isa<ClassTemplatePartialSpecializationDecl>(spec) &&
-             "Use removePartialSpecialization");
-      assert(self && spec && "Cannot be null!");
-      assert(spec == spec->getCanonicalDecl()
-             && "Not the canonical specialization!?");
-      typedef llvm::SmallVector<ClassTemplateSpecializationDecl*, 4> Specializations;
-      typedef llvm::FoldingSetVector<ClassTemplateSpecializationDecl> Set;
-
-      ClassTemplateDeclExt* This = (ClassTemplateDeclExt*) self;
-      Specializations specializations;
-      Set& specs = This->getCommonPtr()->Specializations;
-
-      if (!specs.size()) // nothing to remove
-        return;
-
-      // Collect all the specializations without the one to remove.
-      for(Set::iterator I = specs.begin(),E = specs.end(); I != E; ++I){
-        if (&*I != spec)
-          specializations.push_back(&*I);
-      }
-
-      This->getCommonPtr()->Specializations.clear();
-
-      //Readd the collected specializations.
-      void* InsertPos = 0;
-      ClassTemplateSpecializationDecl* CTSD = 0;
-      for (size_t i = 0, e = specializations.size(); i < e; ++i) {
-        CTSD = specializations[i];
-        assert(CTSD && "Must not be null.");
-        // Avoid assertion on add.
-        CTSD->SetNextInBucket(0);
-        This->AddSpecialization(CTSD, InsertPos);
-      }
-    }
-
-    static void removePartialSpecialization(ClassTemplateDecl* self,
-                                 ClassTemplatePartialSpecializationDecl* spec) {
-      assert(self && spec && "Cannot be null!");
-      assert(spec == spec->getCanonicalDecl()
-             && "Not the canonical specialization!?");
-      typedef llvm::SmallVector<ClassTemplatePartialSpecializationDecl*, 4>
-        Specializations;
-      typedef llvm::FoldingSetVector<ClassTemplatePartialSpecializationDecl> Set;
-
-      ClassTemplateDeclExt* This = (ClassTemplateDeclExt*) self;
-      Specializations specializations;
-      Set& specs = This->getPartialSpecializations();
-
-      if (!specs.size()) // nothing to remove
-        return;
-
-      // Collect all the specializations without the one to remove.
-      for(Set::iterator I = specs.begin(),E = specs.end(); I != E; ++I){
-        if (&*I != spec)
-          specializations.push_back(&*I);
-      }
-
-      This->getPartialSpecializations().clear();
-
-      //Readd the collected specializations.
-      void* InsertPos = 0;
-      ClassTemplatePartialSpecializationDecl* CTPSD = 0;
-      for (size_t i = 0, e = specializations.size(); i < e; ++i) {
-        CTPSD = specializations[i];
-        assert(CTPSD && "Must not be null.");
-        // Avoid assertion on add.
-        CTPSD->SetNextInBucket(0);
-        This->AddPartialSpecialization(CTPSD, InsertPos);
-      }
-    }
-  };
-  } // end anonymous namespace
-
-
   bool DeclUnloader::VisitClassTemplateSpecializationDecl(
-                                        ClassTemplateSpecializationDecl* CTSD) {
+      ClassTemplateSpecializationDecl* CTSD, bool RemoveSpec) {
     // ClassTemplateSpecializationDecl: CXXRecordDecl, FoldingSet
     bool Successful = VisitCXXRecordDecl(CTSD);
-    ClassTemplateSpecializationDecl* CanonCTSD =
-      static_cast<ClassTemplateSpecializationDecl*>(CTSD->getCanonicalDecl());
-    if (auto D = dyn_cast<ClassTemplatePartialSpecializationDecl>(CanonCTSD))
-      ClassTemplateDeclExt::removePartialSpecialization(
-                                                    D->getSpecializedTemplate(),
-                                                    D);
-    else
-      ClassTemplateDeclExt::removeSpecialization(CTSD->getSpecializedTemplate(),
-                                                 CanonCTSD);
+    if (RemoveSpec) {
+      ClassTemplateSpecializationDecl* CanonCTSD =
+          static_cast<ClassTemplateSpecializationDecl*>(
+              CTSD->getCanonicalDecl());
+      if (auto D = dyn_cast<ClassTemplatePartialSpecializationDecl>(CanonCTSD))
+        ClassTemplateDeclExt::removePartialSpecialization(
+            D->getSpecializedTemplate(), D);
+      else
+        ClassTemplateDeclExt::removeSpecialization(
+            CTSD->getSpecializedTemplate(), CanonCTSD);
+    }
     return Successful;
+  }
+
+  bool DeclUnloader::VisitClassTemplateSpecializationDecl(
+      ClassTemplateSpecializationDecl* CTSD) {
+    return VisitClassTemplateSpecializationDecl(CTSD, /*RemoveSpec=*/true);
+  }
+
+  bool DeclUnloader::VisitVarTemplateDecl(VarTemplateDecl* VTD) {
+    // VarTemplateDecl: TemplateDecl, Redeclarable
+    bool Successful = true;
+    // Remove the specializations loaded so far. Completing the redeclaration
+    // chain of a specialization can make clang lazily load further
+    // specializations of this template, growing the specialization set and
+    // invalidating any iterators over it; take a snapshot of the raw entries
+    // first.
+    llvm::SmallVector<VarTemplateSpecializationDecl*, 8> Specs;
+    for (auto& S : VarTemplateDeclExt::getSpecializations(VTD))
+      Specs.push_back(&S);
+    for (auto* Entry : Specs)
+      Successful &=
+          VisitVarTemplateSpecializationDecl(Entry->getMostRecentDecl(),
+                                             /*RemoveSpec=*/false);
+
+    Successful &= VisitRedeclarableTemplateDecl(VTD);
+    Successful &= Visit(VTD->getTemplatedDecl());
+    return Successful;
+  }
+
+  bool DeclUnloader::VisitVarTemplateSpecializationDecl(
+      VarTemplateSpecializationDecl* VTSD, bool RemoveSpec) {
+    // VarTemplateSpecializationDecl: VarDecl, FoldingSet
+    bool Successful = VisitVarDecl(VTSD);
+    if (RemoveSpec) {
+      VarTemplateSpecializationDecl* CanonVTSD =
+          static_cast<VarTemplateSpecializationDecl*>(VTSD->getCanonicalDecl());
+      if (auto D = dyn_cast<VarTemplatePartialSpecializationDecl>(CanonVTSD))
+        VarTemplateDeclExt::removePartialSpecialization(
+            D->getSpecializedTemplate(), D);
+      else
+        VarTemplateDeclExt::removeSpecialization(VTSD->getSpecializedTemplate(),
+                                                 CanonVTSD);
+    }
+    return Successful;
+  }
+
+  bool DeclUnloader::VisitVarTemplateSpecializationDecl(
+      VarTemplateSpecializationDecl* VTSD) {
+    return VisitVarTemplateSpecializationDecl(VTSD, /*RemoveSpec=*/true);
   }
 } // end namespace cling

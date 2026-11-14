@@ -9,14 +9,13 @@
 
 #include "cling/Utils/ParserStateRAII.h"
 
+#include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
 
 using namespace clang;
 
 cling::ParserStateRAII::ParserStateRAII(Parser& p, bool skipToEOF)
   : P(&p), PP(p.getPreprocessor()),
-    ResetIncrementalProcessing(p.getPreprocessor()
-                               .isIncrementalProcessingEnabled()),
     PPDiagHadErrors(PP.getDiagnostics().hasErrorOccurred()),
     SemaDiagHadErrors(P->getActions().getDiagnostics().hasErrorOccurred()),
     OldSuppressAllDiagnostics(P->getActions().getDiagnostics()
@@ -28,8 +27,7 @@ cling::ParserStateRAII::ParserStateRAII(Parser& p, bool skipToEOF)
   OldParenCount(p.ParenCount), OldBracketCount(p.BracketCount),
   OldBraceCount(p.BraceCount),
   OldTemplateParameterDepth(p.TemplateParameterDepth),
-  OldInNonInstantiationSFINAEContext(P->getActions()
-                                     .InNonInstantiationSFINAEContext),
+  nonSFINAECtx(p.getActions()),
   SkipToEOF(skipToEOF),
   ResetExprEvalCtx(p.getActions(), clang::Sema::ExpressionEvaluationContext::PotentiallyEvaluated)
 {
@@ -39,7 +37,6 @@ cling::ParserStateRAII::ParserStateRAII(Parser& p, bool skipToEOF)
   P->BracketCount = 0;
   P->BraceCount = 0;
   P->TemplateParameterDepth = 0;
-  P->getActions().InNonInstantiationSFINAEContext = false;
 }
 
 cling::ParserStateRAII::~ParserStateRAII() {
@@ -49,15 +46,17 @@ cling::ParserStateRAII::~ParserStateRAII() {
   // Note: Consuming the EOF token will pop the include stack.
   //
   {
-    // Cleanup the TemplateIds before swapping the previous set back.
-    DestroyTemplateIdAnnotationsRAIIObj CleanupTemplateIds(*P);
+    // Forcefully clean up the TemplateIds, ignoring additional checks in
+    // MaybeDestroyTemplateIds called from DestroyTemplateIdAnnotationsRAIIObj,
+    // before swapping the previous set back.
+    P->DestroyTemplateIds();
   }
   P->TemplateIds.swap(OldTemplateIds);
+  assert(OldTemplateIds.empty());
   if (SkipToEOF)
-    P->SkipUntil(tok::eof);
+    P->SkipUntil(tok::annot_repl_input_end);
   else
     P->Tok = OldTok;
-  PP.enableIncrementalProcessing(ResetIncrementalProcessing);
   if (!SemaDiagHadErrors) {
     // Doesn't reset the diagnostic mappings
     P->getActions().getDiagnostics().Reset(/*soft=*/true);
@@ -74,6 +73,4 @@ cling::ParserStateRAII::~ParserStateRAII() {
   P->BracketCount = OldBracketCount;
   P->BraceCount = OldBraceCount;
   P->TemplateParameterDepth = OldTemplateParameterDepth;
-  P->getActions().InNonInstantiationSFINAEContext =
-    OldInNonInstantiationSFINAEContext;
 }

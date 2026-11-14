@@ -39,7 +39,6 @@ there to inform buffered values are outdated.
 #include "TRegexp.h"
 #include "TMath.h"
 
-ClassImp(TNeuron);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Usual constructor
@@ -60,12 +59,12 @@ TNeuron::TNeuron(TNeuron::ENeuronType type /*= kSigmoid*/,
    fNewValue = true;
    fNewDeriv = true;
    fNewDeDw = true;
-   fFormula = 0;
+   fFormula = nullptr;
    fDeDw  = 0;
    fDEDw  = 0;
    fValue = 0;
-   fExtF  = 0;
-   fExtD  = 0;
+   fExtF  = nullptr;
+   fExtD  = nullptr;
    fIndex = 0;
    fDerivative = 0;
    fInput = 0;
@@ -894,6 +893,7 @@ TTreeFormula* TNeuron::UseBranch(TTree* input, const char* formula)
    }
    // Computes the default normalization
    TH1D tmp("tmpb", "tmpb", 1, -FLT_MAX, FLT_MAX);
+   tmp.SetDirectory(gDirectory);
    input->Draw(Form("%s>>tmpb",(const char*)f),"","goff");
    fNorm[0] = tmp.GetRMS();
    if(fNorm[0]<1e-15) fNorm[0]=1.;

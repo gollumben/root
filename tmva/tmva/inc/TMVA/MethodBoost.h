@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodCompositeBase                                                   *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Virtual base class for all MVA method                                     *
@@ -26,7 +26,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodBoost
@@ -52,13 +52,9 @@ namespace TMVA {
    class Factory;  // DSMTEST
    class Reader;   // DSMTEST
    class DataSetManager;  // DSMTEST
-   namespace Experimental {
-   class Classification;
-   }
    class MethodBoost : public MethodCompositeBase {
       friend class Factory; // DSMTEST
       friend class Reader;  // DSMTEST
-      friend class Experimental::Classification;
 
    public :
 
@@ -73,13 +69,13 @@ namespace TMVA {
 
       virtual ~MethodBoost( void );
 
-      virtual Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t /*numberTargets*/ );
+      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t /*numberTargets*/ ) override;
 
       // training and boosting all the classifiers
-      void Train( void );
+      void Train( void ) override;
 
       // ranking of input variables
-      const Ranking* CreateRanking();
+      const Ranking* CreateRanking() override;
 
       // saves the name and options string of the boosted classifier
       Bool_t BookMethod( Types::EMVA theMethod, TString methodTitle, TString theOption );
@@ -89,7 +85,7 @@ namespace TMVA {
 
       void CleanBoostOptions();
 
-      Double_t GetMvaValue( Double_t* err=0, Double_t* errUpper = 0 );
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
 
    private :
       // clean up
@@ -99,16 +95,16 @@ namespace TMVA {
       void PrintResults( const TString&, std::vector<Double_t>&, const Double_t ) const;
 
       // initializing mostly monitoring tools of the boost process
-      void Init();
+      void Init() override;
       void InitHistos();
-      void CheckSetup();
+      void CheckSetup() override;
 
       void MonitorBoost( Types::EBoostStage stage, UInt_t methodIdx=0);
 
       // the option handling methods
-      void DeclareOptions();
-      void DeclareCompatibilityOptions();
-      void ProcessOptions();
+      void DeclareOptions() override;
+      void DeclareCompatibilityOptions() override;
+      void ProcessOptions() override;
 
 
       MethodBase*  CurrentMethod(){return fCurrentMethod;}
@@ -129,13 +125,13 @@ namespace TMVA {
       Double_t GetBoostROCIntegral(Bool_t, Types::ETreeType, Bool_t CalcOverlapIntergral=kFALSE);
 
       // writing the monitoring histograms and tree to a file
-      void WriteMonitoringHistosToFile( void ) const;
+      void WriteMonitoringHistosToFile( void ) const override;
 
       // write evaluation histograms into target file
-      virtual void WriteEvaluationHistosToFile(Types::ETreeType treetype);
+      virtual void WriteEvaluationHistosToFile(Types::ETreeType treetype) override;
 
       // performs the MethodBase testing + testing of each boosted classifier
-      virtual void TestClassification();
+      virtual void TestClassification() override;
 
       // finding the MVA to cut between sig and bgd according to fMVACutPerc,fMVACutType
       void FindMVACut(MethodBase* method);
@@ -149,22 +145,22 @@ namespace TMVA {
       // calculate MVA values of current trained method on training
       // sample
       void CalcMVAValues();
-      
-      UInt_t                 fBoostNum;           // Number of times the classifier is boosted
-      TString                fBoostType;          // string specifying the boost type      
 
-      TString                fTransformString;    // min and max values for the classifier response      
-      Bool_t                 fDetailedMonitoring; // produce detailed monitoring histograms (boost-wise)
-      
-      Double_t               fAdaBoostBeta;       // ADA boost parameter, default is 1      
-      UInt_t                 fRandomSeed;         // seed for random number generator used for bagging
-      Double_t               fBaggedSampleFraction;// rel.Size of bagged sample
-      
-      TString                fBoostedMethodName;    // details of the boosted classifier
-      TString                fBoostedMethodTitle;   // title 
-      TString                fBoostedMethodOptions; // options
-      
-      Bool_t                 fMonitorBoostedMethod; // monitor the MVA response of every classifier
+      UInt_t                 fBoostNum;             ///< Number of times the classifier is boosted
+      TString                fBoostType;            ///< string specifying the boost type
+
+      TString                fTransformString;      ///< min and max values for the classifier response
+      Bool_t                 fDetailedMonitoring;   ///< produce detailed monitoring histograms (boost-wise)
+
+      Double_t               fAdaBoostBeta;         ///< ADA boost parameter, default is 1
+      UInt_t                 fRandomSeed;           ///< seed for random number generator used for bagging
+      Double_t               fBaggedSampleFraction; ///< rel.Size of bagged sample
+
+      TString                fBoostedMethodName;    ///< details of the boosted classifier
+      TString                fBoostedMethodTitle;   ///< title
+      TString                fBoostedMethodOptions; ///< options
+
+      Bool_t                 fMonitorBoostedMethod; ///< monitor the MVA response of every classifier
 
       // MVA output from each classifier over the training hist, using orignal events weights
       std::vector< TH1* >   fTrainSigMVAHist;
@@ -176,30 +172,30 @@ namespace TMVA {
       std::vector< TH1* >   fTestSigMVAHist;
       std::vector
          < TH1* >   fTestBgdMVAHist;
-      
+
       //monitoring tree/ntuple and it's variables
-      TTree*                fMonitorTree;     // tree  to monitor values during the boosting      
-      Double_t              fBoostWeight;        // the weight used to boost the next classifier      
-      Double_t              fMethodError;     // estimation of the level error of the classifier 
-      // analysing the train dataset      
-      Double_t           fROC_training;       // roc integral of last trained method (on training sample)
+      TTree*                fMonitorTree;     ///< tree  to monitor values during the boosting
+      Double_t              fBoostWeight;     ///< the weight used to boost the next classifier
+      Double_t              fMethodError;     ///< estimation of the level error of the classifier
+      // analysing the train dataset
+      Double_t           fROC_training;       ///< roc integral of last trained method (on training sample)
 
       // overlap integral of mva distributions for signal and
       // background (training sample)
       Double_t           fOverlap_integral;
-      
-      std::vector<Float_t> *fMVAvalues;       // mva values for the last trained method
 
-      DataSetManager*    fDataSetManager;     // DSMTEST
-      TString fHistoricOption;    //historic variable, only needed for "CompatibilityOptions" 
-      Bool_t fHistoricBoolOption; //historic variable, only needed for "CompatibilityOptions" 
+      std::vector<Float_t> *fMVAvalues;       ///< mva values for the last trained method
+
+      DataSetManager*    fDataSetManager;     ///< DSMTEST
+      TString fHistoricOption;                ///< historic variable, only needed for "CompatibilityOptions"
+      Bool_t fHistoricBoolOption;             ///< historic variable, only needed for "CompatibilityOptions"
 
    protected:
 
       // get help message text
-      void GetHelpMessage() const;
+      void GetHelpMessage() const override;
 
-      ClassDef(MethodBoost,0);
+      ClassDefOverride(MethodBoost,0);
    };
 }
 

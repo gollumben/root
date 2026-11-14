@@ -28,7 +28,6 @@ Window-manager is created by the EVE-manager and can be retrieved via:
 ~~~
 */
 
-ClassImp(TEveWindowManager);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -36,8 +35,8 @@ ClassImp(TEveWindowManager);
 TEveWindowManager::TEveWindowManager(const char* n, const char* t) :
    TEveElementList(n, t),
    TQObject       (),
-   fCurrentWindow    (0),
-   fDefaultContainer (0)
+   fCurrentWindow    (nullptr),
+   fDefaultContainer (nullptr)
 {
 }
 
@@ -63,7 +62,7 @@ TEveWindowManager::~TEveWindowManager()
 void TEveWindowManager::SelectWindow(TEveWindow* window)
 {
    if (window == fCurrentWindow)
-      window = 0;
+      window = nullptr;
 
    if (fCurrentWindow)
       fCurrentWindow->SetCurrent(kFALSE);
@@ -83,7 +82,7 @@ void TEveWindowManager::DeleteWindow(TEveWindow* window)
 {
    if (window == fCurrentWindow)
    {
-      fCurrentWindow = 0;
+      fCurrentWindow = nullptr;
       WindowSelected(fCurrentWindow);
    }
    WindowDeleted(window);
@@ -181,7 +180,7 @@ void TEveWindowManager::DestroyWindows()
 
 void TEveWindowManager::HideAllEveDecorations()
 {
-   TEveCompositeFrame *ecf = 0;
+   TEveCompositeFrame *ecf = nullptr;
    TIter wins(TEveCompositeFrame::fgFrameList);
    while ((ecf = (TEveCompositeFrame*) wins()))
    {
@@ -196,7 +195,7 @@ void TEveWindowManager::HideAllEveDecorations()
 
 void TEveWindowManager::ShowNormalEveDecorations()
 {
-   TEveCompositeFrame *ecf = 0;
+   TEveCompositeFrame *ecf = nullptr;
    TIter wins(TEveCompositeFrame::fgFrameList);
    while ((ecf = (TEveCompositeFrame*) wins()))
    {
@@ -212,7 +211,7 @@ void TEveWindowManager::ShowNormalEveDecorations()
 
 void TEveWindowManager::SetShowTitleBars(Bool_t state)
 {
-   TEveCompositeFrame *ecf = 0;
+   TEveCompositeFrame *ecf = nullptr;
    TIter wins(TEveCompositeFrame::fgFrameList);
    while ((ecf = (TEveCompositeFrame*) wins()))
    {

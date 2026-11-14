@@ -1,6 +1,5 @@
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2021-01-22
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
  * Copyright (C) 1995-2021, Rene Brun and Fons Rademakers.               *
@@ -12,20 +11,20 @@
 
 #include "RBrowserWidget.hxx"
 
-#include <ROOT/REveGeomViewer.hxx>
+#include <ROOT/RGeomViewer.hxx>
 
 #include "TGeoManager.h"
 #include "TGeoVolume.h"
 #include "TGeoMaterial.h"
 #include "TGeoMedium.h"
 
-using namespace ROOT::Experimental;
+using namespace ROOT;
 
 using namespace std::string_literals;
 
 
 class RBrowserGeomWidget : public RBrowserWidget {
-   REveGeomViewer fViewer;
+   RGeomViewer fViewer;
 
    std::unique_ptr<Browsable::RHolder> fObject; // geometry object
 
@@ -52,29 +51,19 @@ class RBrowserGeomWidget : public RBrowserWidget {
 
 public:
 
-   RBrowserGeomWidget(const std::string &name) : RBrowserWidget(name), fViewer()
+   RBrowserGeomWidget(const std::string &name) : RBrowserWidget(name)
    {
       fViewer.SetTitle(name);
       fViewer.SetShowHierarchy(false);
-
-      // fViewer.SetGeometry(MakeDummy());
    }
 
-   virtual ~RBrowserGeomWidget() = default;
+   ~RBrowserGeomWidget() override = default;
 
    std::string GetKind() const override { return "geom"s; }
 
-   void Show(const std::string &arg) override
-   {
-      fViewer.Show(arg);
-   }
+   std::shared_ptr<ROOT::RWebWindow> GetWindow() override { return fViewer.GetWindow(); }
 
-   std::string GetUrl() override
-   {
-      return "../"s + fViewer.GetWindowAddr() + "/"s;
-   }
-
-   bool DrawElement(std::shared_ptr<Browsable::RElement> &elem, const std::string &) override
+   bool DrawElement(std::shared_ptr<Browsable::RElement> &elem, const std::string & = "") override
    {
       if (!elem->IsCapable(Browsable::RElement::kActGeom))
          return false;
@@ -84,8 +73,21 @@ public:
          return false;
 
       auto vol = fObject->Get<TGeoVolume>();
+
       if (vol) {
-         fViewer.SetGeometry(vol->GetGeoManager(), vol->GetName());
+         auto mgr = vol->GetGeoManager();
+
+         if (!mgr || (mgr->GetListOfVolumes()->GetLast() < 0) || (mgr->GetVolume(vol->GetName()) != vol))
+            fViewer.SetOnlyVolume(const_cast<TGeoVolume *>(vol));
+         else
+            fViewer.SetGeometry(vol->GetGeoManager(), vol->GetName());
+
+         return true;
+      }
+
+      auto node = fObject->Get<TGeoNode>();
+      if (node) {
+         fViewer.SetGeometry(node->GetVolume()->GetGeoManager(), node->GetVolume()->GetName());
          return true;
       }
 
@@ -113,5 +115,5 @@ protected:
    }
 public:
    RBrowserGeomProvider() : RBrowserWidgetProvider("geom") {}
-   ~RBrowserGeomProvider() = default;
+   ~RBrowserGeomProvider() override = default;
 } sRBrowserGeomProvider;

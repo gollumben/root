@@ -24,6 +24,8 @@
 #error This file can be compiled only when cudnn is available in ROOT
 #else
 
+#include "cudnn.h"
+
 #include "TMVA/DNN/Functions.h"
 #include "TMVA/DNN/CNN/ContextHandles.h"
 //#include "TMVA/DNN/CNN/Descriptors.h"
@@ -34,7 +36,7 @@
 #include "TMVA/DNN/RNN/LSTMLayer.h"
 #include "TMVA/DNN/RNN/GRULayer.h"
 
-#include "cudnn.h"
+
 #include "Cuda/CudaBuffers.h"
 #include "Cuda/CudaTensor.h"
 #include "TMVA/DNN/TensorDataLoader.h"
@@ -89,7 +91,11 @@ public:
    using ReduceTensorDescriptor_t = cudnnReduceTensorDescriptor_t;
    using TensorDescriptor_t       = cudnnTensorDescriptor_t;
    using RecurrentDescriptor_t    = cudnnRNNDescriptor_t;
-
+#if (CUDNN_VERSION >= 8000)
+   using RNNDataDescriptor_t         = cudnnRNNDataDescriptor_t;
+#else
+   using RNNDataDescriptor_t         = TCudnnEmptyDescriptor;
+#endif
    using EmptyDescriptor_t       = TCudnnEmptyDescriptor;        // Used if a descriptor is not needed in a class
 
    using BNormLayer_t            = TBatchNormLayer<TCudnn<AFloat>>;
@@ -128,7 +134,7 @@ public:
       static Long_t ConvMaxWorkspaceSize;
    }; // namespace DNN
 
-   static TMVA::Experimental::MemoryLayout GetTensorLayout() { return TMVA::Experimental::MemoryLayout::RowMajor; }
+   static MemoryLayout GetTensorLayout() { return MemoryLayout::RowMajor; }
 
 
    static Tensor_t CreateTensor(size_t n, size_t c, size_t h, size_t w) {
@@ -152,7 +158,7 @@ public:
    static bool IsCudnn() { return true; }
 
    // create a weight tensor/matrix vector   from another tensor/weight  vector using the given tensor shapes
-   // this function is used by the optimizers to stgore intermidiate weights representations
+   // this function is used by the optimizers to store intermediate weights representations
    static void  CreateWeightTensors( std::vector<Matrix_t> & newWeights, const std::vector<Matrix_t> & weights) {
       if (!newWeights.empty()) newWeights.clear();
       size_t n =  weights.size();
@@ -309,7 +315,7 @@ public:
 
    /** @name Activation Functions
     * For each activation function, the low-level interface contains two routines.
-    * One that applies the acitvation function to a matrix and one that evaluate
+    * One that applies the activation function to a matrix and one that evaluate
     * the derivatives of the activation function at the elements of a given matrix
     * and writes the results into the result matrix.
     */
@@ -344,7 +350,7 @@ public:
    //
    //static void SymmetricRelu(Tensor_t & B);
 
-   // implmentations not used by Cudnn
+   // implementations not used by Cudnn
    static void Relu(Tensor_t &) {}
    static void Sigmoid(Tensor_t &) {}
    static void Tanh(Tensor_t &) {}
@@ -533,8 +539,8 @@ public:
    // return static instance of random generator used for initialization
    // if generator does not exist it is created the first time with a random seed (e.g. seed = 0)
    static TRandom &GetRandomGenerator();
-   // set random seed for the static geenrator
-   // if the static geneerator does not exists it is created
+   // set random seed for the static generator
+   // if the static generator does not exists it is created
    static void SetRandomSeed(size_t seed);
    ///@}
 
@@ -652,7 +658,7 @@ public:
     *  tensor \p B. */
    static void Deflatten(Tensor_t &A, const Tensor_t &B); // size_t index, size_t nRows,size_t nCols);
 
-   /** Rearrage data accoring to time fill B x T x D out with T x B x D matrix in*/
+   /** Rearrage data according to time fill B x T x D out with T x B x D matrix in*/
    static void Rearrange(Tensor_t &out, const Tensor_t &in);
 
    // RNN functions
@@ -817,7 +823,7 @@ public:
    }
 
       // printing of tensor
-   static void PrintTensor( const Tensor_t & A, const std::string name = "tensor", bool = false);
+   static void PrintTensor( const Tensor_t & A, const std::string name = "tensor", bool = true);
 
    static void PrintTensor4dDescriptor(TensorDescriptor_t descriptor);
    static void PrintTensorNdDescriptor(TensorDescriptor_t descriptor, int n = 10);
@@ -915,34 +921,49 @@ void TCudnn<AFloat>::PrintTensor(const typename TCudnn<AFloat>::Tensor_t & A, co
    for (size_t k = 0; k < strides.size()-1; ++k)
       std::cout << strides[k] << " , ";
    std::cout << strides.back() << " }\n ";
-
-   if (A.GetShape().size() == 2 ) {
-      for (size_t i = 0; i < A.GetShape()[0]; ++i) {
+   if (A.GetShape().size() == 1 ) {
+      size_t n =  A.GetShape()[0];
+      if (truncate) n = std::min(n,size_t(10));
+      for (size_t j = 0; j < n; ++j) {
+         std::cout << A(0,j) << " ";
+      }
+      if (truncate && n < A.GetShape()[0]) std::cout << " ...... ";
+      std::cout << " } " << std::endl;
+   } else if (A.GetShape().size() == 2 ) {
+      size_t n1 =  A.GetShape()[0];
+      size_t n2 =  A.GetShape()[1];
+      if (truncate) n1 = std::min(n1,size_t(10));
+      for (size_t i = 0; i < n1; ++i) {
          std::cout << "{ ";
-         size_t n =  A.GetShape()[1];
-         if (truncate) n = std::min(n,size_t(10));
-         for (size_t j = 0; j < n; ++j) {
+         if (truncate) n2 = std::min(n2,size_t(10));
+         for (size_t j = 0; j < n2; ++j) {
             std::cout << A(i,j) << " ";
-
          }
-         if (truncate && n < A.GetShape()[1]) std::cout << " ...... ";
+         if (truncate && n2 < A.GetShape()[1]) std::cout << " ...... ";
          std::cout << " } " << std::endl;
       }
+      if (truncate && n1 < A.GetShape()[0]) std::cout << " ...............\n";
    } else if  (A.GetShape().size() == 3 ) {
-      for (size_t i = 0; i < A.GetFirstSize(); ++i) {
+      size_t n1 =  A.GetFirstSize();
+      size_t n2 =  A.GetHSize();
+      size_t n3 = A.GetWSize();
+      if (truncate) n1 = std::min(n1,size_t(10));
+      if (truncate) n2 = std::min(n2,size_t(10));
+      if (truncate) n3 = std::min(n3,size_t(10));
+      for (size_t i = 0; i < n1; ++i) {
          std::cout << "{ ";
-         for (size_t j = 0; j < A.GetHSize(); ++j) {
+         for (size_t j = 0; j < n2; ++j) {
             std::cout << "{ ";
-            size_t n =  A.GetWSize();
-            if (truncate)  n = std::min(n,size_t(10));
-            for (size_t k = 0; k < n; ++k) {
+            for (size_t k = 0; k < n3; ++k) {
                std::cout << A(i,j,k) << " ";
             }
-            if (truncate && n < A.GetWSize()) std::cout << " ...... ";
+            if (truncate && n3 < A.GetWSize()) std::cout << " ...... ";
             std::cout << " } " << std::endl;
          }
+         if (truncate && n2 < A.GetHSize()) std::cout << ".................\n";
          std::cout << " } " << std::endl;
       }
+      if (truncate && n1 < A.GetFirstSize()) std::cout << "...................\n";
    } else if  (A.GetShape().size() == 4 ) {
       for (size_t i = 0; i < A.GetShape()[0]; ++i) {
          std::cout << "{ ";

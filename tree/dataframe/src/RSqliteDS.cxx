@@ -8,10 +8,7 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-
 #include <ROOT/RSqliteDS.hxx>
-#include <ROOT/RConfig.hxx>
-#include <ROOT/RDF/Utils.hxx>
 #include <ROOT/RRawFile.hxx>
 
 #include "TError.h"
@@ -156,7 +153,7 @@ int VfsRdOnlyDeviceCharacteristics(sqlite3_file * /*pFile*/)
 ////////////////////////////////////////////////////////////////////////////
 /// Set the function pointers of the custom VFS I/O operations in a
 /// forward-compatible way
-static sqlite3_io_methods GetSqlite3IoMethods()
+sqlite3_io_methods GetSqlite3IoMethods()
 {
    // The C style initialization is compatible with version 1 and later versions of the struct.
    // Version 1 was introduced with sqlite 3.6, version 2 with sqlite 3.7.8, version 3 with sqlite 3.7.17
@@ -196,11 +193,6 @@ int VfsRdOnlyOpen(sqlite3_vfs * /*vfs*/, const char *zName, sqlite3_file *pFile,
    p->fRawFile = ROOT::Internal::RRawFile::Create(zName);
    if (!p->fRawFile) {
       ::Error("VfsRdOnlyOpen", "Cannot open %s\n", zName);
-      return SQLITE_IOERR;
-   }
-
-   if (!(p->fRawFile->GetFeatures() & ROOT::Internal::RRawFile::kFeatureHasSize)) {
-      ::Error("VfsRdOnlyOpen", "cannot determine file size of %s\n", zName);
       return SQLITE_IOERR;
    }
 
@@ -289,7 +281,7 @@ int VfsRdOnlyCurrentTime(sqlite3_vfs *vfs, double *prNow)
 ////////////////////////////////////////////////////////////////////////////
 /// Set the function pointers of the VFS implementation in a
 /// forward-compatible way
-static sqlite3_vfs GetSqlite3Vfs()
+sqlite3_vfs GetSqlite3Vfs()
 {
    // The C style initialization is compatible with version 1 and later versions of the struct.
    // Version 1 was introduced with sqlite 3.5, version 2 with sqlite 3.7, version 3 with sqlite 3.7.6
@@ -312,9 +304,9 @@ static sqlite3_vfs GetSqlite3Vfs()
 
 ////////////////////////////////////////////////////////////////////////////
 /// A global struct of function pointers and details on the VfsRootFile class that together constitue a VFS module
-static struct sqlite3_vfs kSqlite3Vfs = GetSqlite3Vfs();
+struct sqlite3_vfs kSqlite3Vfs = GetSqlite3Vfs();
 
-static bool RegisterSqliteVfs()
+bool RegisterSqliteVfs()
 {
    int retval;
    retval = sqlite3_vfs_register(&kSqlite3Vfs, false);
@@ -358,7 +350,7 @@ constexpr char const *RSqliteDS::fgTypeNames[];
 ///
 /// The constructor opens the sqlite file, prepares the query engine and determines the column names and types.
 RSqliteDS::RSqliteDS(const std::string &fileName, const std::string &query)
-   : fDataSet(std::make_unique<Internal::RSqliteDSDataSet>()), fNSlots(0), fNRow(0)
+   : fDataSet(std::make_unique<Internal::RSqliteDSDataSet>()), fNRow(0)
 {
    static bool hasSqliteVfs = RegisterSqliteVfs();
    if (!hasSqliteVfs)
@@ -368,6 +360,15 @@ RSqliteDS::RSqliteDS(const std::string &fileName, const std::string &query)
 
    retval = sqlite3_open_v2(fileName.c_str(), &fDataSet->fDb, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX,
                             gSQliteVfsName);
+   if (retval != SQLITE_OK)
+      SqliteError(retval);
+
+   // Certain complex queries trigger creation of temporary tables. Depending on the build options of sqlite,
+   // sqlite may try to store such temporary tables on disk, using our custom VFS module to do so.
+   // Creation of new database files, however, is not supported by the custom VFS module.  Thus we set the behavior
+   // of the database connection to "temp_store=2", meaning that temporary tables should always be maintained
+   // in memory.
+   retval = sqlite3_exec(fDataSet->fDb, "PRAGMA temp_store=2;", nullptr, nullptr, nullptr);
    if (retval != SQLITE_OK)
       SqliteError(retval);
 
@@ -454,24 +455,10 @@ const std::vector<std::string> &RSqliteDS::GetColumnNames() const
 
 ////////////////////////////////////////////////////////////////////////////
 /// Activates the given column's result value.
-RDataSource::Record_t RSqliteDS::GetColumnReadersImpl(std::string_view name, const std::type_info &ti)
+RDataSource::Record_t RSqliteDS::GetColumnReadersImpl(std::string_view, const std::type_info &)
 {
-   const auto index = std::distance(fColumnNames.begin(), std::find(fColumnNames.begin(), fColumnNames.end(), name));
-   const auto type = fColumnTypes[index];
-
-   if ((type == ETypes::kInteger && typeid(Long64_t) != ti) || (type == ETypes::kReal && typeid(double) != ti) ||
-       (type == ETypes::kText && typeid(std::string) != ti) ||
-       (type == ETypes::kBlob && typeid(std::vector<unsigned char>) != ti) ||
-       (type == ETypes::kNull && typeid(void *) != ti)) {
-      std::string errmsg = "The type selected for column \"";
-      errmsg += name;
-      errmsg += "\" does not correspond to column type, which is ";
-      errmsg += GetTypeName(name);
-      throw std::runtime_error(errmsg);
-   }
-
-   fValues[index].fIsActive = true;
-   return std::vector<void *>{fNSlots, &fValues[index].fPtr};
+   // We use the new API
+   return {};
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -517,7 +504,7 @@ bool RSqliteDS::HasColumn(std::string_view colName) const
 
 ////////////////////////////////////////////////////////////////////////////
 /// Resets the SQlite query engine at the beginning of the event loop.
-void RSqliteDS::Initialise()
+void RSqliteDS::Initialize()
 {
    fNRow = 0;
    int retval = sqlite3_reset(fDataSet->fQuery);
@@ -534,7 +521,7 @@ std::string RSqliteDS::GetLabel()
 /// \brief Factory method to create a SQlite RDataFrame.
 /// \param[in] fileName Path of the sqlite file.
 /// \param[in] query SQL query that defines the data set.
-RDataFrame MakeSqliteDataFrame(std::string_view fileName, std::string_view query)
+RDataFrame FromSqlite(std::string_view fileName, std::string_view query)
 {
    ROOT::RDataFrame rdf(std::make_unique<RSqliteDS>(std::string(fileName), std::string(query)));
    return rdf;
@@ -544,7 +531,8 @@ RDataFrame MakeSqliteDataFrame(std::string_view fileName, std::string_view query
 /// Stores the result of the current active sqlite query row as a C++ value.
 bool RSqliteDS::SetEntry(unsigned int /* slot */, ULong64_t entry)
 {
-   R__ASSERT(entry + 1 == fNRow);
+   assert(entry + 1 == fNRow);
+   (void)entry;
    unsigned N = fValues.size();
    for (unsigned i = 0; i < N; ++i) {
       if (!fValues[i].fIsActive)
@@ -603,3 +591,26 @@ void RSqliteDS::SqliteError(int errcode)
 } // namespace RDF
 
 } // namespace ROOT
+
+std::unique_ptr<ROOT::Detail::RDF::RColumnReaderBase>
+ROOT::RDF::RSqliteDS::GetColumnReaders(unsigned int, std::string_view colName, const std::type_info &tid)
+{
+   auto colNameIt = std::find(fColumnNames.begin(), fColumnNames.end(), colName);
+   if (colNameIt == fColumnNames.end())
+      throw std::runtime_error("Column \"" + std::string(colName) + "\" is not available in the SQLite table.");
+
+   const auto index = std::distance(fColumnNames.begin(), colNameIt);
+   const auto type = fColumnTypes[index];
+
+   if ((type == ETypes::kInteger && typeid(Long64_t) != tid) || (type == ETypes::kReal && typeid(double) != tid) ||
+       (type == ETypes::kText && typeid(std::string) != tid) ||
+       (type == ETypes::kBlob && typeid(std::vector<unsigned char>) != tid) ||
+       (type == ETypes::kNull && typeid(void *) != tid)) {
+      throw std::runtime_error("The type selected for column \"" + std::string(colName) +
+                               "\" does not correspond to column type, which is \"" + GetTypeName(colName) + "\".");
+   }
+
+   fValues[index].fIsActive = true;
+
+   return std::make_unique<ROOT::Internal::RDF::RSqliteDSColumnReader>(fValues[index].fPtr);
+}

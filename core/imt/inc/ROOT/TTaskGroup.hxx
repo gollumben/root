@@ -13,23 +13,27 @@
 #define ROOT_TTaskGroup
 
 #include <atomic>
+#include <memory>
 #include <functional>
 
 namespace ROOT {
+namespace Internal {
+class RTaskArenaWrapper;
+}
+
 namespace Experimental {
 
 class TTaskGroup {
    /**
    \class ROOT::Experimental::TTaskGroup
-   \ingroup Parallelism
    \brief A class to manage the asynchronous execution of work items.
 
    A TTaskGroup represents concurrent execution of a group of tasks. Tasks may be dynamically added to the group as it
    is executing.
    */
 private:
+   std::shared_ptr<ROOT::Internal::RTaskArenaWrapper> fTaskArenaW;
    void *fTaskContainer{nullptr};
-   std::atomic<bool> fCanRun{true};
    void ExecuteInIsolation(const std::function<void(void)> &operation);
 
 public:

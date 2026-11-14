@@ -33,8 +33,8 @@ class TGLPhysicalShape
    friend class TGLLogicalShape; // for replica-list management
 
 private:
-   TGLPhysicalShape(const TGLPhysicalShape&);            // Not implemented
-   TGLPhysicalShape& operator=(const TGLPhysicalShape&); // Not implemented
+   TGLPhysicalShape(const TGLPhysicalShape&) = delete;
+   TGLPhysicalShape& operator=(const TGLPhysicalShape&) = delete;
 
 public:
    // Flags for permitted manipulation of object
@@ -54,19 +54,19 @@ public:
                 };
 private:
    // Fields
-   const TGLLogicalShape * fLogicalShape; //! the associated logical shape
-         TGLPhysicalShape* fNextPhysical; //! pointer to next replica
-         TGLPShapeRef    * fFirstPSRef;   //! pointer to first reference
+   const TGLLogicalShape * fLogicalShape; ///<! the associated logical shape
+         TGLPhysicalShape* fNextPhysical; ///<! pointer to next replica
+         TGLPShapeRef    * fFirstPSRef;   ///<! pointer to first reference
 
-   UInt_t                  fID;           //! unique physical ID within containing scene
-   TGLMatrix               fTransform;    //! transform (placement) of physical instance
-   TGLBoundingBox          fBoundingBox;  //! bounding box of the physical (transformed)
-   Float_t                 fColor[17];    //! GL color array
-   EManip                  fManip;        //! permitted manipulation bitflags - see EManip
-   UChar_t                 fSelected;     //! selected state
-   Bool_t                  fInvertedWind; //! face winding TODO: can get directly from fTransform?
-   Bool_t                  fModified;     //! has been modified - retain across scene rebuilds
-   Bool_t                  fIsScaleForRnr;//! cache
+   UInt_t                  fID;           ///<! unique physical ID within containing scene
+   TGLMatrix               fTransform;    ///<! transform (placement) of physical instance
+   TGLBoundingBox          fBoundingBox;  ///<! bounding box of the physical (transformed)
+   Float_t                 fColor[17];    ///<! GL color array
+   EManip                  fManip;        ///<! permitted manipulation bitflags - see EManip
+   UChar_t                 fSelected;     ///<! selected state
+   Bool_t                  fInvertedWind; ///<! face winding TODO: can get directly from fTransform?
+   Bool_t                  fModified;     ///<! has been modified - retain across scene rebuilds
+   Bool_t                  fIsScaleForRnr;///<! cache
 
    // Methods
    void            UpdateBoundingBox();
@@ -77,7 +77,7 @@ public:
                     const TGLMatrix & transform, Bool_t invertedWind,
                     const Float_t rgba[4]);
    TGLPhysicalShape(UInt_t ID, const TGLLogicalShape & logicalShape,
-                    const double * transform, Bool_t invertedWind,
+                    const Double_t * transform, Bool_t invertedWind,
                     const Float_t rgba[4]);
    virtual ~TGLPhysicalShape();
 
@@ -90,7 +90,7 @@ public:
    virtual void CalculateShapeLOD(TGLRnrCtx & rnrCtx, Float_t& pixSize, Short_t& shapeLOD) const;
    virtual void QuantizeShapeLOD (Short_t shapeLOD, Short_t combiLOD, Short_t& quantLOD) const;
 
-   void SetupGLColors(TGLRnrCtx & rnrCtx, const Float_t* color=0) const;
+   void SetupGLColors(TGLRnrCtx & rnrCtx, const Float_t* color = nullptr) const;
    virtual void Draw(TGLRnrCtx & rnrCtx) const;
 
    const TGLLogicalShape  * GetLogical()      const { return fLogicalShape; }

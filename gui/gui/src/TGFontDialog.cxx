@@ -89,7 +89,6 @@ Font selection dialog, allowing to select one in the list of available fonts in 
 */
 
 
-ClassImp(TGFontDialog);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create font dialog. When closed via OK button fontProp is set to
@@ -419,7 +418,7 @@ void TGFontDialog::CloseWindow()
 ////////////////////////////////////////////////////////////////////////////////
 /// Handle dialog events.
 
-Bool_t TGFontDialog::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
+Bool_t TGFontDialog::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2)
 {
    switch (GET_MSG(msg)) {
       case kC_COMMAND:

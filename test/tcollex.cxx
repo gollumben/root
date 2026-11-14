@@ -1,9 +1,6 @@
 // @(#)root/test:$Id$
 // Author: Fons Rademakers   19/08/96
 
-#include <stdlib.h>
-
-#include "Riostream.h"
 #include "TString.h"
 #include "TObjString.h"
 #include "TSortedList.h"
@@ -13,6 +10,7 @@
 #include "TBtree.h"
 #include "TStopwatch.h"
 
+#include <cstdlib>
 
 // To focus on basic collection protocol, this sample program uses
 // simple classes inheriting from TObject. One class, TObjString, is a
@@ -28,19 +26,22 @@ private:
 
 public:
    TObjNum(int i = 0) : num(i) { }
-   ~TObjNum() { Printf("~TObjNum = %d", num); }
+   ~TObjNum() override { Printf("~TObjNum = %d", num); }
    void    SetNum(int i) { num = i; }
    int     GetNum() { return num; }
-   void    Print(Option_t *) const { Printf("TObjNum = %d", num); }
-   ULong_t Hash() const { return num; }
-   Bool_t  IsEqual(const TObject *obj) const { return num == ((TObjNum*)obj)->num; }
-   Bool_t  IsSortable() const { return kTRUE; }
-   Int_t   Compare(const TObject *obj) const { if (num > ((TObjNum*)obj)->num)
-                                      return 1;
-                                   else if (num < ((TObjNum*)obj)->num)
-                                      return -1;
-                                   else
-                                      return 0; }
+   void    Print(Option_t *) const override { Printf("TObjNum = %d", num); }
+   ULong_t Hash() const override { return num; }
+   Bool_t  IsEqual(const TObject *obj) const override { return num == ((TObjNum*)obj)->num; }
+   Bool_t  IsSortable() const override { return kTRUE; }
+   Int_t   Compare(const TObject *obj) const override
+   {
+      if (num > ((TObjNum *)obj)->num)
+         return 1;
+      else if (num < ((TObjNum *)obj)->num)
+         return -1;
+      else
+         return 0;
+   }
 };
 
 void Test_TObjArray()
@@ -387,7 +388,7 @@ int tcollex() {
    return 0;
 }
 
-#ifndef __CINT__
+#ifndef __CLING__
 int main() {
    return tcollex();
 }

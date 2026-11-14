@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : SimulatedAnnealing                                                    *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation (see header for description)                               *
@@ -22,7 +22,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::SimulatedAnnealing
@@ -42,7 +42,6 @@ Base implementation of simulated annealing fitting procedure.
 #include "TRandom3.h"
 #include "TMath.h"
 
-ClassImp(TMVA::SimulatedAnnealing);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor
@@ -350,8 +349,6 @@ Double_t TMVA::SimulatedAnnealing::Minimize( std::vector<Double_t>& parameters )
    Timer timer( fMaxCalls, fLogger->GetSource().c_str() );
 
    for (Int_t sample = 0; sample < generalCalls; sample++) {
-     if (fIPyCurrentIter) *fIPyCurrentIter = sample;
-     if (fExitFromTraining && *fExitFromTraining) break;
       GenerateNeighbour( parameters, oldParameters, currentTemperature );
       Double_t localFit = fFitterTarget.EstimatorFunction( parameters );
 
@@ -397,14 +394,12 @@ Double_t TMVA::SimulatedAnnealing::Minimize( std::vector<Double_t>& parameters )
    Double_t startingTemperature = fMinTemperature*(fRanges.size())*2.0;
    currentTemperature = startingTemperature;
 
-   Int_t changes = 0;
    for (Int_t sample=0;sample<optimizeCalls;sample++) {
       GenerateNeighbour( parameters, oldParameters, currentTemperature );
       Double_t localFit = fFitterTarget.EstimatorFunction( parameters );
 
       if (localFit < currentFit) { //if better than last one
          currentFit = localFit;
-         changes++;
 
          if (currentFit < bestFit) {
             ReWriteParameters( parameters, bestParameters );

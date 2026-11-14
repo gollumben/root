@@ -1,5 +1,4 @@
-# roottest & rootbench are their own repos
-roottest
+# rootbench has its own repo
 rootbench
 
 # MacOS Xcode
@@ -16,7 +15,7 @@ project.xcworkspace
 
 # CLion
 .idea/*
-cmake-build-*/
+cmake-build*/
 
 # QtCreator
 CMakeLists.txt.user
@@ -36,3 +35,19 @@ CMakeLists.txt.user
 tags
 *.d
 .cache
+.gdb_history
+compile_commands.json
+
+# Doxygen
+documentation/doxygen/*.eps
+documentation/doxygen/*.pcm
+documentation/doxygen/*.jpg
+documentation/doxygen/*.root
+documentation/doxygen/*.csv
+documentation/doxygen/*.png
+documentation/doxygen/*.pdf
+documentation/doxygen/*.dot
+
+# Pycache
+__pycache__
+/out

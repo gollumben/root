@@ -26,21 +26,11 @@ range cannot include zero.
 **/
 
 
-#include "RooFit.h"
-
 #include "RooInvTransform.h"
-
-#include "Riostream.h"
-#include <math.h>
-
-using namespace std;
-
-ClassImp(RooInvTransform);
-;
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Constructor. 
+/// Constructor.
 
 RooInvTransform::RooInvTransform(const RooAbsFunc &func) :
   RooAbsFunc(func.getDimension()), _func(&func)

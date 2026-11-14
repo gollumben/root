@@ -26,8 +26,8 @@ use THashList instead.
 #include "TList.h"
 #include "TError.h"
 #include "TROOT.h"
+#include "TMathBase.h"
 
-ClassImp(THashTable);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a THashTable object. Capacity is the initial hashtable capacity
@@ -48,7 +48,7 @@ THashTable::THashTable(Int_t capacity, Int_t rehashlevel)
    } else if (capacity == 0)
       capacity = TCollection::kInitHashTableCapacity;
 
-   fSize = (Int_t)TMath::NextPrime(TMath::Max(capacity,(int)TCollection::kInitHashTableCapacity));
+   fSize = (Int_t)TMath::NextPrime(std::max(capacity,(int)TCollection::kInitHashTableCapacity));
    fCont = new TList* [fSize];
    memset(fCont, 0, fSize*sizeof(TList*));
 
@@ -66,7 +66,7 @@ THashTable::~THashTable()
 {
    if (fCont) Clear();
    delete [] fCont;
-   fCont = 0;
+   fCont = nullptr;
    fSize = 0;
 }
 
@@ -242,7 +242,7 @@ TObject *THashTable::FindObject(const char *name) const
    R__COLLECTION_READ_LOCKGUARD(ROOT::gCoreMutex);
 
    if (fCont[slot]) return fCont[slot]->FindObject(name);
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -250,14 +250,14 @@ TObject *THashTable::FindObject(const char *name) const
 
 TObject *THashTable::FindObject(const TObject *obj) const
 {
-   if (IsArgNull("FindObject", obj)) return 0;
+   if (IsArgNull("FindObject", obj)) return nullptr;
 
    Int_t slot = GetHashValue(obj);
 
    R__COLLECTION_READ_LOCKGUARD(ROOT::gCoreMutex);
 
    if (fCont[slot]) return fCont[slot]->FindObject(obj);
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -281,7 +281,7 @@ const TList *THashTable::GetListForObject(const char *name) const
 
 const TList *THashTable::GetListForObject(const TObject *obj) const
 {
-   if (IsArgNull("GetListForObject", obj)) return 0;
+   if (IsArgNull("GetListForObject", obj)) return nullptr;
 
    Int_t slot = GetHashValue(obj);
 
@@ -295,14 +295,14 @@ const TList *THashTable::GetListForObject(const TObject *obj) const
 
 TObject **THashTable::GetObjectRef(const TObject *obj) const
 {
-   if (IsArgNull("GetObjectRef", obj)) return 0;
+   if (IsArgNull("GetObjectRef", obj)) return nullptr;
 
    Int_t slot = GetHashValue(obj);
 
    R__COLLECTION_READ_LOCKGUARD(ROOT::gCoreMutex);
 
    if (fCont[slot]) return fCont[slot]->GetObjectRef(obj);
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -397,7 +397,7 @@ void THashTable::Rehash(Int_t newCapacity, Bool_t checkObjValidity)
    Clear("nodelete");
    delete [] fCont;
    fCont = ht->fCont;
-   ht->fCont = 0;
+   ht->fCont = nullptr;
 
    fSize      = ht->fSize;     // idem
    fEntries   = ht->fEntries;
@@ -433,7 +433,7 @@ TObject *THashTable::Remove(TObject *obj)
          return ob;
       }
    }
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -457,14 +457,13 @@ TObject *THashTable::RemoveSlow(TObject *obj)
          }
       }
    }
-   return 0;
+   return nullptr;
 }
 
 /** \class THashTableIter
 Iterator of hash table.
 */
 
-ClassImp(THashTableIter);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a hashtable iterator. By default the iteration direction
@@ -474,7 +473,7 @@ THashTableIter::THashTableIter(const THashTable *ht, Bool_t dir)
 {
    fTable      = ht;
    fDirection  = dir;
-   fListCursor = 0;
+   fListCursor = nullptr;
    Reset();
 }
 
@@ -486,7 +485,7 @@ THashTableIter::THashTableIter(const THashTableIter &iter) : TIterator(iter)
    fTable      = iter.fTable;
    fDirection  = iter.fDirection;
    fCursor     = iter.fCursor;
-   fListCursor = 0;
+   fListCursor = nullptr;
    if (iter.fListCursor) {
       fListCursor = (TListIter *)iter.fListCursor->GetCollection()->MakeIterator();
       if (fListCursor)
@@ -553,7 +552,7 @@ TObject *THashTableIter::Next()
    while (kTRUE) {
       if (!fListCursor) {
          int slot = NextSlot();
-         if (slot == -1) return 0;
+         if (slot == -1) return nullptr;
          fListCursor = new TListIter(fTable->fCont[slot], fDirection);
       }
 
@@ -572,14 +571,14 @@ Int_t THashTableIter::NextSlot()
    // R__COLLECTION_READ_LOCKGUARD(ROOT::gCoreMutex);
 
    if (fDirection == kIterForward) {
-      for ( ; fCursor < fTable->Capacity() && fTable->fCont[fCursor] == 0;
+      for ( ; fCursor < fTable->Capacity() && !fTable->fCont[fCursor];
               fCursor++) { }
 
       if (fCursor < fTable->Capacity())
          return fCursor++;
 
    } else {
-      for ( ; fCursor >= 0 && fTable->fCont[fCursor] == 0;
+      for ( ; fCursor >= 0 && !fTable->fCont[fCursor];
               fCursor--) { }
 
       if (fCursor >= 0)

@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : TMVA::DecisionTree                                                    *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation of a Decision Tree                                         *
@@ -89,7 +89,6 @@ const Int_t TMVA::DecisionTree::fgRandomSeed = 0; // set nonzero for debugging a
 
 using std::vector;
 
-ClassImp(TMVA::DecisionTree);
 
 bool almost_equal_float(float x, float y, int ulp=4){
    // the machine epsilon has to be scaled to the magnitude of the values used
@@ -1975,7 +1974,7 @@ Double_t TMVA::DecisionTree::TrainNodeFast( const EventConstList & eventSample,
             //  part of the "allowed" variables in case of Randomized Trees)
             if (useVarInFisher[ivar] && useVariable[ivar]) {
                mapVarInFisher[nFisherVars++]=ivar;
-               // now exclud the the variables used in the Fisher cuts, and don't 
+               // now exclud the variables used in the Fisher cuts, and don't 
                // use them anymore in the individual variable scan
                if (fUseExclusiveVars) useVariable[ivar] = kFALSE;
             }

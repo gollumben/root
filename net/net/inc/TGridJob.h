@@ -12,22 +12,22 @@
 #ifndef ROOT_TGridJob
 #define ROOT_TGridJob
 
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// TGridJob                                                             //
-//                                                                      //
-// Abstract base class defining interface to a GRID job.                //
-//                                                                      //
-// Related classes are TGridJobStatus.                                  //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
-
 #include "TObject.h"
 #include "TString.h"
 
 
 class TGridJobStatus;
 
+//////////////////////////////////////////////////////////////////////////
+///                                                                     
+/// Abstract base class defining interface to a GRID job.               
+///                                                                      
+/// \note This class is deprecated. It is kept for backward compatibility
+/// but it should not be used in new code.                               
+///                                                                     
+/// Related classes are TGridJobStatus.                                 
+///                                                                     
+//////////////////////////////////////////////////////////////////////////
 class TGridJob : public TObject {
 
 protected:
@@ -40,11 +40,11 @@ public:
    virtual TString GetJobID() { return fJobID; }
 
    virtual TGridJobStatus *GetJobStatus() const = 0;
-   virtual Int_t           GetOutputSandbox(const char *localpath, Option_t *opt = 0);
+   virtual Int_t           GetOutputSandbox(const char *localpath, Option_t *opt = nullptr);
 
    virtual Bool_t          Resubmit() = 0;
    virtual Bool_t          Cancel () = 0;
-   ClassDef(TGridJob,1)  // ABC defining interface to a GRID job
+   ClassDefOverride(TGridJob,1)  // ABC defining interface to a GRID job
 };
 
 #endif

@@ -29,9 +29,9 @@
 
   When using in interpreted mode understand why the reloading reloads the calling script and then crashes :(
 
-  CINT does not properly call the custom operators when doing return fNtrack.
+  TODO check now with Cling: CINT did not properly call the custom operators when doing return fNtrack.
 
-  CINT does not handle fMatrix[2][1] well.
+  TODO check with Cling: CINT did not handle fMatrix[2][1] well.
 
   The user's function in script.h are not exposed by ACLiC.
 
@@ -46,8 +46,6 @@
 #include "TBranchProxyClassDescriptor.h"
 
 #include "TList.h"
-#include "Varargs.h"
-#include <cstdio>
 
 class TTree;
 class TBranch;
@@ -76,21 +74,24 @@ class TStreamerElement;
 #include "TLeafObject.h"
 #include "TVirtualCollectionProxy.h"
 
-void Debug(Int_t level, const char *va_(fmt), ...)
+#include <cstdarg>
+#include <cstdio>
+
+void Debug(Int_t level, const char *fmt, ...)
 {
    // Use this function in case an error occurred.
 
    if (gDebug>=level) {
       va_list ap;
-      va_start(ap,va_(fmt));
-      ErrorHandler(kInfo,"TTreeProxyGenerator",va_(fmt), ap);
+      va_start(ap, fmt);
+      ErrorHandler(kInfo, "TTreeProxyGenerator", fmt, ap);
       va_end(ap);
    }
 }
 
 namespace {
 
-   Bool_t AreDifferent(const TString& from, const TString& to)
+   bool AreDifferent(const TString& from, const TString& to)
    {
       FILE *left = fopen(from.Data(),"r");
       FILE *right = fopen(to.Data(),"r");
@@ -100,7 +101,7 @@ namespace {
 
       char *lvalue,*rvalue;
 
-      Bool_t areEqual = kTRUE;
+      bool areEqual = true;
 
       do {
          lvalue = fgets(leftbuffer, sizeof(leftbuffer), left);
@@ -113,8 +114,8 @@ namespace {
                areEqual = areEqual && (0 == strncmp(lvalue,rvalue,sizeof(leftbuffer)));
             }
          }
-         if (lvalue&&!rvalue) areEqual = kFALSE;
-         if (rvalue&&!lvalue) areEqual = kFALSE;
+         if (lvalue&&!rvalue) areEqual = false;
+         if (rvalue&&!lvalue) areEqual = false;
 
       } while(areEqual && lvalue && rvalue);
 
@@ -256,9 +257,9 @@ namespace Internal {
    ////////////////////////////////////////////////////////////////////////////////
    /// Return true if we should create a nested class representing this class
 
-   Bool_t TTreeProxyGenerator::NeedToEmulate(TClass *cl, UInt_t /* level */)
+   bool TTreeProxyGenerator::NeedToEmulate(TClass *cl, UInt_t /* level */)
    {
-      return cl!=0 && cl->TestBit(TClass::kIsEmulation);
+      return cl && (cl->GetState() <= TClass::kEmulated);
    }
 
    ////////////////////////////////////////////////////////////////////////////////
@@ -267,7 +268,7 @@ namespace Internal {
    TBranchProxyClassDescriptor*
    TTreeProxyGenerator::AddClass( TBranchProxyClassDescriptor* desc )
    {
-      if (desc==0) return 0;
+      if (desc==nullptr) return nullptr;
 
       TBranchProxyClassDescriptor *existing =
          (TBranchProxyClassDescriptor*)fListOfClasses(desc->GetName());
@@ -297,7 +298,7 @@ namespace Internal {
 
    void TTreeProxyGenerator::AddFriend( TFriendProxyDescriptor* desc )
    {
-      if (desc==0) return;
+      if (desc==nullptr) return;
 
       TFriendProxyDescriptor *existing =
          (TFriendProxyDescriptor*)fListOfFriends(desc->GetName());
@@ -349,7 +350,7 @@ namespace Internal {
       TObject *obj = fListOfForwards.FindObject(classname);
       if (obj) return;
 
-      if (strstr(classname,"<")!=0) {
+      if (strstr(classname,"<")!=nullptr) {
          // this is a template instantiation.
          // let's ignore it for now
 
@@ -410,9 +411,9 @@ namespace Internal {
    /// Generate an enum for a given type if it is not known in the list of class
    /// unless the type itself a template.
 
-   void TTreeProxyGenerator::AddMissingClassAsEnum(const char *clname, Bool_t isscope)
+   void TTreeProxyGenerator::AddMissingClassAsEnum(const char *clname, bool isscope)
    {
-      if (!TClassEdit::IsStdClass(clname) && !TClass::GetClass(clname) && gROOT->GetType(clname) == 0) {
+      if (!TClassEdit::IsStdClass(clname) && !TClass::GetClass(clname) && gROOT->GetType(clname) == nullptr) {
 
          TObject *obj = fListOfForwards.FindObject(clname);
          if (obj) return;
@@ -440,15 +441,15 @@ namespace Internal {
       UInt_t len = strlen(clname);
       UInt_t nest = 0;
       UInt_t last = 0;
-      //Bool_t istemplate = kFALSE; // mark whether the current right most entity is a class template.
+      //bool istemplate = false; // mark whether the current right most entity is a class template.
 
       for (UInt_t i = 0; i < len; ++i) {
          switch (clname[i]) {
             case ':':
                if (nest == 0 && clname[i+1] == ':') {
                   TString incName(clname, i);
-                  AddMissingClassAsEnum(incName.Data(), kTRUE);
-                  //istemplate = kFALSE;
+                  AddMissingClassAsEnum(incName.Data(), true);
+                  //istemplate = false;
                }
                break;
             case '<':
@@ -467,13 +468,13 @@ namespace Internal {
                   if (isdigit(incName[0])) {
                      // Not a class name, nothing to do.
                   } else {
-                     AddMissingClassAsEnum(incName.Data(),kFALSE);
+                     AddMissingClassAsEnum(incName.Data(),false);
                   }
                   last = i + 1;
                }
          }
       }
-      AddMissingClassAsEnum(TClassEdit::ShortType(clname, TClassEdit::kDropTrailStar | TClassEdit::kLong64).c_str(),kFALSE);
+      AddMissingClassAsEnum(TClassEdit::ShortType(clname, TClassEdit::kDropTrailStar | TClassEdit::kLong64).c_str(),false);
    }
 
    ////////////////////////////////////////////////////////////////////////////////
@@ -483,7 +484,7 @@ namespace Internal {
    UInt_t TTreeProxyGenerator::AnalyzeBranches(UInt_t level,TBranchProxyClassDescriptor *topdesc,
                                                TBranchElement *branch, TVirtualStreamerInfo *info)
    {
-      if (info==0) info = branch->GetInfo();
+      if (info==nullptr) info = branch->GetInfo();
 
       TIter branches( branch->GetListOfBranches() );
 
@@ -524,7 +525,7 @@ namespace Internal {
       TBranchProxyClassDescriptor::ELocation outer_isclones = TBranchProxyClassDescriptor::kOut;
       TString containerName;
       TString subBranchPrefix;
-      Bool_t skipped = false;
+      bool skipped = false;
 
       {
          TIter peek = branches;
@@ -575,13 +576,13 @@ namespace Internal {
            element;
            element = (TStreamerElement*)elements() )
       {
-         Bool_t isBase = false;
-         Bool_t usedBranch = kTRUE;
+         bool isBase = false;
+         bool usedBranch = true;
          TString prefix;
          TIter peek = branches;
          TBranchElement *branch = (TBranchElement*)peek();
 
-         if (branch==0) {
+         if (branch==nullptr) {
             if (topdesc) {
                Error("AnalyzeBranches","Ran out of branches when looking in branch %s, class %s",
                      topdesc->GetBranchName(), info->GetName());
@@ -620,7 +621,7 @@ namespace Internal {
             }
          }
 
-         Bool_t ispointer = false;
+         bool ispointer = false;
          switch(element->GetType()) {
 
             case TVirtualStreamerInfo::kBool:    { proxyTypeName = "T" + middle + "BoolProxy"; break; }
@@ -724,7 +725,7 @@ namespace Internal {
                }
 
                TBranch *parent = branch->GetMother()->GetSubBranch(branch);
-               TVirtualStreamerInfo *objInfo = 0;
+               TVirtualStreamerInfo *objInfo = nullptr;
                if (branch->GetListOfBranches()->GetEntries()) {
                   objInfo = ((TBranchElement*)branch->GetListOfBranches()->At(0))->GetInfo();
                } else {
@@ -739,7 +740,7 @@ namespace Internal {
                      continue;
                   }
 
-                  TBranchProxyClassDescriptor *cldesc = 0;
+                  TBranchProxyClassDescriptor *cldesc = nullptr;
 
                   if (branchEndname == element->GetName()) {
                      // We have a proper node for the base class, recurse
@@ -748,7 +749,7 @@ namespace Internal {
                         // The branch contains a non-split base class that we are unfolding!
 
                         // See AnalyzeTree for similar code!
-                        TBranchProxyClassDescriptor *local_cldesc = 0;
+                        TBranchProxyClassDescriptor *local_cldesc = nullptr;
 
                         TVirtualStreamerInfo *binfo = branch->GetInfo();
                         if (strcmp(cl->GetName(),binfo->GetName())!=0) {
@@ -759,7 +760,7 @@ namespace Internal {
                                                                        isclones, 0 /* unsplit object */,
                                                                        containerName);
 
-                        TStreamerElement *elem = 0;
+                        TStreamerElement *elem = nullptr;
 
                         TIter next(binfo->GetElements());
                         while( (elem = (TStreamerElement*)next()) ) {
@@ -794,7 +795,7 @@ namespace Internal {
                      }
                      TString local_prefix = topdesc ? topdesc->GetSubBranchPrefix() : parent->GetName();
                      objInfo = GetBaseClass( element );
-                     if (objInfo == 0) {
+                     if (objInfo == nullptr) {
                         // There is no data in this base class
                         continue;
                      }
@@ -804,7 +805,7 @@ namespace Internal {
                                                               local_prefix,
                                                               isclones, branch->GetSplitLevel(),
                                                               containerName);
-                     usedBranch = kFALSE;
+                     usedBranch = false;
                      lookedAt += AnalyzeBranches( level, cldesc, branches, objInfo );
                   }
 
@@ -812,7 +813,7 @@ namespace Internal {
                   if (added) proxyTypeName = added->GetName();
 
                } else {
-                  TBranchProxyClassDescriptor *cldesc = 0;
+                  TBranchProxyClassDescriptor *cldesc = nullptr;
 
                   if (branchEndname == element->GetName()) {
 
@@ -821,7 +822,7 @@ namespace Internal {
                         // The branch contains a non-split object that we are unfolding!
 
                         // See AnalyzeTree for similar code!
-                        TBranchProxyClassDescriptor *local_cldesc = 0;
+                        TBranchProxyClassDescriptor *local_cldesc = nullptr;
 
                         TVirtualStreamerInfo *binfo = branch->GetInfo();
                         if (strcmp(cl->GetName(),binfo->GetName())!=0) {
@@ -832,7 +833,7 @@ namespace Internal {
                                                                        isclones, 0 /* unsplit object */,
                                                                        containerName);
 
-                        TStreamerElement *elem = 0;
+                        TStreamerElement *elem = nullptr;
 
                         TIter next(binfo->GetElements());
                         while( (elem = (TStreamerElement*)next()) ) {
@@ -879,8 +880,8 @@ namespace Internal {
                                                               local_prefix,
                                                               isclones, branch->GetSplitLevel(),
                                                               containerName);
-                     usedBranch = kFALSE;
-                     skipped = kTRUE;
+                     usedBranch = false;
+                     skipped = true;
                      lookedAt += AnalyzeBranches( level, cldesc, branches, objInfo );
                   }
 
@@ -1032,7 +1033,7 @@ namespace Internal {
                                                              type,
                                                              branchName.Data(),
                                                              true, false, true ),
-                                 0 );
+                                 false );
       } else {
          AddDescriptor( new TBranchProxyDescriptor( dataMemberName.Data(),
                                                     type,
@@ -1082,7 +1083,7 @@ namespace Internal {
             topdesc->AddDescriptor(  new TBranchProxyDescriptor( dataMemberName.Data(),
                                                                  type,
                                                                  branchName.Data() ),
-                                    0 );
+                                    false );
          } else {
             // leafname.Prepend(prefix);
             AddDescriptor( new TBranchProxyDescriptor( dataMemberName.Data(),
@@ -1110,7 +1111,7 @@ namespace Internal {
       TIter next( tree->GetListOfBranches() );
       TBranch *branch;
       while ( (branch = (TBranch*)next()) ) {
-         TVirtualStreamerInfo *info = 0;
+         TVirtualStreamerInfo *info = nullptr;
          const char *branchname = branch->GetName();
          const char *classname = branch->GetClassName();
          if (classname && strlen(classname)) {
@@ -1118,7 +1119,7 @@ namespace Internal {
             AddHeader( classname );
          }
 
-         TBranchProxyClassDescriptor *desc = 0;
+         TBranchProxyClassDescriptor *desc = nullptr;
          TClass *cl = TClass::GetClass(classname);
          TString type = "unknown";
          if (cl) {
@@ -1139,14 +1140,14 @@ namespace Internal {
                   }
                } else {
                   TClonesArray **ptr = (TClonesArray**)branch->GetAddress();
-                  TClonesArray *clones = 0;
-                  if (ptr==0) {
+                  TClonesArray *clones = nullptr;
+                  if (ptr==nullptr) {
                      clones = new TClonesArray;
                      branch->SetAddress(&clones);
                      ptr = &clones;
                   }
                   branch->GetEntry(0);
-                  TClass *ncl = *ptr ? (*ptr)->GetClass() : 0;
+                  TClass *ncl = *ptr ? (*ptr)->GetClass() : nullptr;
                   if (ncl) {
                      cl = ncl;
                   } else {
@@ -1189,7 +1190,7 @@ namespace Internal {
 
                if (desc) {
                   TVirtualStreamerInfo *cinfo = cl->GetStreamerInfo();
-                  TStreamerElement *elem = 0;
+                  TStreamerElement *elem = nullptr;
 
                   TIter cnext(cinfo->GetElements());
                   while( (elem = (TStreamerElement*)cnext()) ) {
@@ -1214,7 +1215,7 @@ namespace Internal {
             } else {
 
                // We have a top level raw type.
-               AnalyzeOldBranch(branch, 0, 0);
+               AnalyzeOldBranch(branch, 0, nullptr);
             }
 
          } else {
@@ -1234,7 +1235,7 @@ namespace Internal {
             if ( branchname[strlen(branchname)-1] != '.' ) {
                // If there is no dot also include the data member directly
 
-               AnalyzeBranches(1,0,dynamic_cast<TBranchElement*>(branch),info);
+               AnalyzeBranches(1,nullptr,dynamic_cast<TBranchElement*>(branch),info);
 
                subnext.Reset();
             }
@@ -1277,7 +1278,7 @@ namespace Internal {
       TString type;
 
       // TString prefix;
-      Bool_t isBase = false;
+      bool isBase = false;
       TString cname;
       TString middle;
       TBranchProxyClassDescriptor::ELocation isclones = TBranchProxyClassDescriptor::kOut;
@@ -1324,7 +1325,7 @@ namespace Internal {
                //                                          containerName);
 
                TVirtualStreamerInfo *info = cl->GetStreamerInfo();
-               TStreamerElement *elem = 0;
+               TStreamerElement *elem = nullptr;
 
                TString subpath = path;
                if (subpath.Length()>0) subpath += ".";
@@ -1348,7 +1349,7 @@ namespace Internal {
       }
 
 
-      // Bool_t ispointer = false;
+      // bool ispointer = false;
       switch(element->GetType()) {
 
          case TVirtualStreamerInfo::kBool:    { type = "T" + middle + "BoolProxy"; break; }
@@ -1513,7 +1514,7 @@ namespace Internal {
                                                      containerName);
 
             TVirtualStreamerInfo *info = cl->GetStreamerInfo();
-            TStreamerElement *elem = 0;
+            TStreamerElement *elem = nullptr;
 
             TString subpath = path;
             if (subpath.Length()>0) subpath += ".";
@@ -1558,34 +1559,34 @@ namespace Internal {
    /// Add the "pragma C++ class" if needed and return
    /// true if it has been added _or_ if it is known to
    /// not be needed.
-   /// (I.e. return kFALSE if a container of this class
+   /// (I.e. return false if a container of this class
    /// can not have a "pragma C++ class"
 
-   static Bool_t R__AddPragmaForClass(TTreeProxyGenerator *gen, TClass *cl)
+   static bool R__AddPragmaForClass(TTreeProxyGenerator *gen, TClass *cl)
    {
-      if (!cl) return kFALSE;
+      if (!cl) return false;
       if (cl->GetCollectionProxy()) {
          TClass *valcl = cl->GetCollectionProxy()->GetValueClass();
          if (!valcl) {
             if (!cl->IsLoaded()) gen->AddPragma(Form("#pragma link C++ class %s;\n", cl->GetName()));
-            return kTRUE;
+            return true;
          } else if (R__AddPragmaForClass(gen, valcl)) {
             if (!cl->IsLoaded()) gen->AddPragma(Form("#pragma link C++ class %s;\n", cl->GetName()));
-            return kTRUE;
+            return true;
          }
       }
-      if (cl->IsLoaded()) return kTRUE;
-      return kFALSE;
+      if (cl->IsLoaded()) return true;
+      return false;
    }
 
    ////////////////////////////////////////////////////////////////////////////////
    /// Add the "pragma C++ class" if needed and return
    /// true if it has been added _or_ if it is known to
    /// not be needed.
-   /// (I.e. return kFALSE if a container of this class
+   /// (I.e. return false if a container of this class
    /// can not have a "pragma C++ class"
 
-   static Bool_t R__AddPragmaForClass(TTreeProxyGenerator *gen, const char *classname)
+   static bool R__AddPragmaForClass(TTreeProxyGenerator *gen, const char *classname)
    {
       return R__AddPragmaForClass( gen, TClass::GetClass(classname) );
 
@@ -1643,15 +1644,15 @@ namespace Internal {
       // If they do we will generate the proxy in temporary file and modify the original
       // if and only if it is different.
 
-      Bool_t updating = kFALSE;
-      if (gSystem->GetPathInfo( fHeaderFileName, 0, (Long_t*)0, 0, 0 ) == 0) {
+      bool updating = false;
+      if (gSystem->GetPathInfo( fHeaderFileName, nullptr, (Long_t*)nullptr, nullptr, nullptr ) == 0) {
          // file already exist
-         updating = kTRUE;
+         updating = true;
       }
 
 
       TString treefile;
-      Bool_t ischain = fTree->InheritsFrom(TChain::Class());
+      bool ischain = fTree->InheritsFrom(TChain::Class());
       if (fTree->GetDirectory() && fTree->GetDirectory()->GetFile())
          treefile = fTree->GetDirectory()->GetFile()->GetName();
       else
@@ -1713,7 +1714,7 @@ namespace Internal {
       } else {
          hf = fopen(fHeaderFileName, "w");
       }
-      if (hf == 0) {
+      if (hf == nullptr) {
          Error("WriteProxy","Unable to open the file %s for writing.",
                updating ? tmpfilename.Data() : fHeaderFileName.Data());
          delete [] filename;
@@ -1761,7 +1762,7 @@ namespace Internal {
       TIter next( &fListOfForwards );
       TObject *current;
       while ( (current=next()) ) {
-         if (strstr(current->GetTitle(),"::")==0) {
+         if (strstr(current->GetTitle(),"::")==nullptr) {
             // We can not forward declared nested classes (well we might be able to do so for
             // the one nested in a namespace but it is not clear yet if we can really reliably
             // find this information)
@@ -1784,8 +1785,8 @@ namespace Internal {
       fprintf(hf,"public:\n");
       fprintf(hf,"   void %s_Begin(TTree*) {}\n",scriptfunc.Data());
       fprintf(hf,"   void %s_SlaveBegin(TTree*) {}\n",scriptfunc.Data());
-      fprintf(hf,"   Bool_t %s_Notify() { return kTRUE; }\n",scriptfunc.Data());
-      fprintf(hf,"   Bool_t %s_Process(Long64_t) { return kTRUE; }\n",scriptfunc.Data());
+      fprintf(hf,"   bool %s_Notify() { return true; }\n",scriptfunc.Data());
+      fprintf(hf,"   bool %s_Process(Long64_t) { return true; }\n",scriptfunc.Data());
       fprintf(hf,"   void %s_SlaveTerminate() {}\n",scriptfunc.Data());
       fprintf(hf,"   void %s_Terminate() {}\n",scriptfunc.Data());
       fprintf(hf,"};\n");
@@ -1793,9 +1794,9 @@ namespace Internal {
 
       fprintf(hf, "class %s : public TSelector, public %s_Interface {\n", classname.Data(), scriptfunc.Data());
       fprintf(hf, "public :\n");
-      fprintf(hf, "   TTree          *fChain;         //!pointer to the analyzed TTree or TChain\n");
-      fprintf(hf, "   TH1            *htemp;          //!pointer to the histogram\n");
-      fprintf(hf, "   TBranchProxyDirector fDirector; //!Manages the proxys\n\n");
+      fprintf(hf, "   TTree          *fChain;         ///<!pointer to the analyzed TTree or TChain\n");
+      fprintf(hf, "   TH1            *htemp;          ///<!pointer to the histogram\n");
+      fprintf(hf, "   TBranchProxyDirector fDirector; ///<!Manages the proxys\n\n");
 
       fprintf(hf, "   // Optional User methods\n");
       fprintf(hf, "   TClass         *fClass;    // Pointer to this class's description\n");
@@ -1854,17 +1855,17 @@ namespace Internal {
       fprintf(hf,    "\n      { }\n");
 
       // Other functions.
-      fprintf(hf,"   ~%s();\n",classname.Data());
-      fprintf(hf,"   Int_t   Version() const {return 1;}\n");
-      fprintf(hf,"   void    Begin(::TTree *tree);\n");
-      fprintf(hf,"   void    SlaveBegin(::TTree *tree);\n");
-      fprintf(hf,"   void    Init(::TTree *tree);\n");
-      fprintf(hf,"   Bool_t  Notify();\n");
-      fprintf(hf,"   Bool_t  Process(Long64_t entry);\n");
-      fprintf(hf,"   void    SlaveTerminate();\n");
-      fprintf(hf,"   void    Terminate();\n");
+      fprintf(hf,"   ~%s() override;\n",classname.Data());
+      fprintf(hf,"   Int_t   Version() const override {return 1;}\n");
+      fprintf(hf,"   void    Begin(::TTree *tree) override;\n");
+      fprintf(hf,"   void    SlaveBegin(::TTree *tree) override;\n");
+      fprintf(hf,"   void    Init(::TTree *tree) override;\n");
+      fprintf(hf,"   bool    Notify() override;\n");
+      fprintf(hf,"   bool    Process(Long64_t entry) override;\n");
+      fprintf(hf,"   void    SlaveTerminate() override;\n");
+      fprintf(hf,"   void    Terminate() override;\n");
       fprintf(hf,"\n");
-      fprintf(hf,"   ClassDef(%s,0);\n",classname.Data());
+      fprintf(hf,"   ClassDefOverride(%s,0);\n",classname.Data());
       fprintf(hf,"\n\n");
 
       fprintf(hf,"//inject the user's code\n");
@@ -1880,7 +1881,7 @@ namespace Internal {
       fprintf(hf,"#endif\n");
       fprintf(hf,"\n\n");
 
-      fprintf(hf,"#ifdef __MAKECINT__\n");
+      fprintf(hf,"#ifdef __ROOTCLING__\n");
       if (fListOfClasses.LastIndex()>=0) {
          TBranchProxyClassDescriptor *clp;
          next = &fListOfClasses;
@@ -1923,14 +1924,14 @@ namespace Internal {
       fprintf(hf,"   }\n");
       fprintf(hf,"}\n");
       fprintf(hf,"\n");
-      fprintf(hf,"Bool_t %s::Notify()\n",classname.Data());
+      fprintf(hf,"bool %s::Notify()\n",classname.Data());
       fprintf(hf,"{\n");
       fprintf(hf,"   // Called when loading a new file.\n");
       fprintf(hf,"   // Get branch pointers.\n");
       fprintf(hf,"   fDirector.SetTree(fChain);\n");
       fprintf(hf,"   %s_Notify();\n",scriptfunc.Data());
       fprintf(hf,"   \n");
-      fprintf(hf,"   return kTRUE;\n");
+      fprintf(hf,"   return true;\n");
       fprintf(hf,"}\n");
       fprintf(hf,"   \n");
 
@@ -1939,8 +1940,7 @@ namespace Internal {
       fprintf(hf,"inline void %s::Begin(TTree *tree)\n",classname.Data());
       fprintf(hf,"{\n");
       fprintf(hf,"   // The Begin() function is called at the start of the query.\n");
-      fprintf(hf,"   // When running with PROOF Begin() is only called on the client.\n");
-      fprintf(hf,"   // The tree argument is deprecated (on PROOF 0 is passed).\n");
+      fprintf(hf,"   // The tree argument is deprecated.\n");
       fprintf(hf,"\n");
       fprintf(hf,"   TString option = GetOption();\n");
       fprintf(hf,"   %s_Begin(tree);\n",scriptfunc.Data());
@@ -1952,8 +1952,7 @@ namespace Internal {
       fprintf(hf,"inline void %s::SlaveBegin(TTree *tree)\n",classname.Data());
       fprintf(hf,"{\n");
       fprintf(hf,"   // The SlaveBegin() function is called after the Begin() function.\n");
-      fprintf(hf,"   // When running with PROOF SlaveBegin() is called on each slave server.\n");
-      fprintf(hf,"   // The tree argument is deprecated (on PROOF 0 is passed).\n");
+      fprintf(hf,"   // The tree argument is deprecated.\n");
       fprintf(hf,"\n");
       fprintf(hf,"   Init(tree);\n");
       fprintf(hf,"\n");
@@ -1963,16 +1962,13 @@ namespace Internal {
       fprintf(hf,"\n");
 
       // generate code for class member function Process
-      fprintf(hf,"inline Bool_t %s::Process(Long64_t entry)\n",classname.Data());
+      fprintf(hf,"inline bool %s::Process(Long64_t entry)\n",classname.Data());
       fprintf(hf,"{\n");
 
-      fprintf(hf,"   // The Process() function is called for each entry in the tree (or possibly\n"
-              "   // keyed object in the case of PROOF) to be processed. The entry argument\n"
-              "   // specifies which entry in the currently loaded tree is to be processed.\n"
+      fprintf(hf,"   // The Process() function is called for each entry in the tree to be processed.\n"
+              "   // The entry argument specifies which entry in the currently loaded tree is to be processed.\n"
               "   // It can be passed to either TTree::GetEntry() or TBranch::GetEntry()\n"
-              "   // to read either all or the required parts of the data. When processing\n"
-              "   // keyed objects with PROOF, the object is already loaded and is available\n"
-              "   // via the fObject pointer.\n"
+              "   // to read either all or the required parts of the data.\n"
               "   //\n"
               "   // This function should contain the \"body\" of the analysis. It can contain\n"
               "   // simple or elaborate selection criteria, run algorithms on the data\n"
@@ -1999,7 +1995,7 @@ namespace Internal {
          }
       }
       fprintf(hf,"   %s_Process(entry);\n",scriptfunc.Data());
-      fprintf(hf,"   return kTRUE;\n");
+      fprintf(hf,"   return true;\n");
       fprintf(hf,"\n");
       fprintf(hf,"}\n\n");
 
@@ -2007,8 +2003,7 @@ namespace Internal {
       fprintf(hf,"inline void %s::SlaveTerminate()\n",classname.Data());
       fprintf(hf,"{\n");
       fprintf(hf,"   // The SlaveTerminate() function is called after all entries or objects\n"
-              "   // have been processed. When running with PROOF SlaveTerminate() is called\n"
-              "   // on each slave server.");
+              "   // have been processed.");
       fprintf(hf,"\n");
       fprintf(hf,"   %s_SlaveTerminate();\n",scriptfunc.Data());
       fprintf(hf,"}\n\n");

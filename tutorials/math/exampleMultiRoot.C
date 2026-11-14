@@ -2,6 +2,7 @@
 /// \ingroup tutorial_math
 /// \notebook -nodraw
 /// Example of using multiroot finder based on GSL algorithm.
+///
 /// Find the root of Rosenbrock system of equations:
 /// \f[
 /// f1(x,y) = a(1-x)
@@ -15,7 +16,7 @@
 /// \f]
 ///
 /// The MultiRootFinder is based on GSL and it requires the MathMore library
-/// installed
+/// installed.
 ///
 /// Usage:
 ///
@@ -53,7 +54,7 @@
 //like hybrids (default), hybrid, dnewton, broyden
 
 using namespace ROOT::Math;
-void exampleMultiRoot(const char * algo = 0, int printlevel = 1) {
+void exampleMultiRoot(const char * algo = nullptr, int printlevel = 1) {
    ROOT::Math::MultiRootFinder r(algo);
    //defining the function
    // use Rosenbrock functions

@@ -1,9 +1,10 @@
 /// \file
 /// \ingroup tutorial_math
 /// \notebook -nodraw
-/// Macro illustrating  I/O with Lorentz Vectors of floats
+/// Macro illustrating  I/O with Lorentz Vectors of floats.
+///
 /// The dictionary for LorentzVector of float is not in the libMathCore, therefore
-/// is generated when parsed the file with CINT.
+/// is generated when parsed the file with CLING.
 ///
 ///  To run  this macro you must do
 ///
@@ -34,8 +35,8 @@
 // Now the dictionary contains the vector's with float types
 // No need to force dictionary generation
 // You need to run ACLIC with old ROOT version
-// and uncomment these lines below 
-// #ifdef __MAKECINT__
+// and uncomment these lines below
+// #ifdef __ROOTCLING__
 // #pragma link C++ class ROOT::Math::PxPyPzE4D<float>+;
 // #pragma link C++ class ROOT::Math::LorentzVector<ROOT::Math::PxPyPzE4D<float> >+;
 // #pragma link C++ typedef ROOT::Math::XYZTVectorF;
@@ -101,7 +102,7 @@ void read() {
 
 void runIt() {
 
-#if defined(__CINT__) && !defined(__MAKECINT__)
+#if defined(__CLING__) && !defined(__ROOTCLING__)
    gSystem->Load("libMathCore");
    gSystem->Load("libPhysics");
    using namespace ROOT::Math ;
@@ -116,7 +117,7 @@ void runIt() {
 }
 
 void mathcoreVectorFloatIO() {
-#if defined(__CINT__) && !defined(__MAKECINT__)
+#if defined(__CLING__) && !defined(__ROOTCLING__)
    gSystem->Load("libMathCore");
    gSystem->Load("libPhysics");
    using namespace ROOT::Math ;

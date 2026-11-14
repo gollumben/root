@@ -137,7 +137,7 @@ namespace cling {
           lastExprTy = m_Context->getPointerType(lastExprTy);
           lastExpr = m_Sema->ImpCastExprToType(lastExpr, lastExprTy,
                                                CK_FunctionToPointerDecay,
-                                               VK_RValue).get();
+                                               VK_PRValue).get();
         }
 
         //
@@ -210,7 +210,7 @@ namespace {
     // Build a reference to gCling
     ExprResult gClingDRE
       = m_Sema->BuildDeclRefExpr(m_gClingVD, m_Context->VoidPtrTy,
-                                 VK_RValue, SourceLocation());
+                                 VK_PRValue, SourceLocation());
     // We have the wrapper as Sema's CurContext
     FunctionDecl* FD = cast<FunctionDecl>(m_Sema->CurContext);
 
@@ -227,7 +227,7 @@ namespace {
     SourceLocation locEnd = (E) ? E->getEndLoc() : FD->getEndLoc();
     ExprResult wrapperSVRDRE
       = m_Sema->BuildDeclRefExpr(FD->getParamDecl(0), m_Context->VoidPtrTy,
-                                 VK_RValue, locStart);
+                                 VK_PRValue, locStart);
     QualType ETy = (E) ? E->getType() : m_Context->VoidTy;
     QualType desugaredTy = ETy.getDesugaredType(*m_Context);
 
@@ -245,11 +245,10 @@ namespace {
                                              (uintptr_t)ETy.getAsOpaquePtr());
 
     // Pass whether to Value::dump() or not:
-    Expr* EVPOn
-      = new (*m_Context) CharacterLiteral(getCompilationOpts().ValuePrinting,
-                                          CharacterLiteral::Ascii,
-                                          m_Context->CharTy,
-                                          SourceLocation());
+    Expr* EVPOn =
+        new (*m_Context) CharacterLiteral(getCompilationOpts().ValuePrinting,
+                                          CharacterLiteralKind::Ascii,
+                                          m_Context->CharTy, SourceLocation());
 
     llvm::SmallVector<Expr*, 6> CallArgs;
     CallArgs.push_back(gClingDRE.get());
@@ -295,7 +294,14 @@ namespace {
       if (const ConstantArrayType* constArray
           = dyn_cast<ConstantArrayType>(desugaredTy.getTypePtr())) {
         CallArgs.clear();
-        CallArgs.push_back(E);
+        // Get a pointer to the base element type so the instantiated copyArray
+        // template can do placement new.
+        QualType baseElementType = m_Context->getBaseElementType(desugaredTy);
+        TypeSourceInfo* TSI = m_Context->getTrivialTypeSourceInfo(
+            m_Context->getPointerType(baseElementType), noLoc);
+        Expr* srcPointer =
+            m_Sema->BuildCStyleCastExpr(noLoc, TSI, noLoc, E).get();
+        CallArgs.push_back(srcPointer);
         CallArgs.push_back(placement);
         size_t arrSize
           = m_Context->getConstantArrayElementCount(constArray);
@@ -433,7 +439,7 @@ namespace {
     }
     LookupResult R(*m_Sema, &m_Context->Idents.get("setValueNoAlloc"),
                    SourceLocation(), Sema::LookupOrdinaryName,
-                   Sema::ForVisibleRedeclaration);
+                   RedeclarationKind::ForVisibleRedeclaration);
 
     m_Sema->LookupQualifiedName(R, NSD);
     if (R.empty())
@@ -523,44 +529,42 @@ namespace runtime {
     CLING_LIB_EXPORT
     void setValueNoAlloc(void* vpI, void* vpSVR, void* vpQT, char vpOn,
                          float value) {
-      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).getAs<float>() = value;
+      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).setFloat(value);
       dumpIfNoStorage(vpSVR, vpOn);
     }
 
     CLING_LIB_EXPORT
     void setValueNoAlloc(void* vpI, void* vpSVR, void* vpQT, char vpOn,
                          double value) {
-      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).getAs<double>() = value;
+      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).setDouble(value);
       dumpIfNoStorage(vpSVR, vpOn);
     }
 
     CLING_LIB_EXPORT
     void setValueNoAlloc(void* vpI, void* vpSVR, void* vpQT, char vpOn,
                          long double value) {
-      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).getAs<long double>()
-        = value;
+      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).setLongDouble(value);
       dumpIfNoStorage(vpSVR, vpOn);
     }
 
     CLING_LIB_EXPORT
     void setValueNoAlloc(void* vpI, void* vpSVR, void* vpQT, char vpOn,
                          unsigned long long value) {
-      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT)
-        .getAs<unsigned long long>() = value;
+      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).setULongLong(value);
       dumpIfNoStorage(vpSVR, vpOn);
     }
 
     CLING_LIB_EXPORT
     void setValueNoAlloc(void* vpI, void* vpSVR, void* vpQT, char vpOn,
                          const void* value){
-      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).getAs<void*>()
-        = const_cast<void*>(value);
+      allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT)
+        .setPtr(const_cast<void*>(value));
       dumpIfNoStorage(vpSVR, vpOn);
     }
 
     CLING_LIB_EXPORT
     void* setValueWithAlloc(void* vpI, void* vpSVR, void* vpQT, char vpOn) {
-      return allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).getAs<void*>();
+      return allocateStoredRefValueAndGetGV(vpI, vpSVR, vpQT).getPtr();
     }
   } // end namespace internal
 } // end namespace runtime

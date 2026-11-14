@@ -28,473 +28,268 @@
 //    root -b
 //    root [0] .x  stressGraphics.cxx
 
-#include <stdlib.h>
-#include <Riostream.h>
-#include <time.h>
-#include <TString.h>
-#include <TROOT.h>
-#include <TError.h>
-#include <TRandom.h>
-#include <TBenchmark.h>
-#include <TSystem.h>
-#include <TApplication.h>
-#include <TDatime.h>
-#include <TFile.h>
-#include <TF1.h>
+#include <cstdlib>
+#include <iostream>
+#include <iomanip>
+#include <fstream>
+#include <ctime>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "TString.h"
+#include "TROOT.h"
+#include "TError.h"
+#include "TRandom.h"
+#include "TRandom3.h"
+#include "TBenchmark.h"
+#include "TSystem.h"
+#include "TApplication.h"
+#include "TDatime.h"
+#include "TFile.h"
+#include "TF1.h"
+#include "TF12.h"
 #include "TF2.h"
-#include <TF3.h>
-#include <TH2.h>
-#include <TH2Poly.h>
-#include <TNtuple.h>
-#include <TKey.h>
-#include <TProfile.h>
+#include "TF3.h"
+#include "TH1.h"
+#include "TH2.h"
+#include "THStack.h"
+#include "TH2Poly.h"
+#include "TNtuple.h"
+#include "TKey.h"
+#include "TProfile.h"
+#include "TProfile2D.h"
+#include "TProfile2Poly.h"
+#include "TProfile3D.h"
 #include "TString.h"
 
-#include <TStyle.h>
-#include <TCanvas.h>
-#include <TColor.h>
-#include <TFrame.h>
-#include <TPostScript.h>
-#include <TPDF.h>
-#include <TLine.h>
-#include <TMarker.h>
-#include <TPolyLine.h>
-#include <TLatex.h>
-#include <TMathText.h>
-#include <TLegend.h>
-#include <TEllipse.h>
-#include <TCurlyArc.h>
-#include <TArc.h>
-#include <TPaveText.h>
-#include <TPaveStats.h>
-#include <TPaveLabel.h>
-#include <TRatioPlot.h>
-#include <TGaxis.h>
-#include <TGraph.h>
-#include <TGraphErrors.h>
-#include <TGraphAsymmErrors.h>
-#include <TGraphBentErrors.h>
-#include <TMultiGraph.h>
-#include <TGraph2D.h>
-#include <TParallelCoord.h>
-#include <TImage.h>
-#include <TMath.h>
+#include "TStyle.h"
+#include "TCanvas.h"
+#include "TColor.h"
+#include "TFrame.h"
+#include "TPostScript.h"
+#include "TSVG.h"
+#include "TPDF.h"
+#include "TLine.h"
+#include "TArrow.h"
+#include "TMarker.h"
+#include "TCrown.h"
+#include "TPie.h"
+#include "TPieSlice.h"
+#include "TPolyLine.h"
+#include "TLatex.h"
+#include "TMathText.h"
+#include "TLegend.h"
+#include "TEllipse.h"
+#include "TCurlyArc.h"
+#include "TArc.h"
+#include "TPaveText.h"
+#include "TPaveStats.h"
+#include "TPaveLabel.h"
+#include "TAnnotation.h"
+#include "TRatioPlot.h"
+#include "TGaxis.h"
+#include "TPaletteAxis.h"
+#include "TSpline.h"
+#include "TPolyMarker.h"
+#include "TScatter.h"
+#include "TEfficiency.h"
+#include "TGraph.h"
+#include "TCutG.h"
+#include "TGraphErrors.h"
+#include "TGraphAsymmErrors.h"
+#include "TGraphBentErrors.h"
+#include "TMultiGraph.h"
+#include "TGraph2D.h"
+#include "TGraph2DErrors.h"
+#include "TGraph2DAsymmErrors.h"
+#include "TGraphMultiErrors.h"
+#include "TGraphPolar.h"
+#include "TGraphPolargram.h"
+#include "TParallelCoord.h"
+#include "TImage.h"
+#include "TMath.h"
+#include "TPolyLine3D.h"
+#include "TPolyMarker3D.h"
+#include "TView.h"
 
 
-void     stressGraphics (Int_t verbose);
-Int_t    StatusPrint    (TString &filename, Int_t id, const TString &title, Int_t res, Int_t ref, Int_t err);
-Int_t    AnalysePS      (const TString &filename);
-Int_t    FileSize       (char *filename);
-TCanvas *StartTest      (Int_t w, Int_t h);
-void     TestReport1    (TCanvas *C, const TString &title, Int_t IPS=0);
-void     TestReport2    (Int_t IPS=0);
-void     DoCcode        (TCanvas *C);
-TString  stime(time_t* t, bool utc = false, bool display_time_zone = true);
-
-
-// Tests functions.
-void     clonepad       ();
-void     earth          ();
-void     feynman        ();
-void     hbars          ();
-void     itbf           ();
-void     kerning        ();
-void     labels1        ();
-void     ntuple1        ();
-void     options2d1     ();
-void     options2d2     ();
-void     options2d3     ();
-void     options2d4     ();
-void     options2d5     ();
-void     parallelcoord  ();
-void     patterns       ();
-void     quarks         ();
-void     ratioplot      ();
-void     statfitparam   ();
-void     tellipse       ();
-void     tgaxis1        ();
-void     tgaxis2        ();
-void     tgaxis3        ();
-void     tgaxis4        ();
-void     tgaxis5        ();
-void     tgraph1        ();
-void     tgraph2        ();
-void     tgraph3        ();
-void     tgraph4        ();
-void     tgraph2d1      ();
-void     tgraph2d2      ();
-void     tgraph2d3      ();
-void     th2poly        ();
-void     timage         ();
-void     tlatex1        ();
-void     tlatex2        ();
-void     tlatex3        ();
-void     tlatex4        ();
-void     tlatex5        ();
-void     tline          ();
-void     tmarker        ();
-void     tmathtext      ();
-void     tmultigraph1   ();
-void     tmultigraph2   ();
-void     tpolyline      ();
-void     transpad       ();
-void     ttext1         ();
-void     ttext2         ();
-void     waves          ();
-void     zoomfit        ();
-void     zoomtf1        ();
-
-// Auxiliary functions
-void     patterns_box   (Int_t pat, Double_t x1, Double_t y1, Double_t x2, Double_t  y2);
-Double_t interference   (Double_t *x, Double_t *par);
-Double_t result         (Double_t *x, Double_t *par);
-void     cleanup        ();
+const int  kFineSvgTest = 10; // SVG file can slightly vary
+const int  kSkipSvgTest = 100; // do not perform SVG test
 
 // Global variables.
-Int_t     gVerbose;
-Int_t     gTestNum;
-Int_t     gTestsFailed;
-Int_t     gPS1RefNb[60];
-Int_t     gPS1ErrNb[60];
-Int_t     gPDFRefNb[60];
-Int_t     gPDFErrNb[60];
-Int_t     gGIFRefNb[60];
-Int_t     gGIFErrNb[60];
-Int_t     gJPGRefNb[60];
-Int_t     gJPGErrNb[60];
-Int_t     gPNGRefNb[60];
-Int_t     gPNGErrNb[60];
-Int_t     gPS2RefNb[60];
-Int_t     gPS2ErrNb[60];
-Bool_t    gOptionR;
-Bool_t    gOptionK;
-TH2F     *gH2;
-TFile    *gHsimple;
-TFile    *gCernstaff;
-char      gCfile[16];
-char      outfile[16];
-char      gLine[80];
+Int_t     gVerbose = 0;
+Int_t     gTestNum = 0;
+Int_t     gTestsFailed = 0;
+Bool_t    gSvgMode = kFALSE;
+Bool_t    gSvgCompact = kTRUE;
+std::string gSvgRefPath;
+Bool_t    gWebMode = kFALSE;
+Int_t     gSkip3D = 0;
+Bool_t    gOptionR = kFALSE;
+Bool_t    gOptionK = kFALSE;
+TH2F     *gH2 = nullptr;
+TFile    *gHsimple = nullptr;
+TFile    *gCernstaff = nullptr;
+const char *filePrefix = "sg";
 
+const TString kSkipCCode = "__skip_c_code_generation__";
 
-#ifndef __CLING__
-////////////////////////////////////////////////////////////////////////////////
+struct RefEntry {
+   TString name;
+   Int_t ps1ref = 0, ps1err = 0, pdfref = 0, pdferr = 0, jpgref = 0, jpgerr = 0, pngref = 0, pngerr = 0, ps2ref = 0, ps2err = 0;
+   void UpdateMin(RefEntry &ref)
+   {
+      ps1ref = TMath::Min(ps1ref, ref.ps1ref);
+      pdfref = TMath::Min(pdfref, ref.pdfref);
+      jpgref = TMath::Min(jpgref, ref.jpgref);
+      pngref = TMath::Min(pngref, ref.pngref);
+      ps2ref = TMath::Min(ps2ref, ref.ps2ref);
+   }
+   void UpdateMax(RefEntry &ref)
+   {
+      ps1ref = TMath::Max(ps1ref, ref.ps1ref);
+      pdfref = TMath::Max(pdfref, ref.pdfref);
+      jpgref = TMath::Max(jpgref, ref.jpgref);
+      pngref = TMath::Max(pngref, ref.pngref);
+      ps2ref = TMath::Max(ps2ref, ref.ps2ref);
+   }
 
-int main(int argc, char *argv[])
+   void CalcMeanError(RefEntry &ref)
+   {
+      auto mean_err = [](int &vmean, int &verr, int v2, int minerr) {
+         verr = TMath::Nint(TMath::Abs((vmean - v2) * 0.75));
+         vmean = (vmean + v2) / 2;
+         if ((verr < minerr) && (vmean > 0))
+            verr = minerr;
+      };
+
+      mean_err(ps1ref, ps1err, ref.ps1ref, 50);
+      mean_err(pdfref, pdferr, ref.pdfref, 50);
+      mean_err(jpgref, jpgerr, ref.jpgref, 500);
+      mean_err(pngref, pngerr, ref.pngref, 500);
+      mean_err(ps2ref, ps2err, ref.ps2ref, 50);
+   }
+};
+
+struct TestEntry {
+   TString name, title, psfile, ps2file, pdffile, jpgfile, pngfile, svgfile, ccode;
+   Int_t id; // just sequence id, do not
+   Bool_t execute_ccode = kFALSE;
+   Int_t IPS = 0, testsvg = 0;
+};
+
+std::vector<TestEntry> gReports;
+
+std::vector<RefEntry> gRef;
+
+RefEntry *FindEntry(std::vector<RefEntry> &entries, const TString &name)
 {
-   TString opt;
-   Int_t verbose = 0;
-   if (argc > 1) verbose = atoi(argv[1]);
-   opt = argv[1];
-
-   if (argc > 2) {
-      for (int i = 2; i<argc; i++) opt += argv[i];
-   }
-
-   if (opt.Contains("-h")) {
-      printf("Usage: stressGraphics [-h] [-r] [-k]\n");
-      printf("Options:\n");
-      printf("  -r : Generate de reference output.\n");
-      printf("       Redirect the output in the file \"stressGraphics.ref\"\n");
-      printf("       to redefine the reference file.\n");
-      printf("\n");
-      printf("  -k : Keep the output files even for passed tests.\n");
-      printf("       By default output files for passed tests are deleted.\n");
-      printf("\n");
-      printf("  -h : Print usage\n");
-      printf("\n");
-      printf("  Any other option is ignored.\n");
-      return 0;
-   }
-
-   gROOT->SetBatch();
-   TApplication theApp("App", &argc, argv);
-   gBenchmark = new TBenchmark();
-
-   if (opt.Contains("-r")) {
-      gOptionR = kTRUE;
-   } else {
-      gOptionR = kFALSE;
-   }
-
-   if (opt.Contains("-k")) {
-      gOptionK = kTRUE;
-   } else {
-      gOptionK = kFALSE;
-   }
-
-   stressGraphics(verbose);
-
-   cleanup();
-   return 0;
+   for (auto &e : entries)
+      if (e.name == name)
+         return &e;
+   return nullptr;
 }
-#else
-// Unlinking causes the file system to re-use inodes. This confuses clang:
-// "Ummm I know the content of the file with that inode number already",
-// even though the deleted file has been replaced by a new one (which happens
-// to re-use the old inode number).
-#define ClingWorkAroundDeletedSourceFile 1
-#endif
 
-
-////////////////////////////////////////////////////////////////////////////////
-/// Run all graphics stress tests.
-
-void stressGraphics(Int_t verbose = 0)
+int ReadRefFile(const char *fname, std::vector<RefEntry> &entries)
 {
-   gErrorIgnoreLevel = 9999;
-   gROOT->SetStyle("Classic");
-
-   // Check if $ROOTSYS/tutorials/hsimple.root exists
-   gHsimple = new TFile("$(ROOTSYS)/tutorials/hsimple.root");
-   if (gHsimple->IsZombie()) {
-      delete gHsimple;
-      gHsimple = new TFile("hsimple.root");
-      if (gHsimple->IsZombie()) {
-         delete gHsimple;
-         printf("Create $(ROOTSYS)/tutorials/hsimple.root\n");
-         gROOT->Macro("$(ROOTSYS)/tutorials/hsimple.C");
-         gHsimple = new TFile("$(ROOTSYS)/tutorials/hsimple.root");
-         if (gHsimple->IsZombie()) {
-            delete gHsimple;
-            printf("Could not create $(ROOTSYS)/tutorials/hsimple.root\n");
-            return;
-         }
-      }
-   }
-
-   // Check if cernstaff.root exists
-   gCernstaff = new TFile("cernstaff.root");
-   if (gCernstaff->IsZombie()) {
-      delete gCernstaff;
-      gCernstaff = new TFile("cernstaff.root");
-      if (gCernstaff->IsZombie()) {
-         delete gCernstaff;
-         printf("Create ./cernstaff.root\n");
-         gROOT->Macro("$(ROOTSYS)/tutorials/tree/cernbuild.C(0,0)");
-         gCernstaff = new TFile("cernstaff.root");
-         if (gCernstaff->IsZombie()) {
-            delete gCernstaff;
-            printf("Could not create ./cernstaff.root\n");
-            return;
-         }
-      }
-   }
-
-   gErrorIgnoreLevel = 0;
-
-   // Read the reference file "stressGraphics.ref"
-#ifdef R__HAS_CLOUDFLARE_ZLIB
-   FILE *sg = fopen("stressGraphics_builtinzlib.ref","r");
-#else
-   FILE *sg = fopen("stressGraphics.ref","r");
-#endif
+   FILE *sg = fopen(fname, "r");
    if (!sg) {
-      printf("Could not open stressGraphics.ref/stressGraphics_builtinzlib.ref\n");
-      return;
+      printf("Could not open %s\n", fname);
+      return 2;
    }
+
+   entries.clear();
+
    char line[160];
-   Int_t i = -1;
-   while (fgets(line,160,sg)) {
-      if (i>=0) {
-         sscanf(&line[7]  ,"%d",&gPS1RefNb[i]);
-         sscanf(&line[18] ,"%d",&gPS1ErrNb[i]);
-         sscanf(&line[28] ,"%d",&gPDFRefNb[i]);
-         sscanf(&line[38] ,"%d",&gPDFErrNb[i]);
-         sscanf(&line[48] ,"%d",&gGIFRefNb[i]);
-         sscanf(&line[58] ,"%d",&gGIFErrNb[i]);
-         sscanf(&line[68] ,"%d",&gJPGRefNb[i]);
-         sscanf(&line[78] ,"%d",&gJPGErrNb[i]);
-         sscanf(&line[88] ,"%d",&gPNGRefNb[i]);
-         sscanf(&line[98] ,"%d",&gPNGErrNb[i]);
-         sscanf(&line[107],"%d",&gPS2RefNb[i]);
-         sscanf(&line[118],"%d",&gPS2ErrNb[i]);
+   Int_t nline = 0;
+
+   while (fgets(line, 160, sg)) {
+      if (++nline == 1)
+         continue;
+      if ((strlen(line) < 20) || (line[0] == '#'))
+         continue;
+
+      RefEntry d;
+      char name[100];
+      if (11 != sscanf(line, "%s %d %d %d %d %d %d %d %d %d %d", name, &d.ps1ref, &d.ps1err, &d.pdfref, &d.pdferr, &d.jpgref, &d.jpgerr, &d.pngref, &d.pngerr, &d.ps2ref, &d.ps2err)) {
+         printf("Fail to read line %d from reference file %s\n", nline, fname);
+         return 0;
       }
-      i++;
+
+      if ((!strlen(name) || strlen(name) > 30)) {
+         printf("Wrong test name %s in line %d from reference file %s\n", name, nline, fname);
+         return 0;
+      }
+
+      d.name = name;
+
+      entries.push_back(d);
    }
    fclose(sg);
-
-   gRandom->SetSeed(65539);
-
-   if (gOptionR) {
-      std::cout << "Test#   PS1Ref#   PS1Err#   PDFRef#   PDFErr#   GIFRef#   GIFErr#   JPGRef#   JPGErr#   PNGRef#   PNGErr#   PS2Ref#   PS2Err#" <<std::endl;
-   } else {
-      std::cout << "**********************************************************************" <<std::endl;
-      std::cout << "*  Starting  Graphics - S T R E S S suite                            *" <<std::endl;
-      std::cout << "**********************************************************************" <<std::endl;
-   }
-
-   gVerbose     = verbose;
-   gTestNum     = 0;
-   gTestsFailed = 0;
-
-   gBenchmark->Start("stressGraphics");
-
-   if (!gOptionR) {
-      std::cout << "*  Starting Basic Graphics - S T R E S S                             *" <<std::endl;
-      std::cout << "**********************************************************************" <<std::endl;
-   }
-   tline         ();
-   tmarker       ();
-   tpolyline     ();
-   patterns      ();
-   ttext1        ();
-   ttext2        ();
-   tlatex1       ();
-   tlatex2       ();
-   tlatex3       ();
-   tlatex4       ();
-   tlatex5       ();
-   kerning       ();
-   itbf          ();
-   tmathtext     ();
-   transpad      ();
-   statfitparam  ();
-   if (!gOptionR) {
-      std::cout << "**********************************************************************" <<std::endl;
-      std::cout << "*  Starting High Level 2D Primitives - S T R E S S                   *" <<std::endl;
-      std::cout << "**********************************************************************" <<std::endl;
-   }
-   tgaxis1       ();
-   tgaxis2       ();
-   tgaxis3       ();
-   tgaxis4       ();
-   tgaxis5       ();
-   labels1       ();
-   tellipse      ();
-   feynman       ();
-   ratioplot     ();
-   tgraph1       ();
-   tgraph2       ();
-   tgraph3       ();
-   tgraph4       ();
-   tmultigraph1  ();
-   tmultigraph2  ();
-   waves         ();
-   if (!gOptionR) {
-      std::cout << "**********************************************************************" <<std::endl;
-      std::cout << "*  Starting High Level 3D Primitives - S T R E S S                   *" <<std::endl;
-      std::cout << "**********************************************************************" <<std::endl;
-   }
-   options2d1    ();
-   options2d2    ();
-   options2d3    ();
-   options2d4    ();
-   options2d5    ();
-   earth         ();
-   tgraph2d1     ();
-   tgraph2d2     ();
-   tgraph2d3     ();
-   if (!gOptionR) {
-      std::cout << "**********************************************************************" <<std::endl;
-      std::cout << "*  Starting complex drawing and TPad - S T R E S S                   *" <<std::endl;
-      std::cout << "**********************************************************************" <<std::endl;
-   }
-   ntuple1       ();
-   quarks        ();
-   timage        ();
-   zoomtf1       ();
-   zoomfit       ();
-   parallelcoord ();
-   clonepad      ();
-   hbars         ();
-   th2poly       ();
-   if (!gOptionR) {
-      std::cout << "**********************************************************************" <<std::endl;
-      if (!gTestsFailed) {
-         std::cout << "*  All the tests passed. :-)" <<std::endl;
-      } else {
-         if (gTestsFailed>1) std::cout << "*  " << gTestsFailed <<" tests failed. :-(" <<std::endl;
-         else                std::cout << "*  " << gTestsFailed <<" test failed. :-(" <<std::endl;
-      }
-      std::cout << "**********************************************************************" <<std::endl;
-
-      gBenchmark->Stop("stressGraphics");
-
-      //Print table with results
-      Bool_t UNIX = strcmp(gSystem->GetName(), "Unix") == 0;
-      if (UNIX) {
-         TString sp = gSystem->GetFromPipe("uname -a");
-         sp.Resize(60);
-         printf("*  SYS: %s\n",sp.Data());
-         if (strstr(gSystem->GetBuildNode(),"Linux")) {
-            sp = gSystem->GetFromPipe("lsb_release -d -s");
-            printf("*  SYS: %s\n",sp.Data());
-         }
-         if (strstr(gSystem->GetBuildNode(),"Darwin")) {
-            sp  = gSystem->GetFromPipe("sw_vers -productVersion");
-            sp += " Mac OS X ";
-            printf("*  SYS: %s\n",sp.Data());
-         }
-      } else {
-         const Char_t *os = gSystem->Getenv("OS");
-         if (!os) printf("*  SYS: Windows 95\n");
-         else     printf("*  SYS: %s %s \n",os,gSystem->Getenv("PROCESSOR_IDENTIFIER"));
-      }
-
-      printf("**********************************************************************\n");
-      printf("* ");
-      gBenchmark->Print("stressGraphics");
-
-      Double_t ct = gBenchmark->GetCpuTime("stressGraphics");
-      //normalize at 860 rootmarks on pcbrun4
-      const Double_t rootmarks = 860*(47.12/ct);
-
-      printf("**********************************************************************\n");
-      printf("*  ROOTMARKS =%6.1f   *  Root %-8s  %d/%d\n",rootmarks,gROOT->GetVersion(),
-             gROOT->GetVersionDate(),gROOT->GetVersionTime());
-      printf("**********************************************************************\n");
-   }
+   return entries.size();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// Print header for ref file
+
+void PrintRefHeader()
+{
+   if (gWebMode)
+      printf("          Test#  SVG1Ref#  SVG1Err#   PDFRef#   PDFErr#   JPGRef#   JPGErr#   PNGRef#   PNGErr#  SVG2Ref#  SVG2Err#\n");
+   else
+      printf("          Test#   PS1Ref#   PS1Err#   PDFRef#   PDFErr#   JPGRef#   JPGErr#   PNGRef#   PNGErr#   PS2Ref#   PS2Err#\n");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Print content of ref entries
+
+void PrintRefEntries(const std::vector<RefEntry> &entries)
+{
+   for (auto &d : entries)
+      printf("%15s%10d%10d%10d%10d%10d%10d%10d%10d%10d%10d\n", d.name.Data(), d.ps1ref, d.ps1err, d.pdfref, d.pdferr, d.jpgref, d.jpgerr, d.pngref, d.pngerr, d.ps2ref, d.ps2err);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Print test program number and its title
 
-Int_t StatusPrint(TString &filename, Int_t id, const TString &title,
-                  Int_t res, Int_t ref, Int_t err)
+Int_t StatusPrint(const TString &filename, const TString &title, Int_t res, Int_t &ref, Int_t err)
 {
-   if (!gOptionR) {
-      if (id>0) {
-         sprintf(gLine,"Test %2d: %s",id,title.Data());
+   if (gOptionR) {
+      ref = res;
+   } else {
+      TString line = title;
+      if (line.Index("Test") == kNPOS)
+         line.Prepend("         ");
+      const Int_t nch = line.Length();
+      if (TMath::Abs(res - ref) <= err) {
+         std::cout << line;
+         for (Int_t i = nch; i < 67; i++)
+            std::cout << ".";
+         std::cout << " OK\n";
+         if (!gOptionK)
+            gSystem->Unlink(filename.Data());
       } else {
-         sprintf(gLine,"       %s",title.Data());
-      }
-
-      const Int_t nch = strlen(gLine);
-      if (TMath::Abs(res-ref)<=err) {
-         std::cout << gLine;
-         for (Int_t i = nch; i < 67; i++) std::cout << ".";
-         std::cout << " OK" << std::endl;
-#ifndef ClingWorkAroundDeletedSourceFile
-         if (!gOptionK) gSystem->Unlink(filename.Data());
-#endif
-      } else {
-         std::cout << gLine;
+         std::cout << line;
          Int_t ndots = 60;
-         Int_t w = 3;
-         if (gTestNum < 10) { ndots++; w--;}
-         for (Int_t i = nch; i < ndots; i++) std::cout << ".";
-         std::cout << std::setw(w) << gTestNum << " FAILED" << std::endl;
-         std::cout << "         Result    = "  << res << std::endl;
-         std::cout << "         Reference = "  << ref << std::endl;
-         std::cout << "         Error     = "  << TMath::Abs(res-ref)
-                                          << " (was " << err << ")"<< std::endl;
+         for (Int_t i = nch; i < ndots; i++)
+            std::cout << ".";
+         std::cout << " FAILED\n";
+         std::cout << "         Result    = " << res << "\n";
+         std::cout << "         Reference = " << ref << "\n";
+         std::cout << "         Error     = " << TMath::Abs(res - ref) << " (was " << err << ")\n";
+         std::cout << "         File      = " << filename << "\n";
          gTestsFailed++;
          return 1;
       }
-   } else {
-      if (id>0)  printf("%5d%10d%10d",id,res,err);
-      if (id==0) printf("%10d%10d",res,err);
-      if (id<0)  printf("%10d%10d\n",res,err);
    }
    return 0;
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the size of filename
 
-Int_t FileSize (char *filename)
+Int_t FileSize(const TString &filename)
 {
    FileStat_t fs;
    if (!gSystem->GetPathInfo(filename, fs)) {
@@ -502,6 +297,125 @@ Int_t FileSize (char *filename)
    } else {
       return 0;
    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Check if deviation in SVG line significant or can be ignored
+
+bool SpecialCompareOfSVGLines(const std::string &line1, const std::string &line2)
+{
+   if (line1.length() != line2.length())
+      return false;
+
+   int npos = -1;
+
+   // for now allow only one single deviation deviation
+   for (size_t i = 0; i < line1.length(); ++i) {
+      if (line1[i] != line2[i]) {
+         if (npos < 0)
+            npos = i;
+         else
+            return false;
+      }
+   }
+
+   if (npos < 0)
+      return true;
+
+   auto extract_float = [npos](const std::string &s) {
+      int n = npos;
+      while ((n > 0) && ((s[n]>='0' && s[n] <= '9') || (s[n] == '.') || (s[n] == '-'))) n--;
+      float res;
+      if (sscanf(s.c_str() + n + 1, "%f", &res) != 1)
+         res = 0.;
+      return res;
+   };
+
+   auto v1 = extract_float(line1);
+   auto v2 = extract_float(line2);
+
+   if (!v1 || !v2 || (v1*v2 < 0))
+      return false;
+
+   return (TMath::Abs(v2 - v1) / (v2 + v1) < 0.01);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Special compare of SVG files
+
+Int_t CompareSVGFiles(const TString &filename1, const TString &filename2, int testsvg)
+{
+   std::ifstream f1(filename1.Data());
+   if (!f1) {
+      printf("FAILURE to open %s\n", filename1.Data());
+      return 0;
+   }
+
+   std::ifstream f2(filename2.Data());
+   if (!f2) {
+      printf("FAILURE to open %s\n", filename2.Data());
+      return 0;
+   }
+
+   std::stringstream diffOld;
+   std::stringstream diffNew;
+   auto flushDiff = [&]() {
+      if (diffOld.tellp() != std::streampos(0)) {
+         std::cout << diffOld.str() << diffNew.str() << "\n";
+         diffOld.str("");
+         diffNew.str("");
+      }
+   };
+
+   std::string line1, line2;
+
+   int cnt = 0, diffcnt = 0, finediffcnt = 0, lastError = -1;
+
+   while (std::getline(f1, line1) && std::getline(f2, line2)) {
+      ++cnt;
+
+      if (line1 == line2)
+         continue;
+
+      // ignore CreationDate comment
+      if (!gSvgCompact && (cnt == 8))
+         continue;
+
+      if (lastError + 1 != cnt) {
+         flushDiff();
+         diffOld << "--- " << filename1 << "\n" << "+++ " << filename2 << "\n@@@ " << cnt << "\n";
+      }
+      lastError = cnt;
+      diffOld << "-  " << line1 << "\n";
+      diffNew << "+  " << line2 << "\n";
+
+      if ((testsvg == kFineSvgTest) && SpecialCompareOfSVGLines(line1, line2)) {
+         if (finediffcnt++ > 5)
+            return 0;
+      } else if (++diffcnt > 5)
+         break;
+   }
+
+   flushDiff();
+
+   if (diffcnt > 0)
+      return 0;
+
+   if (!f1.eof()) {
+      printf("FAILURE ref file %s still has content\n", filename1.Data());
+      printf("Diff in line %d\n", cnt);
+      printf("Ref: %s\n", line1.substr(0, 200).c_str());
+      return 0;
+   }
+
+   if (std::getline(f2, line2) || !f2.eof()) {
+      printf("FAILURE new file %s still has content\n", filename2.Data());
+      printf("Diff in line %d\n", cnt);
+      printf("New: %s\n", line2.substr(0, 200).c_str());
+      return 0;
+   }
+
+   return (finediffcnt > 0) ? kFineSvgTest : 1;
 }
 
 
@@ -515,24 +429,19 @@ Int_t AnalysePS(const TString &filename)
    Bool_t counting = kFALSE;
    Int_t count = 0;
 
-   FILE *fp;
-   Int_t status;
-   if ((fp=fopen(filename.Data(), "r"))==NULL) {
+   TString line;
+   std::ifstream in(filename.Data());
+   if (!in.is_open()) {
       printf("ERROR1 : File can not open !..\n");
       return 0;
    }
-
-   char *line = new char[251];
-   TString l;
-   while((status=fscanf(fp, "%s", line)) != EOF) {
-      l = line;
-      if (l.Contains("%!PS-Adobe"))  counting = kFALSE;
-      if (l.Contains("%%EndProlog")) counting = kTRUE;
-      if (counting) count = count+l.Length();
+   while (in >> line) {
+      if (line.Contains("%!PS-Adobe"))  counting = kFALSE;
+      if (line.Contains("%%EndProlog")) counting = kTRUE;
+      if (counting) count = count+line.Length();
    }
-   if (gVerbose==1) printf(">>>>>>>>> Number of characters found in %s: %d\n",filename.Data(),count);
-   fclose(fp);
-   delete [] line;
+   if (gVerbose)
+      printf(">>>>>>>>> Number of characters found in %s: %d\n",filename.Data(),count);
    return count;
 }
 
@@ -543,134 +452,215 @@ Int_t AnalysePS(const TString &filename)
 
 TCanvas *StartTest(Int_t w, Int_t h)
 {
-   gTestNum++;
    gStyle->Reset();
-   TCanvas *old = (TCanvas*)gROOT->GetListOfCanvases()->FindObject("C");
-   if (old) {
-      if (old->IsOnHeap()) delete old;
-   }
-   TCanvas *C = new TCanvas("C","C",0,0,w,h);
-   return C;
+   auto old = static_cast<TCanvas *> (gROOT->GetListOfCanvases()->FindObject("C"));
+   if (old && old->IsOnHeap())
+      delete old;
+   return new TCanvas("C", "C", 0, 0, w, h);
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
-/// Report 1:
-/// Draw the canvas generate as PostScript, count the number of characters in
-/// the PS file and compare the result with the reference value.
+/// Full report which includes following steps:
+/// 1. Draw the canvas generate as PostScript, count the number of characters in
+///    the PS file and compare the result with the reference value.
+/// 2.  Generate the C code corresponding to the canvas C
+/// 3. Draw the canvas generate as .C, generate the corresponding PostScript
+///    file (using gPad), count the number of characters in it and compare the
+///    result with the reference value.
+/// For special cases C code may be skipped or some object removed from global lists
 
-void TestReport1(TCanvas *C, const TString &title, Int_t IPS)
+void TestReport(TCanvas *C, const TString &name, const TString &title, const TString &arg = "", Int_t IPS = 0)
 {
-   gErrorIgnoreLevel = 9999;
-   sprintf(outfile,"sg1_%2.2d.ps",gTestNum);
 
-   TPostScript *ps1 = new TPostScript(outfile, 111);
-   C->Draw();
-   ps1->Close();
-   TString psfile = outfile;
-   if (IPS) {
-      StatusPrint(psfile,  gTestNum, title, FileSize(outfile) ,
-                                            gPS1RefNb[gTestNum-1],
-                                            gPS1ErrNb[gTestNum-1]);
+   if (!gVerbose)
+      gErrorIgnoreLevel = 9999;
+
+   const char *main_extension = gWebMode ? "svg" : "ps";
+
+   TestEntry e;
+   e.name = name;
+   e.title = title;
+   if (IPS < kSkipSvgTest)
+      e.testsvg = (IPS  < kFineSvgTest) ? 1 : kFineSvgTest;
+
+   e.IPS = gWebMode ? 1 : IPS % 10; // check only size of web SVG files
+   e.psfile = TString::Format("%s_%s1.%s", filePrefix, name.Data(), main_extension);
+   e.ps2file = TString::Format("%s_%s2.%s", filePrefix, name.Data(), main_extension);
+   e.pdffile = TString::Format("%s_%s.pdf", filePrefix, name.Data());
+   e.jpgfile = TString::Format("%s_%s.jpg", filePrefix, name.Data());
+   e.pngfile = TString::Format("%s_%s.png", filePrefix, name.Data());
+   e.svgfile = TString::Format("%s.svg", name.Data());
+   e.ccode = TString::Format("%s_%s.C", filePrefix, name.Data());
+   e.execute_ccode = (arg != kSkipCCode);
+
+   // start files generation
+   if (gSvgMode) {
+      C->cd();
+      // important - create svg when main canvas selected, SVG size depends on this
+      TSVG svg(e.svgfile, 111, gSvgCompact);
+      C->Draw();
+      svg.Close();
    } else {
-      StatusPrint(psfile,  gTestNum, title, AnalysePS(outfile) ,
-                                            gPS1RefNb[gTestNum-1],
-                                            gPS1ErrNb[gTestNum-1]);
+      if (gWebMode) {
+         C->SaveAs(e.psfile);
+
+         C->SaveAs(e.pdffile);
+      } else {
+         C->cd();
+         TPostScript ps1(e.psfile, 111);
+         C->Draw();
+         ps1.Close();
+
+         C->cd();
+         TPDF pdf(e.pdffile, 111);
+         C->Draw();
+         pdf.Close();
+      }
+
+      C->cd(0);
+      C->SaveAs(e.jpgfile);
+
+      C->cd(0);
+      C->SaveAs(e.pngfile);
+
+      if (e.execute_ccode) {
+         C->SaveAs(e.ccode);
+         delete C;
+         C = nullptr;
+
+         if (!arg.IsNull() && e.testsvg) {
+            auto old = gDirectory->GetList()->FindObject(arg);
+            if (old) gDirectory->GetList()->Remove(old);
+         }
+
+         gROOT->ProcessLine(".x " + e.ccode);
+         gPad->SaveAs(e.ps2file);
+      }
    }
 
-   sprintf(outfile,"sg%2.2d.pdf",gTestNum);
-   C->cd(0);
-   TPDF *pdf = new TPDF(outfile,111);
-   C->Draw();
-   pdf->Close();
-   TString pdffile = outfile;
-   StatusPrint(pdffile, 0, "  PDF output", FileSize(outfile),
-                                           gPDFRefNb[gTestNum-1],
-                                           gPDFErrNb[gTestNum-1]);
+   gReports.emplace_back(e);
 
-   sprintf(outfile,"sg%2.2d.gif",gTestNum);
-   C->cd(0);
-   C->SaveAs(outfile);
-   TString giffile = outfile;
-   StatusPrint(giffile, 0, "  GIF output", FileSize(outfile),
-                                           gGIFRefNb[gTestNum-1],
-                                           gGIFErrNb[gTestNum-1]);
-
-   sprintf(outfile,"sg%2.2d.jpg",gTestNum);
-   C->cd(0);
-   C->SaveAs(outfile);
-   TString jpgfile = outfile;
-   StatusPrint(jpgfile, 0, "  JPG output", FileSize(outfile),
-                                           gJPGRefNb[gTestNum-1],
-                                           gJPGErrNb[gTestNum-1]);
-
-   sprintf(outfile,"sg%2.2d.png",gTestNum);
-   C->cd(0);
-   C->SaveAs(outfile);
-   TString pngfile = outfile;
-   StatusPrint(pngfile, 0, "  PNG output", FileSize(outfile),
-                                           gPNGRefNb[gTestNum-1],
-                                           gPNGErrNb[gTestNum-1]);
-
-   gErrorIgnoreLevel = 0;
-
-   return;
+   if (!gVerbose)
+      gErrorIgnoreLevel = 0;
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Generate the C code corresponding to the canvas C.
+/// Invoke TWebCanvas::BatchImageMode in web mode
 
-void DoCcode(TCanvas *C)
+void webcanv_batch_mode(int number)
 {
-   gErrorIgnoreLevel = 9999;
+   if (!gWebMode)
+      return;
 
-   sprintf(gCfile,"sg%2.2d.C",gTestNum);
+   if (!gVerbose)
+      gErrorIgnoreLevel = 9999;
 
-   if (C) {
-      C->SaveAs(gCfile);
-      delete C;
-      C = 0;
-   }
+   gROOT->ProcessLine(TString::Format("TWebCanvas::BatchImageMode(%d);", number));
 
-   gErrorIgnoreLevel = 0;
-   return;
+   if (!gVerbose)
+      gErrorIgnoreLevel = 0;
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
-/// Report 2:
-/// Draw the canvas generate as .C, generate the corresponding PostScript
-/// file (using gPad), count the number of characters in it and compare the
-/// result with the reference value.
+/// Starts new block of tests
+/// In web mode configure number of batch images
 
-void TestReport2(Int_t IPS)
+void start_block(const TString &title, bool is3d = false)
 {
-   sprintf(outfile,"sg2_%2.2d.ps",gTestNum);
-
-   gErrorIgnoreLevel = 9999;
-   sprintf(gCfile,".x sg%2.2d.C",gTestNum);
-   gROOT->ProcessLine(gCfile);
-   gPad->SaveAs(outfile);
-   gErrorIgnoreLevel = 0;
-   Int_t i;
-
-   TString psfile = outfile;
-   if (IPS) {
-      i = StatusPrint(psfile,-1, "  C file result", FileSize(outfile),
-                                                    gPS2RefNb[gTestNum-1],
-                                                    gPS2ErrNb[gTestNum-1]);
-   } else {
-      i = StatusPrint(psfile,-1, "  C file result", AnalysePS(outfile),
-                                                    gPS2RefNb[gTestNum-1],
-                                                    gPS2ErrNb[gTestNum-1]);
+   if (!gOptionR) {
+      std::cout << "**********************************************************************\n";
+      std::cout << "*  Starting " << title << " - S T R E S S " << TString(' ', 41 - title.Length()) << " *\n";
+      std::cout << "**********************************************************************\n";
    }
 
-   sprintf(gCfile,"sg%2.2d.C",gTestNum);
-#ifndef ClingWorkAroundDeletedSourceFile
-   if (!gOptionK && !i) gSystem->Unlink(gCfile);
+   int batch_size = 80;
+   // cef makes problem with many images in 3D mode, so reduce it
+   if (is3d && TString("cef") == gROOT->GetWebDisplay())
+      batch_size = 10;
+
+   webcanv_batch_mode(batch_size);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Analyze and print reports for performed tests
+
+void print_reports()
+{
+   // done files generation
+   // all non-processed web images will be generated now
+   webcanv_batch_mode(0);
+
+   for (auto &e : gReports) {
+
+      gTestNum++;
+
+      if (gSvgMode) {
+
+         Int_t res = 1;
+         if (e.testsvg)
+            res = CompareSVGFiles(gSvgRefPath + e.svgfile, e.svgfile, e.testsvg);
+
+         if (!res) {
+            auto filesize = FileSize(e.svgfile);
+            auto filesize0 = FileSize(gSvgRefPath + e.svgfile);
+            std::cout <<"     Result = " << filesize << "   Reference = " << filesize0 << "  difference = " << (filesize - filesize0) << "\n";
+         }
+
+         TString line = TString::Format("Test %s: %s", e.name.Data(), e.title.Data());
+         Int_t nch = line.Length();
+
+         std::cout << line;
+         for (Int_t i = nch; i < 67; i++)
+            std::cout << ".";
+
+         if (res) {
+            if (!e.testsvg)
+               std::cout << " SKIP\n";
+            else if (res == kFineSvgTest)
+               std::cout << " NEAR\n";
+            else
+               std::cout << " OK\n";
+            if (!gOptionK)
+               gSystem->Unlink(e.svgfile);
+         } else {
+            gTestsFailed++;
+            std::cout << " FAILED\n";
+            if (gOptionK)
+               gSystem->CopyFile(e.svgfile, gSvgRefPath + e.svgfile, true);
+         }
+         continue;
+      }
+
+      auto ref = FindEntry(gRef, e.name);
+
+      if (!ref) {
+         std::cout << "FAILED - no reference for " << e.name << "\n";
+         continue;
+      }
+
+      TString title = TString::Format("Test %2d. %s", gTestNum, e.title.Data());
+
+      StatusPrint(e.psfile, title, e.IPS ? FileSize(e.psfile) : AnalysePS(e.psfile), ref->ps1ref, ref->ps1err);
+
+      StatusPrint(e.pdffile, "PDF output", FileSize(e.pdffile), ref->pdfref, ref->pdferr);
+
+      StatusPrint(e.jpgfile, "JPG output", FileSize(e.jpgfile), ref->jpgref, ref->jpgerr);
+
+      StatusPrint(e.pngfile, "PNG output", FileSize(e.pngfile), ref->pngref, ref->pngerr);
+
+      if (e.execute_ccode) {
+         Int_t ret_code = StatusPrint(e.ps2file, gWebMode ? ".C -> .SVG file result" : ".C -> .PS file result",
+                                      e.IPS ? FileSize(e.ps2file) : AnalysePS(e.ps2file), ref->ps2ref, ref->ps2err);
+
+#ifndef __CLING__
+         if (!gOptionK && !ret_code)
+            gSystem->Unlink(e.ccode);
 #endif
-   return;
+      }
+   }
+
+   gReports.clear();
 }
 
 
@@ -700,9 +690,7 @@ void tline()
    TLine *l9 = new TLine(0.1,0.9,0.9,0.9);
    l9->SetLineColor(9); l9->SetLineWidth(9) ; l9->SetLineStyle(9) ; l9->Draw();
 
-   TestReport1(C, "TLine");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tline", "TLine");
 }
 
 
@@ -716,9 +704,7 @@ void tmarker()
    TMarker m;
    m.DisplayMarkerTypes();
 
-   TestReport1(C, "TMarker");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tmarker", "TMarker");
 }
 
 
@@ -738,9 +724,127 @@ void tpolyline()
    p->Draw("F");
    p->Draw("");
 
-   TestReport1(C, "TPolyLine");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tpolyline", "TPolyLine");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Test fill hatches drawing in complex TPolyLine
+
+void hatches()
+{
+   std::vector<Double_t> vectx, vecty;
+
+   auto C = StartTest(700,500);
+   C->Range(0,0,100,100);
+
+   const int num_steps = 10;
+
+   const Double_t x0 = 5, y0 = 5,
+                  szx = 90, szy = 90.,
+                  dx = szx/num_steps, dy = szy/num_steps;
+
+    auto add_point = [&](Double_t x, Double_t y) {
+       vectx.push_back(x);
+       vecty.push_back(y);
+    };
+
+    for (int step = 0; step < num_steps; step++) {
+        add_point(step == 0 ? x0 : x0 + 0.25*dx, y0 + step*dy);
+        add_point(x0 + szx, y0 + step*dy);
+        if (step == num_steps - 1) {
+           add_point(x0 + szx, y0 + (step + 0.25)*dy);
+        } else {
+           add_point(x0 + szx, y0 + (step + 0.75)*dy);
+           add_point(x0 + 0.25*dx, y0 + (step + 0.75)*dy);
+           add_point(x0 + 0.25*dx, y0 + (step + 1)*dy);
+        }
+    }
+
+    for (int step = num_steps-1; step > 0; step--) {
+        add_point(x0, y0 + (step + 0.25)*dy);
+        add_point(x0, y0 + (step - 0.5)*dy);
+        add_point(x0 + szx - 0.25*dx, y0 + (step - 0.5)*dy);
+        add_point(x0 + szx - 0.25*dx, y0 + (step - 0.75)*dy);
+    }
+
+    add_point(x0, y0 + 0.25*dy);
+    add_point(x0, y0);
+
+   auto p = new TPolyLine(vectx.size(),vectx.data(),vecty.data());
+   p->SetLineWidth(1);
+   p->SetLineColor(2);
+   p->SetFillColor(7);
+   p->SetFillStyle(3227);
+   C->Add(p, "f");
+   C->Add(p);
+
+   TestReport(C, "hatches", "Hatches for complex TPolyLine");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Test TArrow
+
+void arrows()
+{
+   auto C = StartTest(800, 600);
+   C->Range(0,0,1,1);
+
+   auto par = new TPaveLabel(0.1,0.8,0.9,0.95,"Examples of various arrows formats");
+   par->SetFillColor(42);
+   C->Add(par);
+
+   auto ar1 = new TArrow(0.1,0.1,0.1,0.7);
+   C->Add(ar1);
+   auto ar2 = new TArrow(0.18,0.1,0.18,0.7,0.05,"|>");
+   ar2->SetAngle(40);
+   ar2->SetLineWidth(2);
+   C->Add(ar2);
+   auto ar3 = new TArrow(0.26,0.1,0.26,0.7,0.05,"<|>");
+   ar3->SetAngle(40);
+   ar3->SetLineWidth(2);
+   C->Add(ar3);
+   auto ar33 = new TArrow(0.34,0.1,0.34,0.7,0.05,"|-->--|");
+   C->Add(ar33);
+   auto ar4 = new TArrow(0.46,0.7,0.82,0.42,0.07,"|>");
+   ar4->SetAngle(60);
+   ar4->SetLineWidth(2);
+   ar4->SetFillColor(2);
+   C->Add(ar4);
+   auto ar5 = new TArrow(0.4,0.25,0.95,0.25,0.15,"<|>");
+   ar5->SetAngle(60);
+   ar5->SetLineWidth(4);
+   ar5->SetLineColor(4);
+   ar5->SetFillStyle(3008);
+   ar5->SetFillColor(2);
+   C->Add(ar5);
+
+   TestReport(C, "arrows", "TArrow");
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Auxiliary function used by "patterns"
+
+void patterns_box(Int_t pat, Double_t x1, Double_t y1, Double_t x2, Double_t  y2)
+{
+   TBox b;
+   b.SetFillColor(1);
+   b.SetFillStyle(pat);
+   b.DrawBox(x1,y1,x2,y2);
+   b.SetFillStyle(0);
+   b.DrawBox(x1,y1,x2,y2);
+   b.SetFillColor(0);
+   b.SetFillStyle(1000);
+   Double_t dx = (x2-x1)/3;
+   Double_t dy = (y2-y1)/3;
+   Double_t h  = (y2-y1)/3;
+   b.DrawBox(x1+dx, y1+dy, x2-dx, y2-dy);
+   b.SetFillStyle(0);
+   b.DrawBox(x1+dx, y1+dy, x2-dx, y2-dy);
+   TLatex l;
+   l.SetTextAlign(22);
+   l.SetTextSize(h);
+   l.DrawLatex((x1+x2)/2, (y1+y2)/2, Form("%d",pat));
 }
 
 
@@ -790,35 +894,89 @@ void patterns()
       y = y-bh-db;
    }
 
-   TestReport1(C, "Fill patterns");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "patterns", "Fill patterns");
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// TCrown test
+
+void crown()
+{
+   auto C = StartTest(400,400);
+
+   auto cr1 = new TCrown(.5,.5,.3,.4);
+   cr1->SetLineStyle(2);
+   cr1->SetLineWidth(4);
+   cr1->Draw();
+   auto cr2 = new TCrown(.5,.5,.2,.3,45,315);
+   cr2->SetFillColor(38);
+   cr2->SetFillStyle(3010);
+   cr2->Draw();
+   auto cr3 = new TCrown(.5,.5,.2,.3,-45,45);
+   cr3->SetFillColor(50);
+   cr3->SetFillStyle(3025);
+   cr3->Draw();
+   auto cr4 = new TCrown(.5,.5,.0,.2);
+   cr4->SetFillColor(4);
+   cr4->SetFillStyle(3008);
+   cr4->Draw();
+
+   TestReport(C, "crown", "TCrown");
+}
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Auxiliary function used by "patterns"
+/// TPie test
 
-void patterns_box(Int_t pat, Double_t x1, Double_t y1, Double_t x2, Double_t  y2)
+void piechart()
 {
-   TBox b;
-   b.SetFillColor(1);
-   b.SetFillStyle(pat);
-   b.DrawBox(x1,y1,x2,y2);
-   b.SetFillStyle(0);
-   b.DrawBox(x1,y1,x2,y2);
-   b.SetFillColor(0);
-   b.SetFillStyle(1000);
-   Double_t dx = (x2-x1)/3;
-   Double_t dy = (y2-y1)/3;
-   Double_t h  = (y2-y1)/3;
-   b.DrawBox(x1+dx, y1+dy, x2-dx, y2-dy);
-   b.SetFillStyle(0);
-   b.DrawBox(x1+dx, y1+dy, x2-dx, y2-dy);
-   TLatex l;
-   l.SetTextAlign(22);
-   l.SetTextSize(h);
-   l.DrawLatex((x1+x2)/2, (y1+y2)/2, Form("%d",pat));
+   auto C = StartTest(700, 700);
+
+   Float_t vals[] = {.2,1.1,.6,.9,2.3};
+   Int_t colors[] = {2,3,4,5,6};
+   Int_t nvals = sizeof(vals)/sizeof(vals[0]);
+
+   C->Divide(2,2);
+
+   TPie *pie1 = new TPie("pie1",
+      "Pie with offset and no colors",nvals,vals);
+   TPie *pie2 = new TPie("pie2",
+      "Pie with radial labels",nvals,vals,colors);
+   TPie *pie3 = new TPie("pie3",
+      "Pie with tangential labels",nvals,vals,colors);
+   TPie *pie4 = new TPie("pie4",
+      "Pie with verbose labels",nvals,vals,colors);
+
+   C->cd(1);
+   pie1->SetAngularOffset(30.);
+   pie1->SetEntryRadiusOffset( 4, 0.1);
+   pie1->SetRadius(.35);
+   pie1->Draw("3d");
+
+   C->cd(2);
+   pie2->SetEntryRadiusOffset(2,.05);
+   pie2->SetEntryLineColor(2,2);
+   pie2->SetEntryLineWidth(2,5);
+   pie2->SetEntryLineStyle(2,2);
+   pie2->SetEntryFillStyle(1,3030);
+   pie2->SetCircle(.5,.45,.3);
+   pie2->Draw("rsc");
+
+   C->cd(3);
+   pie3->SetY(.32);
+   pie3->GetSlice(0)->SetValue(.8);
+   pie3->GetSlice(1)->SetFillStyle(3031);
+   pie3->SetLabelsOffset(-.1);
+   pie3->Draw("3d t nol");
+   TLegend *pieleg = pie3->MakeLegend();
+   pieleg->SetY1(.56); pieleg->SetY2(.86);
+
+   C->cd(4);
+   pie4->SetRadius(.2);
+   pie4->SetLabelsOffset(.01);
+   pie4->SetLabelFormat("#splitline{%val (%perc)}{%txt}");
+   pie4->Draw("nol <");
+
+   TestReport(C, "piechart", "TPie");
 }
 
 
@@ -879,11 +1037,8 @@ void ttext1()
    tex5->SetTextSize(0.1);
    tex5->Draw();
 
-   TestReport1(C, "TText 1 (Text attributes)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "ttext1", "TText 1 (Text attributes)");
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 /// 2nd TText test. A very long text string.
@@ -896,11 +1051,80 @@ void ttext2()
    t.SetTextFont(42); t.SetTextSize(0.02);
    t.Draw();
 
-   TestReport1(C, "TText 2 (A very long text string)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "ttext2", "TText 2 (A very long text string)");
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// Primitive TLatex test. Check font, size, angle, color
+
+void tlatex0()
+{
+   auto C = StartTest(1000, 1000);
+
+   auto circle = [C](Float_t x, Float_t y, Font_t font, Float_t size) {
+      auto el = new TEllipse(x, y, 0.1, 0.1);
+      el->SetLineStyle(3);
+      el->SetFillStyle(0);
+      el->SetFillColor(0);
+      C->Add(el);
+
+      auto lbl = new TLatex(x, y, TString::Format("Font %d", font));
+      lbl->SetTextFont(font);
+      lbl->SetTextSize(size);
+      lbl->SetTextAlign(22);
+      lbl->SetTextColor(kGreen);
+      C->Add(lbl);
+
+      for (int n = 0; n < 12; n++) {
+         Float_t dx = 0.1 * TMath::Cos(n / 6. * TMath::Pi());
+         Float_t dy = 0.1 * TMath::Sin(n / 6. * TMath::Pi());
+
+         Int_t align = 10 + (n % 3) * 10 + ((n / 3) % 3 + 1);
+
+         auto p = new TEllipse(x + dx, y + dy, 0.003, 0.003);
+         p->SetFillColor(kRed);
+         C->Add(p);
+
+         auto l = new TLatex(x + dx, y + dy, TString::Format("Align %d", align));
+         l->SetTextAngle(n * 30);
+         l->SetTextFont(font);
+         l->SetTextSize(size);
+         l->SetTextAlign(align);
+         C->Add(l);
+      }
+   };
+
+   auto stair = [C](Float_t x, Float_t y, Font_t font, Float_t size0, Float_t step, Float_t sizeN) {
+      Int_t cnt = 0;
+
+      for (Float_t size = size0; size <= sizeN; size += step) {
+         TString text = (font % 10 == 3) ? TString::Format("Size %2.0f", size) : TString::Format("Size %4.2f", size);
+         auto l = new TLatex(x, y, text);
+         l->SetTextFont(font);
+         l->SetTextSize(size);
+         l->SetTextAlign(x < 0.5 ? 12 : 32);
+         l->SetTextColor(cnt++ % 8 + 2);
+         C->Add(l);
+         Float_t dy = 1.1 * ((font % 10 == 3) ? size / C->GetPadHeight() : size);
+         if (dy < 0.02)
+            dy = 0.02;
+         if (x < 0.5)
+            y += dy;
+         else
+            y -= dy;
+      }
+   };
+
+   circle(0.25, 0.25, 42, 0.02);
+
+   circle(0.75, 0.75, 43, 17);
+
+   stair(0.05, 0.4, 42, 0.01, 0.01, 0.1);
+
+   stair(0.95, 0.6, 43, 8, 12, 104);
+
+   TestReport(C, "tlatex0", "TLatex 0");
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// 1st TLatex test.
@@ -918,9 +1142,7 @@ void tlatex1()
    l.DrawLatex(0.1,0.3,"4) F(t) = #sum_{i=-#infty}^{#infty}A(i)cos#[]{#frac{i}{t+i}}");
    l.DrawLatex(0.1,0.1,"5) {}_{3}^{7}Li");
 
-   TestReport1(C, "TLatex 1");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tlatex1", "TLatex 1");
 }
 
 
@@ -939,9 +1161,7 @@ void tlatex2()
    l.DrawLatex(0.5,0.5,"i(#partial_{#mu}#bar{#psi}#gamma^{#mu}+m#bar{#psi})=0#Leftrightarrow(#Box+m^{2})#psi=0");
    l.DrawLatex(0.5,0.3,"L_{em}=eJ^{#mu}_{em}A_{#mu} , ^{}J^{#mu}_{em}=#bar{I}#gamma_{#mu}I , M^{j}_{i}=#SigmaA_{#alpha}#tau^{#alphaj}_{i}");
 
-   TestReport1(C, "TLatex 2");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tlatex2", "TLatex 2");
 }
 
 
@@ -964,9 +1184,7 @@ void tlatex3()
    pt.SetLabel("Born equation");
    pt.Draw();
 
-   TestReport1(C, "TLatex 3 (TLatex in TPaveText)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tlatex3", "TLatex 3 (TLatex in TPaveText)");
 }
 
 
@@ -1043,9 +1261,7 @@ void tlatex4()
    y = 0.1500 ; l.DrawLatex(x1, y, "varphi : ")     ; l.DrawLatex(x2, y, "#varphi");
    y = 0.0375 ; l.DrawLatex(x1, y, "varomega : ")   ; l.DrawLatex(x2, y, "#varomega");
 
-   TestReport1(C, "TLatex 4 (Greek letters)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tlatex4", "TLatex 4 (Greek letters)");
 }
 
 
@@ -1060,7 +1276,7 @@ void tlatex5()
    l.SetTextSize(0.03);
    l.SetTextAlign(12);
    float y, step, x1, x2;
-   y = 0.96; step = 0.0465; x1 = 0.02; x2 = x1+0.04;
+   y = 0.96; step = 0.044; x1 = 0.02; x2 = x1+0.04;
                l.DrawLatex(x1, y, "#club")           ; l.DrawText(x2, y, "#club");
    y -= step ; l.DrawLatex(x1, y, "#voidn")          ; l.DrawText(x2, y, "#voidn");
    y -= step ; l.DrawLatex(x1, y, "#leq")            ; l.DrawText(x2, y, "#leq");
@@ -1082,7 +1298,8 @@ void tlatex5()
    y -= step ; l.DrawLatex(x1, y, "#Leftrightarrow") ; l.DrawText(x2, y, "#Leftrightarrow");
    y -= step ; l.DrawLatex(x1, y, "#void8")          ; l.DrawText(x2, y, "#void8");
    y -= step ; l.DrawLatex(x1, y, "#hbar")           ; l.DrawText(x2, y, "#hbar");
-   y = 0.96; step = 0.0465; x1 = 0.27; x2 = x1+0.04;
+   y -= step ; l.DrawLatex(x1, y, "#forall")         ; l.DrawText(x2, y, "#forall");
+   y = 0.96; x1 = 0.27; x2 = x1+0.04;
                l.DrawLatex(x1, y, "#diamond")        ; l.DrawText(x2, y, "#diamond");
    y -= step ; l.DrawLatex(x1, y, "#aleph")          ; l.DrawText(x2, y, "#aleph");
    y -= step ; l.DrawLatex(x1, y, "#geq")            ; l.DrawText(x2, y, "#geq");
@@ -1104,7 +1321,8 @@ void tlatex5()
    y -= step ; l.DrawLatex(x1, y, "#prod")           ; l.DrawText(x2, y, "#prod");
    y -= step ; l.DrawLatex(x1, y, "#Box")            ; l.DrawText(x2, y, "#Box");
    y -= step ; l.DrawLatex(x1, y, "#parallel")       ; l.DrawText(x2, y, "#parallel");
-   y = 0.96; step = 0.0465; x1 = 0.52; x2 = x1+0.04;
+   y -= step ; l.DrawLatex(x1, y, "#exists")         ; l.DrawText(x2, y, "#exists");
+   y = 0.96; x1 = 0.52; x2 = x1+0.04;
                l.DrawLatex(x1, y, "#heart")          ; l.DrawText(x2, y, "#heart");
    y -= step ; l.DrawLatex(x1, y, "#Jgothic")        ; l.DrawText(x2, y, "#Jgothic");
    y -= step ; l.DrawLatex(x1, y, "#LT")             ; l.DrawText(x2, y, "#LT");
@@ -1125,7 +1343,8 @@ void tlatex5()
    y -= step ; l.DrawLatex(x1, y, "#Uparrow")        ; l.DrawText(x2, y, "#Uparrow");
    y -= step ; l.DrawLatex(x1, y-0.01, "#sum")       ; l.DrawText(x2, y, "#sum");
    y -= step ; l.DrawLatex(x1, y, "#perp")           ; l.DrawText(x2, y, "#perp");
-   y = 0.96; step = 0.0465; x1 = 0.77; x2 = x1+0.04;
+   y -= step ; l.DrawLatex(x1, y, "#textendash")     ; l.DrawText(x2, y, "#textendash");
+   y = 0.96; x1 = 0.77; x2 = x1+0.04;
                l.DrawLatex(x1, y, "#spade")          ; l.DrawText(x2, y, "#spade");
    y -= step ; l.DrawLatex(x1, y, "#Rgothic")        ; l.DrawText(x2, y, "#Rgothic");
    y -= step ; l.DrawLatex(x1, y, "#GT")             ; l.DrawText(x2, y, "#GT");
@@ -1146,10 +1365,9 @@ void tlatex5()
    y -= step ; l.DrawLatex(x1, y, "#Rightarrow")     ; l.DrawText(x2, y, "#Rightarrow");
    y -= step ; l.DrawLatex(x1, y-0.015, "#int")      ; l.DrawText(x2, y, "#int");
    y -= step ; l.DrawLatex(x1, y, "#odot")           ; l.DrawText(x2, y, "#odot");
+   y -= step ; l.DrawLatex(x1, y, "#textemdash")     ; l.DrawText(x2, y, "#textemdash");
 
-   TestReport1(C, "TLatex 5 (Mathematical Symbols)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tlatex5", "TLatex 5 (Mathematical Symbols)");
 }
 
 
@@ -1172,9 +1390,7 @@ void kerning()
       l1->Draw();
    }
 
-   TestReport1(C, "Text kerning");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "kerning", "Text kerning");
 }
 
 
@@ -1193,9 +1409,7 @@ void itbf()
    (new TLatex(0.01, 0.3, "Font styles: #^{}bf{#bf{bold}}, #^{}it{#it{italic}}, #^{}bf{#^{}it{#bf{#it{bold italic}}}}, #^{}bf{#^{}bf{#bf{#bf{unbold}}}}"))->Draw();
    (new TLatex(0.01, 0.1, "Font styles: abc#alpha#beta#gamma, #^{}it{#it{abc#alpha#beta#gamma}}, #^{}it{#^{}it{#it{#it{abc#alpha#beta#gamma}}}}"))->Draw();
 
-   TestReport1(C, "TLatex commands #kern, #lower, #it and #bf");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "itbf", "TLatex commands #kern, #lower, #it and #bf");
 }
 
 
@@ -1218,9 +1432,80 @@ void tmathtext()
    l.DrawMathText(0.27, 0.110, "\\mathbb{N} \\subset \\mathbb{R}");
    l.DrawMathText(0.63, 0.100, "\\hbox{RHIC スピン物理 Нью-Йорк}");
 
-   TestReport1(C, "TMathText",1);
-   DoCcode(C);
-   TestReport2(1);
+   TestReport(C, "tmathtext", "TMathText", "", 1 + kSkipSvgTest);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Different objects using transperent colors
+
+void transparency()
+{
+   auto C = StartTest(700, 527);
+   C->Range(-0.125,-0.125,1.125,1.125);
+
+   auto tex = new TLatex(0.06303724,0.0194223,"This text is opaque and this line is transparent");
+   tex->SetLineWidth(2);
+   tex->Draw();
+
+   auto arrow = new TArrow(0.5555158,0.07171314,0.8939828,0.6195219,0.05,"|>");
+   arrow->SetLineWidth(4);
+   arrow->SetAngle(30);
+   arrow->Draw();
+
+   // Draw a transparent graph.
+   Double_t x[10] = {
+   0.5232808, 0.8724928, 0.9280086, 0.7059456, 0.7399714,
+   0.4659742, 0.8241404, 0.4838825, 0.7936963, 0.743553};
+   Double_t y[10] = {
+   0.7290837, 0.9631474, 0.4775896, 0.6494024, 0.3555777,
+   0.622012, 0.7938247, 0.9482072, 0.3904382, 0.2410359};
+   auto graph = new TGraph(10,x,y);
+   graph->SetLineColorAlpha(46, 0.1);
+   graph->SetLineWidth(7);
+   graph->Draw("l");
+
+   // Draw an ellipse with opaque colors.
+   auto ellipse = new TEllipse(0.1740688,0.8352632,0.1518625,0.1010526,0,360,0);
+   ellipse->SetFillColor(30);
+   ellipse->SetLineColor(51);
+   ellipse->SetLineWidth(3);
+   ellipse->Draw();
+
+   // Draw an ellipse with transparent colors, above the previous one.
+   ellipse = new TEllipse(0.2985315,0.7092105,0.1566977,0.1868421,0,360,0);
+   ellipse->SetFillColorAlpha(9, 0.571);
+   ellipse->SetLineColorAlpha(8, 0.464);
+   ellipse->SetLineWidth(3);
+   ellipse->Draw();
+
+   // Draw a transparent blue text.
+   tex = new TLatex(0.04871059,0.1837649,"This text is transparent");
+   tex->SetTextColorAlpha(9, 0.476);
+   tex->SetTextSize(0.125);
+   tex->SetTextAngle(26.0);
+   tex->Draw();
+
+   // Draw two transparent markers
+   auto marker = new TMarker(0.03080229,0.998008,20);
+   marker->SetMarkerColorAlpha(2, .3);
+   marker->SetMarkerStyle(20);
+   marker->SetMarkerSize(1.7);
+   marker->Draw();
+   marker = new TMarker(0.1239255,0.8635458,20);
+   marker->SetMarkerColorAlpha(2, .2);
+   marker->SetMarkerStyle(20);
+   marker->SetMarkerSize(1.7);
+   marker->Draw();
+
+   // Draw an opaque marker
+   marker = new TMarker(0.3047994,0.6344622,20);
+   marker->SetMarkerColor(2);
+   marker->SetMarkerStyle(20);
+   marker->SetMarkerSize(1.7);
+   marker->Draw();
+
+   TestReport(C, "transparency", "Transparent colors");
 }
 
 
@@ -1275,16 +1560,14 @@ void transpad()
    axis->SetLabelColor(kRed);
    axis->Draw();
 
-   TestReport1(C, "Transparent pad");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "transpad", "Transparent pad");
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Stat and fit parameters with errors.
 
-void statfitparam ()
+void statfitparam()
 {
    TCanvas *C = StartTest(800,500);
 
@@ -1335,9 +1618,7 @@ void statfitparam ()
    pt->AddText("paint the fit parameters errors.");
    pt->Draw();
 
-   TestReport1(C, "Stat and fit parameters with errors");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "statfitparam", "Stat and fit parameters with errors");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1381,9 +1662,7 @@ void tgaxis1()
    axis8->SetName("axis8");
    axis8->Draw();
 
-   TestReport1(C, "TGaxis 1");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tgaxis1", "TGaxis 1");
 }
 
 
@@ -1421,11 +1700,8 @@ void tgaxis2()
    axis7->SetLabelOffset(0.01);
    axis7->Draw();
 
-   TestReport1(C, "TGaxis 2");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tgaxis2", "TGaxis 2");
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 /// 3rd TGaxis test.
@@ -1434,10 +1710,9 @@ void tgaxis3()
 {
    TCanvas *C = StartTest(700,900);
 
-   time_t script_time;
-   script_time = time(0);
-   script_time = 3600*(int)(script_time/3600);
-   gStyle->SetTimeOffset(script_time);
+   // set fixed offset to get reproducible results
+   TDatime T0(2007, 5, 12, 14, 0, 0);
+   gStyle->SetTimeOffset(T0.Convert());
    C->Divide(1,3);
    C->SetFillColor(28);
    int i;
@@ -1474,7 +1749,7 @@ void tgaxis3()
    float x2[10], t2[10];
    for (i=0;i<10;i++) {
       x2[i] = gRandom->Gaus(500,100)*i;
-      t2[i] = i*365*86400;
+      t2[i] = i*365.25*86400;
    }
    TGraph *gt2 = new TGraph(10,t2,x2);
    gt2->SetTitle("Number of monkeys on the moon");
@@ -1488,9 +1763,7 @@ void tgaxis3()
    gt2->GetXaxis()->SetTimeDisplay(1);
    gt2->GetXaxis()->SetTimeFormat("y. %Y");
 
-   TestReport1(C, "TGaxis 3 (Time on axis)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tgaxis3", "TGaxis 3 (Time on axis)");
 }
 
 
@@ -1502,8 +1775,10 @@ void tgaxis4()
    TCanvas *C = StartTest(600,700);
 
    TDatime T0(2003,1,1,0,0,0);
+
    int X0 = T0.Convert();
    gStyle->SetTimeOffset(X0);
+
    TDatime T1(2002,9,23,0,0,0);
    int X1 = T1.Convert()-X0;
    TDatime T2(2003,3,7,0,0,0);
@@ -1519,12 +1794,32 @@ void tgaxis4()
    h1->GetXaxis()->SetTimeFormat("%Y:%m:%d");
    h1->Draw();
 
-   TestReport1(C, "TGaxis 4 (Time on axis)");
-   DoCcode(C);
-   TestReport2();
+   // test output differs on different platforms therefore skip it for the time been
+   TestReport(C, "tgaxis4", "TGaxis 4 (Time on axis)", "", kSkipSvgTest);
    delete h1;
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+/// Function used by tgaxis5
+
+TString stime(time_t* t, bool utc = false, bool display_time_zone = true)
+{
+   struct tm* tt;
+   if (utc) tt = gmtime(t);
+   else     tt = localtime(t);
+   char buf[256];
+   if (!display_time_zone)
+      strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tt);
+   else if (utc)
+      // different platforms (especially Windows) place different time zone specifier
+      // instead %Z for GMT time, so put GMT directly
+      strftime(buf, sizeof(buf), "%H:%M:%S GMT", tt);
+   else
+      strftime(buf, sizeof(buf), "%H:%M:%S %Z", tt);
+
+   return TString(buf);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// 5th TGaxis test.
@@ -1535,22 +1830,22 @@ void tgaxis5()
 
    double f = 1.8;
 
-   TLatex* tex1 = new TLatex;
-   tex1->SetNDC();
-   tex1->SetTextFont(102);
-   tex1->SetTextSize(0.07*f);
+   TLatex tex1;
+   tex1.SetNDC();
+   tex1.SetTextFont(102);
+   tex1.SetTextSize(0.07*f);
 
-   TLatex* tex3 = new TLatex;
-   tex3->SetNDC();
-   tex3->SetTextFont(102);
-   tex3->SetTextSize(0.07*f);
-   tex3->SetTextColor(kBlue+2);
+   TLatex tex3;
+   tex3.SetNDC();
+   tex3.SetTextFont(102);
+   tex3.SetTextSize(0.07*f);
+   tex3.SetTextColor(kBlue+2);
 
-   TLatex* tex2 = new TLatex;
-   tex2->SetNDC();
-   tex2->SetTextFont(102);
-   tex2->SetTextSize(0.07*f);
-   tex2->SetTextColor(kOrange+3);
+   TLatex tex2;
+   tex2.SetNDC();
+   tex2.SetTextFont(102);
+   tex2.SetTextSize(0.07*f);
+   tex2.SetTextColor(kOrange+3);
 
    time_t offset[] = {0,                   0, 1325376000, 1341100800};
    time_t t[]      = {1331150400, 1336417200,          0, 36000};
@@ -1562,9 +1857,11 @@ void tgaxis5()
    l.DrawLine(0.5, 0, 0.5, 1.);
 
    for(int i = 0; i < 4; ++i){
-      for(int gmt = 0; gmt < 2; ++gmt){
-         const char* opt = (gmt ? "gmt" : "local");
-         TVirtualPad* p = C->cd(2*i + gmt + 1);
+      for(int gg = 0; gg < 2; ++gg) {
+         // in SVG mode always use global time to create reproducible output
+         int gmt = gg || gSvgMode ? 1 : 0;
+         const char* opt = gmt ? "gmt" : "local";
+         TVirtualPad* p = C->cd(2*i + gg + 1);
          p->SetTopMargin(0); p->SetBottomMargin(0);
          p->SetLeftMargin(0); p->SetRightMargin(0);
          p->SetFillStyle(4000);
@@ -1587,46 +1884,117 @@ void tgaxis5()
          a.SetTimeOffset(offset[i], opt);
          const char* offsettimeformat = a.GetTimeFormat();
 
-         char buf[256];
+         constexpr std::size_t bufSize = 256;
+         char buf[bufSize];
          if (offset[i] < t[i]) {
-            sprintf(buf, "#splitline{%s, %s}{offset: %ld, option %s}",
-                    stime(t+i).Data(), stime(t+i, true).Data(), (long) offset[i], opt);
+            snprintf(buf, bufSize, "#splitline{%s, %s}{offset: %ld, option %s}",
+                    stime(t+i, gSvgMode).Data(), stime(t+i, true).Data(), (long) offset[i], opt);
          } else {
             int h = t[i] / 3600;
             int m = (t[i] - 3600 * h) / 60 ;
             int s = (t[i] - h * 3600 - m * 60);
-            sprintf(buf, "#splitline{%d h %d m %d s}{offset: %s, option %s}",
+            snprintf(buf, bufSize, "#splitline{%d h %d m %d s}{offset: %s, option %s}",
                     h, m, s, stime(offset + i, gmt).Data(), opt);
          }
-         tex1->DrawLatex(.01, .75, buf);
-         tex2->DrawLatex(.01, .50, offsettimeformat);
+         tex1.DrawLatex(.01, .75, buf);
+         tex2.DrawLatex(.01, .50, offsettimeformat);
          time_t t_ = t[i] + offset[i];
-         sprintf(buf, "Expecting:    #color[2]{%s}", stime(&t_, gmt, false).Data());
-         tex3->DrawLatex(.01, .24, buf);
+         snprintf(buf, bufSize, "Expecting:    #color[2]{%s}", stime(&t_, gmt, false).Data());
+         tex3.DrawLatex(.01, .24, buf);
          if(i > 0) l.DrawLine(0, 0.95, 1, 0.95);
       }
    }
 
-   TestReport1(C, "TGaxis 5 (Time on axis: reference test)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tgaxis5", "TGaxis 5 (Time on axis: reference test)");
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Function used by tgaxis5
+/// 6th TGaxis test - modified labels
 
-TString stime(time_t* t, bool utc, bool display_time_zone)
+void tgaxis6()
 {
-   struct tm* tt;
-   if (utc) tt = gmtime(t);
-   else     tt = localtime(t);
-   char buf[256];
-   if (display_time_zone) strftime(buf, sizeof(buf), "%H:%M:%S %Z", tt);
-   else                   strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tt);
-   return TString(buf);
+   TCanvas *C = StartTest(900, 300);
+
+   C->Range(-6,0,6,1.5);
+   auto *axis = new TGaxis(-5.5,0.4,5.5,0.4,0.0,100,510,"S");
+   axis->SetName("axis1");
+   axis->SetTitle("ChangeLabel axis");
+   axis->SetTitleSize(0.08);
+   axis->SetLabelSize(0.07);
+   axis->SetTickSize(0.05);
+   axis->SetTitleColor(kBlue);
+   axis->SetTitleFont(42);
+   axis->ChangeLabel(1,-1,-1,-1,kRed);
+   axis->ChangeLabel(3,-1,0.);
+   axis->ChangeLabel(5,30.,-1,0);
+   axis->ChangeLabel(6,-1,-1,-1,kGreen,-1,"6th label");
+   axis->ChangeLabel(-2,-1,-1,-1,kGreen,-1,"2nd to last label");
+   C->Add(axis);
+
+   axis = new TGaxis(-5.5,0.8,5.5,0.8,0.0,100,510,"S");
+   axis->SetName("axis2");
+   axis->SetTitle("ChangeLabelByValue axis");
+   axis->SetTitleSize(0.08);
+   axis->SetLabelSize(0.07);
+   axis->SetTickSize(0.05);
+   axis->SetTitleColor(kBlue);
+   axis->SetTitleFont(42);
+   axis->ChangeLabelByValue(0., -1, -1, -1, kRed);
+   axis->ChangeLabelByValue(20., -1, 0);
+   axis->ChangeLabelByValue(40., 30.);
+   axis->ChangeLabelByValue(50., -1, -1, -1, kBlue, -1, "blue for 50.");
+   axis->ChangeLabelByValue(90., -1, -1, -1, kGreen, -1, "green for 90.");
+   C->Add(axis);
+
+   axis = new TGaxis(-5.5,1.2,5.5,1.2,0.0,100,510,"S");
+   axis->SetName("axis3");
+   axis->SetTitle("Original axis");
+   axis->SetTitleSize(0.08);
+   axis->SetLabelSize(0.07);
+   axis->SetTickSize(0.05);
+   axis->SetTitleColor(kBlue);
+   axis->SetTitleFont(42);
+   C->Add(axis);
+
+   TestReport(C, "tgaxis6", "TGaxis 6 (Modified labels)");
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// Testing ticks configuration on the pad
+
+void padticks()
+{
+   auto C = StartTest(900,700);
+
+   gStyle->SetOptStat(0);
+   C->Divide(2,2,0,0);
+   TH2F *h1 = new TH2F("ticks_h1","test1",10,0,1,20,0,20);
+   TH2F *h2 = new TH2F("ticks_h2","test2",10,0,1,20,0,100);
+   TH2F *h3 = new TH2F("ticks_h3","test3",10,0,1,20,-1,1);
+   TH2F *h4 = new TH2F("ticks_h4","test4",10,0,1,20,0,1000);
+
+   C->cd(1);
+   gPad->SetTickx(2);
+   h1->Draw();
+
+   C->cd(2);
+   gPad->SetTickx(2);
+   gPad->SetTicky(2);
+   h2->GetYaxis()->SetLabelOffset(0.01);
+   h2->Draw();
+
+   C->cd(3);
+   gPad->SetTickx(1);
+   gPad->SetTicky(1);
+   h3->Draw();
+
+   C->cd(4);
+   gPad->SetTicky(2);
+   h4->Draw();
+
+   TestReport(C, "padticks", "TPad with tickx/y");
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Alphanumeric labels in a 1-d histogram
@@ -1676,12 +2044,254 @@ void labels1()
    pt->AddText(" \"<\"   to sort by increasing values");
    pt->Draw();
 
-   TestReport1(C, "Alphanumeric labels in a 1-d histogram");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "labels1", "Alphanumeric labels in a 1-d histogram");
    delete hlab1;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// Testing automatic color for histograms
+
+void th1_palette()
+{
+   auto C = StartTest(800, 600);
+
+   gStyle->SetOptTitle(kFALSE);
+   gStyle->SetOptStat(0);
+
+   auto h1 = new TH1F("palettecolor_h1","Histogram drawn with full circles",100,-4,4);
+   auto h2 = new TH1F("palettecolor_h2","Histogram drawn with full squares",100,-4,4);
+   auto h3 = new TH1F("palettecolor_h3","Histogram drawn with full triangles up",100,-4,4);
+   auto h4 = new TH1F("palettecolor_h4","Histogram drawn with full triangles down",100,-4,4);
+   auto h5 = new TH1F("palettecolor_h5","Histogram drawn with empty circles",100,-4,4);
+
+   TRandom3 rng;
+   Double_t px,py;
+   for (Int_t i = 0; i < 25000; i++) {
+      rng.Rannor(px,py);
+      h1->Fill(px,10.);
+      h2->Fill(px, 8.);
+      h3->Fill(px, 6.);
+      h4->Fill(px, 4.);
+      h5->Fill(px, 2.);
+   }
+
+   h1->SetMarkerStyle(kFullCircle);
+   h2->SetMarkerStyle(kFullSquare);
+   h3->SetMarkerStyle(kFullTriangleUp);
+   h4->SetMarkerStyle(kFullTriangleDown);
+   h5->SetMarkerStyle(kOpenCircle);
+
+   h1->Draw("PLC PMC");
+   h2->Draw("SAME PLC PMC");
+   h3->Draw("SAME PLC PMC");
+   h4->Draw("SAME PLC PMC");
+   h5->Draw("SAME PLC PMC");
+
+   C->BuildLegend();
+
+   TestReport(C, "th1_palette", "TH1 with automatic line/marker colors from palette");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Testing THStack with TH1 histograms
+
+void thstack1()
+{
+   auto C = StartTest(1000, 500);
+   C->Divide(2, 1);
+
+   // create three 1-d histograms
+   auto h1st = new TH1F("h1st", "test hstack", 100, -4, 4);
+   h1st->SetFillColor(kRed);
+   h1st->SetMarkerStyle(21);
+   h1st->SetMarkerColor(kRed);
+   auto h2st = new TH1F("h2st", "test hstack", 100, -4, 4);
+   h2st->SetFillColor(kBlue);
+   h2st->SetMarkerStyle(21);
+   h2st->SetMarkerColor(kBlue);
+   auto h3st = new TH1F("h3st", "test hstack", 100, -4, 4);
+   h3st->SetFillColor(kGreen);
+   h3st->SetMarkerStyle(21);
+   h3st->SetMarkerColor(kGreen);
+
+   TRandom3 rng;
+   Double_t px,py;
+   for (Int_t i = 0; i < 25000; i++) {
+      rng.Rannor(px,py);
+      h1st->Fill(px, 2.);
+      h2st->Fill(py, 1.5);
+      h3st->Fill((px+py)/2, 1.);
+   }
+
+   C->cd(1);
+   auto hs1 = new THStack("hs1", "Stacked 1D histograms");
+   hs1->Add(h1st);
+   hs1->Add(h2st);
+   hs1->Add(h3st);
+   hs1->Draw();
+
+   C->cd(2);
+   auto hs2 = new THStack("hs2", "Stacked with nostack option");
+   hs2->Add(h1st);
+   hs2->Add(h2st);
+   hs2->Add(h3st);
+   gPad->SetGrid();
+   hs2->Draw("nostack,e1p");
+
+   TestReport(C, "thstack1", "THStack for 1D histograms");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Testing TH2 drawing with TCutG
+
+void th2_cut()
+{
+   auto C = StartTest(600, 600);
+
+   Float_t x[6] = { 1, 2,  1, -1, -2, -1 };
+   Float_t y[6] = { 2, 0, -2, -2,  0,  2 };
+   TCutG *cut = new TCutG("cut", 6, x, y);
+
+   TH1 *hpxpy = (TH1 *)gHsimple->Get("hpxpy")->Clone("th2_cut");
+
+   hpxpy->Draw("col [cut]");
+   cut->Draw("l");
+
+  TestReport(C, "th2_cut", "TH2 with TCutG cut");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Testing TH2 candle option
+/// do not include candle5 and candle6 testing while they emulate scatter plots
+
+void th2_candle()
+{
+   auto C = StartTest(1200, 800);
+   C->Divide(4, 2);
+
+   for (int padid = 0; padid < 8; ++padid) {
+      auto pad = C->cd(padid+1);
+
+      TString name = TString::Format("candle%s%d", padid/4 > 0 ? "v" : "h", padid % 4 + 1);
+      TString title = TString::Format("%s CANDLE%d plot", padid/4 > 0 ? "Vertical" : "Horizontal", padid % 4 + 1);
+
+      TH2 *h2 = (TH2*)gHsimple->Get("hpxpy")->Clone(name);
+      h2->SetTitle(title);
+      h2->SetFillColor(kGray);
+      h2->SetLineColor(kBlue);
+
+      pad->Add(h2, name);
+   }
+
+   TestReport(C, "th2_candle", "TH2 candle");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Testing TH2 violin option
+
+void th2_violin()
+{
+   auto C = StartTest(800, 800);
+   C->Divide(2, 2);
+
+   for (int padid = 0; padid < 4; ++padid) {
+      auto pad = C->cd(padid+1);
+
+      TString name = TString::Format("violin%s%d", padid/2 > 0 ? "v" : "h", padid % 2 + 1);
+      TString title = TString::Format("%s VIOLIN%d plot", padid/2 > 0 ? "Vertical" : "Horizontal", padid % 2 + 1);
+
+      TH2 *h2 = (TH2*)gHsimple->Get("hpxpy")->Clone(name);
+      h2->SetTitle(title);
+      h2->SetFillColor(kGray);
+      h2->SetLineColor(kBlue);
+
+      pad->Add(h2, name);
+   }
+
+   TestReport(C, "th2_violin", "TH2 violin");
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Testing TH2 with custom axis labels
+
+void th2_axlabels()
+{
+  auto C = StartTest(600, 600);
+
+  auto h = new TH2D ("h2","h2",10,0.5,10.5,10,0.5,10.5);
+  h->SetDirectory(nullptr);
+  h->Fill(1.,1.,1.);
+  h->Fill(2.,2.,0);
+  // printf("Error for bin #%d = %g\n",2,h->GetBinError(2,2));
+  h->Fill(3.,3.,3.);
+  h->Fill(4.,4.,4.);
+  h->Fill(5.,5.,5.);
+  h->Fill(6.,6.,6.);
+  h->Fill(6.,6.,-6.);
+  // printf("Error for bin #%d = %g\n",6,h->GetBinError(6,6));
+  h->Fill(7.,7.,-7.);
+  // printf("Error for bin #%d = %g\n",8,h->GetBinError(8,8));
+
+  h->GetXaxis()->ChangeLabel(2,-1,-1,-1,kGreen,-1,"2nd label");
+  h->GetXaxis()->ChangeLabel(-2,-1,-1,-1,kGreen,-1,"2nd to last");
+
+  h->GetYaxis()->ChangeLabelByValue(3., 30., -1, -1, kBlue, -1, "Value 3.");
+  h->GetYaxis()->ChangeLabelByValue(8., 330., -1, -1, kBlue, -1, "Value 8.");
+
+  C->Add(h, "COL1");
+
+  TestReport(C, "th2_axlabels", "TH2 with custom axis labels");
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Test editing of stats and palette attributes
+
+void th2_stats()
+{
+   auto C = StartTest(600, 600);
+
+   gStyle->SetOptStat();
+
+   auto hist = new TH2F("th2_stats_palette", "Modify histogram stats and palette", 40, -4, 4, 40, -20, 20);
+   TRandom3 rnr;
+
+   float px, py;
+   for (int i = 0; i < 25000; i++) {
+      rnr.Rannor(px,py);
+      hist->Fill(px,5*py);
+   }
+
+   C->SetRightMargin(0.18);
+   auto palette = new TPaletteAxis(4.3, -18, 4.8, 10, hist);
+   hist->GetListOfFunctions()->Add(palette);
+
+   C->Add(hist, "colz");
+
+   C->Update();
+
+   TPaveStats *ps = (TPaveStats*)C->GetPrimitive("stats");
+   ps->SetName("mystats");
+   TList *listOfLines = ps->GetListOfLines();
+
+   // Remove the RMS line
+   while (auto tconst = ps->GetLineWith("Dev"))
+      listOfLines->Remove(tconst);
+
+   // Add a new line in the stat box.
+   // Note that "=" is a control character
+   TLatex *myt = new TLatex(0,0, "Test = 10");
+   myt ->SetTextFont(42);
+   myt ->SetTextSize(0.04);
+   myt ->SetTextColor(kRed);
+   listOfLines->Add(myt);
+
+   // the following line is needed to avoid that the automatic redrawing of stats
+   hist->SetStats(0);
+
+   TestReport(C, "th2_stats", "TH2 with modified stats and palette");
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TEllipse test.
@@ -1713,9 +2323,7 @@ void tellipse()
    el4.SetLineWidth(6);
    el4.Draw();
 
-   TestReport1(C, "TEllipse");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tellipse", "TEllipse");
 }
 
 
@@ -1767,9 +2375,7 @@ void feynman()
    C->Update();
    gStyle->SetLineWidth(linsav);
 
-   TestReport1(C, "Feynman diagrams");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "feynman", "Feynman diagrams");
 }
 
 
@@ -1793,9 +2399,7 @@ void ratioplot()
    C->SetTicks(0, 1);
    rp->Draw();
 
-   TestReport1(C, "Ratio plot");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "ratioplot", "Ratio plot");
 }
 
 
@@ -1827,9 +2431,7 @@ void tgraph1()
    C->GetFrame()->SetFillColor(21);
    C->GetFrame()->SetBorderSize(12);
 
-   TestReport1(C, "TGraph 1");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tgraph1", "TGraph 1");
 }
 
 
@@ -1872,9 +2474,7 @@ void tgraph2()
    mg->Add(gr3);
    mg->Draw("AC");
 
-   TestReport1(C, "TGraph 2 (Exclusion Zone)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tgraph2", "TGraph 2 (Exclusion Zone)");
 }
 
 
@@ -1907,6 +2507,7 @@ void tgraph3()
 
    C->cd(1);
    g1->Fit("gaus","Q");
+   g1->GetFunction("gaus")->SetParameters(162.343237, -1525754.596742, 548632.482040);
    g1->Draw("AP");
    gPad->SetLogx();
 
@@ -1914,7 +2515,8 @@ void tgraph3()
    gPad->SetLogx();
    gPad->SetLogy();
    TGraph* g2 = new TGraph();
-   for (int i = 0; i < 10; i++) g2->SetPoint(i, i + 1, i + 1);
+   for (int i = 0; i < 10; i++)
+      g2->SetPoint(i, i + 1, i + 1);
    g2->SetTitle("2 log scales from 1e-2 to 1e2;x;y");
    g2->GetXaxis()->SetLimits(1e-2, 1e2);
    g2->GetHistogram()->SetMinimum(1e-2);
@@ -1923,9 +2525,7 @@ void tgraph3()
    g2->GetYaxis()->CenterTitle();
    g2->Draw("a*");
 
-   TestReport1(C, "TGraph 3 (Fitting and log scales)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tgraph3", "TGraph 3 (Fitting and log scales)");
 }
 
 
@@ -1964,11 +2564,194 @@ void tgraph4()
    C->Update();
    gPad->SetLogx();
 
-   TestReport1(C, "TGraph 4 (Log scales setting order)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tgraph4", "TGraph 4 (Log scales setting order)");
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// This example test all the various case of reverse graphs
+/// combined with logarithmic scale.
+
+void tgraphreverse()
+{
+   auto C = StartTest(900,900);
+   C->Divide(3,3);
+
+   C->cd(1);
+   gPad->SetGrid();
+
+   // TGraphErrors
+   auto graphe1 = new TGraphErrors();
+   graphe1->SetMarkerStyle(kCircle);
+   graphe1->SetPoint(0,5,5);
+   graphe1->SetPointError(0,1,3);
+   graphe1->SetPoint(1,9,9);
+   graphe1->SetPointError(1,1,3);
+   graphe1->GetXaxis()->SetNdivisions(514);
+   graphe1->GetYaxis()->SetNdivisions(514);
+   graphe1->GetXaxis()->SetMoreLogLabels();
+   graphe1->GetYaxis()->SetMoreLogLabels();
+   gPad->Add(graphe1, "a  pl ");
+
+   C->cd(2);
+   gPad->SetGrid();
+
+   auto graphe2 = new TGraphErrors();
+   graphe2->SetMarkerStyle(kCircle);
+   graphe2->SetPoint(0,5,5);
+   graphe2->SetPointError(0,1,3);
+   graphe2->SetPoint(1,9,9);
+   graphe2->SetPointError(1,1,3);
+   graphe2->GetXaxis()->SetNdivisions(514);
+   graphe2->GetYaxis()->SetNdivisions(514);
+   graphe2->GetXaxis()->SetMoreLogLabels();
+   graphe2->GetYaxis()->SetMoreLogLabels();
+   gPad->Add(graphe2, "a  pl rx ry ");
+
+   C->cd(3);
+   gPad->SetGrid();
+   gPad->SetLogx();
+   gPad->SetLogy();
+   auto graphe3 = new TGraphErrors();
+   graphe3->SetMarkerStyle(kCircle);
+   graphe3->SetPoint(0,5,5);
+   graphe3->SetPointError(0,1,3);
+   graphe3->SetPoint(1,9,9);
+   graphe3->SetPointError(1,1,3);
+   graphe3->GetXaxis()->SetNdivisions(514);
+   graphe3->GetYaxis()->SetNdivisions(514);
+   graphe3->GetXaxis()->SetMoreLogLabels();
+   graphe3->GetYaxis()->SetMoreLogLabels();
+   gPad->Add(graphe3, "a  pl rx ry");
+
+   C->cd(4);
+   gPad->SetGrid();
+
+   // TGraphAsymmErrors
+   auto graphae1 = new TGraphAsymmErrors();
+   graphae1->SetMarkerStyle(kCircle);
+   graphae1->SetPoint(0,5,5);
+   graphae1->SetPointError(0,1,3,3,1);
+   graphae1->SetPoint(1,9,9);
+   graphae1->SetPointError(1,1,3,1,3);
+   graphae1->GetXaxis()->SetNdivisions(514);
+   graphae1->GetYaxis()->SetNdivisions(514);
+   graphae1->GetXaxis()->SetMoreLogLabels();
+   graphae1->GetYaxis()->SetMoreLogLabels();
+   gPad->Add(graphae1, "a  pl ");
+
+   C->cd(5);
+   gPad->SetGrid();
+   auto graphae2 = new TGraphAsymmErrors();
+   graphae2->SetMarkerStyle(kCircle);
+   graphae2->SetPoint(0,5,5);
+   graphae2->SetPointError(0,1,3,3,1);
+   graphae2->SetPoint(1,9,9);
+   graphae2->SetPointError(1,1,3,1,3);
+   graphae2->GetXaxis()->SetNdivisions(514);
+   graphae2->GetYaxis()->SetNdivisions(514);
+   graphae2->GetXaxis()->SetMoreLogLabels();
+   graphae2->GetYaxis()->SetMoreLogLabels();
+   gPad->Add(graphae2, "a  pl rx ry ");
+
+   C->cd(6);
+   gPad->SetGrid();
+   gPad->SetLogx();
+   gPad->SetLogy();
+   auto graphae3 = new TGraphAsymmErrors();
+   graphae3->SetMarkerStyle(kCircle);
+   graphae3->SetPoint(0,5,5);
+   graphae3->SetPointError(0,1,3,3,1);
+   graphae3->SetPoint(1,9,9);
+   graphae3->SetPointError(1,1,3,1,3);
+   graphae3->GetXaxis()->SetNdivisions(514);
+   graphae3->GetYaxis()->SetNdivisions(514);
+   graphae3->GetXaxis()->SetMoreLogLabels();
+   graphae3->GetYaxis()->SetMoreLogLabels();
+   gPad->Add(graphae3, "a  pl rx ry");
+
+   C->cd(7);
+   gPad->SetGrid();
+
+   // TGraphBentErrors
+   auto graphbe1 = new TGraphBentErrors();
+   graphbe1->SetMarkerStyle(kCircle);
+   graphbe1->SetPoint(0,5,5);
+   graphbe1->SetPointError(0,1,3,3,1,.5,.2,.5,.2);
+   graphbe1->SetPoint(1,9,9);
+   graphbe1->SetPointError(1,1,3,1,3,-.5,-.2,-.5,-.2);
+   graphbe1->GetXaxis()->SetNdivisions(514);
+   graphbe1->GetYaxis()->SetNdivisions(514);
+   graphbe1->GetXaxis()->SetMoreLogLabels();
+   graphbe1->GetYaxis()->SetMoreLogLabels();
+   gPad->Add(graphbe1, "a  pl ");
+
+   C->cd(8);
+   gPad->SetGrid();
+   auto graphbe2 = new TGraphBentErrors();
+   graphbe2->SetMarkerStyle(kCircle);
+   graphbe2->SetPoint(0,5,5);
+   graphbe2->SetPointError(0,1,3,3,1,.5,.2,.5,.2);
+   graphbe2->SetPoint(1,9,9);
+   graphbe2->SetPointError(1,1,3,1,3,-.5,-.2,-.5,-.2);
+   graphbe2->GetXaxis()->SetNdivisions(514);
+   graphbe2->GetYaxis()->SetNdivisions(514);
+   graphbe2->GetXaxis()->SetMoreLogLabels();
+   graphbe2->GetYaxis()->SetMoreLogLabels();
+   gPad->Add(graphbe2, "a  pl rx ry ");
+
+   C->cd(9);
+   gPad->SetGrid();
+   gPad->SetLogx();
+   gPad->SetLogy();
+   auto graphbe3 = new TGraphBentErrors();
+   graphbe3->SetMarkerStyle(kCircle);
+   graphbe3->SetPoint(0,5,5);
+   graphbe3->SetPointError(0,1,3,3,1,.5,.2,.5,.2);
+   graphbe3->SetPoint(1,9,9);
+   graphbe3->SetPointError(1,1,3,1,3,-.5,-.2,-.5,-.2);
+   graphbe3->GetXaxis()->SetNdivisions(514);
+   graphbe3->GetYaxis()->SetNdivisions(514);
+   graphbe3->GetXaxis()->SetMoreLogLabels();
+   graphbe3->GetYaxis()->SetMoreLogLabels();
+   gPad->Add(graphbe3, "a  pl rx ry");
+
+   TestReport(C, "tgraphreverse", "TGraph with reverse axis and log scale");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TGraphMultiErrors test.
+
+void gmultierrors()
+{
+   auto C = StartTest(700, 500);
+   C->SetGrid();
+   C->GetFrame()->SetBorderSize(12);
+
+   const Int_t np = 5;
+   Double_t x[np]       = {0, 1, 2, 3, 4};
+   Double_t y[np]       = {0, 2, 4, 1, 3};
+   Double_t exl[np]     = {0.3, 0.3, 0.3, 0.3, 0.3};
+   Double_t exh[np]     = {0.3, 0.3, 0.3, 0.3, 0.3};
+   Double_t eylstat[np] = {1, 0.5, 1, 0.5, 1};
+   Double_t eyhstat[np] = {0.5, 1, 0.5, 1, 0.5};
+   Double_t eylsys[np]  = {0.5, 0.4, 0.8, 0.3, 1.2};
+   Double_t eyhsys[np]  = {0.6, 0.7, 0.6, 0.4, 0.8};
+
+   auto gme = new TGraphMultiErrors("gme", "TGraphMultiErrors Example", np, x, y, exl, exh, eylstat, eyhstat);
+   gme->AddYError(np, eylsys, eyhsys);
+   gme->SetMarkerStyle(20);
+   gme->SetLineColor(kRed);
+   gme->GetAttLine(0)->SetLineColor(kRed);
+   gme->GetAttLine(1)->SetLineColor(kBlue);
+   gme->GetAttFill(1)->SetFillStyle(0);
+
+   // Graph and x erros drawn with "APS"
+   // Stat Errors drawn with "Z"
+   // Sys Errors drawn with "5 s=0.5"
+   gme->Draw("APS ; Z ; 5 s=0.5");
+
+   TestReport(C, "gmultierrors", "TGraphMultiErrors");
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TH2Poly test.
@@ -1977,7 +2760,6 @@ void th2poly()
 {
    TCanvas *C = StartTest(800,400);
 
-   Int_t i;
    const Int_t nx = 48;
    const char *states [nx] = {
       "alabama",      "arizona",        "arkansas",       "california",
@@ -2007,9 +2789,10 @@ void th2poly()
    Double_t lat1 = 24;
    Double_t lat2 = 50;
    TH2Poly *p = new TH2Poly("USA","USA Population",lon1,lon2,lat1,lat2);
-   gErrorIgnoreLevel = 9999;
+   if (!gVerbose)
+      gErrorIgnoreLevel = 9999;
    TFile::SetCacheFileDir(".");
-   TFile *f = TFile::Open("http://root.cern.ch/files/usa.root", "CACHEREAD");
+   auto f = TFile::Open("http://root.cern/files/usa.root", "CACHEREAD");
 
    if (!f) {
       printf("Cannot access usa.root. Is internet working ?\n");
@@ -2017,27 +2800,26 @@ void th2poly()
    }
 
    // Define the TH2Poly bins.
-   TMultiGraph *mg;
-   TKey *key;
    TIter nextkey(gDirectory->GetListOfKeys());
-   while ((key = (TKey*)nextkey())) {
+   while (auto key = (TKey*)nextkey()) {
       TObject *obj = key->ReadObj();
       if (obj->InheritsFrom("TMultiGraph")) {
-         mg = (TMultiGraph*)obj;
+         auto mg = (TMultiGraph*)obj;
          p->AddBin(mg);
       }
    }
 
    // Fill TH2Poly.
-   for (i=0; i<nx; i++) p->Fill(states[i], pop[i]);
+   for (Int_t i = 0; i < nx; i++)
+      p->Fill(states[i], pop[i]);
 
    gStyle->SetOptStat(11);
    gStyle->SetPalette(kBird);
    p->DrawClone("COL");
 
-   TestReport1(C, "TH2Poly.(DrawClone() and remote file access)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "th2poly", "TH2Poly.(DrawClone() and remote file access)");
+
+   delete f;
 }
 
 
@@ -2051,21 +2833,21 @@ void tmultigraph1()
    gStyle->SetOptFit();
    C->SetGrid();
    TMultiGraph *mg = new TMultiGraph();
-   Int_t n1 = 10;
-   Double_t x1[]  = {-0.1, 0.05, 0.25, 0.35, 0.5, 0.61,0.7,0.85,0.89,0.95};
-   Double_t y1[]  = {-1,2.9,5.6,7.4,9,9.6,8.7,6.3,4.5,1};
-   Double_t ex1[] = {.05,.1,.07,.07,.04,.05,.06,.07,.08,.05};
-   Double_t ey1[] = {.8,.7,.6,.5,.4,.4,.5,.6,.7,.8};
+   const Int_t n1 = 10;
+   Double_t x1[n1]  = {-0.1, 0.05, 0.25, 0.35, 0.5, 0.61,0.7,0.85,0.89,0.95};
+   Double_t y1[n1]  = {-1,2.9,5.6,7.4,9,9.6,8.7,6.3,4.5,1};
+   Double_t ex1[n1] = {.05,.1,.07,.07,.04,.05,.06,.07,.08,.05};
+   Double_t ey1[n1] = {.8,.7,.6,.5,.4,.4,.5,.6,.7,.8};
    TGraphErrors *gr1 = new TGraphErrors(n1,x1,y1,ex1,ey1);
    gr1->SetMarkerColor(kBlue);
    gr1->SetMarkerStyle(21);
    gr1->Fit("pol6","q ex0");
    mg->Add(gr1);
-   Int_t n2 = 10;
-   Float_t x2[]  = {-0.28, 0.005, 0.19, 0.29, 0.45, 0.56,0.65,0.80,0.90,1.01};
-   Float_t y2[]  = {2.1,3.86,7,9,10,10.55,9.64,7.26,5.42,2};
-   Float_t ex2[] = {.04,.12,.08,.06,.05,.04,.07,.06,.08,.04};
-   Float_t ey2[] = {.6,.8,.7,.4,.3,.3,.4,.5,.6,.7};
+   const Int_t n2 = 10;
+   Float_t x2[n2]  = {-0.28, 0.005, 0.19, 0.29, 0.45, 0.56,0.65,0.80,0.90,1.01};
+   Float_t y2[n2]  = {2.1,3.86,7,9,10,10.55,9.64,7.26,5.42,2};
+   Float_t ex2[n2] = {.04,.12,.08,.06,.05,.04,.07,.06,.08,.04};
+   Float_t ey2[n2] = {.6,.8,.7,.4,.3,.3,.4,.5,.6,.7};
    TGraphErrors *gr2 = new TGraphErrors(n2,x2,y2,ex2,ey2);
    gr2->SetMarkerColor(kRed);
    gr2->SetMarkerStyle(20);
@@ -2073,17 +2855,19 @@ void tmultigraph1()
    mg->Add(gr2);
    mg->Draw("ap");
    C->Update();
-   TPaveStats *stats1 = (TPaveStats*)gr1->GetListOfFunctions()->FindObject("stats");
-   TPaveStats *stats2 = (TPaveStats*)gr2->GetListOfFunctions()->FindObject("stats");
+   auto stats1 = static_cast<TPaveStats *>(gr1->GetListOfFunctions()->FindObject("stats"));
+   auto stats2 = static_cast<TPaveStats *>(gr2->GetListOfFunctions()->FindObject("stats"));
    stats1->SetTextColor(kBlue);
    stats2->SetTextColor(kRed);
-   stats1->SetX1NDC(0.12); stats1->SetX2NDC(0.32); stats1->SetY1NDC(0.75);
-   stats2->SetX1NDC(0.72); stats2->SetX2NDC(0.92); stats2->SetY1NDC(0.78);
+   stats1->SetX1NDC(0.12);
+   stats1->SetX2NDC(0.32);
+   stats1->SetY1NDC(0.75);
+   stats2->SetX1NDC(0.72);
+   stats2->SetX2NDC(0.92);
+   stats2->SetY1NDC(0.78);
    C->Modified();
 
-   TestReport1(C, "TMultigraph and TGraphErrors");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tmultigraph1", "TMultigraph and TGraphErrors");
 }
 
 
@@ -2106,29 +2890,29 @@ void tmultigraph2()
    TMultiGraph *mg4 = new TMultiGraph();
 
    // Vectors used to build the graphs
-   Int_t n1 = 10;
-   Double_t x1[]    = {-0.1, 0.05, 0.25, 0.35, 0.5, 0.61,0.7,0.85,0.89,0.95};
-   Double_t y1[]    = {-1,2.9,5.6,7.4,9,9.6,8.7,6.3,4.5,1};
-   Double_t exl1[]  = {.05,.1,.07,.07,.04,.05,.06,.07,.08,.05};
-   Double_t eyl1[]  = {.8,.7,.6,.5,.4,.4,.5,.6,.7,.8};
-   Double_t exh1[]  = {.02,.08,.05,.05,.03,.03,.04,.05,.06,.03};
-   Double_t eyh1[]  = {.6,.5,.4,.3,.2,.2,.3,.4,.5,.6};
-   Double_t exld1[] = {.0,.0,.0,.0,.0,.0,.0,.0,.0,.0};
-   Double_t eyld1[] = {.0,.0,.05,.0,.0,.0,.0,.0,.0,.0};
-   Double_t exhd1[] = {.0,.0,.0,.0,.0,.0,.0,.0,.0,.0};
-   Double_t eyhd1[] = {.0,.0,.0,.0,.0,.0,.0,.0,.05,.0};
+   const Int_t n1 = 10;
+   Double_t x1[n1]    = {-0.1, 0.05, 0.25, 0.35, 0.5, 0.61,0.7,0.85,0.89,0.95};
+   Double_t y1[n1]    = {-1,2.9,5.6,7.4,9,9.6,8.7,6.3,4.5,1};
+   Double_t exl1[n1]  = {.05,.1,.07,.07,.04,.05,.06,.07,.08,.05};
+   Double_t eyl1[n1]  = {.8,.7,.6,.5,.4,.4,.5,.6,.7,.8};
+   Double_t exh1[n1]  = {.02,.08,.05,.05,.03,.03,.04,.05,.06,.03};
+   Double_t eyh1[n1]  = {.6,.5,.4,.3,.2,.2,.3,.4,.5,.6};
+   Double_t exld1[n1] = {.0,.0,.0,.0,.0,.0,.0,.0,.0,.0};
+   Double_t eyld1[n1] = {.0,.0,.05,.0,.0,.0,.0,.0,.0,.0};
+   Double_t exhd1[n1] = {.0,.0,.0,.0,.0,.0,.0,.0,.0,.0};
+   Double_t eyhd1[n1] = {.0,.0,.0,.0,.0,.0,.0,.0,.05,.0};
 
-   Int_t n2 = 10;
-   Float_t  x2[]    = {-0.28, 0.005, 0.19, 0.29, 0.45, 0.56,0.65,0.80,0.90,1.01};
-   Float_t  y2[]    = {2.1,3.86,7,9,10,10.55,9.64,7.26,5.42,2};
-   Float_t  exl2[]  = {.04,.12,.08,.06,.05,.04,.07,.06,.08,.04};
-   Float_t  eyl2[]  = {.6,.8,.7,.4,.3,.3,.4,.5,.6,.7};
-   Float_t  exh2[]  = {.02,.08,.05,.05,.03,.03,.04,.05,.06,.03};
-   Float_t  eyh2[]  = {.6,.5,.4,.3,.2,.2,.3,.4,.5,.6};
-   Float_t  exld2[] = {.0,.0,.0,.0,.0,.0,.0,.0,.0,.0};
-   Float_t  eyld2[] = {.0,.0,.05,.0,.0,.0,.0,.0,.0,.0};
-   Float_t  exhd2[] = {.0,.0,.0,.0,.0,.0,.0,.0,.0,.0};
-   Float_t  eyhd2[] = {.0,.0,.0,.0,.0,.0,.0,.0,.05,.0};
+   const Int_t n2 = 10;
+   Float_t  x2[n2]    = {-0.28, 0.005, 0.19, 0.29, 0.45, 0.56,0.65,0.80,0.90,1.01};
+   Float_t  y2[n2]    = {2.1,3.86,7,9,10,10.55,9.64,7.26,5.42,2};
+   Float_t  exl2[n2]  = {.04,.12,.08,.06,.05,.04,.07,.06,.08,.04};
+   Float_t  eyl2[n2]  = {.6,.8,.7,.4,.3,.3,.4,.5,.6,.7};
+   Float_t  exh2[n2]  = {.02,.08,.05,.05,.03,.03,.04,.05,.06,.03};
+   Float_t  eyh2[n2]  = {.6,.5,.4,.3,.2,.2,.3,.4,.5,.6};
+   Float_t  exld2[n2] = {.0,.0,.0,.0,.0,.0,.0,.0,.0,.0};
+   Float_t  eyld2[n2] = {.0,.0,.05,.0,.0,.0,.0,.0,.0,.0};
+   Float_t  exhd2[n2] = {.0,.0,.0,.0,.0,.0,.0,.0,.0,.0};
+   Float_t  eyhd2[n2] = {.0,.0,.0,.0,.0,.0,.0,.0,.05,.0};
 
    // Create 1st multigraph
    C->cd(1);
@@ -2153,6 +2937,8 @@ void tmultigraph2()
    gr22->SetMarkerColor(kRed+1);
    gr22->SetMarkerStyle(20);
    gr22->Fit("pol3","q ex0");
+   // fix parameters to avoid deviation on different platforms
+   gr22->GetFunction("pol3")->SetParameters(4.830338, 13.642697, 5.092961, -21.695969);
    mg2->Add(gr21,"pl");
    mg2->Add(gr22);
    mg2->Draw("ap");
@@ -2168,6 +2954,10 @@ void tmultigraph2()
    gr32->SetMarkerColor(kRed-1);
    gr32->SetMarkerStyle(20);
    gr32->Fit("pol4","q ex0");
+   // fix parameters and errors to avoid deviation on different platforms
+   gr32->GetFunction("pol4")->SetParameters(3.800743, 16.072495, 17.267410, -58.828117, 24.041571);
+   gr32->GetFunction("pol4")->SetParError(4, 8.834);
+
    mg3->Add(gr31,"pl");
    mg3->Add(gr32);
    mg3->Draw("ap");
@@ -2183,6 +2973,10 @@ void tmultigraph2()
    gr42->SetMarkerColor(kViolet);
    gr42->SetMarkerStyle(20);
    gr42->Fit("pol5","q ex0");
+   // fix parameters and errors to avoid deviation on different platforms
+   gr42->GetFunction("pol5")->SetParameters(3.784774, 16.245375, 17.266562, -60.768103, 27.670699, -1.851469);
+   Double_t pol5_errors[6] = { 0.48664, 3.23538, 5.22816, 35.7405, 62.6138, 31.6462 };
+   gr42->GetFunction("pol5")->SetParErrors(pol5_errors);
    mg4->Add(gr41,"pc");
    mg4->Add(gr42);
    mg4->Draw("ap");
@@ -2191,9 +2985,7 @@ void tmultigraph2()
 
    C->Modified();
 
-   TestReport1(C, "All Kind of TMultigraph");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "tmultigraph2", "All Kind of TMultigraph");
 }
 
 
@@ -2220,7 +3012,7 @@ void options2d1()
    C->Divide(2,2);
    C->SetFillColor(17);
    C->cd(1);
-   gH2->Draw();       pl1.DrawPaveLabel(x1,y1,x2,y2,"SCAT","brNDC");
+   gH2->Draw("text"); pl1.DrawPaveLabel(x1,y1,x2,y2,"TEXT","brNDC");
    C->cd(2);
    gH2->Draw("box");  pl1.DrawPaveLabel(x1,y1,x2,y2,"BOX","brNDC");
    C->cd(3);
@@ -2228,9 +3020,7 @@ void options2d1()
    C->cd(4);
    gH2->Draw("colz"); pl1.DrawPaveLabel(x1,y1,x2,y2,"COLZ","brNDC");
 
-   TestReport1(C, "Basic 2D options");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "options2d1", "Basic 2D options");
 }
 
 
@@ -2246,11 +3036,10 @@ void options2d2()
    gPad->SetGrid();
    C->SetFillColor(17);
    C->SetGrid();
-   gH2->Draw("text"); pl2.DrawPaveLabel(x1,y1,x2,y2,"TEXT","brNDC");
+   gH2->Draw("text");
+   pl2.DrawPaveLabel(x1,y1,x2,y2,"TEXT","brNDC");
 
-   TestReport1(C, "Text option");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "options2d2", "Text option");
 }
 
 
@@ -2279,9 +3068,7 @@ void options2d3()
    gPad->SetGrid();
    gH2->Draw("cont3"); pl3.DrawPaveLabel(x1,y1,x2,y2,"CONT3","brNDC");
 
-   TestReport1(C, "Contour options");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "options2d3", "Contour options");
 }
 
 
@@ -2308,9 +3095,7 @@ void options2d4()
    gPad->SetTheta(21); gPad->SetPhi(-90);
    gH2->Draw("surf1cyl"); pl4.DrawPaveLabel(x1,y1,x2+0.05,y2,"SURF1CYL","brNDC");
 
-   TestReport1(C, "Lego options");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "options2d4", "Lego options");
 }
 
 
@@ -2335,9 +3120,7 @@ void options2d5()
    C->cd(4);
    gH2->Draw("surf4");   pl5.DrawPaveLabel(x1,y1,x2,y2,"SURF4","brNDC");
 
-   TestReport1(C, "Surface options");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "options2d5", "Surface options");
    delete gH2;
 }
 
@@ -2358,14 +3141,16 @@ void earth()
    TH2F *h3 = new TH2F("h03","Sinusoidal",50, -180, 180, 50, -90.5, 90.5);
    TH2F *h4 = new TH2F("h04","Parabolic", 50, -180, 180, 50, -90.5, 90.5);
    std::ifstream in;
-   in.open("../tutorials/graphics/earth.dat");
+   TString fname = gROOT->GetTutorialDir();
+   fname.Append("/visualisation/graphics/earth.dat");
+   in.open(fname.Data());
    if (!in) {
       in.clear();
       in.open("earth.dat");
    }
    if (!in)
       printf("Cannot find earth.dat!\n");
-   Float_t x,y;
+   Float_t x, y;
    while (1) {
      in >> x >> y;
      if (!in.good()) break;
@@ -2380,13 +3165,49 @@ void earth()
    C->cd(3); h3->Draw("z sinusoidal");
    C->cd(4); h4->Draw("z parabolic");
 
-   TestReport1(C, "Special contour options (AITOFF etc.)");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "earth", "Special contour options (AITOFF etc.)", "", kSkipSvgTest);
    delete h1;
    delete h2;
    delete h3;
    delete h4;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Testing THStack with TH2 histograms and lego options
+
+void thstack2()
+{
+   auto C = StartTest(800, 800);
+
+
+   gPad->SetFrameFillColor(17);
+   TF2 f1("hstack_f1", "xygaus + xygaus(5) + xylandau(10)",-4,4,-4,4);
+   Double_t params1[] = {130,-1.4,1.8,1.5,1, 150,2,0.5,-2,0.5,
+      3600,-2,0.7,-3,0.3};
+   f1.SetParameters(params1);
+   TF2 f2("hstack_f2","xygaus + xygaus(5)",-4,4,-4,4);
+   Double_t params2[] = {100,-1.4,1.9,1.1,2, 80,2,0.7,-2,0.5};
+   f2.SetParameters(params2);
+
+   auto h2sta = new TH2F("h2sta","h2sta",20,-4,4,20,-4,4);
+   h2sta->SetFillColor(38);
+   auto h2stb = new TH2F("h2stb","h2stb",20,-4,4,20,-4,4);
+   h2stb->SetFillColor(46);
+
+   TRandom3 rng;
+
+   h2sta->FillRandom(&f1, 4000, &rng);
+   h2stb->FillRandom(&f2, 3000, &rng);
+
+
+   auto a = new THStack("hstacklego", "Stacked 2D histograms");
+
+   a->Add(h2sta);
+   a->Add(h2stb);
+   a->Draw();
+
+   TestReport(C, "thstack2", "THStack lego plot");
 }
 
 
@@ -2426,14 +3247,8 @@ void tgraph2d1()
    dt->SetMarkerSize(1);
    dt->Draw("tri2p0Z  ");
 
-   TestReport1(C, "TGraph2D 1 (TRI2 and P0)");
+   TestReport(C, "tgraph2d1", "TGraph2D 1 (TRI2 and P0)", dt->GetName(), kSkipSvgTest);
 
-   DoCcode(C);
-
-   TObject *old = (TObject*)gDirectory->GetList()->FindObject(dt->GetName());
-   if (old) gDirectory->GetList()->Remove(old);
-
-   TestReport2();
    delete dt;
 }
 
@@ -2451,36 +3266,129 @@ void tgraph2d2()
    Double_t Px = 6.;
    Double_t Py = 6.;
    Int_t np    = 1000;
-   Double_t *rx=0, *ry=0, *rz=0;
-   rx = new Double_t[np];
-   ry = new Double_t[np];
-   rz = new Double_t[np];
-   TRandom *r = new TRandom();
+   std::vector<Double_t> rx(np), ry(np), rz(np);
+   TRandom r;
    for (Int_t N=0; N<np; N++) {
-      rx[N]=2*Px*(r->Rndm())-Px;
-      ry[N]=2*Py*(r->Rndm())-Py;
-      rz[N]=sin(sqrt(rx[N]*rx[N]+ry[N]*ry[N]))+1;
+      rx[N] = 2*Px*(r.Rndm())-Px;
+      ry[N] = 2*Py*(r.Rndm())-Py;
+      rz[N] = sin(sqrt(rx[N]*rx[N]+ry[N]*ry[N]))+1;
    }
    gStyle->SetPalette(kBird);
-   TGraph2D *dt = new TGraph2D( np, rx, ry, rz);
+   auto dt = new TGraph2D(np, rx.data(), ry.data(), rz.data());
    dt->SetName("Graph2DA");
    dt->SetFillColor(0);
    dt->SetMarkerStyle(20);
    dt->Draw("PCOL");
 
-   TestReport1(C, "TGraph2D 2 (COL and P)");
-   DoCcode(C);
-
-   TObject *old = (TObject*)gDirectory->GetList()->FindObject(dt->GetName());
-   if (old) gDirectory->GetList()->Remove(old);
-
-   TestReport2();
+   TestReport(C, "tgraph2d2", "TGraph2D 2 (COL and P)", dt->GetName());
    delete dt;
-   delete [] rx;
-   delete [] ry;
-   delete [] rz;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// TGraph2DErrors
+
+void tgraph2derr()
+{
+  auto C = StartTest(600, 600);
+
+  Double_t P = 6.;
+  const Int_t np   = 200;
+  std::vector<Double_t> rx(np), ry(np), rz(np), ex(np), ey(np), ez(np);
+  TRandom r;
+
+  for (Int_t N=0; N<np;N++) {
+     rx[N] = 2*P*(r.Rndm(N))-P;
+     ry[N] = 2*P*(r.Rndm(N))-P;
+     rz[N] = rx[N]*rx[N]-ry[N]*ry[N];
+     rx[N] += 10.;
+     ry[N] += 10.;
+     rz[N] += 40.;
+     ex[N] = r.Rndm(N);
+     ey[N] = r.Rndm(N);
+     ez[N] = 10*r.Rndm(N);
+  }
+
+  auto g = new TGraph2DErrors(np, rx.data(), ry.data(), rz.data(), ex.data(), ey.data(), ez.data());
+
+  g->SetTitle("TGraph2D with error bars: option \"ERR\"");
+  g->SetName("gr2derrors");
+  g->SetFillColor(29);
+  g->SetMarkerSize(0.8);
+  g->SetMarkerStyle(20);
+  g->SetMarkerColor(kRed);
+  g->SetLineColor(kBlue-3);
+  g->SetLineWidth(2);
+  C->SetLogy(1);
+  g->Draw("err p0");
+
+  TestReport(C, "tgraph2derr", "TGraph2DErrors (ERR and P0)");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TGraph2DAsymmErrors
+
+void tgraph2dassym()
+{
+  auto C = StartTest(600, 600);
+
+  Double_t P = 6.;
+  Int_t np   = 200;
+
+  std::vector<Double_t> rx(np), ry(np), rz(np), exl(np), exh(np), eyl(np), eyh(np), ezl(np), ezh(np);
+
+  TRandom r;
+  r.SetSeed(2000);
+
+  for (Int_t N=0; N<np;N++) {
+     rx[N] = 2*P*(r.Rndm(N))-P;
+     ry[N] = 2*P*(r.Rndm(N))-P;
+     rz[N] = rx[N]*rx[N]-ry[N]*ry[N];
+     rx[N] += 10.;
+     ry[N] += 10.;
+     rz[N] += 40.;
+     exl[N] = r.Rndm(N);
+     exh[N] = r.Rndm(N);
+     eyl[N] = r.Rndm(N);
+     eyh[N] = r.Rndm(N);
+     ezl[N] = 10*r.Rndm(N);
+     ezh[N] = 10*r.Rndm(N);
+  }
+
+  auto g = new TGraph2DAsymmErrors(np, rx.data(), ry.data(), rz.data(), exl.data(), exh.data(), eyl.data(), eyh.data(), ezl.data(), ezh.data());
+  g->SetName("gr2dasymmerrors");
+  g->SetTitle("TGraph2D with asymmetric error bars: option \"ERR\"");
+  g->SetFillColor(29);
+  g->SetMarkerSize(0.8);
+  g->SetMarkerStyle(20);
+  g->SetMarkerColor(kRed);
+  g->SetLineColor(kBlue-3);
+  g->SetLineWidth(2);
+  C->SetLogy(1);
+  g->Draw("err p0");
+
+  TestReport(C, "tgraph2dassym", "TGraph2DAsymmErrors (ERR and P0)");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TProfile3D Test
+
+void tprofile3d()
+{
+   auto C = StartTest(700, 500);
+   auto hprof3d = new TProfile3D("hprof3d", "Profile of pt versus px, py and pz", 40, -4, 4, 40, -4, 4, 40, 0, 20);
+   hprof3d->SetDirectory(nullptr);
+   Double_t px, py, pz, pt;
+   TRandom r;
+   r.SetSeed(2000);
+   for (Int_t i = 0; i < 25000; i++) {
+      r.Rannor(px, py);
+      pz = px * px + py * py;
+      pt = r.Landau(0, 1);
+      hprof3d->Fill(px, py, pz, pt, 1);
+   }
+   hprof3d->Draw();
+   TestReport(C, "tprofile3d", "TProfile3D", "", kSkipSvgTest);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// 3rd TGraph2D Test
@@ -2495,35 +3403,239 @@ void tgraph2d3()
    Double_t Px = 6.;
    Double_t Py = 6.;
    Int_t np    = 200;
-   Double_t *rx=0, *ry=0, *rz=0;
-   rx = new Double_t[np];
-   ry = new Double_t[np];
-   rz = new Double_t[np];
-   TRandom *r = new TRandom();
+   std::vector<Double_t> rx(np), ry(np), rz(np);
+   TRandom r;
    for (Int_t N=0; N<np; N++) {
-      rx[N]=2*Px*(r->Rndm())-Px;
-      ry[N]=2*Py*(r->Rndm())-Py;
-      rz[N]=sin(sqrt(rx[N]*rx[N]+ry[N]*ry[N]))+1;
+      rx[N] = 2*Px*(r.Rndm())-Px;
+      ry[N] = 2*Py*(r.Rndm())-Py;
+      rz[N] = sin(sqrt(rx[N]*rx[N]+ry[N]*ry[N]))+1;
    }
    gStyle->SetPalette(kBird);
-   TGraph2D *dt = new TGraph2D( np, rx, ry, rz);
+   auto dt = new TGraph2D(np, rx.data(), ry.data(), rz.data());
    dt->SetName("Graph2DA");
    dt->SetFillColor(0);
    dt->Draw("CONT5  ");
 
-   TestReport1(C, "TGraph2D 3 (CONT5)");
-   DoCcode(C);
+   TestReport(C, "tgraph2d3", "TGraph2D 3 (CONT5)", dt->GetName());
 
-   TObject *old = (TObject*)gDirectory->GetList()->FindObject(dt->GetName());
-   if (old) gDirectory->GetList()->Remove(old);
-
-   TestReport2();
    delete dt;
-   delete [] rx;
-   delete [] ry;
-   delete [] rz;
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+/// TF3 Test
+
+void tf3()
+{
+   TCanvas *C = StartTest(600, 600);
+
+   TF3 *f3 = new TF3("f3", "[0] * sin(x) + [1] * cos(y) + [2] * z", 0, 10, 0, 10, 0, 10);
+   f3->SetParameters(2, 2, 0.5);
+   f3->SetLineColor(kBlue);
+   f3->SetFillColor(kGreen);
+   f3->Draw();
+
+   TestReport(C, "tf3", "TF3");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Testing basic 3D primitives
+
+void basic3d()
+{
+   TCanvas *C = StartTest(700,500);
+
+   // create a pad
+   TPad *p1 = new TPad("p1","p1",0.05,0.02,0.95,0.82,46,3,1);
+   p1->Draw();
+   p1->cd();
+
+   // creating a view
+   TView *view = TView::CreateView(1);
+   if (view) view->SetRange(5,5,5,25,25,25);
+
+   // create a first PolyLine3D
+   TPolyLine3D *pl3d1 = new TPolyLine3D(5);
+
+   // set points
+   pl3d1->SetPoint(0, 10, 10, 10);
+   pl3d1->SetPoint(1, 15, 15, 10);
+   pl3d1->SetPoint(2, 20, 15, 15);
+   pl3d1->SetPoint(3, 20, 20, 20);
+   pl3d1->SetPoint(4, 10, 10, 20);
+   // set attributes
+   pl3d1->SetLineWidth(3);
+   pl3d1->SetLineColor(5);
+
+   // create a second PolyLine3D
+   TPolyLine3D *pl3d2 = new TPolyLine3D(4);
+
+   // set points
+   pl3d2->SetPoint(0, 5, 10, 5);
+   pl3d2->SetPoint(1, 10, 15, 8);
+   pl3d2->SetPoint(2, 15, 15, 18);
+   pl3d2->SetPoint(3, 5, 20, 20);
+   pl3d2->SetPoint(4, 10, 10, 5);
+
+   // set attributes
+   pl3d2->SetLineWidth(5);
+   pl3d2->SetLineColor(2);
+
+   // create a first PolyMarker3D
+   TPolyMarker3D *pm3d1 = new TPolyMarker3D(12);
+
+   // set points
+   pm3d1->SetPoint(0, 10, 10, 10);
+   pm3d1->SetPoint(1, 11, 15, 11);
+   pm3d1->SetPoint(2, 12, 15, 9);
+   pm3d1->SetPoint(3, 13, 17, 20);
+   pm3d1->SetPoint(4, 14, 16, 15);
+   pm3d1->SetPoint(5, 15, 20, 15);
+   pm3d1->SetPoint(6, 16, 18, 10);
+   pm3d1->SetPoint(7, 17, 15, 10);
+   pm3d1->SetPoint(8, 18, 22, 15);
+   pm3d1->SetPoint(9, 19, 28, 25);
+   pm3d1->SetPoint(10, 20, 12, 15);
+   pm3d1->SetPoint(11, 21, 12, 15);
+
+   // set marker size, color & style
+   pm3d1->SetMarkerSize(2);
+   pm3d1->SetMarkerColor(4);
+   pm3d1->SetMarkerStyle(2);
+
+   // create a second PolyMarker3D
+   TPolyMarker3D *pm3d2 = new TPolyMarker3D(8);
+
+   pm3d2->SetPoint(0, 22, 15, 15);
+   pm3d2->SetPoint(1, 23, 18, 21);
+   pm3d2->SetPoint(2, 24, 26, 13);
+   pm3d2->SetPoint(3, 25, 17, 15);
+   pm3d2->SetPoint(4, 26, 20, 15);
+   pm3d2->SetPoint(5, 27, 15, 18);
+   pm3d2->SetPoint(6, 28, 20, 10);
+   pm3d2->SetPoint(7, 29, 20, 20);
+
+   // set marker size, color & style
+   pm3d2->SetMarkerSize(2);
+   pm3d2->SetMarkerColor(1);
+   pm3d2->SetMarkerStyle(8);
+
+   // draw
+   pl3d1->Draw();
+   pl3d2->Draw();
+   pm3d1->Draw();
+   pm3d2->Draw();
+   //
+   // draw a title/explanation in the canvas pad
+   C->cd();
+   TPaveText *title = new TPaveText(0.1,0.85,0.9,0.97);
+   title->SetFillColor(24);
+   title->AddText("Examples of 3-D primitives");
+   TText *click=title->AddText("Click anywhere on the picture to rotate");
+   click->SetTextColor(4);
+   title->Draw();
+
+   TestReport(C, "basic3d", "TPolyLine3D/TPolyMarker3D");
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Testing TAnnotation3D
+
+void annotation3d()
+{
+   gStyle->SetOptStat(0);
+   gStyle->SetHistTopMargin(0);
+   gStyle->SetOptTitle(kFALSE);
+
+   auto C = StartTest(600, 800);
+   C->Divide(1,2);
+
+   // Define and draw a surface
+   auto f = new TF2("func_annotation3d", "[0]*cos(x)*cos(y)", -1, 1, -1, 1);
+   f->SetParameter(0, 1);
+   double s = 1./f->Integral(-1, 1, -1, 1);
+   f->SetParameter(0, s);
+   f->SetNpx(50);
+   f->SetNpy(50);
+
+   f->GetXaxis()->SetTitle("x");
+   f->GetXaxis()->SetTitleOffset(1.4);
+   f->GetXaxis()->SetTitleSize(0.04);
+   f->GetXaxis()->CenterTitle();
+   f->GetXaxis()->SetNdivisions(505);
+   f->GetXaxis()->SetTitleOffset(1.3);
+   f->GetXaxis()->SetLabelSize(0.03);
+   f->GetXaxis()->ChangeLabelByValue(-0.5,-1,-1,-1,kRed,-1,"X_{0}");
+
+   f->GetYaxis()->SetTitle("y");
+   f->GetYaxis()->CenterTitle();
+   f->GetYaxis()->SetTitleOffset(1.4);
+   f->GetYaxis()->SetTitleSize(0.04);
+   f->GetYaxis()->SetTitleOffset(1.3);
+   f->GetYaxis()->SetNdivisions(505);
+   f->GetYaxis()->SetLabelSize(0.03);
+
+   f->GetZaxis()->SetTitle("dP/dx");
+   f->GetZaxis()->CenterTitle();
+   f->GetZaxis()->SetTitleOffset(1.3);
+   f->GetZaxis()->SetNdivisions(505);
+   f->GetZaxis()->SetTitleSize(0.04);
+   f->GetZaxis()->SetLabelSize(0.03);
+
+   f->SetLineWidth(1);
+   f->SetLineColorAlpha(kAzure-2, 0.3);
+
+   C->cd(1);
+
+   f->Draw("cont2");
+
+   auto txt0 = new TAnnotation(-0.45, -0.2, 0.3, "f(y,x_{0})");
+   txt0->SetTextFont(42);
+   txt0->SetTextColor(kGreen);
+   txt0->Draw();
+
+   C->cd(2);
+   gPad->SetTheta(30);
+   gPad->SetPhi(50);
+
+
+   f->Draw("surf1 fb");
+
+   // Lines for 3D annotation
+   double x[11] = {-0.500, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.500};
+   double y[11] = {-0.985, -0.8, -0.6, -0.4, -0.2,  0.0,  0.2,  0.4,  0.6,  0.8,  0.985};
+   double z[11];
+   for (int i = 0; i < 11; ++i) z[i] = s*cos(x[i])*cos(y[i]);
+   auto g2 = new TPolyLine3D(11, x, y, z);
+
+   double xx[2] = {-0.5, -0.5};
+   double yy[2] = {-0.985, -0.985};
+   double zz[2] = {0.11, s*cos(-0.5)*cos(-0.985)};
+   auto l2 = new TPolyLine3D(2, xx, yy, zz);
+
+   g2->SetLineColor(kRed);
+   g2->SetLineWidth(3);
+   g2->Draw();
+
+   l2->SetLineColor(kRed);
+   l2->SetLineStyle(2);
+   l2->SetLineWidth(1);
+   l2->Draw();
+
+   // Draw text Annotations
+   auto txt = new TAnnotation(-0.45, -0.2, 0.3, "f(y,x_{0})");
+   txt->SetTextFont(42);
+   txt->SetTextColor(kRed);
+   txt->Draw();
+
+   auto txt1 = new TAnnotation(0.5, 0.5, 0.3, "f(x,y)");
+   txt1->SetTextColor(kBlue);
+   txt1->SetTextFont(42);
+   txt1->Draw();
+
+   TestReport(C, "annotation3d", "TAnnotation with 2D and 3D", "", kSkipSvgTest);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// 1st complex drawing and TPad test
@@ -2591,9 +3703,7 @@ void ntuple1()
    l4->Draw();
    gStyle->SetStatColor(19);
 
-   TestReport1(C, "Ntuple drawing and TPad");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "ntuple1", "Ntuple drawing and TPad", "", kSkipSvgTest);
 }
 
 
@@ -2666,9 +3776,7 @@ void quarks()
    tex1.DrawLatex(.5,.5,"W");
    C->cd();
 
-   TestReport1(C, "Divided pads and TLatex");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "quarks", "Divided pads and TLatex");
 }
 
 
@@ -2679,28 +3787,30 @@ void timage()
 {
    TCanvas *C = StartTest(800,800);
 
-   TImage *img = TImage::Open("$(ROOTSYS)/tutorials/image/rose512.jpg");
+   TString fname = gROOT->GetTutorialDir();
+   fname.Append("/visualisation/image/rose512.jpg");
+   TImage *img = TImage::Open(fname);
    if (!img) {
       printf("Could not create an image... exit\n");
       return;
    }
-   TImage *i1 = TImage::Open("$(ROOTSYS)/tutorials/image/rose512.jpg");
+   auto i1 = (TImage *) img->Clone();
    i1->SetConstRatio(kFALSE);
    i1->Flip(90);
-   TImage *i2 = TImage::Open("$(ROOTSYS)/tutorials/image/rose512.jpg");
+   auto i2 = (TImage *) img->Clone();
    i2->SetConstRatio(kFALSE);
    i2->Flip(180);
-   TImage *i3 = TImage::Open("$(ROOTSYS)/tutorials/image/rose512.jpg");
+   auto i3 = (TImage *) img->Clone();
    i3->SetConstRatio(kFALSE);
    i3->Flip(270);
-   TImage *i4 = TImage::Open("$(ROOTSYS)/tutorials/image/rose512.jpg");
-   i4->SetConstRatio(kFALSE);
-   i4->Mirror(kTRUE);
+
+   img->SetConstRatio(kFALSE);
+   img->Mirror(kTRUE);
    float d = 0.40;
    TPad *p1 = new TPad("i1", "i1", 0.05, 0.55, 0.05+d*i1->GetWidth()/i1->GetHeight(), 0.95);
    TPad *p2 = new TPad("i2", "i2", 0.55, 0.55, 0.95, 0.55+d*i2->GetHeight()/i2->GetWidth());
    TPad *p3 = new TPad("i3", "i3", 0.55, 0.05, 0.55+d*i3->GetWidth()/i3->GetHeight(), 0.45);
-   TPad *p4 = new TPad("i4", "i4", 0.05, 0.05, 0.45, 0.05+d*i4->GetHeight()/i4->GetWidth());
+   TPad *p4 = new TPad("i4", "i4", 0.05, 0.05, 0.45, 0.05+d*img->GetHeight()/img->GetWidth());
    p1->Draw();
    p1->cd();
    i1->Draw();
@@ -2715,12 +3825,10 @@ void timage()
    C->cd();
    p4->Draw();
    p4->cd();
-   i4->Draw();
+   img->Draw();
    C->cd();
 
-   TestReport1(C, "TImage");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "timage", "TImage");
 }
 
 
@@ -2732,27 +3840,28 @@ void zoomtf1()
 {
    TCanvas *C = StartTest(800,800);
 
-   TF1* f[6];
+   TF1 *f0 = nullptr;
 
    for (int i=0;i<6;++i) {
-      f[i] = new TF1(Form("f%d",i),fg, 0,2, 1);
-      f[i]->SetParameter(0,i+1);
-      f[i]->SetLineColor(i+1);
+      auto f = new TF1(TString::Format("f%d",i), fg, 0, 2, 1);
+      f->SetParameter(0, i+1);
+      f->SetLineColor(i+1);
       if (i==0) {
-         f[i]->GetYaxis()->SetTitle("Y axis title on the right side of the plot");
-         f[i]->GetXaxis()->SetTitle("X axis");
-         f[i]->GetYaxis()->SetTitleOffset(-13.);
-         f[i]->SetTitle("Zoom/UnZoom a collection of TF1 and change axis attributes");
+         f->GetYaxis()->SetTitle("Y axis title on the right side of the plot");
+         f->GetXaxis()->SetTitle("X axis");
+         f->GetYaxis()->SetTitleOffset(-13.);
+         f->SetTitle("Zoom/UnZoom a collection of TF1 and change axis attributes");
+         f0 = f;
       }
-      f[i]->Draw(i?"same":"");
+      f->Draw(i?"same":"");
    }
-   f[0]->GetXaxis()->SetRangeUser(.1,.3);
+   f0->GetXaxis()->SetRangeUser(.1, .3);
    gPad->Update();
-   f[0]->GetXaxis()->UnZoom();
+
+   f0->GetXaxis()->UnZoom();
    gPad->Modified();
 
-   TestReport1(C, "Zoom/UnZoom a collection of TF1");
-   if (gOptionR) printf("%10d%10d\n",0,0);
+   TestReport(C, "zoomtf1", "Zoom/UnZoom a collection of TF1");
 }
 
 
@@ -2765,6 +3874,7 @@ void zoomfit()
 
    TH1 *hpx = (TH1*)gHsimple->Get("hpx");
    hpx->Fit("gaus","q");
+   hpx->GetFunction("gaus")->SetParameters(800.107852, -0.003862, 0.994740);
    hpx->GetXaxis()->SetRangeUser(.1,.3);
    gPad->Modified();
    gPad->Update();
@@ -2772,9 +3882,7 @@ void zoomfit()
    gPad->Modified();
    gPad->Update();
 
-   TestReport1(C, "Zoom/UnZoom a fitted histogram");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "zoomfit", "Zoom/UnZoom a fitted histogram");
 }
 
 
@@ -2784,6 +3892,8 @@ void zoomfit()
 void hbars()
 {
    TCanvas *C = StartTest(700,800);
+   TDirectory dir("hbars_dir", "Directory for the hbars test");
+   TDirectory::TContext dirCtx{&dir};
 
    TTree *T = (TTree*)gCernstaff->Get("T");
    T->SetFillColor(45);
@@ -2797,9 +3907,10 @@ void hbars()
    //vertical bar chart
    C->cd(2); gPad->SetGrid(); gPad->SetFrameFillColor(33);
    T->Draw("Division>>hDiv","","goff");
-   TH1F *hDiv   = (TH1F*)gDirectory->Get("hDiv");
+   TH1F *hDiv = (TH1F *)dir.Get("hDiv");
    hDiv->SetStats(0);
    TH1F *hDivFR = (TH1F*)hDiv->Clone("hDivFR");
+   hDivFR->SetDirectory(&dir);
    T->Draw("Division>>hDivFR","Nation==\"FR\"","goff");
    hDiv->SetBarWidth(0.45);
    hDiv->SetBarOffset(0.1);
@@ -2818,9 +3929,7 @@ void hbars()
    gPad->Modified();
    gPad->Update();
 
-   TestReport1(C, "Ntuple drawing with alphanumeric variables");
-   DoCcode(C);
-   TestReport2();
+   TestReport(C, "hbars", "Ntuple drawing with alphanumeric variables");
 }
 
 
@@ -2831,21 +3940,23 @@ void parallelcoord()
 {
    TCanvas *C = StartTest(800,700);
 
-   TNtuple *ntuple = (TNtuple*)gHsimple->Get("ntuple");
+   auto ntuple = static_cast<TNtuple *>(gHsimple->Get("ntuple"));
 
    C->Divide(1,2);
 
    C->cd(1);
    ntuple->Draw("px:py:pz:random:px*py*pz","","para");
-   TParallelCoord* para = (TParallelCoord*)gPad->GetListOfPrimitives()->FindObject("ParaCoord");
+   auto para = static_cast<TParallelCoord *> (gPad->GetListOfPrimitives()->FindObject("ParaCoord"));
    para->SetLineColor(25);
    TColor *col25 = gROOT->GetColor(25);
    if (col25) col25->SetAlpha(0.05);
+
    C->cd(2);
    ntuple->Draw("px:py:pz:random:px*py*pz","","candle");
 
-   TestReport1(C, "Parallel Coordinates");
-   if (gOptionR) printf("%10d%10d\n",0,0);
+   TestReport(C, "parallelcoord", "Parallel Coordinates", "", kFineSvgTest);
+
+   if (col25) col25->SetAlpha(1.);
 }
 
 
@@ -2856,20 +3967,18 @@ void clonepad()
 {
    TCanvas *C = StartTest(700,500);
 
-   TH1 *hpxpy = (TH1*)gHsimple->Get("hpxpy");
+   TH1 *hpxpy = (TH1 *)gHsimple->Get("hpxpy")->Clone("hpxpy_clonepad");
    hpxpy->Draw();
    TCanvas *C2 = (TCanvas*)C->DrawClone();
 
-   TestReport1(C2, "Draw a pad and clone it");
-   DoCcode(C2);
-   TestReport2();
+   TestReport(C2, "clonepad", "Draw a pad and clone it");
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Needed for the "waves" test
 
-Double_t interference( Double_t *x, Double_t *par)
+Double_t interference(Double_t *x, Double_t *par)
 {
    Double_t x_p2 = x[0] * x[0];
    Double_t d_2 = 0.5 * par[2];
@@ -2885,7 +3994,7 @@ Double_t interference( Double_t *x, Double_t *par)
 ////////////////////////////////////////////////////////////////////////////////
 /// Needed for the "waves" test
 
-Double_t result( Double_t *x, Double_t *par)
+Double_t result(Double_t *x, Double_t *par)
 {
    Double_t xint[2];
    Double_t  maxintens = 0, xcur = 14;
@@ -2906,7 +4015,6 @@ Double_t result( Double_t *x, Double_t *par)
 
 void waves()
 {
-   TF2 * finter;
    Double_t d = 3;
    Double_t lambda = 1;
    Double_t amp = 10;
@@ -2915,6 +4023,7 @@ void waves()
 
    C->Range(0, -10,  30, 10);
    C->SetFillColor(0);
+
    TPad *pad = new TPad("pr","pr",  0.5, 0 , 1., 1);
    pad->Range(0, -10,  15, 10);
    pad->Draw();
@@ -2922,16 +4031,16 @@ void waves()
    const Int_t colNum = 30;
    Int_t palette[colNum];
    Int_t color_offset = 2001;
-   for (Int_t i=0;i<colNum;i++) {
-      new TColor(color_offset+i
-      ,    pow(i/((colNum)*1.0),0.3)
-      ,    pow(i/((colNum)*1.0),0.3)
-      ,0.5*(i/((colNum)*1.0)),"");
-      palette[i] = color_offset+i;
+   for (Int_t i = 0; i < colNum; i++) {
+      new TColor(color_offset + i,
+                 pow(i / ((colNum) * 1.0), 0.3),
+                 pow(i / ((colNum) * 1.0), 0.3),
+                 0.5 * (i / ((colNum) * 1.0)), "");
+      palette[i] = color_offset + i;
    }
-   gStyle->SetPalette(colNum,palette);
+   gStyle->SetPalette(colNum, palette);
    C->cd();
-   TF2 * f0 = new TF2("ray_source",interference, 0.02, 15, -8, 8, 4);
+   TF2 *f0 = new TF2("ray_source",interference, 0.02, 15, -8, 8, 4);
 
    f0->SetParameters(amp, lambda, 0, 0);
    f0->SetNpx(200);
@@ -2962,8 +4071,7 @@ void waves()
    graph->SetPoint(3, 0, -0.1);
    graph->Draw("F");
 
-   TLine * line;
-   line = new TLine(15,-10, 15, 0 - 0.5*d -0.2);
+   TLine *line = new TLine(15,-10, 15, 0 - 0.5*d -0.2);
    line->SetLineWidth(10); line->Draw();
    line = new TLine(15, 0 - 0.5*d +0.2 ,15, 0 + 0.5*d -0.2);
    line->SetLineWidth(10); line->Draw();
@@ -2972,27 +4080,27 @@ void waves()
    line->SetLineWidth(10); line->Draw();
 
    pad ->cd();
-   finter = new TF2("interference",interference, 0.01, 14, -10, 10, 4);
+   TF2 *finter = new TF2("interference",interference, 0.01, 14, -10, 10, 4);
 
    finter->SetParameters(amp, lambda, d, 1);
    finter->SetNpx(200);
    finter->SetNpy(200);
    finter->SetContour(colNum-2);
-   finter->Draw("samecolorz");
+   finter->Draw("samecolz");
 
-   TArc *arc = new TArc();;
-   arc->SetFillStyle(0);
-   arc->SetLineWidth(2);
-   arc->SetLineColor(5);
+   TArc arc;
+   arc.SetFillStyle(0);
+   arc.SetLineWidth(2);
+   arc.SetLineColor(5);
    Float_t r = 0.5 * lambda, dr = lambda;
-      for (Int_t i = 0; i < 15; i++) {
-      arc->DrawArc(0,  0.5*d, r, 0., 360., "only");
-      arc->DrawArc(0, -0.5*d, r, 0., 360., "only");
+   for (Int_t i = 0; i < 15; i++) {
+      arc.DrawArc(0,  0.5*d, r, 0., 360., "only");
+      arc.DrawArc(0, -0.5*d, r, 0., 360., "only");
       r += dr;
    }
 
-   pad ->cd();
-   TF2 * fresult = new TF2("result",result, 14, 15, -10, 10, 4);
+   pad->cd();
+   TF2 *fresult = new TF2("result", result, 14, 15, -10, 10, 4);
 
    fresult->SetParameters(amp, lambda, d, 1);
    fresult->SetNpx(300);
@@ -3002,13 +4110,758 @@ void waves()
    line = new TLine(13.8,-10, 14, 10);
    line->SetLineWidth(10); line->SetLineColor(0); line->Draw();
 
-   TestReport1(C, "TGraph, TArc, TPalette and TColor");
-   if (gOptionR) printf("%10d%10d\n",0,0);
+   TestReport(C, "waves", "TGraph, TArc, TPalette and TColor");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TF12
+
+void tf12()
+{
+   auto C = StartTest(600, 600);
+
+   auto f2 = new TF2("f2", "sin(x)*sin(y)/(x*y)", 0, 5, 0, 5);
+   auto f12 = new TF12("f12", f2, 0.1, "y");
+   f12->SetLineColor(kGreen);
+   f12->SetLineWidth(3);
+   f12->Draw();
+
+   TestReport(C, "tf12", "TF12");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TSpline3 / TSpline5
+
+void tspline()
+{
+  auto C = StartTest(800, 600);
+
+  Int_t nnp = 23;
+  Double_t a = -0.5;
+  Double_t b = 31;
+  const Double_t power = 0.75;
+
+  Double_t xmin = a - 0.05 * (b - a), xmax = b + 0.05 * (b - a);
+
+   // Define the original function
+   TF1 *f = new TF1("f", "sin(x)*sin(x/10)", xmin, xmax);
+   // Draw function
+   f->Draw("lc");
+
+   std::vector<Double_t> xx(nnp), yy(nnp);
+
+   for (Int_t i = 0; i < nnp; ++i) {
+      xx[i] = a + (b - a) * TMath::Power(i / Double_t(nnp - 1), power);
+      yy[i] = f->Eval(xx[i]);
+   }
+
+    // Evaluate fifth spline coefficients
+    Double_t eps = (b - a) * 1.e-5;
+    auto spline5 = new TSpline5("Spline5", xx.data(), f, nnp, "b1e1b2e2", f->Derivative(a), f->Derivative(b),
+                            (f->Derivative(a + eps) - f->Derivative(a)) / eps,
+                            (f->Derivative(b) - f->Derivative(b - eps)) / eps);
+
+    spline5->SetLineColor(kRed);
+    spline5->SetLineWidth(3);
+
+    // Draw the quintic spline
+    spline5->Draw("lcsame");
+
+    // Evaluate third spline coefficients
+    auto spline3 = new TSpline3("Spline3", xx.data(), yy.data(), nnp, "b1e1", f->Derivative(a), f->Derivative(b));
+
+    spline3->SetLineColor(kGreen);
+    spline3->SetLineWidth(3);
+    spline3->SetMarkerColor(kBlue);
+    spline3->SetMarkerStyle(20);
+    spline3->SetMarkerSize(1.5);
+
+    // Draw the third spline
+    spline3->Draw("lcpsame");
+
+    C->BuildLegend(0.6, 0.7, 0.88, 0.88);
+
+    TestReport(C, "tspline", "TSpline3 and TSpline5");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TScatter
+
+void tscatter()
+{
+   auto C = StartTest(800, 800);
+   C->SetRightMargin(0.14);
+
+   gStyle->SetPalette(kBird, nullptr, 0.6); // define a transparent palette
+
+   const int n = 175;
+   double x[n], y[n], c[n], s[n];
+
+   // Define four random data sets
+   TRandom r;
+   r.SetSeed(5000);
+   for (int i=0; i<n; i++) {
+      x[i] = 100*r.Rndm(i);
+      y[i] = 200*r.Rndm(i);
+      c[i] = 300*r.Rndm(i);
+      s[i] = 400*r.Rndm(i);
+   }
+
+   auto scatter = new TScatter(n, x, y, c, s);
+   scatter->SetMarkerStyle(20);
+   scatter->SetTitle("Scatter plot title;X title;Y title;Z title");
+   scatter->GetXaxis()->SetRangeUser(20.,90.);
+   scatter->GetYaxis()->SetRangeUser(55.,90.);
+   scatter->GetZaxis()->SetRangeUser(10.,200.);
+   scatter->Draw("A SKIPCOL");
+
+   auto pm = new TPolyMarker(n, x, y);
+   pm->SetMarkerColor(kGreen);
+   pm->SetMarkerStyle(29);
+   pm->SetMarkerSize(1.4);
+   pm->Draw("SKIPCOL");
+
+   TestReport(C, "tscatter", "TScatter with TPolyMarker test");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TEfficiency
+
+void tefficiency()
+{
+  auto C = StartTest(600, 400);
+
+  //canvas only needed for the documentation
+  C->Divide(2);
+  C->SetFillStyle(1001);
+  C->SetFillColor(kWhite);
+
+  //create one-dimensional TEfficiency object with fixed bin size
+  TEfficiency* pEff = new TEfficiency("eff","different confidence levels;x;#epsilon",20,0,10);
+  TRandom3 rand3;
+  rand3.SetSeed(9000);
+
+  for(int i=0; i<1000; ++i) {
+     //simulate events with variable under investigation
+     Double_t x = rand3.Uniform(10);
+     //check selection: bPassed = DoesEventPassSelection(x)
+     Bool_t bPassed = rand3.Rndm() < TMath::Gaus(x,5,4);
+     pEff->Fill(bPassed, x);
+  }
+
+  //set style attributes
+  pEff->SetFillStyle(3004);
+  pEff->SetFillColor(kRed);
+
+  //copy current TEfficiency object and set new confidence level
+  TEfficiency* pCopy = new TEfficiency(*pEff);
+  pCopy->SetConfidenceLevel(0.90);
+
+  //set style attributes
+  pCopy->SetFillStyle(3005);
+  pCopy->SetFillColor(kBlue);
+
+  C->cd(1);
+
+  //add legend
+  TLegend* leg1 = new TLegend(0.3,0.1,0.7,0.5);
+  leg1->AddEntry(pEff,"68.3%","F");
+  leg1->AddEntry(pCopy,"90%","F");
+
+  pEff->Draw("A4");
+  pCopy->Draw("same4");
+  leg1->Draw();
+
+  //use same confidence level but different statistic methods
+  TEfficiency* pEff2 = new TEfficiency(*pEff);
+  TEfficiency* pCopy2 = new TEfficiency(*pEff);
+
+  pEff2->SetStatisticOption(TEfficiency::kFNormal);
+  pCopy2->SetStatisticOption(TEfficiency::kFAC);
+
+  pEff2->SetTitle("different statistic options;x;#epsilon");
+
+  //set style attributes
+  pCopy2->SetFillStyle(3005);
+  pCopy2->SetFillColor(kBlue);
+
+  C->cd(2);
+
+  //add legend
+  TLegend* leg2 = new TLegend(0.3,0.1,0.7,0.5);
+  leg2->AddEntry(pEff2,"kFNormal","F");
+  leg2->AddEntry(pCopy2,"kFAC","F");
+
+  pEff2->Draw("a4");
+  pCopy2->Draw("same4");
+  leg2->Draw();
+
+  TestReport(C, "tefficiency", "TEfficiency test");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TProfile2D
+
+void profile_2d()
+{
+  auto C = StartTest(700, 500);
+
+  auto hprof2d  = new TProfile2D("hprof2d", "Profile of pz versus px and py",40,-4,4,40,-4,4,0,20);
+  hprof2d->SetDirectory(nullptr);
+
+  TRandom r;
+  r.SetSeed(300);
+  Float_t px, py, pz;
+  for (Int_t i = 0; i < 25000; i++) {
+    r.Rannor(px, py);
+    pz = px * px + py * py;
+    hprof2d->Fill(px, py, pz, 1);
+  }
+  C->Add(hprof2d);
+
+  TestReport(C, "profile_2d", "TProfile2D");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TProfile2Poly
+
+void profile_2poly()
+{
+   Int_t numEvents = 1000000;
+
+   TRandom ran;
+   ran.SetSeed(1000);
+
+   auto C = StartTest(800, 400);
+
+   // -------------------- Construct detector bins ------------------------
+   auto th2p = new TH2Poly();
+   th2p->SetName("th2p");
+   auto avg = new TProfile2Poly();
+   avg->SetName("prof2avg");
+   auto err = new TProfile2Poly();
+   err->SetName("prof2err");
+
+   std::ifstream infile;
+   TString dir = gROOT->GetTutorialDir();
+   dir.Append("/hist/data/tprofile2poly_tutorial.data");
+   infile.open(dir.Data());
+
+   if (!infile) { // Verify that the file was open successfully
+      std::cerr << dir.Data() << "\n";                             // Report error
+      std::cerr << "Error code: " << std::strerror(errno) << "\n"; // Get some info as to why
+      return;
+   }
+
+   std::vector<std::pair<Double_t, Double_t>> allCoords;
+   Double_t a, b;
+   while (infile >> a >> b)
+      allCoords.emplace_back(a, b);
+
+   if (allCoords.size() % 3 != 0) {
+      std::cout << "[ERROR] Bad file\n";
+      return;
+   }
+
+   Double_t x[3], y[3];
+   for (UInt_t i = 0; i < allCoords.size(); i += 3) {
+      x[0] = allCoords[i + 0].first;
+      y[0] = allCoords[i + 0].second;
+      x[1] = allCoords[i + 1].first;
+      y[1] = allCoords[i + 1].second;
+      x[2] = allCoords[i + 2].first;
+      y[2] = allCoords[i + 2].second;
+      th2p->AddBin(3, x, y);
+      avg->AddBin(3, x, y);
+      err->AddBin(3, x, y);
+   }
+
+   // -------------------- Generate particles ------------------------
+   for (int j = 0; j < numEvents; ++j) {
+      Double_t r1 = ran.Gaus(0, 10);
+      Double_t r2 = ran.Gaus(0, 8);
+      Double_t rok = ran.Gaus(20, 2);
+      Double_t rbad1 = ran.Gaus(1, 2);
+      Double_t rbad2 = ran.Gaus(2, 0);
+
+      Double_t val = rok;
+      // --------------------  Malfunctioning panels -------------------
+      if (th2p->IsInsideBin(4, r1, r2))
+         val = rok - rbad1;
+      if (th2p->IsInsideBin(20, r1, r2))
+         val = rok - rbad2;
+      if (th2p->IsInsideBin(13, r1, r2))
+         val = rok + rbad1;
+      if (th2p->IsInsideBin(37, r1, r2))
+         val = rok + rbad2;
+
+      // -------------------- Fill histograms ------------------------
+      th2p->Fill(r1, r2, val);
+      avg->Fill(r1, r2, val);
+      err->Fill(r1, r2, val);
+   }
+
+   C->Divide(3, 1);
+
+   // -------------------- Display end state ------------------------
+   C->cd(1);
+   th2p->SetStats(0);
+   th2p->SetTitle("total hits");
+   th2p->Draw("COLZ");
+
+   C->cd(2);
+   avg->SetStats(0);
+   avg->SetTitle("average charge");
+   avg->Draw("COLZ");
+
+   C->cd(3);
+   err->SetStats(0);
+   err->SetContentToError();
+   err->SetTitle("error");
+   err->Draw("COLZ");
+
+   TestReport(C, "profile_2dpoly", "TH2Poly and TPofile2Poly");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// TGraphPolar
+
+void graphpolar()
+{
+   // Illustrates how to use TGraphPolar
+
+   auto C = StartTest(1200,600);
+   C->Divide(2,1);
+   C->cd(1);
+
+   Double_t xmin=0;
+   Double_t xmax=TMath::Pi()*2;
+
+   Double_t x[1000];
+   Double_t y[1000];
+   Double_t xval1[20];
+   Double_t yval1[20];
+
+   for (Int_t ipt = 0; ipt < 1000; ipt++){
+      x[ipt] = ipt*(xmax-xmin)/1000+xmin;
+      y[ipt] = cos(2*x[ipt])*cos(20*x[ipt]);
+   }
+
+   TGraphPolar * grP = new TGraphPolar(1000,x,y);
+   grP->SetLineColor(2);
+   grP->SetLineWidth(2);
+   grP->SetFillStyle(3012);
+   grP->SetFillColor(2);
+   grP->Draw("AFL");
+
+   for (Int_t ipt = 0; ipt < 20; ipt++){
+      xval1[ipt] = x[1000/20*ipt];
+      yval1[ipt] = y[1000/20*ipt];
+   }
+
+   TGraphPolar *grP1 = new TGraphPolar(20,xval1,yval1);
+   grP1->SetMarkerStyle(29);
+   grP1->SetMarkerSize(2);
+   grP1->SetMarkerColor(4);
+   grP1->SetLineColor(4);
+   grP1->Draw("CP");
+
+   // Update, otherwise GetPolargram returns 0
+   gPad->Update();
+   if (grP1->GetPolargram()) {
+      grP1->GetPolargram()->SetTextColor(8);
+      grP1->GetPolargram()->SetRangePolar(-TMath::Pi(),TMath::Pi());
+      grP1->GetPolargram()->SetNdivPolar(703);
+      grP1->GetPolargram()->SetToRadian();
+   }
+
+   C->cd(2);
+   Double_t x2[30];
+   Double_t y2[30];
+   Double_t ex[30];
+   Double_t ey[30];
+   for (Int_t ipt = 0; ipt < 30; ipt++){
+      x2[ipt] = x[1000/30*ipt];
+      y2[ipt] = 1.2 + 0.4*sin(TMath::Pi()*2*ipt/30);
+      ex[ipt] = 0.2+0.1*cos(2*TMath::Pi()/30*ipt);
+      ey[ipt] = 0.2;
+   }
+
+   TGraphPolar *grPE = new TGraphPolar(30,x2,y2,ex,ey);
+   grPE->SetMarkerStyle(22);
+   grPE->SetMarkerSize(1.5);
+   grPE->SetMarkerColor(5);
+   grPE->SetLineColor(6);
+   grPE->SetLineWidth(2);
+   grPE->Draw("EP");
+   // Update, otherwise GetPolargram returns 0
+   gPad->Update();
+
+   if (grPE->GetPolargram()) {
+      grPE->GetPolargram()->SetTextSize(0.03);
+      grPE->GetPolargram()->SetTwoPi();
+      grPE->GetPolargram()->SetToRadian();
+   }
+
+   TestReport(C, "graphpolar", "TGraphPolar", "", kSkipSvgTest);
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Run all graphics stress tests.
 
-void cleanup()
+void stressGraphics(Int_t verbose = 0, Bool_t generate = kFALSE, Bool_t keep_files = kFALSE)
 {
+   gVerbose = verbose;
+   gOptionR = generate;
+   gOptionK = keep_files;
+
+   if (!gVerbose)
+      gErrorIgnoreLevel = 9999;
+   gROOT->SetStyle("Classic");
+
+   // only in batch web mode use
+   gWebMode = gROOT->IsWebDisplay();
+
+   // Check if hsimple.root exists
+
+   TString dir = gROOT->GetTutorialDir();
+
+   gHsimple = TFile::Open(dir + "/hsimple.root");
+   if (!gHsimple) {
+      gHsimple = TFile::Open("hsimple.root");
+      if (!gHsimple) {
+         printf("Create hsimple.root\n");
+         gROOT->Macro(dir + "/hsimple.C");
+         gHsimple = TFile::Open("hsimple.root");
+         if (!gHsimple) {
+            printf("Could not create hsimple.root\n");
+            return;
+         }
+      }
+   }
+
+   // Check if cernstaff.root exists
+   gCernstaff = TFile::Open("cernstaff.root");
+   if (!gCernstaff) {
+      gCernstaff = TFile::Open(dir + "/io/tree/cernstaff.root");
+      if (!gCernstaff) {
+         printf("Create ./cernstaff.root\n");
+         gROOT->Macro(dir + "/io/tree/tree500_cernbuild.C(0,0)");
+         gCernstaff = TFile::Open("cernstaff.root");
+         if (!gCernstaff) {
+            printf("Could not create ./cernstaff.root\n");
+            return;
+         }
+      }
+   }
+
+   if (!gVerbose)
+      gErrorIgnoreLevel = 0;
+
+   const char *ref_name = "stressGraphics.ref", *ref_kind = "       ";
+   ref_kind = "   ZLIB";
+   if (gWebMode) {
+      ref_name = "stressGraphics_web.ref";
+      ref_kind = gSvgMode ? "WEB SVG" : "    WEB";
+   } else if (gSvgMode) {
+      ref_kind = "    SVG";
+   } else {
+#ifdef R__HAS_ZLIB_NG
+      ref_name = "stressGraphics_zlibng.ref";
+      ref_kind = "ZLIB_NG";
+#endif
+   }
+
+   if (!ReadRefFile(ref_name, gRef))
+      return;
+
+   gRandom->SetSeed(65539);
+
+   if (!gOptionR) {
+      std::cout << "**********************************************************************\n";
+      std::cout << "*  Starting  Graphics - S T R E S S suite                    " << ref_kind << " *\n";
+   }
+
+   gTestsFailed = 0;
+
+   gBenchmark->Start("stressGraphics");
+
+   start_block("Basic Graphics");
+   tline         ();
+   tmarker       ();
+   tpolyline     ();
+   hatches       ();
+   arrows        ();
+   patterns      ();
+   crown         ();
+   piechart      ();
+   ttext1        ();
+   ttext2        ();
+   tlatex0       ();
+   tlatex1       ();
+   tlatex2       ();
+   tlatex3       ();
+   tlatex4       ();
+   tlatex5       ();
+   kerning       ();
+   itbf          ();
+   tmathtext     ();
+   transparency  ();
+   transpad      ();
+   statfitparam  ();
+   print_reports ();
+
+   start_block("High Level 2D Primitives");
+   tgaxis1       ();
+   tgaxis2       ();
+   tgaxis3       ();
+   tgaxis4       ();
+   tgaxis5       ();
+   tgaxis6       ();
+   padticks      ();
+   labels1       ();
+   th1_palette   ();
+   thstack1      ();
+   th2_cut       ();
+   th2_candle    ();
+   th2_violin    ();
+   th2_axlabels  ();
+   th2_stats     ();
+   tellipse      ();
+   feynman       ();
+   ratioplot     ();
+   print_reports ();
+
+   start_block("More high Level 2D Primitives");
+   tgraph1       ();
+   tgraph2       ();
+   tgraph3       ();
+   tgraph4       ();
+   tgraphreverse ();
+   gmultierrors  ();
+   tmultigraph1  ();
+   tmultigraph2  ();
+   waves         ();
+   tf12          ();
+   tspline       ();
+   tscatter      ();
+   tefficiency   ();
+   profile_2d    ();
+   profile_2poly ();
+   graphpolar    ();
+   print_reports ();
+
+   start_block("High Level 3D Primitives", true);
+   options2d1    ();
+   options2d2    ();
+   options2d3    ();
+   if (gSkip3D <= 0) {
+      options2d4 ();
+      options2d5 ();
+   }
+   earth         ();
+   if (gSkip3D <= 0) {
+      thstack2   ();
+      tgraph2d1  ();
+      tgraph2d2  ();
+      tgraph2derr();
+      tgraph2dassym();
+      tprofile3d ();
+      tf3        ();
+      basic3d    ();
+      annotation3d();
+   }
+   tgraph2d3     ();
+   print_reports ();
+
+   start_block("complex drawing and TPad");
+   if (gSkip3D <= 0) {
+      ntuple1    ();
+   }
+   quarks        ();
+   timage        ();
+   zoomtf1       ();
+   zoomfit       ();
+   parallelcoord ();
+   clonepad      ();
+   hbars         ();
+   th2poly       ();
+   print_reports ();
+
+   if (gOptionR) {
+      PrintRefHeader();
+      PrintRefEntries(gRef);
+   } else {
+      std::cout << "**********************************************************************\n";
+      if (!gTestsFailed) {
+         std::cout << "*  All the tests passed. :-)\n";
+      } else {
+         if (gTestsFailed>1) std::cout << "*  " << gTestsFailed <<" tests failed. :-(\n";
+         else                std::cout << "*  " << gTestsFailed <<" test failed. :-(\n";
+      }
+      std::cout << "**********************************************************************\n";
+
+      gBenchmark->Stop("stressGraphics");
+
+      //Print table with results
+      Bool_t UNIX = strcmp(gSystem->GetName(), "Unix") == 0;
+      if (UNIX) {
+         TString sp = gSystem->GetFromPipe("uname -a");
+         sp.Resize(60);
+         printf("*  SYS: %s\n",sp.Data());
+         if (strstr(gSystem->GetBuildNode(),"Darwin")) {
+            sp  = gSystem->GetFromPipe("sw_vers -productVersion");
+            sp += " Mac OS X ";
+            printf("*  SYS: %s\n",sp.Data());
+         }
+      } else {
+         const Char_t *os = gSystem->Getenv("OS");
+         if (!os) printf("*  SYS: Windows 95\n");
+         else     printf("*  SYS: %s %s \n",os,gSystem->Getenv("PROCESSOR_IDENTIFIER"));
+      }
+
+      printf("**********************************************************************\n");
+      printf("* ");
+
+      gBenchmark->Print("stressGraphics");
+
+      Double_t rootmarks = 1.;
+      if (gSvgMode) {
+         Double_t ct = gBenchmark->GetCpuTime("stressGraphics");
+         //normalize at 3945 rootmarks on hades58
+         rootmarks = 3945.*(0.99/ct);
+      } else if (gWebMode) {
+         Double_t rt = gBenchmark->GetRealTime("stressGraphics");
+         //normalize at 2692 rootmarks on AMD Ryzen 9 3900X with chromium browser
+         rootmarks = 2692.*(52.36/rt);
+      } else {
+         Double_t ct = gBenchmark->GetCpuTime("stressGraphics");
+         //normalize at 860 rootmarks on pcbrun4
+         rootmarks = 860.*(47.12/ct);
+      }
+
+      printf("**********************************************************************\n");
+      printf("*  ROOTMARKS = %6.1f  *  Root %-8s  %d/%d\n",rootmarks,gROOT->GetVersion(),
+             gROOT->GetVersionDate(),gROOT->GetVersionTime());
+      printf("**********************************************************************\n");
+   }
+
 }
+
+
+#ifndef __CLING__
+////////////////////////////////////////////////////////////////////////////////
+
+void BuildReferenceFile(int argc, char *argv[], int arg_first)
+{
+   std::vector<RefEntry> entries_min, entries_max;
+
+   int NumFiles = 0;
+
+   for (int nfile = arg_first; nfile < argc; ++nfile) {
+      const char *fname = argv[nfile];
+
+      std::vector<RefEntry> entries;
+
+      if (!ReadRefFile(fname, entries))
+         return;
+
+      NumFiles++;
+
+      if (nfile == 2) {
+         entries_min = entries;
+         entries_max = entries;
+      } else {
+         for(auto& e : entries) {
+            auto emin = FindEntry(entries_min, e.name);
+            auto emax = FindEntry(entries_max, e.name);
+            if (emin)
+               emin->UpdateMin(e);
+            else
+               entries_min.push_back(e);
+            if (emax)
+               emax->UpdateMax(e);
+            else
+               entries_max.push_back(e);
+         }
+      }
+   }
+
+   if (NumFiles > 1)
+      for (auto &d : entries_min) {
+         auto emax = FindEntry(entries_max, d.name);
+         if (emax) d.CalcMeanError(*emax);
+      }
+
+   PrintRefHeader();
+   PrintRefEntries(entries_min);
+}
+
+
+int main(int argc, char *argv[])
+{
+   Int_t verbose = 0;
+   Bool_t keep = kFALSE, generate = kFALSE;
+
+   for (int i = 1; i < argc; ++i) {
+      if (!strcmp(argv[i], "-v"))
+         verbose++;
+      else if (!strcmp(argv[i], "-r"))
+         generate = kTRUE;
+      else if (!strncmp(argv[i], "--web", 5))
+         gWebMode = kTRUE;
+      else if (!strcmp(argv[i], "--build")) {
+         BuildReferenceFile(argc, argv, i+1);
+         return 0;
+      } else if (!strcmp(argv[i], "-k"))
+         keep = kTRUE;
+      else if (!strncmp(argv[i], "--svg=", 6)) {
+         gSvgMode = kTRUE;
+         gSvgCompact = kTRUE;
+         gSvgRefPath = argv[i] + 6;
+      } else if (!strncmp(argv[i], "--svg0=", 7)) {
+         gSvgMode = kTRUE;
+         gSvgCompact = kFALSE;
+         gSvgRefPath = argv[i] + 7;
+      } else if (strstr(argv[i], "-p=") == argv[i])
+         filePrefix = argv[i] + 3;
+      else if (!strcmp(argv[i], "-skip3d"))
+         gSkip3D = 1;
+      else if (!strcmp(argv[i], "-3d"))
+         gSkip3D = -1;
+      else if (!strcmp(argv[i], "-h")) {
+         printf("Usage: stressGraphics [-h] [-r] [-k] [-p=prefix] [--web]\n");
+         printf("Options:\n");
+         printf("  -r : Generate the reference output.\n");
+         printf("       Redirect the output in the file \"stressGraphics.ref\"\n");
+         printf("       to redefine the reference file.\n");
+         printf("  -k : Keep the output files even for passed tests.\n");
+         printf("       By default output files for passed tests are deleted.\n");
+         printf("  -p=prefix : Provide custom prefix for generated files, default \"sg\"\n");
+         printf("  -skip3d : skip 3D testing.\n");
+         printf("  -3d : force 3D testing.\n");
+         printf("  -svg=<path/to/ref/files> : check compact SVG files.\n");
+         printf("  -svg0=<path/to/ref/files> : check normal SVG files.\n");
+         printf("  -v : increase verbosity.\n");
+         printf("  --web=chrome|firefox|off : Configure web mode\n");
+         printf("  -h : Print usage\n");
+         printf("  --build file1.txt file2.txt file3.txt : Build ref file\n");
+         printf("      One run stressGraphics on different platforms with -r flag and store into text files.\n");
+         printf("      Based on these files one generate ref file which can be commited to repository\n");
+         printf("  All other options are ignored.\n");
+         return 0;
+      }
+   }
+
+   gROOT->SetBatch();
+   TApplication theApp("App", &argc, argv);
+
+   gBenchmark = new TBenchmark();
+
+   stressGraphics(verbose, generate, keep);
+
+   return gTestsFailed != 0;
+}
+
+#endif

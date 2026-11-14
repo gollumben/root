@@ -128,7 +128,6 @@ Histogram drawn from an ntuple:
 #include "TVirtualX.h"
 
 
-ClassImp(TH2Editor);
 
 enum ETH2Wid {
    kTH2_TITLE,
@@ -288,7 +287,7 @@ TH2Editor::TH2Editor(const TGWindow *p, Int_t width,
 
    // Bin bar settings
    f12 = new TGCompositeFrame(this, 145, 10, kHorizontalFrame |
-                                             kLHintsExpandX   |
+                                             kFitWidth        |
                                              kFixedWidth      |
                                              kOwnBackground);
    f12->AddFrame(new TGLabel(f12,"Bar"),
@@ -323,7 +322,7 @@ TH2Editor::TH2Editor(const TGWindow *p, Int_t width,
    // Set the color and pattern of the Frame (only for Cartesian 3D plot).
    f38 = new TGCompositeFrame(this, 80, 20, kVerticalFrame);
    TGCompositeFrame *f39 = new TGCompositeFrame(f38, 145, 10, kHorizontalFrame |
-                                                              kLHintsExpandX   |
+                                                              kFitWidth        |
                                                               kFixedWidth      |
                                                               kOwnBackground);
    f39->AddFrame(new TGLabel(f39,"Frame Fill"),
@@ -361,7 +360,7 @@ void TH2Editor::CreateBinTab()
    fBinXCont = new TGCompositeFrame(fBin, 80, 20, kVerticalFrame);
    TGCompositeFrame *title1 = new TGCompositeFrame(fBinXCont, 145, 10,
                                                               kHorizontalFrame |
-                                                              kLHintsExpandX   |
+                                                              kFitWidth        |
                                                               kFixedWidth      |
                                                               kOwnBackground);
    title1->AddFrame(new TGLabel(title1, "Rebin"),
@@ -430,7 +429,7 @@ void TH2Editor::CreateBinTab()
    fBinXCont1 = new TGCompositeFrame(fBin, 80, 20, kVerticalFrame);
    TGCompositeFrame *title2 = new TGCompositeFrame(fBinXCont1, 145, 10,
                                                                kHorizontalFrame |
-                                                               kLHintsExpandX   |
+                                                               kFitWidth        |
                                                                kFixedWidth      |
                                                                kOwnBackground);
    title2->AddFrame(new TGLabel(title2, "X-Axis"),
@@ -504,7 +503,7 @@ void TH2Editor::CreateBinTab()
    fBinYCont1 = new TGCompositeFrame(fBin, 80, 20, kVerticalFrame);
    TGCompositeFrame *title3 = new TGCompositeFrame(fBinYCont1, 145, 10,
                                                                kHorizontalFrame |
-                                                               kLHintsExpandX   |
+                                                               kFitWidth        |
                                                                kFixedWidth      |
                                                                kOwnBackground);
    title3->AddFrame(new TGLabel(title3, "Y-Axis"),
@@ -576,7 +575,7 @@ void TH2Editor::CreateBinTab()
    // Axis ranges
    TGCompositeFrame *title4 = new TGCompositeFrame(fBin, 145, 10,
                                                          kHorizontalFrame |
-                                                         kLHintsExpandX   |
+                                                         kFitWidth        |
                                                          kFixedWidth      |
                                                          kOwnBackground);
    title4->AddFrame(new TGLabel(title4, "Axis Range"),
@@ -1761,19 +1760,19 @@ void TH2Editor::DoBinLabel()
    // Get the divider of nx/ny which is closest to numx/numy
    Int_t *divx = Dividers(nx);
    Int_t *divy = Dividers(ny);
-   Int_t diff = TMath::Abs(numx - divx[1]);
+   Int_t diff = std::abs(numx - divx[1]);
    Int_t c = 1; Int_t d = 1;
    for (i = 2; i <= divx[0]; i++) {
-      if ((TMath::Abs(numx - divx[i])) < diff) {
+      if ((std::abs(numx - divx[i])) < diff) {
          c = i;
-         diff = TMath::Abs(numx - divx[i]);
+         diff = std::abs(numx - divx[i]);
       }
    }
-   diff = TMath::Abs(numy - divy[1]);
+   diff = std::abs(numy - divy[1]);
    for (i = 2; i <= divy[0]; i++) {
-      if ((TMath::Abs(numy - divy[i])) < diff) {
+      if ((std::abs(numy - divy[i])) < diff) {
          d = i;
-         diff = TMath::Abs(numy - divy[i]);
+         diff = std::abs(numy - divy[i]);
       }
    }
    if (divx[c]!= fHist->GetXaxis()->GetNbins() ||
@@ -2324,8 +2323,7 @@ void TH2Editor::DoSliderXMoved()
       py1   = fGedEditor->GetPad()->YtoAbsPixel(ymin);
       px2   = fGedEditor->GetPad()->XtoAbsPixel(xright);
       py2   = fGedEditor->GetPad()->YtoAbsPixel(ymax);
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+      fGedEditor->GetPad()->FeedbackMode(kTRUE);
       fGedEditor->GetPad()->cd();
       fGedEditor->GetPad()->SetLineWidth(1);
       fGedEditor->GetPad()->SetLineColor(2);
@@ -2343,8 +2341,7 @@ void TH2Editor::DoSliderXMoved()
                 fCoordsCombo->GetSelected()==kCOORDS_CAR) {
       // 3D plot
       Float_t p1[3], p2[3], p3[3], p4[3], p5[3], p6[3], p7[3], p8[3];
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+      fGedEditor->GetPad()->FeedbackMode(kTRUE);
       fGedEditor->GetPad()->cd();
       TView *fView = fGedEditor->GetPad()->GetView();
       if (!fView) return;
@@ -2407,8 +2404,7 @@ void TH2Editor::DoSliderXPressed()
       // 2D Plot
       if (!fGedEditor->GetPad()) return;
       fGedEditor->GetPad()->cd();
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kFALSE);
+      fGedEditor->GetPad()->FeedbackMode(kFALSE);
       fGedEditor->GetPad()->SetLineWidth(1);
       fGedEditor->GetPad()->SetLineColor(2);
       xleft  = xaxis->GetBinLowEdge((Int_t)((fSliderX->GetMinPosition())+0.5));
@@ -2440,8 +2436,7 @@ void TH2Editor::DoSliderXPressed()
       fP5oldx[1] = fP6oldx[1] = fP7oldx[1] = fP8oldx[1] = rmax[1];
       fP1oldx[2] = fP2oldx[2] = fP5oldx[2] = fP6oldx[2] = rmin[2];
       fP3oldx[2] = fP4oldx[2] = fP7oldx[2] = fP8oldx[2] = rmax[2];
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+      fGedEditor->GetPad()->FeedbackMode(kTRUE);
       fGedEditor->GetPad()->SetLineWidth(1);
       fGedEditor->GetPad()->SetLineColor(2);
       PaintBox3D(fP2oldx, fP3oldx, fP7oldx, fP6oldx);
@@ -2511,8 +2506,7 @@ void TH2Editor::DoSliderYMoved()
       py1  = fGedEditor->GetPad()->YtoAbsPixel(ybottom);
       px2  = fGedEditor->GetPad()->XtoAbsPixel(xmax);
       py2  = fGedEditor->GetPad()->YtoAbsPixel(ytop);
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+      fGedEditor->GetPad()->FeedbackMode(kTRUE);
       fGedEditor->GetPad()->cd();
       fGedEditor->GetPad()->SetLineWidth(1);
       fGedEditor->GetPad()->SetLineColor(2);
@@ -2530,8 +2524,7 @@ void TH2Editor::DoSliderYMoved()
               fCoordsCombo->GetSelected()==kCOORDS_CAR) {
       // 3D plot
       Float_t p1[3], p2[3], p3[3], p4[3], p5[3], p6[3], p7[3], p8[3];
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+      fGedEditor->GetPad()->FeedbackMode(kTRUE);
       fGedEditor->GetPad()->cd();
       TView *fView = fGedEditor->GetPad()->GetView();
       if (!fView) return;
@@ -2594,8 +2587,7 @@ void TH2Editor::DoSliderYPressed()
       // 2D plot:
       if (!fGedEditor->GetPad()) return;
       fGedEditor->GetPad()->cd();
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kFALSE);
+      fGedEditor->GetPad()->FeedbackMode(kFALSE);
       fGedEditor->GetPad()->SetLineWidth(1);
       fGedEditor->GetPad()->SetLineColor(2);
       ybottom = yaxis->GetBinLowEdge((Int_t)((fSliderY->GetMinPosition())+0.5));
@@ -2627,8 +2619,7 @@ void TH2Editor::DoSliderYPressed()
                  yaxis->GetBinUpEdge((Int_t)((fSliderY->GetMaxPosition())+0.5));
       fP1oldy[2] = fP2oldy[2] = fP5oldy[2] = fP6oldy[2] = rmin[2];
       fP3oldy[2] = fP4oldy[2] = fP7oldy[2] = fP8oldy[2] = rmax[2];
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+      fGedEditor->GetPad()->FeedbackMode(kTRUE);
       fGedEditor->GetPad()->SetLineWidth(1);
       fGedEditor->GetPad()->SetLineColor(2);
       PaintBox3D(fP2oldy, fP3oldy, fP7oldy, fP6oldy);

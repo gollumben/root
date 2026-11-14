@@ -1,0 +1,188 @@
+/// \file ROOT/RNTupleMerger.hxx
+/// \author Jakob Blomer <jblomer@cern.ch>, Max Orok <maxwellorok@gmail.com>, Alaettin Serhan Mete <amete@anl.gov>
+/// \date 2020-07-08
+/// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback
+/// is welcome!
+
+/*************************************************************************
+ * Copyright (C) 1995-2020, Rene Brun and Fons Rademakers.               *
+ * All rights reserved.                                                  *
+ *                                                                       *
+ * For the licensing terms see $ROOTSYS/LICENSE.                         *
+ * For the list of contributors see $ROOTSYS/README/CREDITS.             *
+ *************************************************************************/
+
+#ifndef ROOT_RNTupleMerger
+#define ROOT_RNTupleMerger
+
+#include <ROOT/RError.hxx>
+#include <ROOT/RNTupleDescriptor.hxx>
+#include <ROOT/RNTupleTypes.hxx>
+#include <ROOT/RPageStorage.hxx>
+#include <ROOT/TTaskGroup.hxx>
+#include <Compression.h>
+
+#include <memory>
+#include <optional>
+
+namespace ROOT {
+
+class REntry;
+class RNTuple;
+
+namespace Internal {
+
+class RPageSource;
+class RNTupleMergeStrategySlow;
+struct RNTupleSlowMergeData;
+
+enum class ENTupleMergingMode {
+   /// The merger will discard all columns that aren't present in the prototype model (i.e. the model of the first
+   /// source); also all subsequent RNTuples must contain at least all the columns that are present in the prototype
+   /// model
+   kFilter,
+   /// The merger will refuse to merge any 2 RNTuples whose schema doesn't match exactly
+   kStrict,
+   /// The merger will update the output model to include all columns from all sources. Entries corresponding to columns
+   /// that are not present in a source will be set to the default value of the type.
+   kUnion
+};
+
+inline const char *ToString(ENTupleMergingMode mode)
+{
+   static const char *const kMergingModeStr[] = {"Filter", "Strict", "Union"};
+   return kMergingModeStr[static_cast<int>(mode)];
+}
+
+enum class ENTupleMergeErrBehavior {
+   /// The merger will abort merging as soon as an error is encountered
+   kAbort,
+   /// Upon errors, the merger will skip the current source and continue
+   kSkip
+};
+
+enum class ENTupleMergeVersionBehavior {
+   /// The merger will emit a warning when merging RNTuples with higher version than the latest supported by this
+   /// ROOT version, but merging will work. Some optional features present in the source(s) may be missing from the
+   /// merged RNTuple.
+   kWarnOnHigherVersion,
+   /// The merger will refuse to merge RNTuples with higher versions than the latest supported by this ROOT version.
+   /// The merging process will abort as soon as one such source is encountered.
+   kAbortOnHigherVersion
+};
+
+/// Set of merging options to pass to RNTupleMerger.
+/// If you're using the merger through TFileMerger you need to give it string-based options instead.
+/// Here is the mapping for the TFileMerger options:
+///   - "rntuple.MergingMode=(Filter|Union|...)" -> sets fMergingMode
+///   - "rntuple.ErrBehavior=(Abort|Skip|...)"   -> sets fErrBehavior
+///   - "rntuple.VersionBehavior=(WarnOnHigherVersion|AbortOnHigherVersion|...)" -> sets fVersionBehavior
+///   - "rntuple.ExtraVerbose"                   -> sets fExtraVerbose to true
+/// Rules about the string-based options:
+///   1. there must be no space between the separators (i.e. `.` and `=`)
+///   2. all string matching is case insensitive
+struct RNTupleMergeOptions {
+   /// If fCompressionSettings is empty (the default), the merger will not change the
+   /// compression of any of its sources (fast merging). Otherwise, all sources will be converted to the specified
+   /// compression algorithm and level.
+   std::optional<std::uint32_t> fCompressionSettings;
+   /// Determines how the merging treats sources with different models (\see ENTupleMergingMode).
+   ENTupleMergingMode fMergingMode = ENTupleMergingMode::kFilter;
+   /// Determines how the Merge function behaves upon merging errors
+   ENTupleMergeErrBehavior fErrBehavior = ENTupleMergeErrBehavior::kAbort;
+   /// Determines how the Merge function behaves depending on the RNTuple sources' version.
+   ENTupleMergeVersionBehavior fVersionBehavior = ENTupleMergeVersionBehavior::kWarnOnHigherVersion;
+   /// If true, the merger will emit further diagnostics and information.
+   bool fExtraVerbose = false;
+};
+
+/// Information regarding the current slow merge process that gets passed to the RNTupleMergeActions
+struct RNTupleMergeActionContext {
+   ROOT::NTupleSize_t fSourceEntryIndex = 0;
+   ROOT::NTupleSize_t fDestinationEntryIndex = 0;
+};
+
+enum class ENTupleMergeActionResult {
+   // Don't emit this entry
+   kDrop,
+   // Emit this entry, then continue
+   kEmit,
+   // Emit this entry, then call the function again
+   kEmitMulti,
+};
+
+// clang-format off
+/**
+ * \class ROOT::Experimental::Internal::RNTupleMergeActions
+ * \ingroup NTuple
+ * \brief Container for callbacks that are invoked during the "slow merge" process.
+ *        This allows customizing how the merging happens entry-by-entry, enabling things like dropping individual
+ *        entries from the destination RNTuple, modifying their values on the fly or creating new entries artificially.
+ */
+// clang-format on
+class RNTupleMergeActions {
+public:
+   RNTupleMergeActions() = default;
+   virtual ~RNTupleMergeActions() = default;
+
+   RNTupleMergeActions(const RNTupleMergeActions &) = delete;
+   RNTupleMergeActions &operator=(const RNTupleMergeActions &) = delete;
+   RNTupleMergeActions(RNTupleMergeActions &&) = default;
+   RNTupleMergeActions &operator=(RNTupleMergeActions &&) = default;
+
+   /// Invoked every time an entry is merged from a source RNTuple to the destination RNTuple.
+   virtual ENTupleMergeActionResult OnFill(ROOT::REntry &, const RNTupleMergeActionContext &)
+   {
+      return ENTupleMergeActionResult::kEmit;
+   }
+
+   // Invoked at the end of each source's merging process.
+   virtual ENTupleMergeActionResult OnSourceEnd(ROOT::REntry &, const RNTupleMergeActionContext &)
+   {
+      return ENTupleMergeActionResult::kDrop;
+   }
+
+   /// Invoked at the end of the merge process, right before committing the dataset.
+   /// This allows appending more entries at the end of the merge.
+   virtual ENTupleMergeActionResult BeforeCommit(ROOT::REntry &, const RNTupleMergeActionContext &)
+   {
+      return ENTupleMergeActionResult::kDrop;
+   }
+};
+
+// clang-format off
+/**
+ * \class ROOT::Internal::RNTupleMerger
+ * \ingroup NTuple
+ * \brief Given a set of RPageSources merge them into an RPagePersistentSink, optionally changing their compression.
+ *        This can also be used to change the compression of a single RNTuple by just passing a single source.
+ */
+// clang-format on
+class RNTupleMerger final {
+   friend class ROOT::RNTuple;
+
+   std::unique_ptr<ROOT::Internal::RPagePersistentSink> fDestination;
+   std::unique_ptr<ROOT::RNTupleModel> fModel;
+
+   /// Creates a RNTupleMerger with the given destination.
+   /// The model must be given if and only if `destination` has been initialized with that model
+   /// (i.e. in case of incremental merging).
+   RNTupleMerger(std::unique_ptr<ROOT::Internal::RPagePersistentSink> destination,
+                 std::unique_ptr<ROOT::RNTupleModel> model);
+
+public:
+   /// Creates a RNTupleMerger with the given destination.
+   explicit RNTupleMerger(std::unique_ptr<ROOT::Internal::RPagePersistentSink> destination);
+
+   /// Merge a given set of sources into the destination.
+   /// Note that sources with an empty schema (i.e. created from a Model that had no fields added to it) are in
+   /// general valid (depending on the merging mode) but add no entries to the destination.
+   RResult<void> Merge(std::span<ROOT::Internal::RPageSource *> sources,
+                       const RNTupleMergeOptions &mergeOpts = RNTupleMergeOptions());
+
+}; // end of class RNTupleMerger
+
+} // namespace Internal
+} // namespace ROOT
+
+#endif

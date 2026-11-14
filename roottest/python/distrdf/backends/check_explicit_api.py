@@ -1,0 +1,152 @@
+import textwrap
+
+import pytest
+import ROOT
+import ROOT._distrdf
+
+
+class TestExplicitAPI:
+    """
+    Tests for compatibility with using full names to classes and functions of
+    distributed RDataFrame.
+    """
+
+    def test_histo_variations(self, payload):
+        connection, backend = payload
+        if backend == "dask":
+            RDataFrame = ROOT.RDF.Distributed.Dask.RDataFrame
+            df = RDataFrame(10, npartitions=2, executor=connection)
+        elif backend == "spark":
+            RDataFrame = ROOT.RDF.Distributed.Spark.RDataFrame
+            df = RDataFrame(10, npartitions=2, executor=connection)
+        df = df.Define("x", "1")
+        df1 = df.Vary("x", "ROOT::RVecI{-2,2}", ["down", "up"])
+        h = df1.Histo1D(("name", "title", 10, -10, 10), "x")
+        histos = ROOT._distrdf.VariationsFor(h)
+
+        expectednames = ["nominal", "x:up", "x:down"]
+        expectedmeans = [1, 2, -2]
+        for varname, mean in zip(expectednames, expectedmeans):
+            histo = histos[varname]
+            assert isinstance(histo, ROOT.TH1D)
+            assert histo.GetEntries() == 10
+            assert histo.GetMean() == mean
+
+    def test_rungraphs_3histos(self, payload):
+        """
+        Submit three different Dask RDF graphs concurrently
+        """
+        # Create a test file for processing
+        treename = "tree"
+        filename = "../data/ttree/distrdf_roottest_check_rungraphs.root"
+        nentries = 10000
+        connection, backend = payload
+        if backend == "dask":
+            RDataFrame = ROOT.RDF.Distributed.Dask.RDataFrame
+        elif backend == "spark":
+            RDataFrame = ROOT.RDF.Distributed.Spark.RDataFrame
+
+        histoproxies = [
+            RDataFrame(treename, filename, npartitions=2, executor=connection).Histo1D((col, col, 1, 40, 45), col)
+            for col in ["b1", "b2", "b3"]
+        ]
+
+        # Before triggering the computation graphs values are None
+        for proxy in histoproxies:
+            assert proxy.proxied_node.value is None
+
+        ROOT._distrdf.RunGraphs(histoproxies)
+
+        # After RunGraphs all histograms are correctly assigned to the
+        # node objects
+        for proxy in histoproxies:
+            histo = proxy.proxied_node.value
+            assert isinstance(histo, ROOT.TH1D)
+            assert histo.GetEntries() == nentries
+            assert histo.GetMean() == 42
+
+    def test_redefine_one_column(self, payload):
+        """Test that values of one column can be properly redefined."""
+        # A simple dataframe with ten sequential numbers from 0 to 9
+        connection, backend = payload
+        if backend == "dask":
+            RDataFrame = ROOT.RDF.Distributed.Dask.RDataFrame
+            df = RDataFrame(10, executor=connection)
+        elif backend == "spark":
+            RDataFrame = ROOT.RDF.Distributed.Spark.RDataFrame
+            df = RDataFrame(10, executor=connection)
+        df_before = df.Define("x", "1")
+        df_after = df_before.Redefine("x", "2")
+
+        # Initial sum should be equal to 10
+        sum_before = df_before.Sum("x")
+        # Sum after the redefinition should be equal to 20
+        sum_after = df_after.Sum("x")
+
+        assert sum_before.GetValue() == 10.0
+        assert sum_after.GetValue() == 20.0
+
+
+class TestDeprecation:
+    """Test deprecation warnings in the distributed module."""
+
+    MODULE_WARN = textwrap.dedent(
+        """
+    In ROOT 6.36, the ROOT.RDF.Experimental.Distributed module has become just ROOT.RDF.Distributed. In the
+    future, the 'Experimental' keyword will be removed, so it is suggested to move to the stable API in user 
+    code. You can now change lines such as:
+    ```
+    connection = ... # your distributed Dask client or SparkContext
+    RDataFrame = ROOT.RDF.Experimental.Distributed.[Backend].RDataFrame
+    df = RDataFrame(..., [daskclient,sparkcontext] = connection)
+    ```
+    to simply:
+    ```
+    connection = ... # your distributed Dask client or SparkContext
+    df = ROOT.RDataFrame(..., executor = connection)
+    ```
+    """
+    )
+
+    def test_experimental_module_deprecation(self, payload):
+        connection, backend = payload
+        with pytest.warns() as warninglist:
+            if backend == "dask":
+                RDataFrame = ROOT.RDF.Experimental.Distributed.Dask.RDataFrame
+                df = RDataFrame(10, npartitions=2, executor=connection)
+            elif backend == "spark":
+                RDataFrame = ROOT.RDF.Experimental.Distributed.Spark.RDataFrame
+                df = RDataFrame(10, npartitions=2, executor=connection)
+
+            assert len(warninglist) == 1, f"{warninglist}"
+            assert issubclass(warninglist[0].category, FutureWarning)
+            assert str(warninglist[0].message == self.MODULE_WARN)
+
+            assert df.Count().GetValue() == 10
+
+    def test_backend_argument_deprecation(self, payload):
+        connection, backend = payload
+        with pytest.warns() as warninglist:
+            if backend == "dask":
+                RDataFrame = ROOT.RDF.Experimental.Distributed.Dask.RDataFrame
+                df = RDataFrame(10, npartitions=2, daskclient=connection)
+            elif backend == "spark":
+                RDataFrame = ROOT.RDF.Experimental.Distributed.Spark.RDataFrame
+                df = RDataFrame(10, npartitions=2, sparkcontext=connection)
+
+            keyword = "daskclient" if backend == "dask" else "sparkcontext"
+            keyword_warn = (
+                f"The keyword argument '{keyword}' is not necessary anymore and will be removed in a future release"
+            )
+
+            assert len(warninglist) == 2, f"{warninglist}"
+            assert issubclass(warninglist[0].category, FutureWarning)
+            assert str(warninglist[0].message == self.MODULE_WARN)
+            assert issubclass(warninglist[1].category, FutureWarning)
+            assert str(warninglist[1].message == keyword_warn)
+
+            assert df.Count().GetValue() == 10
+
+
+if __name__ == "__main__":
+    pytest.main(args=[__file__])

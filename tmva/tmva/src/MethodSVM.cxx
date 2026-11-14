@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodSVM                                                             *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation                                                            *
@@ -34,7 +34,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::MethodSVM
@@ -82,7 +82,6 @@ using std::stringstream;
 //const Int_t basketsize__ = 1280000;
 REGISTER_METHOD(SVM)
 
-ClassImp(TMVA::MethodSVM);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// standard constructor
@@ -280,7 +279,6 @@ void TMVA::MethodSVM::ProcessOptions()
 
 void TMVA::MethodSVM::Train()
 {
-   fIPyMaxIter = fMaxIter;
    Data()->SetCurrentType(Types::kTraining);
 
    Log() << kDEBUG << "Create event vector"<< Endl;
@@ -376,8 +374,6 @@ void TMVA::MethodSVM::Train()
    Timer timer( GetName() );
    Log() << kINFO << "Sorry, no computing time forecast available for SVM, please wait ..." << Endl;
 
-   if (fInteractive) fWgSet->SetIPythonInteractive(&fExitFromTraining, &fIPyCurrentIter);
-
    fWgSet->Train(fMaxIter);
 
    Log() << kINFO << "Elapsed time: " << timer.GetElapsedTime()
@@ -388,8 +384,6 @@ void TMVA::MethodSVM::Train()
    delete fWgSet;
    fWgSet=0;
 
-    if (!fExitFromTraining) fIPyMaxIter = fIPyCurrentIter;
-    ExitFromTraining();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

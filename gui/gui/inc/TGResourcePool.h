@@ -88,7 +88,7 @@ private:
 
 public:
    TGResourcePool(TGClient *client);
-   virtual ~TGResourcePool();
+   ~TGResourcePool() override;
 
    TGGCPool       *GetGCPool() const { return fGCPool; }
    TGFontPool     *GetFontPool() const { return fFontPool; }
@@ -173,7 +173,7 @@ public:
 
    Atom_t       GetClipboard() const { return fClipboardAtom; }
 
-   ClassDef(TGResourcePool,0)  // Graphics resource pool
+   ClassDefOverride(TGResourcePool,0)  // Graphics resource pool
 };
 
 #endif

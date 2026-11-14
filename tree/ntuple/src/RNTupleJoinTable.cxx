@@ -1,0 +1,119 @@
+/// \file RNTupleJoinTable.cxx
+/// \author Florine de Geus <florine.de.geus@cern.ch>
+/// \date 2024-04-02
+/// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback
+/// is welcome!
+
+/*************************************************************************
+ * Copyright (C) 1995-2024, Rene Brun and Fons Rademakers.               *
+ * All rights reserved.                                                  *
+ *                                                                       *
+ * For the licensing terms see $ROOTSYS/LICENSE.                         *
+ * For the list of contributors see $ROOTSYS/README/CREDITS.             *
+ *************************************************************************/
+
+#include <ROOT/RNTupleJoinTable.hxx>
+
+ROOT::Experimental::Internal::RNTupleJoinTable::REntryMapping::REntryMapping(
+   ROOT::Internal::RPageSource &pageSource, const std::vector<std::string> &joinFieldNames,
+   ROOT::NTupleSize_t entryOffset)
+   : fJoinFieldNames(joinFieldNames)
+{
+   static const std::unordered_set<std::string> allowedTypes = {"std::int8_t",   "std::int16_t", "std::int32_t",
+                                                                "std::int64_t",  "std::uint8_t", "std::uint16_t",
+                                                                "std::uint32_t", "std::uint64_t"};
+
+   pageSource.Attach();
+   std::vector<std::unique_ptr<ROOT::RFieldBase>> fields;
+   std::vector<ROOT::RFieldBase::RValue> fieldValues;
+   fieldValues.reserve(fJoinFieldNames.size());
+   {
+      auto descGuard = pageSource.GetSharedDescriptorGuard();
+
+      for (const auto &fieldName : fJoinFieldNames) {
+         auto fieldId = descGuard->FindFieldId(fieldName);
+         if (fieldId == ROOT::kInvalidDescriptorId) {
+            throw RException(R__FAIL("could not find join field \"" + std::string(fieldName) + "\" in RNTuple \"" +
+                                     descGuard->GetName() + "\""));
+         }
+
+         const auto &fieldDesc = descGuard->GetFieldDescriptor(fieldId);
+
+         if (allowedTypes.find(fieldDesc.GetTypeName()) == allowedTypes.end()) {
+            throw RException(R__FAIL("cannot use field \"" + fieldName + "\" with type \"" + fieldDesc.GetTypeName() +
+                                     "\" in join table: only integral types are allowed"));
+         }
+
+         auto field = std::make_unique<ROOT::RField<JoinValue_t>>(fieldDesc.GetFieldName());
+         field->SetOnDiskId(fieldDesc.GetId());
+
+         fieldValues.emplace_back(field->CreateValue());
+         fJoinFieldValueSizes.emplace_back(field->GetValueSize());
+         fields.emplace_back(std::move(field));
+      }
+   } // descGuard
+   for (auto &f : fields) {
+      ROOT::Internal::CallConnectPageSourceOnField(*f, pageSource);
+   }
+
+   std::vector<JoinValue_t> castJoinValues;
+   castJoinValues.reserve(fJoinFieldNames.size());
+
+   for (unsigned i = 0; i < pageSource.GetNEntries(); ++i) {
+      castJoinValues.clear();
+
+      for (auto &fieldValue : fieldValues) {
+         // TODO(fdegeus): use bulk reading
+         fieldValue.Read(i);
+         castJoinValues.push_back(fieldValue.GetRef<JoinValue_t>());
+      }
+
+      fMapping[RCombinedJoinFieldValue(castJoinValues)].push_back(i + entryOffset);
+   }
+}
+
+const std::vector<ROOT::NTupleSize_t> *ROOT ::Experimental::Internal::RNTupleJoinTable::REntryMapping::GetEntryIndexes(
+   const std::vector<JoinValue_t> &joinValues) const
+{
+   if (joinValues.size() != fJoinFieldNames.size())
+      throw RException(R__FAIL("number of value pointers must match number of join fields"));
+
+   if (const auto &entries = fMapping.find(RCombinedJoinFieldValue(joinValues)); entries != fMapping.end()) {
+      return &entries->second;
+   }
+
+   return nullptr;
+}
+
+//------------------------------------------------------------------------------
+
+std::unique_ptr<ROOT::Experimental::Internal::RNTupleJoinTable>
+ROOT::Experimental::Internal::RNTupleJoinTable::Create(const std::vector<std::string> &fieldNames)
+{
+   return std::unique_ptr<RNTupleJoinTable>(new RNTupleJoinTable(fieldNames));
+}
+
+ROOT::Experimental::Internal::RNTupleJoinTable &
+ROOT::Experimental::Internal::RNTupleJoinTable::Add(ROOT::Internal::RPageSource &pageSource,
+                                                    PartitionKey_t partitionKey, ROOT::NTupleSize_t entryOffset)
+{
+   auto joinMapping = std::unique_ptr<REntryMapping>(new REntryMapping(pageSource, fJoinFieldNames, entryOffset));
+   fPartitions[partitionKey].emplace_back(std::move(joinMapping));
+
+   return *this;
+}
+
+ROOT::NTupleSize_t
+ROOT::Experimental::Internal::RNTupleJoinTable::GetEntryIndex(const std::vector<JoinValue_t> &joinValues) const
+{
+   for (const auto &partition : fPartitions) {
+      for (const auto &joinMapping : partition.second) {
+         auto entriesForMapping = joinMapping->GetEntryIndexes(joinValues);
+         if (entriesForMapping) {
+            return (*entriesForMapping)[0];
+         }
+      }
+   }
+
+   return kInvalidNTupleIndex;
+}

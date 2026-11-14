@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : TMVA::Interval                                                        *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation (see header for description)                               *
@@ -19,7 +19,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  *                                                                                *
  * File and Version Information:                                                  *
  **********************************************************************************/
@@ -73,7 +73,6 @@ Interval definition, continuous and discrete
 #include "TMVA/MsgLogger.h"
 #include "TMVA/Types.h"
 
-ClassImp(TMVA::Interval);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// defines minimum and maximum of an interval

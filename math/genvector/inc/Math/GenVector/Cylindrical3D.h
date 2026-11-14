@@ -16,7 +16,7 @@
 #ifndef ROOT_Math_GenVector_Cylindrical3D
 #define ROOT_Math_GenVector_Cylindrical3D  1
 
-#include "Math/Math.h"
+#include "TMath.h"
 
 #include "Math/GenVector/eta.h"
 
@@ -34,6 +34,8 @@ namespace Math {
       Phi is restricted to be in the range [-PI,PI)
 
       @ingroup GenVector
+
+      @see GenVector
   */
 
 template <class T>
@@ -42,44 +44,25 @@ class Cylindrical3D {
 public :
 
    typedef T Scalar;
+   static constexpr unsigned int Dimension = 3U;
 
    /**
       Default constructor with rho=z=phi=0
    */
-   Cylindrical3D() : fRho(0), fZ(0), fPhi(0) {  }
+   constexpr Cylindrical3D() noexcept = default;
 
    /**
       Construct from rho eta and phi values
    */
-   Cylindrical3D(Scalar rho, Scalar zz, Scalar phi) :
-      fRho(rho), fZ(zz), fPhi(phi) { Restrict(); }
+   constexpr Cylindrical3D(Scalar rho, Scalar zz, Scalar phi) noexcept : fRho(rho), fZ(zz), fPhi(phi) { Restrict(); }
 
    /**
       Construct from any Vector or coordinate system implementing
       Rho(), Z() and Phi()
    */
    template <class CoordSystem >
-   explicit Cylindrical3D( const CoordSystem & v ) :
+   explicit constexpr Cylindrical3D( const CoordSystem & v ) :
       fRho( v.Rho() ),  fZ( v.Z() ),  fPhi( v.Phi() ) { Restrict(); }
-
-   // for g++  3.2 and 3.4 on 32 bits found that the compiler generated copy ctor and assignment are much slower
-   // re-implement them ( there is no no need to have them with g++4)
-
-   /**
-      copy constructor
-    */
-   Cylindrical3D(const Cylindrical3D & v) :
-      fRho(v.Rho() ),  fZ(v.Z() ),  fPhi(v.Phi() )  {   }
-
-   /**
-      assignment operator
-    */
-   Cylindrical3D & operator= (const Cylindrical3D & v) {
-      fRho = v.Rho();
-      fZ   = v.Z();
-      fPhi = v.Phi();
-      return *this;
-   }
 
    /**
       Set internal data based on an array of 3 Scalar numbers ( rho, z , phi)
@@ -106,7 +89,7 @@ public :
    {rho=fRho; zz=fZ; phi=fPhi;}
 
 private:
-   inline static Scalar pi() { return Scalar(M_PI); }
+   inline static Scalar pi() { return Scalar(TMath::Pi()); }
    inline void          Restrict()
    {
       using std::floor;
@@ -217,7 +200,7 @@ public:
 
    // (none)
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 
    // ====== Set member functions for coordinates in other systems =======
 
@@ -235,11 +218,9 @@ public:
 
 
 private:
-
-   T fRho;
-   T fZ;
-   T fPhi;
-
+   T fRho{0};
+   T fZ{0};
+   T fPhi{0};
 };
 
   } // end namespace Math
@@ -250,7 +231,7 @@ private:
 
 #include "Math/GenVector/Cartesian3D.h"
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 #include "Math/GenVector/GenVector_exception.h"
 #include "Math/GenVector/CylindricalEta3D.h"
 #include "Math/GenVector/Polar3D.h"
@@ -265,7 +246,7 @@ void Cylindrical3D<T>::SetXYZ(Scalar xx, Scalar yy, Scalar zz) {
    *this = Cartesian3D<Scalar>(xx, yy, zz);
 }
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 
 
   // ====== Set member functions for coordinates in other systems =======

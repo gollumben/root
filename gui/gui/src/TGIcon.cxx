@@ -33,13 +33,13 @@ This class handles GUI icons.
 #include "TGPicture.h"
 #include "TSystem.h"
 #include "TImage.h"
+#include "TASUtils.h"
 #include "TVirtualDragManager.h"
 #include "TVirtualX.h"
 
 #include <iostream>
 
 
-ClassImp(TGIcon);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create icon.
@@ -58,7 +58,7 @@ TGIcon::TGIcon(const TGWindow *p, const char *image) : TGFrame(p, 1, 1)
    fImage = TImage::Open(path);
    if (fImage) {
       fPic = fClient->GetPicturePool()->GetPicture(gSystem->BaseName(path),
-                                   fImage->GetPixmap(), fImage->GetMask());
+                                   TASUtils::GetPixmap(fImage), TASUtils::GetMask(fImage));
       TGFrame::Resize(fImage->GetWidth(), fImage->GetHeight());
    }
    SetWindowName();
@@ -155,8 +155,8 @@ void TGIcon::Resize(UInt_t w, UInt_t h)
                    (GetOptions() & kDoubleBorder);
 
    fImage->Scale(w - 2*border, h - 2*border);
-   fPic = fClient->GetPicturePool()->GetPicture(fImage->GetName(),
-                                                fImage->GetPixmap(), fImage->GetMask());
+   fPic =
+      fClient->GetPicturePool()->GetPicture(fImage->GetName(), TASUtils::GetPixmap(fImage), TASUtils::GetMask(fImage));
    DoRedraw();
 }
 
@@ -178,10 +178,9 @@ void TGIcon::Reset()
 
    TString name = fImage->GetName();
    name.Chop();
-   char *path = gSystem->ConcatFileName(fPath.Data(), name.Data());
+   TString temp = name;
+   const char *path = gSystem->PrependPathName(fPath.Data(), temp);
    SetImage(path);
-
-   delete [] path;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -202,41 +201,28 @@ void TGIcon::SetImagePath(const char *path)
 
 void TGIcon::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
-
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
-
    if (!fPic) {
       Error("SavePrimitive()", "icon pixmap not found ");
       return;
    }
 
-   TString picname = gSystem->UnixPathName(fPic->GetName());
-   gSystem->ExpandPathName(picname);
-
-   out <<"   TGIcon *";
    if (!fImage) {
-      out << GetName() << " = new TGIcon(" << fParent->GetName()
-         << ",gClient->GetPicture(" << quote
-         << picname   // if no path
-         << quote << ")" << "," << GetWidth() << "," << GetHeight();
-      if (fBackground == GetDefaultFrameBackground()) {
-         if (!GetOptions()) {
-            out <<");" << std::endl;
-         } else {
-            out << "," << GetOptionString() <<");" << std::endl;
-         }
-      } else {
-         out << "," << GetOptionString() << ",ucolor);" << std::endl;
-      }
+      // save options and color if necessary
+      auto extra_args = SaveCtorArgs(out);
+
+      TString picname = gSystem->UnixPathName(fPic->GetName());
+      gSystem->ExpandPathName(picname);
+
+      out << "   TGIcon *" << GetName() << " = new TGIcon(" << fParent->GetName() << ", gClient->GetPicture(\""
+          << picname.ReplaceSpecialCppChars() << "\"), " << GetWidth() << "," << GetHeight() << extra_args << ");\n";
    } else {
       TString name = fPath;
       name += "/";
       name += fImage->GetName();
       name.Chop();
-      out << GetName() << " = new TGIcon(" << fParent->GetName()  << ","
-          << quote << name.Data() << quote << ");" << std::endl;
+      out << "   TGIcon *" << GetName() << " = new TGIcon(" << fParent->GetName() << ", \""
+          << name.ReplaceSpecialCppChars() << "\");\n";
    }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 }

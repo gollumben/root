@@ -17,7 +17,7 @@ void file(){
    title->SetFillColor(16);
    title->Draw();
 
-   // horizonthal file layout
+   // horizontal file layout
    TPave *file = new TPave(1,8.5,20,11);
    file->SetFillColor(11);
    file->Draw();
@@ -31,7 +31,7 @@ void file(){
    lrh->DrawPave(10.5,8.5,11.3,11,1);
    lrh->DrawPave(14.5,8.5,15.3,11,1);
    TLine *ldot = new TLine(1,8.5,0.5,6.5);
-   ldot->SetLineStyle(2);
+   ldot->SetLineStyle(kDashed);
    ldot->Draw();
    ldot->DrawLine(2.5, 8.5, 9.4, 6.5);
    ldot->DrawLine(10.5, 8.5, 10, 6.5);
@@ -109,7 +109,7 @@ void file(){
    TPaveText *lrecord = new TPaveText(10,0.2,19.5,6.5);
    lrecord->SetFillColor(33);
    lrecord->Draw();
-   TText *tlrh=lrecord->AddText("Logical Record Header (TKEY)");
+   TText *tlrh = lrecord->AddText("Logical Record Header (TKEY)");
    tlrh->SetTextAlign(22);
    tlrh->SetTextSize(0.04);
    lrecord->SetTextSize(0.027);

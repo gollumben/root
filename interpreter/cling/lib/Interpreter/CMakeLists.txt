@@ -10,7 +10,9 @@ set(LIBS
   clingUtils
   clangCodeGen
   clangDriver
+  clangOptions
   clangFrontend
+  clangInterpreter
   clangParse
   clangSema
   clangAnalysis
@@ -23,6 +25,18 @@ set(LIBS
   clangLex
 )
 
+if(experimental_adaptivecpp)
+  list(APPEND LIBS AdaptiveCpp acpp-rt)
+
+  set(ACPP_EXPORTS acpp-rt acpp-common)
+
+  foreach(target IN LISTS ACPP_EXPORTS)
+    install(TARGETS ${target} EXPORT ClingTargets)
+  endforeach()
+
+  set_property(GLOBAL APPEND PROPERTY CLING_EXPORTS ${ACPP_EXPORTS})
+endif()
+
 set(LLVM_LINK_COMPONENTS
   analysis
   core
@@ -30,11 +44,13 @@ set(LLVM_LINK_COMPONENTS
   coverage
   executionengine
   ipo
+  jitlink
   lto
   mc
   object
   option
   orcjit
+  orcdebugging
   runtimedyld
   scalaropts
   support
@@ -46,9 +62,9 @@ set(LLVM_LINK_COMPONENTS
 
 # clingInterpreter depends on Options.inc to be tablegen-ed
 # (target ClangDriverOptions) from in-tree builds.
-set(CLING_DEPENDS)
+set(CLING_DEPENDS ClingDriverOptions)
 if(TARGET ClangDriverOptions)
-  set(CLING_DEPENDS ClangDriverOptions)
+  set(CLING_DEPENDS "${CLING_DEPENDS};ClangDriverOptions")
 endif()
 # clangSema will make sure all of the dependencies of clingInterpreter are met.
 if(TARGET clangSema)
@@ -64,7 +80,6 @@ add_cling_library(clingInterpreter OBJECT
   CheckEmptyTransactionTransformer.cpp
   CIFactory.cpp
   ClangInternalState.cpp
-  ClingCodeCompleteConsumer.cpp
   ClingPragmas.cpp
   DeclCollector.cpp
   DeclExtractor.cpp
@@ -87,6 +102,7 @@ add_cling_library(clingInterpreter OBJECT
   InvocationOptions.cpp
   LookupHelper.cpp
   NullDerefProtectionTransformer.cpp
+  PerfJITEventListener.cpp
   RequiredSymbols.cpp
   Transaction.cpp
   TransactionUnloader.cpp
@@ -191,13 +207,22 @@ if (UNIX)
         set(_path "__THISREALLYBETTERNOTBEINPATH_THANKS__")
       endif()
     else()
-      # FIXME: In some ccache setups we can have a soft link pointing to ccache
-      # binary. Eg. /usr/local/gcc -> /usr/bin/ccache. Resolving the realpath
-      # we will get to the ccache and not the intended compiler binary. This
-      # could be fixed if we run 'gcc -###' which will give us the correct info.
       get_filename_component(_realpath ${CMAKE_CXX_COMPILER} REALPATH)
-      get_filename_component(_name ${_realpath} NAME)
-      get_filename_component(_path ${_realpath} PATH)
+      if(${_realpath} MATCHES "ccache" OR ${_realpath} MATCHES "distcc")
+        # In some setups we can have a soft link pointing to ccache binary.
+        # Eg. /usr/local/gcc -> /usr/bin/ccache where /usr/local comes first
+        # in the PATH env variable than /usr/bin. Resolving the realpath
+        # got us to the ccache and not the intended compiler binary, i.e.
+        # CLING_CXX_RLTV will be wrong. As a fallback / best-effort basis,
+        # try to rescue the compiler binary name by looking at the
+        # link name rather than at the the link destination.
+        get_filename_component(_realpath ${CMAKE_CXX_COMPILER} PATH)
+        get_filename_component(_name ${CMAKE_CXX_COMPILER} NAME)
+        get_filename_component(_path ${CMAKE_CXX_COMPILER} PATH)
+      else()
+        get_filename_component(_name ${_realpath} NAME)
+        get_filename_component(_path ${_realpath} PATH)
+      endif()
     endif()
 
     # Test if path compiler is on PATH.
@@ -234,6 +259,8 @@ if (UNIX)
           set(CLING_CXX_RLTV "${CLING_CXX_RLTV} --gcc-toolchain=${gcctoolchain}")
         endif()
       endif()
+    elseif (APPLE)
+      set(CLING_CXX_PATH_ARGS "-isysroot ${CMAKE_OSX_SYSROOT}")
     endif()
   endif()
 
@@ -291,25 +318,6 @@ if (UNIX)
     #define CLING_CXX_INCL \"${CLING_CXX_HEADERS}\"
     #define CLING_INCLUDE_PATHS \"${CLING_INCLUDE_PATHS}\"
   ")
-  if (CMAKE_OSX_SYSROOT)
-    # CMAKE_OSX_SYSROOT hardcodes the concrete version of the sdk
-    # (eg .../MacOSX11.1.sdk) which changes after every update of XCode. We use
-    # the assumption that in the parent folder there is a symlink MacOSX.sdk
-    # which points to the current active sdk. This change allows releases
-    # to work when the users update their sdks.
-    # FIXME: That is a horrible hack and we should teach CIFactory to pick up
-    # the SDK directory at runtime, just as we do for the include paths to C++.
-    set (OSX_SYSROOT_DEFAULT_SDK ${CMAKE_OSX_SYSROOT})
-    if (${OSX_SYSROOT_DEFAULT_SDK} MATCHES "MacOSX[.0-9]+\.sdk")
-      get_filename_component(OSX_SYSROOT_DEFAULT_SDK ${OSX_SYSROOT_DEFAULT_SDK} DIRECTORY)
-      set (OSX_SYSROOT_DEFAULT_SDK ${OSX_SYSROOT_DEFAULT_SDK}/MacOSX.sdk/)
-    endif()
-
-    file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
-      "
-      #define CLING_OSX_SYSROOT \"${OSX_SYSROOT_DEFAULT_SDK}\"
-    ")
-  endif()
   if (CLING_CXX_PATH)
     MESSAGE(STATUS "And if not found, will invoke: '${CLING_CXX_PATH}' for them.")
     file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
@@ -332,7 +340,7 @@ else()
     ")
 endif()
 
-# Make sure this goes last so so we can pick up any changes that occured
+# Make sure this goes last so so we can pick up any changes that occurred
 # Also means cling-compiledata.h.in should be edited never cling-compiledata.h
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h
@@ -342,31 +350,12 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h
                    MAIN_DEPENDENCY ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
                    COMMENT "Updating cling-compiledata.h")
 
-add_file_dependencies(${CMAKE_CURRENT_SOURCE_DIR}/CIFactory.cpp
-                      ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h)
+set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/CIFactory.cpp
+             APPEND PROPERTY OBJECT_DEPENDS
+             ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h)
 
-# If LLVM is external, but Clang is builtin, we must use some files
-# from patched (builtin) version of LLVM
-if ((NOT builtin_llvm) AND builtin_clang)
-  set(FixInclude "${CMAKE_SOURCE_DIR}/interpreter/llvm/src/include")
-
-  get_property(P SOURCE IncrementalJIT.cpp PROPERTY INCLUDE_DIRECTORIES)
-  list(INSERT P 0 ${FixInclude})
-  set_property(SOURCE IncrementalJIT.cpp PROPERTY INCLUDE_DIRECTORIES "${P}")
-
-  get_property(P SOURCE IncrementalExecutor.cpp PROPERTY INCLUDE_DIRECTORIES)
-  list(INSERT P 0 ${FixInclude})
-  set_property(SOURCE IncrementalExecutor.cpp PROPERTY INCLUDE_DIRECTORIES "${P}")
-
-  get_property(P SOURCE Interpreter.cpp PROPERTY INCLUDE_DIRECTORIES)
-  list(INSERT P 0 ${FixInclude})
-  set_property(SOURCE Interpreter.cpp PROPERTY INCLUDE_DIRECTORIES "${P}")
-
-  get_property(P SOURCE Transaction.cpp PROPERTY INCLUDE_DIRECTORIES)
-  list(INSERT P 0 ${FixInclude})
-  set_property(SOURCE Transaction.cpp PROPERTY INCLUDE_DIRECTORIES "${P}")
-
-  get_property(P SOURCE TransactionUnloader.cpp PROPERTY INCLUDE_DIRECTORIES)
-  list(INSERT P 0 ${FixInclude})
-  set_property(SOURCE TransactionUnloader.cpp PROPERTY INCLUDE_DIRECTORIES "${P}")
+# If both LLVM and Clang are external, we need to define LLVM_PATH in order for
+# cling to use the correct (external) LLVM/Clang directories.
+if ((NOT builtin_llvm) AND (NOT builtin_clang))
+  target_compile_definitions(clingInterpreter PUBLIC "LLVM_PATH=\"${LLVM_BINARY_DIR}\"")
 endif()

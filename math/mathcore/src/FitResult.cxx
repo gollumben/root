@@ -8,62 +8,33 @@
  *                                                                    *
  **********************************************************************/
 
-// Implementation file for class FitResult
-
 #include "Fit/FitResult.h"
 
-#include "Fit/FitConfig.h"
-
 #include "Fit/BinData.h"
-
-//#include "Fit/Chi2FCN.h"
-
-#include "Math/Minimizer.h"
-
+#include "Fit/FitConfig.h"
+#include "Math/Error.h"
 #include "Math/IParamFunction.h"
+#include "Math/Minimizer.h"
 #include "Math/OneDimFunctionAdapter.h"
-
 #include "Math/ProbFuncMathCore.h"
 #include "Math/QuantFuncMathCore.h"
-
-#include "TMath.h"
 #include "Math/RichardsonDerivator.h"
-#include "Math/Error.h"
+#include "TMath.h"
 
 #include <cassert>
 #include <cmath>
 #include <iostream>
 #include <iomanip>
 
-namespace ROOT {
-
-   namespace Fit {
-
+namespace ROOT::Fit {
 
 const int gInitialResultStatus = -99; // use this special convention to flag it when printing result
 
-FitResult::FitResult() :
-   fValid(false), fNormalized(false), fNFree(0), fNdf(0), fNCalls(0),
-   fStatus(-1), fCovStatus(0), fVal(0), fEdm(-1), fChi2(-1)
-{
-   // Default constructor implementation.
-}
-
 FitResult::FitResult(const FitConfig & fconfig) :
-   fValid(false),
-   fNormalized(false),
-   fNFree(0),
-   fNdf(0),
-   fNCalls(0),
    fStatus(gInitialResultStatus),
-   fCovStatus(0),
-   fVal(0),
-   fEdm(-1),
-   fChi2(-1),
-   fFitFunc(0),
-   fParams(std::vector<double>( fconfig.NPar() ) ),
-   fErrors(std::vector<double>( fconfig.NPar() ) ),
-   fParNames(std::vector<std::string> ( fconfig.NPar() ) )
+   fParams(fconfig.NPar()),
+   fErrors(fconfig.NPar()),
+   fParNames(fconfig.NPar())
 {
    // create a Fit result from a fit config (i.e. with initial parameter values
    // and errors equal to step values
@@ -72,33 +43,32 @@ FitResult::FitResult(const FitConfig & fconfig) :
    // set minimizer type and algorithm
    fMinimType = fconfig.MinimizerType();
    // append algorithm name for minimizer that support it
-   if ( (fMinimType.find("Fumili") == std::string::npos) &&
-        (fMinimType.find("GSLMultiFit") == std::string::npos)
-      ) {
-      if (fconfig.MinimizerAlgoType() != "") fMinimType += " / " + fconfig.MinimizerAlgoType();
+   if ( (fMinimType.find("Fumili") == std::string::npos) )
+   {
+      if (!fconfig.MinimizerAlgoType().empty()) fMinimType += " / " + fconfig.MinimizerAlgoType();
    }
 
    // get parameter values and errors (step sizes)
    unsigned int npar = fconfig.NPar();
+   fParamBounds.resize(npar);
+   fFixedParams.resize(npar);
+   fBoundParams.resize(npar);
    for (unsigned int i = 0; i < npar; ++i ) {
       const ParameterSettings & par = fconfig.ParSettings(i);
       fParams[i]   =  par.Value();
       fErrors[i]   =  par.StepSize();
       fParNames[i] =  par.Name();
-      if (par.IsFixed() ) fFixedParams[i] = true;
-      else fNFree++;
-      if (par.IsBound() ) {
-         double lower = (par.HasLowerLimit()) ? par.LowerLimit() : - std::numeric_limits<double>::infinity() ;
-         double upper = (par.HasUpperLimit()) ? par.UpperLimit() :   std::numeric_limits<double>::infinity() ;
-         fBoundParams[i] = fParamBounds.size();
-         fParamBounds.push_back(std::make_pair(lower,upper));
-      }
+      fFixedParams[i] = par.IsFixed();
+      if (!par.IsFixed() ) fNFree++;
+      double lower = par.HasLowerLimit() ? par.LowerLimit() : - std::numeric_limits<double>::infinity() ;
+      double upper = par.HasUpperLimit() ? par.UpperLimit() :   std::numeric_limits<double>::infinity() ;
+      fParamBounds.emplace_back(lower,upper);
    }
    std::cout << "create fit result from config - nfree " << fNFree << std::endl;
 }
 
 void FitResult::FillResult(const std::shared_ptr<ROOT::Math::Minimizer> & min, const FitConfig & fconfig, const std::shared_ptr<IModelFunction> & func,
-                     bool isValid,  unsigned int sizeOfData, bool binnedFit, const  ROOT::Math::IMultiGenFunction * chi2func, unsigned int ncalls )
+                     bool isValid,  unsigned int sizeOfData, int fitType, const  ROOT::Math::IMultiGenFunction * chi2func, unsigned int ncalls )
 {
    // Fill the FitResult after minimization using result from Minimizers
 
@@ -130,7 +100,7 @@ void FitResult::FillResult(const std::shared_ptr<ROOT::Math::Minimizer> & min, c
       // case minimizer does not provide minimum values (it failed) take from configuration
       fParams.resize(npar);
       for (unsigned int i = 0; i < npar; ++i ) {
-         fParams[i] = ( fconfig.ParSettings(i).Value() );
+         fParams[i] = fconfig.ParSettings(i).Value();
       }
    }
 
@@ -156,17 +126,17 @@ void FitResult::FillResult(const std::shared_ptr<ROOT::Math::Minimizer> & min, c
 
    // check for fixed or limited parameters
    unsigned int nfree = 0;
-   if (!fParamBounds.empty()) fParamBounds.clear();
+   fParamBounds.resize(npar);
+   fFixedParams.resize(npar);
+   fBoundParams.resize(npar);
    for (unsigned int ipar = 0; ipar < npar; ++ipar) {
       const ParameterSettings & par = fconfig.ParSettings(ipar);
-      if (par.IsFixed() ) fFixedParams[ipar] = true;
-      else nfree++;
-      if (par.IsBound() ) {
-         double lower = (par.HasLowerLimit()) ? par.LowerLimit() : - std::numeric_limits<double>::infinity() ;
-         double upper = (par.HasUpperLimit()) ? par.UpperLimit() :   std::numeric_limits<double>::infinity() ;
-         fBoundParams[ipar] = fParamBounds.size();
-         fParamBounds.push_back(std::make_pair(lower,upper));
-      }
+      fFixedParams[ipar] = par.IsFixed();
+      fBoundParams[ipar] = par.IsBound();
+      if (!par.IsFixed() ) nfree++;
+      double lower = par.HasLowerLimit() ? par.LowerLimit() : - std::numeric_limits<double>::infinity() ;
+      double upper = par.HasUpperLimit() ? par.UpperLimit() :   std::numeric_limits<double>::infinity() ;
+      fParamBounds.emplace_back(lower,upper);
    }
    // check if nfree (from FitConfig) and fNFree (from minimizer) are consistent
    if (nfree != fNFree ) {
@@ -176,14 +146,18 @@ void FitResult::FillResult(const std::shared_ptr<ROOT::Math::Minimizer> & min, c
    }
 
    // if flag is binned compute a chi2 when a chi2 function is given
-   if (binnedFit) {
-      if (chi2func == 0)
+   if (fitType == 1) {
+      if (chi2func == nullptr)
          fChi2 = fVal;
       else {
          // compute chi2 equivalent for likelihood fits
          // NB: empty bins are considered
          fChi2 = (*chi2func)(&fParams[0]);
       }
+   }
+   else if (fitType == 3) {
+      // case of binned likelihood fits (use Baker-Cousins chi2)
+      fChi2 = 2 * fVal;
    }
 
    // fill error matrix
@@ -192,7 +166,7 @@ void FitResult::FillResult(const std::shared_ptr<ROOT::Math::Minimizer> & min, c
    if (!fCovMatrix.empty()) fCovMatrix.clear();
    if (!fGlobalCC.empty())  fGlobalCC.clear();
 
-   if (min->Errors() != 0) {
+   if (min->Errors() != nullptr) {
 
       fErrors = std::vector<double>(min->Errors(), min->Errors() + npar ) ;
 
@@ -203,72 +177,11 @@ void FitResult::FillResult(const std::shared_ptr<ROOT::Math::Minimizer> & min, c
             for (unsigned int j = 0; j <= i; ++j)
                fCovMatrix.push_back(min->CovMatrix(i,j) );
       }
-      // minos errors are set separetly when calling Fitter::CalculateMinosErrors()
+      // minos errors are set separately when calling Fitter::CalculateMinosErrors()
 
       // globalCC
-      fGlobalCC.reserve(npar);
-      for (unsigned int i = 0; i < npar; ++i) {
-         double globcc = min->GlobalCC(i);
-         if (globcc < 0) break; // it is not supported by that minimizer
-         fGlobalCC.push_back(globcc);
-      }
-
+      fGlobalCC = min->GlobalCC();
    }
-
-}
-
-FitResult::~FitResult() {
-   // destructor. FitResult manages the fit Function pointer
-   //if (fFitFunc) delete fFitFunc;
-}
-
-FitResult::FitResult(const FitResult &rhs) :
-   fFitFunc(0)
-{
-   // Implementation of copy constructor
-   (*this) = rhs;
-}
-
-FitResult & FitResult::operator = (const FitResult &rhs) {
-   // Implementation of assignment operator.
-   if (this == &rhs) return *this;  // time saving self-test
-
-   // Manages the fitted function
-   // if (fFitFunc) delete fFitFunc;
-   // fFitFunc = 0;
-   // if (rhs.fFitFunc != 0 ) {
-   //    fFitFunc = dynamic_cast<IModelFunction *>( (rhs.fFitFunc)->Clone() );
-   //    assert(fFitFunc != 0);
-   // }
-
-   // copy all other data members
-   fValid = rhs.fValid;
-   fNormalized = rhs.fNormalized;
-   fNFree = rhs.fNFree;
-   fNdf = rhs.fNdf;
-   fNCalls = rhs.fNCalls;
-   fCovStatus = rhs.fCovStatus;
-   fStatus = rhs.fStatus;
-   fVal = rhs.fVal;
-   fEdm = rhs.fEdm;
-   fChi2 = rhs.fChi2;
-   fMinimizer = rhs.fMinimizer;
-   fObjFunc = rhs.fObjFunc;
-   fFitFunc = rhs.fFitFunc;
-
-   fFixedParams = rhs.fFixedParams;
-   fBoundParams = rhs.fBoundParams;
-   fParamBounds = rhs.fParamBounds;
-   fParams = rhs.fParams;
-   fErrors = rhs.fErrors;
-   fCovMatrix = rhs.fCovMatrix;
-   fGlobalCC = rhs.fGlobalCC;
-   fMinosErrors = rhs.fMinosErrors;
-
-   fMinimType = rhs.fMinimType;
-   fParNames = rhs.fParNames;
-
-   return *this;
 
 }
 
@@ -286,11 +199,10 @@ bool FitResult::Update(const std::shared_ptr<ROOT::Math::Minimizer> & min, const
       MATH_ERROR_MSG("FitResult::Update","Wrong minimizer status ");
       return false;
    }
-   if (min->X() == 0 ) {
+   if (min->X() == nullptr ) {
       MATH_ERROR_MSG("FitResult::Update","Invalid minimizer status ");
       return false;
    }
-   //fNFree = min->NFree();
    if (fNFree != min->NFree() ) {
       MATH_ERROR_MSG("FitResult::Update","Configuration has changed ");
       return false;
@@ -314,7 +226,7 @@ bool FitResult::Update(const std::shared_ptr<ROOT::Math::Minimizer> & min, const
    // set parameters  in fit model function
    if (fFitFunc) fFitFunc->SetParameters(&fParams.front());
 
-   if (min->Errors() != 0)  {
+   if (min->Errors() != nullptr)  {
 
       if (fErrors.size() != npar) fErrors.resize(npar);
 
@@ -333,16 +245,8 @@ bool FitResult::Update(const std::shared_ptr<ROOT::Math::Minimizer> & min, const
       }
 
       // update global CC
-      if (fGlobalCC.size() != npar) fGlobalCC.resize(npar);
-      for (unsigned int i = 0; i < npar; ++i) {
-         double globcc = min->GlobalCC(i);
-         if (globcc < 0) {
-            fGlobalCC.clear();
-            break; // it is not supported by that minimizer
-         }
-         fGlobalCC[i] = globcc;
-      }
-
+      fGlobalCC = min->GlobalCC();
+      fGlobalCC.resize(npar); // pad with zeros
    }
    return true;
 }
@@ -360,6 +264,14 @@ void FitResult::NormalizeErrors() {
    fNormalized = true;
 }
 
+void FitResult::SetChi2AndNdf(double chi2, unsigned int npoints) {
+   if (chi2 >= 0)
+      fChi2 = chi2;
+   if (npoints > fNFree )
+      fNdf = npoints - fNFree;
+   else
+      fNdf = 0;
+}
 
 double FitResult::Prob() const {
    // fit probability
@@ -368,23 +280,22 @@ double FitResult::Prob() const {
 
 bool FitResult::HasMinosError(unsigned int i) const {
    // query if the parameter i has the Minos error
-   std::map<unsigned int, std::pair<double,double> >::const_iterator itr = fMinosErrors.find(i);
-   return (itr !=  fMinosErrors.end() );
+   return fMinosErrors.find(i) !=  fMinosErrors.end();
 }
 
 
 double FitResult::LowerError(unsigned int i) const {
    // return lower Minos error for parameter i
    //  return the parabolic error if Minos error has not been calculated for the parameter i
-   std::map<unsigned int, std::pair<double,double> >::const_iterator itr = fMinosErrors.find(i);
-   return ( itr != fMinosErrors.end() ) ? itr->second.first : Error(i) ;
+   auto itr = fMinosErrors.find(i);
+   return itr != fMinosErrors.end() ? itr->second.first : Error(i);
 }
 
 double FitResult::UpperError(unsigned int i) const {
    // return upper Minos error for parameter i
    //  return the parabolic error if Minos error has not been calculated for the parameter i
-   std::map<unsigned int, std::pair<double,double> >::const_iterator itr = fMinosErrors.find(i);
-   return ( itr != fMinosErrors.end() ) ? itr->second.second : Error(i) ;
+   auto itr = fMinosErrors.find(i);
+   return itr != fMinosErrors.end() ? itr->second.second : Error(i);
 }
 
 void FitResult::SetMinosError(unsigned int i, double elow, double eup) {
@@ -396,31 +307,31 @@ int FitResult::Index(const std::string & name) const {
    // find index for given parameter name
    if (! fFitFunc) return -1;
    unsigned int npar = fParams.size();
-   for (unsigned int i = 0; i < npar; ++i)
+   for (unsigned int i = 0; i < npar; ++i) {
       if ( fFitFunc->ParameterName(i) == name) return i;
+   }
 
    return -1; // case name is not found
 }
 
-bool FitResult::IsParameterBound(unsigned int ipar) const {
-   return fBoundParams.find(ipar) != fBoundParams.end();
+bool FitResult::IsParameterBound(unsigned int ipar) const
+{
+   return ipar < fBoundParams.size() ? fBoundParams[ipar] : false;
 }
 
-bool FitResult::IsParameterFixed(unsigned int ipar) const {
-   return fFixedParams.find(ipar) != fFixedParams.end();
+bool FitResult::IsParameterFixed(unsigned int ipar) const
+{
+   return ipar < fFixedParams.size() ? fFixedParams[ipar] : false;
 }
 
-bool FitResult::ParameterBounds(unsigned int ipar, double & lower, double & upper) const {
-   std::map<unsigned int, unsigned int>::const_iterator itr =  fBoundParams.find(ipar);
-   if (itr ==  fBoundParams.end() ) {
-      lower =  -std::numeric_limits<Double_t>::infinity();
-      upper =  std::numeric_limits<Double_t>::infinity();
-      return false;
+bool FitResult::ParameterBounds(unsigned int ipar, double &lower, double &upper) const
+{
+   constexpr double inf = std::numeric_limits<double>::infinity();
+   if (ipar < fParamBounds.size()) {
+      lower = fParamBounds[ipar].first;
+      upper = fParamBounds[ipar].second;
    }
-   assert(itr->second < fParamBounds.size() );
-   lower = fParamBounds[itr->second].first;
-   upper = fParamBounds[itr->second].second;
-   return false;
+   return lower != -inf || upper != inf;
 }
 
 std::string FitResult::ParName(unsigned int ipar) const {
@@ -438,7 +349,7 @@ void FitResult::Print(std::ostream & os, bool doCovMatrix) const {
       os << "<Empty FitResult>\n";
       return;
    }
-   os << "\n****************************************\n";
+   os << "****************************************\n";
    if (!fValid) {
       if (fStatus != gInitialResultStatus) {
          os << "         Invalid FitResult";
@@ -471,7 +382,7 @@ void FitResult::Print(std::ostream & os, bool doCovMatrix) const {
       if (IsParameterFixed(i) )
          os << std::setw(9) << " "  << std::setw(nn) << " " << " \t (fixed)";
       else {
-         if (fErrors.size() != 0)
+         if (!fErrors.empty())
             os << "   +/-   " << std::left << std::setw(nn) << fErrors[i] << std::right;
          if (HasMinosError(i))
             os << "  " << std::left  << std::setw(nn) << LowerError(i) << " +" << std::setw(nn) << UpperError(i)
@@ -491,7 +402,7 @@ void FitResult::Print(std::ostream & os, bool doCovMatrix) const {
 void FitResult::PrintCovMatrix(std::ostream &os) const {
    // print the covariance and correlation matrix
    if (!fValid) return;
-   if (fCovMatrix.size() == 0) return;
+   if (fCovMatrix.empty()) return;
 //   os << "****************************************\n";
    os << "\nCovariance Matrix:\n\n";
    unsigned int npar = fParams.size();
@@ -636,7 +547,7 @@ void FitResult::GetConfidenceIntervals(const BinData & data, double * ci, double
       std::vector<double>::iterator itr = xdata.begin()+ ndim * i;
       std::copy(x,x+ndim,itr);
    }
-   // points are arraned as x0,y0,z0, ....xN,yN,zN  (stride1=ndim, stride2=1)
+   // points are arranged as x0,y0,z0, ....xN,yN,zN  (stride1=ndim, stride2=1)
    GetConfidenceIntervals(np,ndim,1,&xdata.front(),ci,cl,norm);
 }
 
@@ -654,23 +565,6 @@ std::vector<double> FitResult::GetConfidenceIntervals(double cl, bool norm ) con
     }
     return result;
 }
-
-// const BinData * GetFitBinData() const {
-//    // return a pointer to the binned data used in the fit
-//    // works only for chi2 or binned likelihood fits
-//    // thus when the objective function stored is a Chi2Func or a PoissonLikelihood
-//    ROOT::Math::IMultiGenFunction * f = fObjFunc->get();
-//    Chi2Function * chi2func = dynamic_cast<Chi2Function*>(f);
-//    if (chi2func) return &(chi2func->Data());
-//    PoissonLLFunction * pllfunc = dynamic_cast<PoissonLLFunction*>(f);
-//    if (pllfunc) return &(pllfunc->Data());
-//    Chi2GradFunction * chi2gradfunc = dynamic_cast<Chi2GradFunction*>(f);
-//    if (chi2gradfunc) return &(chi2gradfunc->Data());
-//    PoissonLLGradFunction * pllgradfunc = dynamic_cast<PoissonLLFunction*>(f);
-//    if (pllgradfunc) return &(pllgradfunc->Data());
-//    MATH_WARN_MSG("FitResult::GetFitBinData","Cannot retrun fit bin data set if objective function is not of a known type");
-//    return nullptr;
-// }
 
 const BinData * FitResult::FittedBinData() const {
    return dynamic_cast<const BinData*> ( fFitData.get() );
@@ -727,6 +621,4 @@ bool FitResult::Contour(unsigned int ipar, unsigned int jpar, unsigned int &npoi
    return ret;
 }
 
-   } // end namespace Fit
-
-} // end namespace ROOT
+} // namespace ROOT::Fit

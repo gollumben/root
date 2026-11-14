@@ -8,15 +8,11 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifdef __CINT__
-
 #ifdef __CLING__
+
 #include <string>
 #pragma link C++ class string::iterator;
 #pragma link C++ class string::const_iterator;
-#else
-#include "dll_stl/str.h"
-#endif
 
 #pragma extra_include "vector";
 #pragma extra_include "string";
@@ -130,7 +126,7 @@
 #pragma link C++ class MemInfo_t+;
 #pragma link C++ class ProcInfo_t+;
 #pragma link C++ class TTask+;
-#pragma link C++ class TTime;
+#pragma link C++ class TTime+;
 #pragma link C++ class TTimer;
 #pragma link C++ class TQObject-;
 #pragma link C++ class TQObjSender;

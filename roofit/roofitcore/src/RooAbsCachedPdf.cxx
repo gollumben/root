@@ -14,7 +14,7 @@
 \class RooAbsCachedPdf
 \ingroup Roofitcore
 
-RooAbsCachedPdf is the abstract base class for p.d.f.s that need or
+Abstract base class for p.d.f.s that need or
 want to cache their evaluate() output in a RooHistPdf defined in
 terms of the used observables. This base class manages the creation
 and storage of all RooHistPdf cache p.d.fs and the RooDataHists
@@ -33,8 +33,8 @@ for changes to trigger a refilling of the cache histogram.
 #include "RooDataHist.h"
 #include "RooHistPdf.h"
 #include "RooExpensiveObjectCache.h"
+#include "RooFit/Detail/RooNormalizedPdf.h"
 
-ClassImp(RooAbsCachedPdf);
 
 
 
@@ -75,7 +75,10 @@ double RooAbsCachedPdf::getValV(const RooArgSet* nset) const
   }
 
   // Calculate current unnormalized value of object
-  return _value = getCache(nset)->pdf()->getVal(nset) ;
+  auto * cachedPdf = getCache(nset)->pdf();
+  double value = cachedPdf->getVal(nset) ;
+  _norm = cachedPdf->_norm;
+  return _value = value ;
 }
 
 
@@ -101,16 +104,6 @@ RooDataHist* RooAbsCachedPdf::getCacheHist(const RooArgSet* nset) const
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Mark all bins of given cache as unitialized (value -1)
-
-void RooAbsCachedPdf::clearCacheObject(PdfCacheElem& cache) const
-{
-  cache.hist()->setAllWeights(-1) ;
-}
-
-
-
-////////////////////////////////////////////////////////////////////////////////
 /// Retrieve cache object associated with given choice of observables. If cache object
 /// does not exist, create and fill and register it on the fly. If recalculate=false
 /// recalculation of cache contents of existing caches that are marked dirty due to
@@ -120,13 +113,13 @@ RooAbsCachedPdf::PdfCacheElem* RooAbsCachedPdf::getCache(const RooArgSet* nset, 
 {
   // Check if this configuration was created becfore
   int sterileIdx = -1 ;
-  auto cache = static_cast<PdfCacheElem*>(_cacheMgr.getObj(nset,0,&sterileIdx));
+  auto cache = static_cast<PdfCacheElem*>(_cacheMgr.getObj(nset,nullptr,&sterileIdx));
 
   // Check if we have a cache histogram in the global expensive object cache
   if (cache) {
     if (cache->paramTracker()->hasChanged(true) && (recalculate || !cache->pdf()->haveUnitNorm()) ) {
       cxcoutD(Eval) << "RooAbsCachedPdf::getCache(" << GetName() << ") cache " << cache << " pdf "
-		    << cache->pdf()->GetName() << " requires recalculation as parameters changed" << std::endl ;
+          << cache->pdf()->GetName() << " requires recalculation as parameters changed" << std::endl ;
       fillCacheObject(*cache) ;
       cache->pdf()->setValueDirty() ;
     }
@@ -136,33 +129,16 @@ RooAbsCachedPdf::PdfCacheElem* RooAbsCachedPdf::getCache(const RooArgSet* nset, 
   // Create and fill cache
   cache = createCache(nset) ;
 
-  // Check if we have contents registered already in global expensive object cache
-  auto htmp = static_cast<RooDataHist const*>(expensiveObjectCache().retrieveObject(cache->hist()->GetName(),RooDataHist::Class(),cache->paramTracker()->parameters()));
+  fillCacheObject(*cache) ;
 
-  if (htmp) {
-
-    cache->hist()->reset() ;
-    cache->hist()->add(*htmp) ;
-
-  } else {
-
-    fillCacheObject(*cache) ;
-
-    auto eoclone = new RooDataHist(*cache->hist()) ;
-    eoclone->removeSelfFromDir() ;
-    expensiveObjectCache().registerObject(GetName(),cache->hist()->GetName(),*eoclone,cache->paramTracker()->parameters()) ;
-
-  }
-
+  auto eoclone = new RooDataHist(*cache->hist()) ;
+  eoclone->removeSelfFromDir() ;
 
   // Store this cache configuration
-  int code = _cacheMgr.setObj(nset,0,(static_cast<RooAbsCacheElement*>(cache)),0) ;
+  int code = _cacheMgr.setObj(nset,nullptr,(static_cast<RooAbsCacheElement*>(cache)),nullptr) ;
 
   coutI(Caching) << "RooAbsCachedPdf::getCache(" << GetName() << ") creating new cache " << cache << " with pdf "
-		 << cache->pdf()->GetName() << " for nset " << (nset?*nset:RooArgSet()) << " with code " << code ;
-  if (htmp) {
-    ccoutI(Caching) << " from preexisting content." ;
-  }
+       << cache->pdf()->GetName() << " for nset " << (nset?*nset:RooArgSet()) << " with code " << code ;
   ccoutI(Caching) << std::endl ;
 
   return cache ;
@@ -188,12 +164,12 @@ RooAbsCachedPdf::PdfCacheElem::PdfCacheElem(const RooAbsCachedPdf& self, const R
 
   // Create RooDataHist
   auto hname = std::string(self.GetName()) + "_" + self.inputBaseName() + "_CACHEHIST"
-               + self.cacheNameSuffix(orderedObs).c_str() + self.histNameSuffix().Data();
+               + self.cacheNameSuffix(orderedObs) + self.histNameSuffix().Data();
   _hist = std::make_unique<RooDataHist>(hname,hname,orderedObs,self.binningName()) ;
   _hist->removeSelfFromDir() ;
 
   //RooArgSet* observables= self.getObservables(orderedObs) ;
-  // cout << "orderedObs = " << orderedObs << " observables = " << *observables << std::endl ;
+  // std::cout << "orderedObs = " << orderedObs << " observables = " << *observables << std::endl ;
 
   // Get set of p.d.f. observable corresponding to set of histogram observables
   RooArgSet pdfObs ;
@@ -350,18 +326,18 @@ int RooAbsCachedPdf::getAnalyticalIntegralWN(RooArgSet& allVars, RooArgSet& anal
     return 0 ;
   }
 
-  RooArgSet* all = new RooArgSet ;
-  RooArgSet* ana = new RooArgSet ;
-  RooArgSet* nrm = new RooArgSet ;
-  all->addClone(allVars) ;
-  ana->addClone(analVars) ;
+  RooArgSet all;
+  RooArgSet ana;
+  RooArgSet nrm;
+  all.addClone(allVars) ;
+  ana.addClone(analVars) ;
   if (normSet) {
-    nrm->addClone(*normSet) ;
+    nrm.addClone(*normSet) ;
   }
   std::vector<int> codeList(2);
   codeList[0] = code ;
   codeList[1] = cache->pdf()->haveUnitNorm() ? 1 : 0 ;
-  int masterCode = _anaReg.store(codeList,all,ana,nrm)+1 ; // takes ownership of all sets
+  int masterCode = _anaReg.store(codeList,&all,&ana,&nrm)+1 ;
 
 
   // Mark all observables as internally integrated
@@ -384,11 +360,27 @@ double RooAbsCachedPdf::analyticalIntegralWN(int code, const RooArgSet* normSet,
   if (code==0) {
     return getVal(normSet) ;
   }
+  if (code < 0 || (code-1) >= static_cast<int>(_anaReg.size())) {
+    coutE(Integration) << "RooAbsCachedPdf::analyticalIntegralWN(" << GetName()
+    << "): analytical integration registry is empty for code: " << code << "."
+    << " RooWorkspace is not prepared to store integrals to functions when these inherit from RooAbsCachedPdf."
+    << std::endl;
+    return 0.;
+  }
 
-  RooArgSet *allVars(0),*anaVars(0),*normSet2(0),*dummy(0) ;
-  const std::vector<int> codeList = _anaReg.retrieve(code-1,allVars,anaVars,normSet2,dummy) ;
+  auto retrieved = _anaReg.retrieve(code-1);
+  std::vector<int> const &codeList = retrieved.codes;
+  RooArgSet *allVars = retrieved.sets[0];
+  RooArgSet *anaVars = retrieved.sets[1];
+  RooArgSet *normSet2 = retrieved.sets[2];
 
-  PdfCacheElem* cache = getCache(normSet2?normSet2:anaVars,false) ;
+  // Mirror getAnalyticalIntegralWN's lookup key. If the caller passed a null
+  // normSet to getAnalyticalIntegralWN, the stored normSet2 is non-null but
+  // empty; use anaVars (content-equivalent to the original allVars) instead,
+  // so that analyticalIntegralWN and getAnalyticalIntegralWN both key the
+  // _cacheMgr lookup on the same content and hit the same slot.
+  const RooArgSet *cacheNset = (normSet2 && !normSet2->empty()) ? normSet2 : anaVars;
+  PdfCacheElem *cache = getCache(cacheNset, false);
   double ret = cache->pdf()->analyticalIntegralWN(codeList[0],normSet,rangeName) ;
 
   if (codeList[1]>0) {
@@ -400,4 +392,41 @@ double RooAbsCachedPdf::analyticalIntegralWN(int code, const RooArgSet* normSet,
   }
 
   return ret ;
+}
+
+
+void RooAbsCachedPdf::doEval(RooFit::EvalContext &ctx) const
+{
+   const RooArgSet *nset = _hasCompiledNormSet ? &_compiledNormSet : _normSet;
+   getCachePdf(nset)->doEval(ctx);
+}
+
+
+std::unique_ptr<RooAbsArg>
+RooAbsCachedPdf::compileForNormSet(RooArgSet const &normSet, RooFit::Detail::CompileContext &ctx) const
+{
+   if (normSet.empty()) {
+      return RooAbsPdf::compileForNormSet(normSet, ctx);
+   }
+   std::unique_ptr<RooAbsPdf> pdfClone(static_cast<RooAbsPdf *>(this->Clone()));
+   ctx.compileServers(*pdfClone, {});
+
+   // Pin a stable normalization set on the clone so that doEval() and the
+   // analytical integration path triggered inside RooNormalizedPdf below hit
+   // the same _cacheMgr slot. Otherwise the analytical-integral path keys the
+   // slot on its own (local) integration variable set while doEval keys it on
+   // the unset (null) _normSet of the clone, and the heavy cache content is
+   // rebuilt on the first Evaluator step of every fit.
+   auto *cachedClone = static_cast<RooAbsCachedPdf *>(pdfClone.get());
+   cachedClone->_compiledNormSet.removeAll();
+   cachedClone->_compiledNormSet.add(normSet);
+   cachedClone->_hasCompiledNormSet = true;
+
+   auto newArg = std::make_unique<RooFit::Detail::RooNormalizedPdf>(*pdfClone, normSet);
+
+   // The direct servers are the cloned pdf (already compiled above) and the
+   // freshly-built normalization integral. Neither needs further compilation.
+   ctx.markSubtreeAsCompiled(*newArg);
+   newArg->addOwnedComponents(std::move(pdfClone));
+   return newArg;
 }

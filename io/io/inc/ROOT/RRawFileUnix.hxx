@@ -13,7 +13,7 @@
 #define ROOT_RRawFileUnix
 
 #include <ROOT/RRawFile.hxx>
-#include <ROOT/RStringView.hxx>
+#include <string_view>
 
 #include <cstddef>
 #include <cstdint>
@@ -23,28 +23,26 @@ namespace Internal {
 
 /**
  * \class RRawFileUnix RRawFileUnix.hxx
- * \ingroup IO
+ * \ingroup io_files
  *
  * The RRawFileUnix class uses POSIX calls to read from a mounted file system. Thus the path name can refer,
  * for instance, to a named pipe instead of a regular file.
  */
 class RRawFileUnix : public RRawFile {
 private:
-   int fFileDes;
+   int fFileDes = -1;
 
 protected:
    void OpenImpl() final;
    size_t ReadAtImpl(void *buffer, size_t nbytes, std::uint64_t offset) final;
    void ReadVImpl(RIOVec *ioVec, unsigned int nReq) final;
    std::uint64_t GetSizeImpl() final;
-   void *MapImpl(size_t nbytes, std::uint64_t offset, std::uint64_t &mapdOffset) final;
-   void UnmapImpl(void *region, size_t nbytes) final;
+   void SetDiscourageReadAheadImpl(bool value) final;
 
 public:
    RRawFileUnix(std::string_view url, RRawFile::ROptions options);
-   ~RRawFileUnix();
+   ~RRawFileUnix() override;
    std::unique_ptr<RRawFile> Clone() const final;
-   int GetFeatures() const final;
    int GetFd() const { return fFileDes; }
 };
 

@@ -35,7 +35,9 @@
 #include <string>
 
 #include "TMatrix.h"
+#include "TMVA/DNN/GeneralLayer.h"
 #include "TMVA/DNN/Functions.h"
+#include "TMVA/DNN/CNN/ContextHandles.h"
 
 namespace TMVA
 {
@@ -122,7 +124,7 @@ public:
 
    /*! Initialize the weights according to the given initialization
     **  method. */
-   virtual void Initialize();
+   void Initialize() override;
 
    /*! Initialize the state
     **  method. */
@@ -130,7 +132,7 @@ public:
 
    /*! Compute and return the next state with given input
    *  matrix */
-   void Forward(Tensor_t &input, bool isTraining = true);
+   void Forward(Tensor_t &input, bool isTraining = true) override;
 
    /*! Forward for a single cell (time unit) */
    void CellForward(const Matrix_t &input, Matrix_t & dF);
@@ -138,7 +140,7 @@ public:
    /*! Backpropagates the error. Must only be called directly at the corresponding
     *  call to Forward(...). */
    void Backward(Tensor_t &gradients_backward,
-                 const Tensor_t &activations_backward);
+                 const Tensor_t &activations_backward) override;
 
    /* Updates weights and biases, given the learning rate */
    void Update(const Scalar_t learningRate);
@@ -150,13 +152,13 @@ public:
                               const Matrix_t & input, Matrix_t & input_gradient, Matrix_t &dF);
 
    /** Prints the info about the layer */
-   void Print() const;
+   void Print() const override;
 
    /*! Writes the information and the weights about the layer in an XML node. */
-   virtual void AddWeightsXMLTo(void *parent);
+   void AddWeightsXMLTo(void *parent) override;
 
    /*! Read the information and the weights about the layer from XML node. */
-   virtual void ReadWeightsFromXML(void *parent);
+   void ReadWeightsFromXML(void *parent) override;
 
    void InitTensors();
    // void InitializeDescriptors();
@@ -322,7 +324,7 @@ template <typename Architecture_t>
 void TBasicRNNLayer<Architecture_t>::Forward(Tensor_t &input, bool isTraining ) // B x T x D
 {
 
-
+   //printf("doing RNNLayer forward\n");
    // for Cudnn
    if (Architecture_t::IsCudnn()) {
 
@@ -331,7 +333,11 @@ void TBasicRNNLayer<Architecture_t>::Forward(Tensor_t &input, bool isTraining ) 
 
       Architecture_t::Rearrange(x, input);
 
-      const auto &weights = this->GetWeightsAt(0);
+      // why passing the first weight, better to pass all weight tensor (including bias)
+      // LM 05/24
+      //const auto &weights = this->GetWeightsAt(0);
+      const auto & weights = this->GetWeightsTensor();
+
       // Tensor_t cx({1}); // not used for normal RNN
       // Tensor_t cy({1}); // not used for normal RNN
 
@@ -342,8 +348,10 @@ void TBasicRNNLayer<Architecture_t>::Forward(Tensor_t &input, bool isTraining ) 
       auto &hy = this->GetState();
       auto &cy = this->GetCell();
 
-      auto rnnDesc = static_cast<RNNDescriptors_t &>(*fDescriptors);
-      auto rnnWork = static_cast<RNNWorkspace_t &>(*fWorkspace);
+      auto & rnnDesc = static_cast<RNNDescriptors_t &>(*fDescriptors);
+      auto & rnnWork = static_cast<RNNWorkspace_t &>(*fWorkspace);
+
+      //printf("doing RNNLayer forward  - calling cudnn forwsrd\n");
 
       Architecture_t::RNNForward(x, hx, cx, weights, y, hy, cy, rnnDesc, rnnWork, isTraining);
 
@@ -355,7 +363,6 @@ void TBasicRNNLayer<Architecture_t>::Forward(Tensor_t &input, bool isTraining ) 
          Tensor_t tmp = (y.At(y.GetShape()[0] - 1)).Reshape({y.GetShape()[1], 1, y.GetShape()[2]});
          Architecture_t::Copy(this->GetOutput(), tmp);
       }
-
       return;
    }
 
@@ -387,7 +394,7 @@ void TBasicRNNLayer<Architecture_t>::Forward(Tensor_t &input, bool isTraining ) 
       // get T[end[]]
 
       Tensor_t tmp = arrOutput.At(fTimeSteps - 1); // take last time step
-      // shape of tmp is  for CPU (columnwise) B x D ,   need to reshape to  make a B x D x 1
+      // shape of tmp is  for CPU (column wise) B x D ,   need to reshape to  make a B x D x 1
       //  and transpose it to 1 x D x B  (this is how output is expected in columnmajor format)
       tmp = tmp.Reshape({tmp.GetShape()[0], tmp.GetShape()[1], 1});
       assert(tmp.GetSize() == this->GetOutput().GetSize());
@@ -433,7 +440,7 @@ auto inline TBasicRNNLayer<Architecture_t>::Backward(Tensor_t &gradients_backwar
 
       Tensor_t &x = this->fX;
       Tensor_t &y = this->fY;
-      Tensor_t &dx = this->fDy;
+      Tensor_t &dx = this->fDx;
       Tensor_t &dy = this->fDy;
 
       // input size is stride[1] of input tensor that is B x T x inputSize
@@ -460,15 +467,17 @@ auto inline TBasicRNNLayer<Architecture_t>::Backward(Tensor_t &gradients_backwar
 
 
       // for cudnn Matrix_t and Tensor_t are same type
-      const auto &weights = this->GetWeightsTensor();
+      //const auto &weights = this->GetWeightsTensor();
+      auto &weights = this->GetWeightsTensor();
       auto &weightGradients = this->GetWeightGradientsTensor();
       // note that cudnnRNNBackwardWeights accumulate the weight gradients.
       // We need then to initialize the tensor to zero every time
       Architecture_t::InitializeZero(weightGradients);
 
+
       // hx is fState
       auto &hx = this->GetState();
-      auto cx = this->GetCell();
+      auto &cx = this->GetCell();
       // use same for hy and cy
       auto &dhy = hx;
       auto &dcy = cx;
@@ -476,12 +485,10 @@ auto inline TBasicRNNLayer<Architecture_t>::Backward(Tensor_t &gradients_backwar
       auto &dcx = cx;
 
 
-      auto rnnDesc = static_cast<RNNDescriptors_t &>(*fDescriptors);
-      auto rnnWork = static_cast<RNNWorkspace_t &>(*fWorkspace);
+      auto & rnnDesc = static_cast<RNNDescriptors_t &>(*fDescriptors);
+      auto & rnnWork = static_cast<RNNWorkspace_t &>(*fWorkspace);
 
       Architecture_t::RNNBackward(x, hx, cx, y, dy, dhy, dcy, weights, dx, dhx, dcx, weightGradients, rnnDesc, rnnWork);
-
-      //Architecture_t::PrintTensor(this->GetOutput(), "output after bwd");
 
       if (gradients_backward.GetSize() != 0)
          Architecture_t::Rearrange(gradients_backward, dx);
@@ -593,14 +600,14 @@ auto inline TBasicRNNLayer<Architecture_t>::CellBackward(Matrix_t & state_gradie
 template <typename Architecture_t>
 void TBasicRNNLayer<Architecture_t>::AddWeightsXMLTo(void *parent)
 {
-   auto layerxml = gTools().xmlengine().NewChild(parent, 0, "RNNLayer");
+   auto layerxml = gTools().xmlengine().NewChild(parent, nullptr, "RNNLayer");
 
    // write All other info like stateSize, inputSize, timeSteps,rememberState
-   gTools().xmlengine().NewAttr(layerxml, 0, "StateSize", gTools().StringFromInt(this->GetStateSize()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "InputSize", gTools().StringFromInt(this->GetInputSize()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "TimeSteps", gTools().StringFromInt(this->GetTimeSteps()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "RememberState", gTools().StringFromInt(this->DoesRememberState()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "ReturnSequence", gTools().StringFromInt(this->DoesReturnSequence()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "StateSize", gTools().StringFromInt(this->GetStateSize()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "InputSize", gTools().StringFromInt(this->GetInputSize()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "TimeSteps", gTools().StringFromInt(this->GetTimeSteps()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "RememberState", gTools().StringFromInt(this->DoesRememberState()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "ReturnSequence", gTools().StringFromInt(this->DoesReturnSequence()));
 
    // write weights and bias matrices
    this->WriteMatrixToXML(layerxml, "InputWeights", this -> GetWeightsAt(0));

@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : GeneticFitter                                                         *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation                                                            *
@@ -19,7 +19,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::GeneticFitter
@@ -42,7 +42,6 @@ Fitter using a Genetic Algorithm.
 #include "Rtypes.h"
 #include "TString.h"
 
-ClassImp(TMVA::GeneticFitter);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor
@@ -116,14 +115,11 @@ Double_t TMVA::GeneticFitter::Run( std::vector<Double_t>& pars )
 
    // timing of GA
    Timer timer( 100*(fCycles), GetName() );
-   if (fIPyMaxIter) *fIPyMaxIter = 100*(fCycles);
    timer.DrawProgressBar( 0 );
 
    Double_t progress = 0.;
 
    for (Int_t cycle = 0; cycle < fCycles; cycle++) {
-     if (fIPyCurrentIter) *fIPyCurrentIter = 100*(cycle);
-     if (fExitFromTraining && *fExitFromTraining) break;
       GetFitterTarget().ProgressNotifier( "GA", "cycle" );
       // ---- perform series of fits to achieve best convergence
 

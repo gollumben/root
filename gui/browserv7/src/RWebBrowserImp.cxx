@@ -1,6 +1,5 @@
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2021-02-11
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
  * Copyright (C) 1995-2021, Rene Brun and Fons Rademakers.               *
@@ -14,14 +13,19 @@
 
 #include "TROOT.h"
 #include "TSeqCollection.h" // needed in gROOT->GetListOfFiles()->FindObject
+#include "TEnv.h"
 
-using namespace ROOT::Experimental;
+#include <iostream>
+
+using namespace ROOT;
 
 ////////////////////////////////////////////////////////////////////////////////////////
 /// Default constructor
 
 RWebBrowserImp::RWebBrowserImp(TBrowser *b) : TBrowserImp(b)
 {
+   ShowWarning();
+
    fWebBrowser = std::make_shared<RBrowser>();
    fWebBrowser->AddTCanvas();
 }
@@ -31,6 +35,8 @@ RWebBrowserImp::RWebBrowserImp(TBrowser *b) : TBrowserImp(b)
 
 RWebBrowserImp::RWebBrowserImp(TBrowser *b, const char *title, UInt_t width, UInt_t height, Option_t *opt) : TBrowserImp(b,title, width, height, opt)
 {
+   ShowWarning();
+
    fWidth = width;
    fHeight = height;
    fWebBrowser = std::make_shared<RBrowser>();
@@ -42,6 +48,8 @@ RWebBrowserImp::RWebBrowserImp(TBrowser *b, const char *title, UInt_t width, UIn
 
 RWebBrowserImp::RWebBrowserImp(TBrowser *b, const char *title, Int_t x, Int_t y, UInt_t width, UInt_t height, Option_t *opt) : TBrowserImp(b,title, x, y, width, height, opt)
 {
+   ShowWarning();
+
    fX = x;
    fY = y;
    fWidth = width;
@@ -55,6 +63,28 @@ RWebBrowserImp::RWebBrowserImp(TBrowser *b, const char *title, Int_t x, Int_t y,
 
 RWebBrowserImp::~RWebBrowserImp()
 {
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+/// Show warning that RBrowser will be shown
+
+void RWebBrowserImp::ShowWarning()
+{
+   static bool show_warn = true;
+   if (!show_warn)
+      return;
+
+   TString value = gEnv->GetValue("WebGui.Warning", "yes");
+   if ((value != "yes") && (value != "1"))
+      return;
+
+   show_warn = false;
+
+   std::cout << "\n"
+                "ROOT comes with a web-based browser, which is now being started. \n"
+                "Revert to TBrowser by setting \"Browser.Name: TRootBrowser\" in rootrc file or\n"
+                "by starting \"root --web=off\"\n"
+                "Find more info on https://root.cern/doc/latest-stable/classROOT_1_1RBrowser.html\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////

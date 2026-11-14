@@ -6,15 +6,15 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifdef __CINT__
+#ifdef __CLING__
 
 #pragma link off all globals;
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class ROOT::Experimental::RWebDisplayArgs+;
-#pragma link C++ class ROOT::Experimental::RWebDisplayHandle+;
-#pragma link C++ class ROOT::Experimental::RWebWindow+;
-#pragma link C++ class ROOT::Experimental::RWebWindowsManager+;
+#pragma link C++ class ROOT::RWebDisplayArgs+;
+#pragma link C++ class ROOT::RWebDisplayHandle+;
+#pragma link C++ class ROOT::RWebWindow+;
+#pragma link C++ class ROOT::RWebWindowsManager+;
 
 #endif

@@ -36,9 +36,8 @@
 Standard utility functions for Eve.
 */
 
-ClassImp(TEveUtil);
 
-TObjArray* TEveUtil::fgDefaultColors = 0;
+TObjArray* TEveUtil::fgDefaultColors = nullptr;
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Setup Include and Macro paths.
@@ -142,10 +141,10 @@ Bool_t TEveUtil::CheckMacro(const char* mac)
    // list of global functions.
 
    TString foo(mac); ChompTailAndDir(foo);
-   if (gROOT->GetGlobalFunction(foo.Data(), 0, kFALSE) != 0)
+   if (gROOT->GetGlobalFunction(foo.Data(), nullptr, kFALSE) != nullptr)
       return kTRUE;
    else
-      return (gROOT->GetGlobalFunction(foo.Data(), 0, kTRUE) != 0);
+      return (gROOT->GetGlobalFunction(foo.Data(), nullptr, kTRUE) != nullptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -283,7 +282,7 @@ void TEveUtil::SetColorBrightness(Float_t value, Bool_t full_redraw)
 
    TObjArray   *colors = (TObjArray*) gROOT->GetListOfColors();
 
-   if (fgDefaultColors == 0)
+   if (fgDefaultColors == nullptr)
    {
       const Int_t n_col = colors->GetEntriesFast();
       fgDefaultColors = new TObjArray(n_col);
@@ -302,7 +301,7 @@ void TEveUtil::SetColorBrightness(Float_t value, Bool_t full_redraw)
       if (cdef)
       {
          TColor* croot = (TColor*)  colors->At(i);
-         if (croot == 0)
+         if (croot == nullptr)
          {
             croot = new TColor(*cdef);
             colors->AddAt(croot, i);
@@ -330,7 +329,7 @@ void TEveUtil::SetColorBrightness(Float_t value, Bool_t full_redraw)
       }
    }
 
-   if (full_redraw && gEve != 0)
+   if (full_redraw && gEve != nullptr)
       gEve->FullRedraw3D();
 }
 
@@ -402,7 +401,6 @@ Float_t TEveUtil::GetFraction(Float_t minM, Float_t maxM, Float_t minQ, Float_t 
 Exception class thrown by TEve classes and macros.
 */
 
-ClassImp(TEveException);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -437,7 +435,6 @@ Exception safe wrapper for setting gPad.
 Optionally calls gPad->Modified()/Update() in destructor.
 */
 
-ClassImp(TEvePadHolder);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -446,10 +443,10 @@ TEvePadHolder::TEvePadHolder(Bool_t modify_update_p, TVirtualPad* new_pad, Int_t
    fOldPad        (gPad),
    fModifyUpdateP (modify_update_p)
 {
-   if (new_pad != 0)
+   if (new_pad != nullptr)
       new_pad->cd(subpad);
    else
-      gPad = 0;
+      gPad = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -457,7 +454,7 @@ TEvePadHolder::TEvePadHolder(Bool_t modify_update_p, TVirtualPad* new_pad, Int_t
 
 TEvePadHolder::~TEvePadHolder()
 {
-   if (fModifyUpdateP && gPad != 0) {
+   if (fModifyUpdateP && gPad != nullptr) {
       gPad->Modified();
       gPad->Update();
    }
@@ -471,7 +468,6 @@ Functionality to lock-unlock via setting of a static lock in
 TGeoManager should be added (new feature of TGeoManager).
 */
 
-ClassImp(TEveGeoManagerHolder);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -494,7 +490,7 @@ TEveGeoManagerHolder::TEveGeoManagerHolder(TGeoManager* new_gmgr, Int_t n_seg) :
    }
    else
    {
-      gGeoIdentity = 0;
+      gGeoIdentity = nullptr;
    }
 }
 
@@ -514,7 +510,7 @@ TEveGeoManagerHolder::~TEveGeoManagerHolder()
    }
    else
    {
-      gGeoIdentity = 0;
+      gGeoIdentity = nullptr;
    }
 }
 
@@ -524,7 +520,6 @@ Base-class for reference-counted objects.
 By default the object is destroyed when zero reference-count is reached.
 */
 
-ClassImp(TEveRefCnt);
 
 /** \class TEveRefBackPtr
 \ingroup TEve
@@ -532,7 +527,6 @@ Base-class for reference-counted objects with reverse references to
 TEveElement objects.
 */
 
-ClassImp(TEveRefBackPtr);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.

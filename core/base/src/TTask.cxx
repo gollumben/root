@@ -12,6 +12,8 @@
 /** \class TTask
 \ingroup Base
 
+\legacy{TTask}
+
 TTask is a base class that can be used to build a complex tree of Tasks.
 Each TTask derived class may contain other TTasks that can be executed
 recursively, such that a complex program can be dynamically built and executed
@@ -88,7 +90,6 @@ the following script:
 TTask *TTask::fgBeginTask  = nullptr;
 TTask *TTask::fgBreakPoint = nullptr;
 
-ClassImp(TTask);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor invoked when reading a TTask object from a file.
@@ -113,6 +114,7 @@ TTask::TTask(const char* name, const char *title)
    fBreakin     = 0;
    fBreakout    = 0;
    fTasks       = new TList();
+   fTasks->SetOwner(kTRUE);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -120,19 +122,23 @@ TTask::TTask(const char* name, const char *title)
 
 TTask& TTask::operator=(const TTask& tt)
 {
-   if(this!=&tt) {
+   if (this != &tt) {
       TNamed::operator=(tt);
-      fTasks->Delete();
-      TIter next(tt.fTasks);
-      TTask *task;
-      while ((task = (TTask*)next())) {
-         fTasks->Add(new TTask(*task));
+      if (fTasks)
+         fTasks->Clear();
+      else {
+         fTasks = new TList;
+         fTasks->SetOwner(kTRUE);
       }
-      fOption=tt.fOption;
-      fBreakin=tt.fBreakin;
-      fBreakout=tt.fBreakout;
-      fHasExecuted=tt.fHasExecuted;
-      fActive=tt.fActive;
+      TIter next(tt.fTasks);
+      while (auto element = next())
+         if (auto task = dynamic_cast<TTask *>(element))
+            fTasks->Add(new TTask(*task));
+      fOption = tt.fOption;
+      fBreakin = tt.fBreakin;
+      fBreakout = tt.fBreakout;
+      fHasExecuted = tt.fHasExecuted;
+      fActive = tt.fActive;
    }
    return *this;
 }
@@ -143,11 +149,11 @@ TTask& TTask::operator=(const TTask& tt)
 TTask::TTask(const TTask &other) : TNamed(other)
 {
    fTasks = new TList();
+   fTasks->SetOwner(kTRUE);
    TIter next(other.fTasks);
-   TTask *task;
-   while ((task = (TTask*)next())) {
-      fTasks->Add(new TTask(*task));
-   }
+   while (auto element = next())
+      if (auto task = dynamic_cast<TTask *>(element))
+         fTasks->Add(new TTask(*task));
    fOption = other.fOption;
    fBreakin = other.fBreakin;
    fBreakout = other.fBreakout;
@@ -160,17 +166,18 @@ TTask::TTask(const TTask &other) : TNamed(other)
 
 TTask::~TTask()
 {
-   if (!fTasks) return;
-   fTasks->Delete();
    delete fTasks;
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Add TTask to this.
 
-void  TTask::Add(TTask *task) 
+void  TTask::Add(TTask *task)
 {
+   if (!fTasks) {
+      fTasks = new TList;
+      fTasks->SetOwner(kTRUE);
+   }
    fTasks->Add(task);
 }
 
@@ -202,7 +209,8 @@ void TTask::Abort()
 
 void TTask::Browse(TBrowser *b)
 {
-   fTasks->Browse(b);
+   if (fTasks)
+      fTasks->Browse(b);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -217,10 +225,9 @@ void TTask::CleanTasks()
    fHasExecuted = kFALSE;
    Clear();
    TIter next(fTasks);
-   TTask *task;
-   while((task=(TTask*)next())) {
-      task->CleanTasks();
-   }
+   while (auto element = next())
+      if (auto task = dynamic_cast<TTask *>(element))
+         task->CleanTasks();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -307,10 +314,14 @@ void TTask::ExecuteTask(Option_t *option)
 void TTask::ExecuteTasks(Option_t *option)
 {
    TIter next(fTasks);
-   TTask *task;
-   while((task=(TTask*)next())) {
-      if (fgBreakPoint) return;
-      if (!task->IsActive()) continue;
+   while (auto element = next()) {
+      if (fgBreakPoint)
+         return;
+      auto task = dynamic_cast<TTask *>(element);
+      if (!task)
+         continue;
+      if (!task->IsActive())
+         continue;
       if (task->fHasExecuted) {
          task->ExecuteTasks(option);
          continue;
@@ -355,9 +366,8 @@ void TTask::ls(Option_t *option) const
 
    TRegexp re(opt, kTRUE);
 
-   TObject *obj;
    TIter nextobj(fTasks);
-   while ((obj = (TObject *) nextobj())) {
+   while (auto obj = nextobj()) {
       TString s = obj->GetName();
       if (s.Index(re) == kNPOS) continue;
       obj->ls(option);

@@ -6,7 +6,7 @@
     \brief Advanced 1-dimensional orthogonal transform functions
     \author Miroslav Morhac
 
- \legacy{TSpectrumTransform}
+ \legacy{TSpectrumTransform, For modeling a spectrum fitting and estimating the background one can use RooFit while for deconvolution and unfolding one can use TUnfold.}
 
 
  Class to carry out transforms of 1D spectra, its filtering and
@@ -32,7 +32,6 @@
 #include "TSpectrumTransform.h"
 #include "TMath.h"
 
-ClassImp(TSpectrumTransform);
 
 ////////////////////////////////////////////////////////////////////////////////
 ///default constructor
@@ -55,15 +54,13 @@ TSpectrumTransform::TSpectrumTransform()
 
 TSpectrumTransform::TSpectrumTransform(Int_t size):TNamed("SpectrumTransform", "Miroslav Morhac transformer")
 {
-   Int_t j,n;
+   Int_t n;
    if (size <= 0){
       Error ("TSpectrumTransform","Invalid length, must be > than 0");
       return;
    }
-   j = 0;
    n = 1;
    for (; n < size;) {
-      j += 1;
       n = n * 2;
    }
    if (n != size){
@@ -745,7 +742,7 @@ void TSpectrumTransform::Transform(const Double_t *source, Double_t *destVector)
    int i, j=0, k = 1, m, l;
    Double_t val;
    Double_t a, b, pi = 3.14159265358979323846;
-   Double_t *working_space = 0;
+   Double_t *working_space = nullptr;
    if (fTransformType >= kTransformFourierWalsh && fTransformType <= kTransformSinHaar) {
       if (fTransformType >= kTransformCosWalsh)
          fDegree += 1;
@@ -1272,7 +1269,7 @@ void TSpectrumTransform::FilterZonal(const Double_t *source, Double_t *destVecto
 {
    int i, j=0, k = 1, m, l;
    Double_t val;
-   Double_t *working_space = 0;
+   Double_t *working_space = nullptr;
    Double_t a, b, pi = 3.14159265358979323846, old_area, new_area;
    if (fTransformType >= kTransformFourierWalsh && fTransformType <= kTransformSinHaar) {
       if (fTransformType >= kTransformCosWalsh)
@@ -1782,7 +1779,7 @@ void TSpectrumTransform::Enhance(const Double_t *source, Double_t *destVector)
 {
    int i, j=0, k = 1, m, l;
    Double_t val;
-   Double_t *working_space = 0;
+   Double_t *working_space = nullptr;
    Double_t a, b, pi = 3.14159265358979323846, old_area, new_area;
    if (fTransformType >= kTransformFourierWalsh && fTransformType <= kTransformSinHaar) {
       if (fTransformType >= kTransformCosWalsh)

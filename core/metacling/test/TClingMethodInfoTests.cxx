@@ -393,7 +393,8 @@ public:
 };
 
 namespace Templates {
-  template <class T> class TTArg;
+  class TypeArg;
+  template <class T> class TemplateArg;
   template <class OUTER>
   struct MyMethods {
     template <class X> int Na();
@@ -404,7 +405,8 @@ namespace Templates {
     template <class X = int> int Ya();
     template <class...> int Yb();
     template <int X = 12> int Yc();
-    template <template <class T> class X = TTArg> int Yd();
+    template <typename X = TypeArg> int Yd1();
+    template <template <class T> class X = TemplateArg> int Yd2();
     template <class X = OUTER> int Ye();
     template <class X = OUTER> int Yf();
     template <class X = OUTER, class... ARGS> int Yg();
@@ -459,7 +461,8 @@ namespace Templates {
    EXPECT_EQ(names.count("Ya<int>"), 1);
    //EXPECT_EQ(names.count("Yb"), 1); //[1]
    EXPECT_EQ(names.count("Yc<12>"), 1);
-   EXPECT_EQ(names.count("Yd<TTArg>"), 1);
+   EXPECT_EQ(names.count("Yd1<Templates::TypeArg>"), 1);
+   EXPECT_EQ(names.count("Yd2<Templates::TemplateArg>"), 1);
    EXPECT_EQ(names.count("Ye<int>"), 1);
    EXPECT_EQ(names.count("Yf<int>"), 1);
    //EXPECT_EQ(names.count("Yg<int>"), 1); //[1]
@@ -476,7 +479,8 @@ namespace Templates {
    EXPECT_NE(methods->FindObject("Ya"), nullptr);
    EXPECT_NE(methods->FindObject("Yb"), nullptr);
    EXPECT_NE(methods->FindObject("Yc"), nullptr);
-   EXPECT_NE(methods->FindObject("Yd"), nullptr);
+   EXPECT_NE(methods->FindObject("Yd1"), nullptr);
+   EXPECT_NE(methods->FindObject("Yd2"), nullptr);
    EXPECT_NE(methods->FindObject("Ye"), nullptr);
    EXPECT_NE(methods->FindObject("Yf"), nullptr);
    EXPECT_NE(methods->FindObject("Yg"), nullptr);
@@ -504,8 +508,8 @@ namespace BUG6578 {
     using Base1::Base1; // Base1(int), Base1(Base1&, string)
   public: // This is irrelevant - access of used ctors is defined by access of base class!
     using Base2::Base2; // Base2(int, int)
+    Derived() = delete;
     Derived(const Derived&) = delete;
-    // Derived()
   };
 }
 )CODE");
@@ -550,4 +554,31 @@ namespace BUG6578 {
       for (auto &&iCtorExpected: ctorsExpected)
          std::cerr << "   " << iCtorExpected.first << '\n';
    }
+}
+
+TEST(TClingMethodInfo, InstantiateTemplateWithDefaultsROOT23195)
+{
+   gInterpreter->Declare(R"CODE(
+#include <initializer_list>
+#include <string>
+
+namespace ROOT23195 {
+template <typename TYPE>
+class Property {
+public:
+   template <typename T = TYPE>
+   Property &operator=(std::initializer_list<typename T::value_type>)
+   {
+      return *this;
+   }
+};
+} // namespace ROOT23195
+)CODE");
+
+   // This method-template default argument needs a valid source location while Cling
+   // substitutes typename T::value_type. An invalid one used to assert in
+   // Sema::CheckTypenameType.
+   TClass *cl = TClass::GetClass("ROOT23195::Property<std::string>");
+   ASSERT_NE(cl, nullptr);
+   EXPECT_NE(cl->GetListOfMethods(), nullptr);
 }

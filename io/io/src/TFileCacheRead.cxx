@@ -11,7 +11,7 @@
 
 /**
  \class TFileCacheRead
- \ingroup IO
+ \ingroup io_files
 
  A cache when reading files over the network.
 
@@ -19,8 +19,8 @@
  no operating system caching support (like the buffer cache for
  local disk I/O). The cache makes sure that every I/O is done with
  a (large) fixed length buffer thereby avoiding many small I/O's.
- Currently the read cache system is used by the classes TNetFile,
- TXNetFile and TWebFile (via TFile::ReadBuffers()).
+ Currently the read cache system is used by the classes like
+ TNetXNGFile (via TFile::ReadBuffers()).
  When processing TTree, TChain, a specialized class TTreeCache that
  derives from this class is automatically created.
 */
@@ -31,8 +31,8 @@
 #include "TFileCacheWrite.h"
 #include "TFilePrefetch.h"
 #include "TMathBase.h"
+#include <limits>
 
-ClassImp(TFileCacheRead);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default Constructor.
@@ -89,11 +89,11 @@ TFileCacheRead::TFileCacheRead() : TObject()
 ////////////////////////////////////////////////////////////////////////////////
 /// Creates a TFileCacheRead data structure.
 
-TFileCacheRead::TFileCacheRead(TFile *file, Int_t buffersize, TObject *tree)
+TFileCacheRead::TFileCacheRead(TFile *file, Int_t bufsize, TObject *tree)
            : TObject()
 {
-   if (buffersize <=10000) fBufferSize = 100000;
-   else fBufferSize = buffersize;
+   if (bufsize <=10000) fBufferSize = 100000;
+   else fBufferSize = bufsize;
 
    fBufferSizeMin = fBufferSize;
    fBufferLen   = 0;
@@ -701,29 +701,31 @@ void TFileCacheRead::WaitFinishPrefetch()
 /// If the current prefetch list is too large to fit in
 /// the new buffer some or all of the prefetch blocks are dropped. The
 /// requested buffersize must be greater than zero.
+/// It will be automatically clamped to minimum 100000 (if <= 10000) and maximum INT_MAX
 /// Return values:
 ///   - 0 if the prefetch block lists remain unchanged
 ///   - 1 if some or all blocks have been removed from the prefetch list
 ///   - -1 on error
 
-Int_t TFileCacheRead::SetBufferSize(Int_t buffersize)
+Int_t TFileCacheRead::SetBufferSize(Long64_t bufsize)
 {
-   if (buffersize <= 0) return -1;
-   if (buffersize <=10000) buffersize = 100000;
+   if (bufsize <= 0) return -1;
+   if (bufsize <=10000) bufsize = 100000;
+   if (bufsize > std::numeric_limits<Int_t>::max()) bufsize = std::numeric_limits<Int_t>::max();
 
-   if (buffersize == fBufferSize) {
-      fBufferSizeMin = buffersize;
+   if (bufsize == fBufferSize) {
+      fBufferSizeMin = bufsize;
       return 0;
    }
 
    Bool_t inval = kFALSE;
 
    // the cached data is too large to fit in the new buffer size mark data unavailable
-   if (fNtot > buffersize) {
+   if (fNtot > bufsize) {
       Prefetch(0, 0);
       inval = kTRUE;
    }
-   if (fBNtot > buffersize) {
+   if (fBNtot > bufsize) {
       SecondPrefetch(0, 0);
       inval = kTRUE;
    }
@@ -738,7 +740,7 @@ Int_t TFileCacheRead::SetBufferSize(Int_t buffersize)
       }
       delete [] fBuffer;
       fBuffer = 0;
-      np = new char[buffersize];
+      np = new char[bufsize];
       if (pres) {
          memcpy(np, pres, fNtot);
       }
@@ -747,8 +749,8 @@ Int_t TFileCacheRead::SetBufferSize(Int_t buffersize)
 
    delete [] fBuffer;
    fBuffer = np;
-   fBufferSizeMin = buffersize;
-   fBufferSize = buffersize;
+   fBufferSizeMin = bufsize;
+   fBufferSize = bufsize;
 
    if (inval) {
       return 1;
@@ -794,7 +796,7 @@ void TFileCacheRead::SetEnablePrefetchingImpl(Bool_t setPrefetching)
       }
    } else if (fPrefetch && !fEnablePrefetching) {
        SafeDelete(fPrefetch);
-       fPrefetch = NULL;
+       fPrefetch = nullptr;
    }
 
    //environment variable used to switch to the new method of reading asynchronously

@@ -31,6 +31,7 @@
 
 #include "Math/GenVector/3DConversions.h"
 
+#include "TMath.h"
 
 #include <algorithm>
 #include <cassert>
@@ -56,6 +57,8 @@ namespace Math {
 
 
      @ingroup GenVector
+
+     @see GenVector
   */
 
 class RotationZYX {
@@ -101,7 +104,7 @@ public:
       Construct from another supported rotation type (see gv_detail::convert )
    */
    template <class OtherRotation>
-   explicit RotationZYX(const OtherRotation & r) {gv_detail::convert(r,*this);}
+   explicit constexpr RotationZYX(const OtherRotation & r) {gv_detail::convert(r,*this);}
 
 
    /**
@@ -316,7 +319,7 @@ private:
    double fTheta;    // Y' rotation angle (pitch) defined in [-PI/2,PI/2]
    double fPsi;      // X'' rotation angle (roll) defined in (-PI,PI]
 
-   static double Pi() { return M_PI; }
+   static double Pi() { return TMath::Pi(); }
 
 };  // RotationZYX
 

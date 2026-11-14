@@ -5,29 +5,16 @@
 # For the list of contributors see $ROOTSYS/README/CREDITS.
 
 add_subdirectory(net)
-add_subdirectory(auth)
-
-if(NOT WIN32 AND ssl)
-  add_subdirectory(rpdutils)
-endif()
-
-if(netx)
-  add_subdirectory(netx)
-endif()
-
-if(alien)
-  add_subdirectory(alien)
-endif()
-
-if(monalisa)
-  add_subdirectory(monalisa)
-endif()
 
 if(davix)
    add_subdirectory(davix)
 endif()
 
-if(netxng)
+if(curl)
+   add_subdirectory(curl)
+endif()
+
+if(xrootd)
    add_subdirectory(netxng)
 endif()
 

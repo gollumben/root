@@ -15,7 +15,7 @@
 #include "TClass.h"
 #include "TSystem.h"
 
-using namespace ROOT::Experimental::Browsable;
+using namespace ROOT::Browsable;
 using namespace std::string_literals;
 
 RProvider::BrowseNTupleFunc_t RProvider::gNTupleFunc = nullptr;
@@ -66,7 +66,14 @@ RProvider::ClassMap_t &RProvider::GetClassMap()
 }
 
 //////////////////////////////////////////////////////////////////////////////////
-// Returns map of registered icons base on class name
+// Returns vector of registered progress functions
+
+RProvider::ProgressVect_t &RProvider::GetProgressVect()
+{
+   static RProvider::ProgressVect_t sVect;
+   return sVect;
+}
+
 
 //////////////////////////////////////////////////////////////////////////////////
 // Destructor
@@ -108,7 +115,6 @@ void RProvider::RegisterBrowse(const TClass *cl, BrowseFunc_t func)
     bmap.emplace(cl, StructBrowse{this,func});
 }
 
-
 //////////////////////////////////////////////////////////////////////////////////
 // Register drawing function for v6 canvas
 
@@ -143,12 +149,12 @@ void RProvider::RegisterNTupleFunc(BrowseNTupleFunc_t func)
    gNTupleFunc = func;
 }
 
-
 //////////////////////////////////////////////////////////////////////////////////
 // Register class with supported libs (if any)
 
 void RProvider::RegisterClass(const std::string &clname, const std::string &iconname,
-                              const std::string &browselib, const std::string &draw6lib, const std::string &draw7lib)
+                              const std::string &browselib, const std::string &draw6lib,
+                              const std::string &draw7lib, const std::string &drawopt)
 {
    auto &bmap = GetClassMap();
 
@@ -159,12 +165,12 @@ void RProvider::RegisterClass(const std::string &clname, const std::string &icon
    bool can_have_childs = !browselib.empty();
    if ((blib == "dflt") || (blib == "TObject")) blib = ""; // just use as indicator that browsing is possible
 
-   bmap.emplace(clname, StructClass{this, can_have_childs, iconname, blib, draw6lib, draw7lib});
+   bmap.emplace(clname, StructClass{this, can_have_childs, iconname, blib, draw6lib, draw7lib, drawopt});
 }
 
 //////////////////////////////////////////////////////////////////////////////////
 // Returns entry for the requested class
-const RProvider::StructClass &RProvider::GetClassEntry(const ClassArg &cl)
+RProvider::StructClass &RProvider::GetClassEntry(const ClassArg &cl)
 {
    if (!cl.empty()) {
       auto &bmap = GetClassMap();
@@ -260,7 +266,6 @@ bool ScanProviderMap(Map_t &fmap, const RProvider::ClassArg &cl, bool test_all =
    return false;
 }
 
-
 /////////////////////////////////////////////////////////////////////////
 /// Create browsable element for the object
 /// Created element may take ownership over the object
@@ -296,7 +301,7 @@ std::shared_ptr<RElement> RProvider::Browse(std::unique_ptr<RHolder> &object)
 std::shared_ptr<RElement> RProvider::BrowseNTuple(const std::string &tuplename, const std::string &filename)
 {
    if (!gNTupleFunc) {
-      auto &entry = GetClassEntry("ROOT::Experimental::RNTuple");
+      auto &entry = GetClassEntry("ROOT::RNTuple");
 
       if (entry.browselib.empty())
          return nullptr;
@@ -368,6 +373,27 @@ std::string RProvider::GetClassIcon(const ClassArg &arg, bool is_folder)
    return is_folder ? "sap-icon://folder-blank"s : "sap-icon://electronic-medical-record"s;
 }
 
+/////////////////////////////////////////////////////////////////////
+/// Return configured draw option for the class
+
+std::string RProvider::GetClassDrawOption(const ClassArg &arg)
+{
+   return GetClassEntry(arg).drawopt;
+}
+
+/////////////////////////////////////////////////////////////////////
+/// Set draw option for the class
+/// Return true if entry for the class exists
+
+bool RProvider::SetClassDrawOption(const ClassArg &arg, const std::string &opt)
+{
+   auto &entry = GetClassEntry(arg);
+   if (entry.dummy())
+      return false;
+
+   entry.drawopt = opt;
+   return true;
+}
 
 /////////////////////////////////////////////////////////////////////
 /// Return true if provided class can have childs
@@ -375,6 +401,15 @@ std::string RProvider::GetClassIcon(const ClassArg &arg, bool is_folder)
 bool RProvider::CanHaveChilds(const ClassArg &arg)
 {
    return GetClassEntry(arg).can_have_childs;
+}
+
+/////////////////////////////////////////////////////////////////////
+/// Check if showing of sub-elements was disabled
+
+bool RProvider::NotShowChilds(const ClassArg &arg)
+{
+   auto &entry = GetClassEntry(arg);
+   return !entry.dummy() && !entry.can_have_childs;
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -405,6 +440,66 @@ bool RProvider::CanDraw7(const ClassArg &arg)
    return false;
 }
 
+/////////////////////////////////////////////////////////////////////
+/// Create progress handle
+
+RProvider::ProgressHandle::ProgressHandle(void *handle, RProvider::ProgressFunc_t func)
+{
+   fHandle = handle;
+   RProvider::GetProgressVect().emplace_back(StructProgress{handle, nullptr, func});
+}
+
+/////////////////////////////////////////////////////////////////////
+/// Destroy progress handle
+
+RProvider::ProgressHandle::~ProgressHandle()
+{
+   auto &vect = RProvider::GetProgressVect();
+   auto iter = vect.begin();
+   while (iter != vect.end()) {
+      if (iter->handle == fHandle) {
+         vect.erase(iter);
+      } else {
+         iter++;
+      }
+   }
+}
+
+/////////////////////////////////////////////////////////////////////
+/// Extend progress handle
+
+void RProvider::ProgressHandle::Extend(void *handle2)
+{
+   RProvider::ExtendProgressHandle(fHandle, handle2);
+}
+
+/////////////////////////////////////////////////////////////////////
+/// Extend progress handle - to be able react on sub item
+
+void RProvider::ExtendProgressHandle(void *handle, void *handle2)
+{
+   for (auto &elem : GetProgressVect())
+      if (elem.handle == handle)
+         elem.handle2 = handle2;
+}
+
+/////////////////////////////////////////////////////////////////////
+/// Report running progress
+/// Returns true if handling function was invoked
+/// Method can be used to detect if there any progress handler assigned
+
+
+bool RProvider::ReportProgress(void *handle, float progress)
+{
+   bool is_any = false;
+   for (auto &elem : GetProgressVect())
+      if ((elem.handle == handle) || (elem.handle2 == handle)) {
+         elem.func(progress, elem.handle);
+         is_any = true;
+      }
+
+   return is_any;
+}
 
 // ==============================================================================================
 
@@ -414,11 +509,11 @@ public:
    RDefaultProvider()
    {
       // TODO: let read from rootrc or any other files
-      RegisterClass("ROOT::Experimental::RH1D", "sap-icon://bar-chart", "", "", "libROOTHistDrawProvider");
-      RegisterClass("ROOT::Experimental::RH2D", "sap-icon://pixelate", "", "", "libROOTHistDrawProvider");
-      RegisterClass("ROOT::Experimental::RH3D", "sap-icon://product", "", "", "libROOTHistDrawProvider");
-      RegisterClass("ROOT::Experimental::RCanvas", "sap-icon://business-objects-experience", "", "", "libROOTHistDrawProvider");
-      RegisterClass("ROOT::Experimental::RNTuple", "sap-icon://table-chart", "libROOTNTupleBrowseProvider", "libROOTNTupleDraw6Provider", "libROOTNTupleDraw7Provider");
+      RegisterClass("ROOT::Experimental::RCanvas", "sap-icon://business-objects-experience", "", "",
+                    "libROOTObjectDraw7Provider");
+
+      RegisterClass("ROOT::RNTuple", "sap-icon://table-chart", "libROOTNTupleBrowseProvider",
+                    "libROOTNTupleDraw6Provider", "libROOTNTupleDraw7Provider");
    }
 
 } newRDefaultProvider;

@@ -43,15 +43,17 @@ using namespace std::string_literals;
 using namespace ROOT::Experimental;
 
 namespace {
-RLogChannel &CanvasPainerLog() {
-   static RLogChannel sLog("ROOT.CanvasPainer");
+ROOT::RLogChannel &CanvasPainerLog()
+{
+   static ROOT::RLogChannel sLog("ROOT.CanvasPainer");
    return sLog;
 }
 }
 
-/** \class RCanvasPainter
-\ingroup webdisplay
-New implementation of canvas painter, using RWebWindow
+/** \class ROOT::Experimental::RCanvasPainter
+\ingroup webwidgets
+
+\brief Implementation of painter for ROOT::Experimental::RCanvas, using RWebWindow
 */
 
 namespace ROOT {
@@ -107,7 +109,7 @@ private:
 
    RCanvas &fCanvas; ///<!  Canvas we are painting, *this will be owned by canvas
 
-   std::shared_ptr<RWebWindow> fWindow; ///!< configured display
+   std::shared_ptr<ROOT::RWebWindow> fWindow; ///!< configured display
 
    std::list<WebConn> fWebConn;                  ///<! connections list
    std::list<std::shared_ptr<WebCommand>> fCmds; ///<! list of submitted commands
@@ -117,6 +119,8 @@ private:
    std::list<WebUpdate> fUpdatesLst; ///<! list of callbacks for canvas update
 
    int fJsonComp{23};                ///<! json compression for data send to client
+
+   std::vector<std::unique_ptr<ROOT::RWebDisplayHandle>> fHelpHandles; ///<! array of handles for help widgets
 
    /// Disable copy construction.
    RCanvasPainter(const RCanvasPainter &) = delete;
@@ -145,7 +149,7 @@ private:
 public:
    RCanvasPainter(RCanvas &canv);
 
-   virtual ~RCanvasPainter();
+   ~RCanvasPainter() override;
 
    void CanvasUpdated(uint64_t ver, bool async, CanvasCallback_t callback) final;
 
@@ -163,11 +167,17 @@ public:
 
    int NumDisplays() const final;
 
+   std::shared_ptr<ROOT::RWebWindow> GetWindow() final;
+
    std::string GetWindowAddr() const final;
+
+   std::string GetWindowUrl(bool remote) final;
 
    void Run(double tm = 0.) final;
 
-   bool AddPanel(std::shared_ptr<RWebWindow>) final;
+   bool AddPanel(std::shared_ptr<ROOT::RWebWindow>) final;
+
+   void SetClearOnClose(const std::shared_ptr<void> &) final;
 
    /** \class CanvasPainterGenerator
           Creates RCanvasPainter objects.
@@ -180,7 +190,7 @@ public:
       {
          return std::make_unique<RCanvasPainter>(canv);
       }
-      ~GeneratorImpl() = default;
+      ~GeneratorImpl() override = default;
 
       /// Set RVirtualCanvasPainter::fgGenerator to a new GeneratorImpl object.
       static void SetGlobalPainter()
@@ -223,7 +233,7 @@ RCanvasPainter::~RCanvasPainter()
    CancelCommands();
    CancelUpdates();
    if (fWindow)
-      fWindow->CloseConnections();
+      fWindow->Reset();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -455,13 +465,19 @@ void RCanvasPainter::DoWhenReady(const std::string &name, const std::string &arg
 
 bool RCanvasPainter::ProduceBatchOutput(const std::string &fname, int width, int height)
 {
+   auto len = fname.length();
+   bool is_json = (len > 4) && ((fname.compare(len-4,4,".json") == 0) || (fname.compare(len-4,4,".JSON") == 0));
+
+   // do not try to produce image if current settings not allowing this
+   if (!is_json && !RWebDisplayHandle::CanProduceImages())
+      return false;
+
    RDrawable::RDisplayContext ctxt(&fCanvas, &fCanvas, 0);
    ctxt.SetConnection(1, true);
 
    auto snapshot = CreateSnapshot(ctxt);
 
-   auto len = fname.length();
-   if ((len > 4) && ((fname.compare(len-4,4,".json") == 0) || (fname.compare(len-4,4,".JSON") == 0))) {
+   if (is_json) {
       std::ofstream f(fname);
       if (!f) {
          R__LOG_ERROR(CanvasPainerLog()) << "Fail to open file " << fname << " to store canvas snapshot";
@@ -517,6 +533,9 @@ void RCanvasPainter::ProcessData(unsigned connid, const std::string &arg)
       // use window manager to correctly terminate http server and ROOT session
       fWindow->TerminateROOT();
       return;
+   } else if (arg == "START_BROWSER") {
+      gROOT->ProcessLine("auto br = std::make_shared<ROOT::RBrowser>();br->ClearOnClose(br);");
+
    } else if (arg == "RELOAD") {
       conn->fSend = 0; // reset send version, causes new data sending
    } else if (arg == "INTERRUPT") {
@@ -544,6 +563,10 @@ void RCanvasPainter::ProcessData(unsigned connid, const std::string &arg)
       TFile *f = TFile::Open(cdata.c_str(), "RECREATE");
       f->WriteObject(&fCanvas, "Canvas");
       delete f;
+   } else if (ROOT::RWebWindow::IsFileDialogMessage(arg)) {
+
+      ROOT::RWebWindow::EmbedFileDialog(fWindow, connid, arg);
+
    } else if (check_header("REQ:")) {
       auto req = TBufferJSON::FromJSON<RDrawableRequest>(cdata);
       if (req) {
@@ -580,6 +603,20 @@ void RCanvasPainter::ProcessData(unsigned connid, const std::string &arg)
       } else {
          R__LOG_ERROR(CanvasPainerLog()) << "Fail to parse RDrawableRequest";
       }
+   } else if (check_header("RESIZED:")) {
+      auto sz = TBufferJSON::FromJSON<std::vector<int>>(cdata);
+      if (sz && sz->size() == 2) {
+         fCanvas.SetWidth(sz->at(0));
+         fCanvas.SetHeight(sz->at(1));
+      }
+   } else if (check_header("CLEAR")) {
+      fCanvas.Wipe();
+      fCanvas.Modified();
+   } else if (check_header("SHOWURL:")) {
+      ROOT::RWebDisplayArgs args;
+      args.SetUrl(cdata);
+      args.SetStandalone(false);
+      fHelpHandles.emplace_back(ROOT::RWebDisplayHandle::Display(args));
    } else {
       R__LOG_ERROR(CanvasPainerLog()) << "Got not recognized message" << arg;
    }
@@ -594,7 +631,7 @@ void RCanvasPainter::CreateWindow()
 {
    if (fWindow) return;
 
-   fWindow = RWebWindow::Create();
+   fWindow = ROOT::RWebWindow::Create();
    fWindow->SetConnLimit(0); // allow any number of connections
    fWindow->SetDefaultPage("file:rootui5sys/canv/canvas.html");
    fWindow->SetCallBacks(
@@ -620,7 +657,7 @@ void RCanvasPainter::CreateWindow()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create new display for the canvas
-/// See RWebWindowsManager::Show() docu for more info
+/// See ROOT::RWebWindowsManager::Show() docu for more info
 
 void RCanvasPainter::NewDisplay(const std::string &where)
 {
@@ -643,6 +680,15 @@ void RCanvasPainter::NewDisplay(const std::string &where)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Returns web window used for canvas display
+
+std::shared_ptr<ROOT::RWebWindow> RCanvasPainter::GetWindow()
+{
+   return fWindow;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 /// Returns number of connected displays
 
 int RCanvasPainter::NumDisplays() const
@@ -663,9 +709,20 @@ std::string RCanvasPainter::GetWindowAddr() const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Returns connection URL for web window
+
+std::string RCanvasPainter::GetWindowUrl(bool remote)
+{
+   if (!fWindow) return "";
+
+   return fWindow->GetUrl(remote);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 /// Add window as panel inside canvas window
 
-bool RCanvasPainter::AddPanel(std::shared_ptr<RWebWindow> win)
+bool RCanvasPainter::AddPanel(std::shared_ptr<ROOT::RWebWindow> win)
 {
    if (gROOT->IsWebDisplayBatch())
       return false;
@@ -680,9 +737,15 @@ bool RCanvasPainter::AddPanel(std::shared_ptr<RWebWindow> win)
       return false;
    }
 
-   std::string addr = fWindow->GetRelativeAddr(win);
+   if (win->GetManager() != fWindow->GetManager()) {
+      R__LOG_ERROR(CanvasPainerLog()) << "Cannot embed window from other windows manager";
+      return false;
+   }
 
-   if (addr.length() == 0) {
+   // request URL only as for local connection - without full server
+   std::string addr = win->GetUrl(false);
+
+   if (addr.empty()) {
       R__LOG_ERROR(CanvasPainerLog()) << "Cannot attach panel to canvas";
       return false;
    }
@@ -691,12 +754,22 @@ bool RCanvasPainter::AddPanel(std::shared_ptr<RWebWindow> win)
    // therefore handle may be removed later
 
    std::string cmd("ADDPANEL:");
+   cmd.append("..");
    cmd.append(addr);
 
    /// one could use async mode
    DoWhenReady(cmd, "AddPanel", true, nullptr);
 
    return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set handle to window which will be cleared when connection is closed
+
+void RCanvasPainter::SetClearOnClose(const std::shared_ptr<void> &handle)
+{
+   if (fWindow)
+      fWindow->SetClearOnClose(handle);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

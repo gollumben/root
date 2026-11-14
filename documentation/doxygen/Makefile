@@ -1,13 +1,23 @@
 
-.PHONY: filter folders mathjax js images doxygen
+.PHONY: filter folders mathjax js images doxygen replaceCollaborationDiagrams
 
-PYTHON_EXECUTABLE ?= /usr/bin/python
-export PYTHON_EXECUTABLE
+OS=$(shell uname)
+ifeq ($(OS), Darwin)
+   export DOXYGEN_LDD := otool -L
+   NJOB ?= $(shell sysctl -n hw.ncpu)
+else
+   export DOXYGEN_LDD := ldd
+   NJOB ?= $(shell nproc)
+endif
+
+Python3_EXECUTABLE ?= python3
+export Python3_EXECUTABLE
+export PYSPARK_PYTHON := $(Python3_EXECUTABLE)
 
 DOXYGEN_OUTPUT_DIRECTORY ?= $(HOME)/rootdoc
 export DOXYGEN_OUTPUT_DIRECTORY
 export DOXYGEN_SOURCE_DIRECTORY := ../..
-export DOXYGEN_ROOT_VERSION := $(shell root -l -b -q -e 'printf("%s\n",gROOT->GetGitBranch());')
+export DOXYGEN_ROOT_VERSION := $(shell root -b -q -e 'printf("%s\n",gROOT->GetGitBranch());')
 export DOXYGEN_ROOT_VERSION := $(subst -00-patches,,$(DOXYGEN_ROOT_VERSION))
 export DOXYGEN_ROOT_VERSION := $(subst heads/,,$(DOXYGEN_ROOT_VERSION))
 export DOXYGEN_EXAMPLE_PATH := $(DOXYGEN_OUTPUT_DIRECTORY)/macros
@@ -16,21 +26,37 @@ export DOXYGEN_NOTEBOOK_PATH := $(DOXYGEN_OUTPUT_DIRECTORY)/notebooks
 export DOXYGEN_STRIP_PATH := $(shell cd $(PWD)/../..; pwd)
 export DOXYGEN_INCLUDE_PATH := $(shell find $(DOXYGEN_STRIP_PATH) -type d -name dictpch -prune -o -type d -name inc)
 export DOXYGEN_PYZDOC_PATH := $(DOXYGEN_OUTPUT_DIRECTORY)/pyzdoc
+export DOXYGEN_STRIP_FROM_PATH := $(DOXYGEN_STRIP_PATH) $(DOXYGEN_OUTPUT_DIRECTORY)
+export DOXYGEN_NUM_THREADS := 1
+export DOXYGEN_INPUT_FILTER := ./filter
+export DOXYGEN_HAVE_DOT := YES
 
-PYZ_DIR = $(DOXYGEN_SOURCE_DIRECTORY)/bindings/pyroot/pythonizations/python/ROOT/pythonization
+PYZ_DIR = $(DOXYGEN_SOURCE_DIRECTORY)/bindings/pyroot/pythonizations/python/ROOT/_pythonization
 
 define MkDir
 	+@[ -d $1 ] || mkdir -p $1
 endef
 
-all: filter folders mathjax js images doxygen
+all: filter folders mathjax js images doxygen replaceCollaborationDiagrams notebooks rootWork
+
+preview: export DOXYGEN_OUTPUT_DIRECTORY := /tmp/doxygen_preview
+preview: export DOXYGEN_NUM_THREADS := 0
+preview: export DOXYGEN_HAVE_DOT := NO
+preview: export DOXYGEN_INPUT_FILTER :=
+preview: htmlfooter
+	echo "INPUT = ./mainpage.md ../.." > Doxyfile_INPUT
+	doxygen Doxyfile
+	rm -f Doxyfile_INPUT
+	echo "Your preview is in $(DOXYGEN_OUTPUT_DIRECTORY). Browse it at file://$(DOXYGEN_OUTPUT_DIRECTORY)/html/index.html"
 
 filter:
-	`root-config --cxx` -o filter filter.cxx -std=c++14
+	`root-config --cxx` -o filter filter.cxx -O2
 
 mathjax:
-	$(call MkDir,$(DOXYGEN_IMAGE_PATH))
-	tar xfz mathjax.tar.gz -C $(DOXYGEN_IMAGE_PATH)
+	$(call MkDir,$(DOXYGEN_IMAGE_PATH)/mathjax)
+	curl -o mathjax.tar.gz https://lcgpackages.web.cern.ch/tarFiles/sources/mathjax-3.2.0.tar.gz
+	tar xfz mathjax.tar.gz -C $(DOXYGEN_IMAGE_PATH)/mathjax --strip-components=1
+	rm -f mathjax.tar.gz
 
 js:
 	$(call MkDir,$(DOXYGEN_IMAGE_PATH))
@@ -42,22 +68,44 @@ images:
 
 pyzdoc:
 	$(call MkDir,$(DOXYGEN_PYZDOC_PATH))
-	$(PYTHON_EXECUTABLE) extract_docstrings.py $(PYZ_DIR) $(DOXYGEN_PYZDOC_PATH)
-	$(PYTHON_EXECUTABLE) print_roofit_pyz_doctrings.py > $(DOXYGEN_PYZDOC_PATH)/_roofit.pyzdoc
+	$(Python3_EXECUTABLE) extract_docstrings.py $(PYZ_DIR) $(DOXYGEN_PYZDOC_PATH)
+	$(Python3_EXECUTABLE) print_roofit_pyz_doctrings.py > $(DOXYGEN_PYZDOC_PATH)/_roofit.pyzdoc
 
-doxygen: filter pyzdoc
+htmlfooter:
+	./makehtmlfooter.sh > htmlfooter.html
+
+doxygen: filter pyzdoc htmlfooter
+	rm -f tutorialWorklist_py tutorialWorklist_root
 	$(call MkDir,$(DOXYGEN_OUTPUT_DIRECTORY))
 	$(call MkDir,$(DOXYGEN_EXAMPLE_PATH))
 	$(call MkDir,$(DOXYGEN_NOTEBOOK_PATH))
-	./makehtmlfooter.sh > htmlfooter.html
 	./makeinput.sh
 	doxygen
-	./listlibs.sh
+	bash ./CleanNamespaces.sh
+	gzip $(DOXYGEN_IMAGE_PATH)/ROOT.tag
+	gzip $(DOXYGEN_IMAGE_PATH)/ROOT.qch
 	rm -rf files c1* *.ps *.eps *.png *.jpg *.tex *.svg *.pdf *.root *.xpm *.out *.dat *.dtd *.dot *.txt *.csv *.log *.rs
 	rm -rf listofclass.sh tmva* data* result* config* test* Roo* My* Freq*
 	rm -f Doxyfile_INPUT filter htmlfooter.html MDF.C pca.C
 	rm -f greek.gif hsumanim.gif mathsymb.gif parallelcoordtrans.gif
+	rm -rf files c1* *.ps *.png *.svg *.pdf *.root *.xpm *.out *.dat *.dtd *.dot *.txt listofclass.sh
+
+collaborationDiagrams:
+	bash ./makeCollaborationDiagrams.sh
+
+replaceCollaborationDiagrams: doxygen collaborationDiagrams
+	bash ./modifyClassWebpages.sh -j$(NJOB)
+
+tutorialWorklist_py: doxygen
+tutorialWorklist_root: doxygen
+
+notebooks: tutorialWorklist_py makeNotebooks.sh
+	cp ../../tutorials/analysis/unfold/*.xml ../../tutorials/analysis/unfold/*.dtd $(DOXYGEN_NOTEBOOK_PATH)/
+	bash ./makeNotebooks.sh $< -j$(NJOB)
 	rm -f $(DOXYGEN_NOTEBOOK_PATH)/*.root
 
+rootWork: tutorialWorklist_root
+	xargs -L 1 -P 12 root < $<
+
 clean:
-	rm -rf $(DOXYGEN_OUTPUT_DIRECTORY)
+	rm -rf $(DOXYGEN_OUTPUT_DIRECTORY) tutorialWorklist_py tutorialWorklist_root CleanNamespaces.sh

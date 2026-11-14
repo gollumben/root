@@ -20,12 +20,11 @@
 #include <cassert>
 #include <cmath>
 
-ClassImp(TUnuranContDist);
 
 TUnuranContDist::TUnuranContDist(const ROOT::Math::IGenFunction *pdf, const ROOT::Math::IGenFunction *dpdf,
                                  const ROOT::Math::IGenFunction *cdf, bool isLogPdf, bool copyFunc)
-   : fPdf(pdf), fDPdf(dpdf), fCdf(cdf), fXmin(1.), fXmax(-1.), fMode(0), fArea(0), fIsLogPdf(isLogPdf), fHasDomain(0),
-     fHasMode(0), fHasArea(0), fOwnFunc(copyFunc)
+   : fPdf(pdf), fDPdf(dpdf), fCdf(cdf), fXmin(1.), fXmax(-1.), fMode(0), fArea(0), fIsLogPdf(isLogPdf), fHasDomain(false),
+     fHasMode(false), fHasArea(false), fOwnFunc(copyFunc)
 {
    // Constructor from generic function interfaces
    // manage the functions and clone them if flag copyFunc is true
@@ -52,9 +51,9 @@ TUnuranContDist::TUnuranContDist (TF1 * pdf, TF1 * deriv, TF1 * cdf, bool isLogP
    fMode(0),
    fArea(0),
    fIsLogPdf(isLogPdf),
-   fHasDomain(0),
-   fHasMode(0),
-   fHasArea(0),
+   fHasDomain(false),
+   fHasMode(false),
+   fHasArea(false),
    fOwnFunc(true)
 {
    // Constructor from a TF1 objects
@@ -151,7 +150,7 @@ double TUnuranContDist::DPdf( double x) const {
    ROOT::Math::RichardsonDerivator rd;
    static double gEps = 0.001;
    double h = ( std::abs(x) > 0 ) ?  gEps * std::abs(x) : gEps;
-   assert (fPdf != 0);
+   assert (fPdf != nullptr);
    return rd.Derivative1( *fPdf, x, h);
 }
 

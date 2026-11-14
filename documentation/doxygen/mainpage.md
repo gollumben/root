@@ -19,12 +19,13 @@ to Reference Guides for all %ROOT versions.
 
 - A rich set of %ROOT [tutorials and code examples](https://root.cern/doc/master/group__Tutorials.html) are offered to developers to exercise specific functionality.
 - [ROOT Primer](https://root.cern/primer/).
-- [ROOT Introductory Course](https://github.com/root-project/training/tree/master/BasicCourse).
+- [ROOT Introductory Course](https://github.com/root-project/student-course/tree/25.07)
+- [ROOT Advanced Course](https://github.com/root-project/ROOTAdvancedCourse/tree/26.04)
 
 
 ### Provide your feedback
 If you have suggestions about how to improve this documentation, you can let us know:
 
-- With a [PR](https://github.com/root-project/root)
+- With a [pull request](https://github.com/root-project/root/pulls)
 - On the [ROOT Forum](https://root-forum.cern.ch)
-- On [our tracker](https://github.com/root-project/root/issues)
+- On [our issue tracker](https://github.com/root-project/root/issues)

@@ -83,9 +83,6 @@ const Int_t kAutoScrollFudge = 10;
 const Int_t kAcceleration[kAutoScrollFudge+1] = {1,1,1,2,3,4,6,7,8,16,32};
 const Int_t kKeyboardTime = 700;
 
-ClassImp(TGCanvas);
-ClassImp(TGViewPort);
-ClassImp(TGContainer);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -95,7 +92,7 @@ private:
    TGContainer   *fContainer;
 public:
    TGContainerKeyboardTimer(TGContainer *t) : TTimer(kKeyboardTime) { fContainer = t; }
-   Bool_t Notify();
+   Bool_t Notify() override;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -116,7 +113,7 @@ private:
    TGContainer   *fContainer;
 public:
    TGContainerScrollTimer(TGContainer *t) : TTimer(50) { fContainer = t; }
-   Bool_t Notify();
+   Bool_t Notify() override;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -134,7 +131,7 @@ Bool_t TGContainerScrollTimer::Notify()
 /// Create a viewport object.
 
 TGViewPort::TGViewPort(const TGWindow *p, UInt_t w, UInt_t h,
-                       UInt_t options, ULong_t back) :
+                       UInt_t options, Pixel_t back) :
     TGCompositeFrame(p, w, h, options, back)
 {
    fContainer = 0;
@@ -203,7 +200,7 @@ void TGViewPort::SetHPos(Int_t xpos)
    //to read window's pixels, skip "optimization".
    ((TGContainer*)fContainer)->DrawRegion(0, 0, fWidth, fHeight);
 #else
-   UInt_t adiff = TMath::Abs(diff);
+   UInt_t adiff = std::abs(diff);
 
    if (adiff < fWidth) {
       if (diff < 0) {
@@ -255,7 +252,7 @@ void TGViewPort::SetVPos(Int_t ypos)
    //to read window's pixels, skip "optimization".
    ((TGContainer*)fContainer)->DrawRegion(0, 0, fWidth, fHeight);
 #else
-   UInt_t adiff = TMath::Abs(diff);
+   UInt_t adiff = std::abs(diff);
 
    if (adiff < fHeight) {
       if (diff < 0) {
@@ -314,7 +311,7 @@ Bool_t TGViewPort::HandleConfigureNotify(Event_t *event)
 /// created by the TGCanvas).
 
 TGContainer::TGContainer(const TGWindow *p, UInt_t w, UInt_t h,
-                             UInt_t options, ULong_t back) :
+                             UInt_t options, Pixel_t back) :
    TGCompositeFrame(p, w, h, options, back)
 {
    fXp = fYp = fX0 = fY0 = fXf = fYf = fXDND = fYDND = 0;
@@ -358,7 +355,7 @@ TGContainer::TGContainer(const TGWindow *p, UInt_t w, UInt_t h,
 /// all the list items. It will be shown through a TGViewPort (which is
 /// created by the TGCanvas).
 
-TGContainer::TGContainer(TGCanvas *p, UInt_t options, ULong_t back) :
+TGContainer::TGContainer(TGCanvas *p, UInt_t options, Pixel_t back) :
    TGCompositeFrame(p->GetViewPort(), p->GetWidth(), p->GetHeight(), options, back)
 {
    fXp = fYp = fX0 = fY0 = fXf = fYf = fXDND = fYDND = 0;
@@ -433,7 +430,7 @@ void TGContainer::Layout()
 
 void TGContainer::CurrentChanged(Int_t x, Int_t y)
 {
-   Long_t args[2];
+   Longptr_t args[2];
 
    args[0] = x;
    args[1] = y;
@@ -446,7 +443,7 @@ void TGContainer::CurrentChanged(Int_t x, Int_t y)
 
 void TGContainer::CurrentChanged(TGFrame* f)
 {
-   Emit("CurrentChanged(TGFrame*)", (Long_t)f);
+   Emit("CurrentChanged(TGFrame*)", (Longptr_t)f);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -469,10 +466,10 @@ void TGContainer::CurrentChanged(TGFrame* f)
 
 void TGContainer::KeyPressed(TGFrame *frame, UInt_t keysym, UInt_t mask)
 {
-   Long_t args[3];
-   args[0] = (Long_t)frame;
-   args[1] = (Long_t)keysym;
-   args[2] = (Long_t)mask;
+   Longptr_t args[3];
+   args[0] = (Longptr_t)frame;
+   args[1] = (Longptr_t)keysym;
+   args[2] = (Longptr_t)mask;
    Emit("KeyPressed(TGFrame*,UInt_t,UInt_t)", args);
    SendMessage(fMsgWindow, MK_MSG(kC_CONTAINER, kCT_KEY), keysym, mask);
 }
@@ -483,7 +480,7 @@ void TGContainer::KeyPressed(TGFrame *frame, UInt_t keysym, UInt_t mask)
 
 void TGContainer::ReturnPressed(TGFrame* f)
 {
-   Emit("ReturnPressed(TGFrame*)", (Long_t)f);
+   Emit("ReturnPressed(TGFrame*)", (Longptr_t)f);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -492,7 +489,7 @@ void TGContainer::ReturnPressed(TGFrame* f)
 
 void TGContainer::SpacePressed(TGFrame* f)
 {
-   Emit("SpacePressed(TGFrame*)", (Long_t)f);
+   Emit("SpacePressed(TGFrame*)", (Longptr_t)f);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -500,7 +497,7 @@ void TGContainer::SpacePressed(TGFrame* f)
 
 void TGContainer::OnMouseOver(TGFrame* f)
 {
-   if (!fOnMouseOver) Emit("OnMouseOver(TGFrame*)", (Long_t)f);
+   if (!fOnMouseOver) Emit("OnMouseOver(TGFrame*)", (Longptr_t)f);
    fOnMouseOver = kTRUE;
 }
 
@@ -509,9 +506,9 @@ void TGContainer::OnMouseOver(TGFrame* f)
 
 void TGContainer::Clicked(TGFrame *entry, Int_t btn)
 {
-   Long_t args[2];
+   Longptr_t args[2];
 
-   args[0] = (Long_t)entry;
+   args[0] = (Longptr_t)entry;
    args[1] = btn;
 
    Emit("Clicked(TGFrame*,Int_t)", args);
@@ -522,9 +519,9 @@ void TGContainer::Clicked(TGFrame *entry, Int_t btn)
 
 void TGContainer::Clicked(TGFrame *entry, Int_t btn, Int_t x, Int_t y)
 {
-   Long_t args[4];
+   Longptr_t args[4];
 
-   args[0] = (Long_t)entry;
+   args[0] = (Longptr_t)entry;
    args[1] = btn;
    args[2] = x;
    args[3] = y;
@@ -537,9 +534,9 @@ void TGContainer::Clicked(TGFrame *entry, Int_t btn, Int_t x, Int_t y)
 
 void TGContainer::DoubleClicked(TGFrame *entry, Int_t btn)
 {
-   Long_t args[2];
+   Longptr_t args[2];
 
-   args[0] = (Long_t)entry;
+   args[0] = (Longptr_t)entry;
    args[1] = btn;
 
    Emit("DoubleClicked(TGFrame*,Int_t)", args);
@@ -550,9 +547,9 @@ void TGContainer::DoubleClicked(TGFrame *entry, Int_t btn)
 
 void TGContainer::DoubleClicked(TGFrame *entry, Int_t btn, Int_t x, Int_t y)
 {
-   Long_t args[4];
+   Longptr_t args[4];
 
-   args[0] = (Long_t)entry;
+   args[0] = (Longptr_t)entry;
    args[1] = btn;
    args[2] = x;
    args[3] = y;
@@ -1160,10 +1157,10 @@ Bool_t TGContainer::HandleMotion(Event_t *event)
 
       gVirtualX->DrawRectangle(fId, GetLineGC()(), fX0-pos.fX, fY0-pos.fY,
                                fXf-fX0, fYf-fY0);
-      fX0 =  TMath::Min(fXp,x);
-      fY0 =  TMath::Min(fYp,y);
-      fXf =  TMath::Max(fXp,x);
-      fYf =  TMath::Max(fYp,y);
+      fX0 =  std::min(fXp,x);
+      fY0 =  std::min(fYp,y);
+      fXf =  std::max(fXp,x);
+      fYf =  std::max(fYp,y);
 
       total = selected = 0;
 
@@ -1528,8 +1525,8 @@ void TGContainer::OnAutoScroll()
    if (dx || dy) {
       if (dx) dx /= 5;
       if (dy) dy /= 5;
-      Int_t adx = TMath::Abs(dx);
-      Int_t ady = TMath::Abs(dy);
+      Int_t adx = std::abs(dx);
+      Int_t ady = std::abs(dy);
       if (adx > kAutoScrollFudge) adx = kAutoScrollFudge;
       if (ady > kAutoScrollFudge) ady = kAutoScrollFudge;
 
@@ -1546,10 +1543,10 @@ void TGContainer::OnAutoScroll()
       x += pos.fX;
       y += pos.fY;
 
-      fX0 =  TMath::Min(fXp, x);
-      fY0 =  TMath::Min(fYp, y);
-      fXf =  TMath::Max(fXp, x);
-      fYf =  TMath::Max(fYp ,y);
+      fX0 =  std::min(fXp, x);
+      fY0 =  std::min(fYp, y);
+      fXf =  std::max(fXp, x);
+      fYf =  std::max(fYp ,y);
 
       total = selected = 0;
 
@@ -1667,14 +1664,14 @@ TGFrameElement *TGContainer::FindFrame(Int_t x, Int_t y, Bool_t exclude)
    el = (TGFrameElement *) next();
    if (!el) return 0;
 
-   dx = TMath::Abs(el->fFrame->GetX()-x);
-   dy = TMath::Abs(el->fFrame->GetY()-y);
+   dx = std::abs(el->fFrame->GetX()-x);
+   dy = std::abs(el->fFrame->GetY()-y);
    d = dx + dy;
 
    while ((el = (TGFrameElement *) next())) {
       if (exclude && (el==fLastActiveEl) ) continue;
-      dx = TMath::Abs(el->fFrame->GetX()-x);
-      dy = TMath::Abs(el->fFrame->GetY()-y);
+      dx = std::abs(el->fFrame->GetX()-x);
+      dy = std::abs(el->fFrame->GetY()-y);
       dd = dx+dy;
 
       if (dd<d) {
@@ -1810,12 +1807,12 @@ void TGContainer::AdjustPosition()
       vh =  pos + (Int_t)fViewPort->GetHeight();
 
       if (f->GetY() < pos) {
-         v = TMath::Max(0, f->GetY() - (Int_t)fViewPort->GetHeight()/2);
+         v = std::max(0, f->GetY() - (Int_t)fViewPort->GetHeight()/2);
          v = (v*pg)/GetHeight();
 
          SetVsbPosition(v);
       } else if (f->GetY() + (Int_t)f->GetHeight() > vh) {
-         v = TMath::Min((Int_t)GetHeight() - (Int_t)fViewPort->GetHeight(),
+         v = std::min((Int_t)GetHeight() - (Int_t)fViewPort->GetHeight(),
                         f->GetY() + (Int_t)f->GetHeight() - (Int_t)fViewPort->GetHeight()/2);
          v = (v*pg)/GetHeight();
          SetVsbPosition(v);
@@ -1831,12 +1828,12 @@ void TGContainer::AdjustPosition()
       hw = pos + (Int_t)fViewPort->GetWidth();
 
       if (f->GetX() < pos) {
-         h = TMath::Max(0, f->GetX() - (Int_t)fViewPort->GetWidth()/2);
+         h = std::max(0, f->GetX() - (Int_t)fViewPort->GetWidth()/2);
          h = (h*pg)/GetWidth();
 
          SetHsbPosition(h);
       } else if (f->GetX() + (Int_t)f->GetWidth() > hw) {
-         h = TMath::Min((Int_t)GetWidth() - (Int_t)fViewPort->GetWidth(),
+         h = std::min((Int_t)GetWidth() - (Int_t)fViewPort->GetWidth(),
                         f->GetX() + (Int_t)f->GetWidth() - (Int_t)fViewPort->GetWidth()/2);
          h = (h*pg)/GetWidth();
 
@@ -2128,7 +2125,7 @@ const TGGC &TGContainer::GetLineGC()
 /// Create a canvas object.
 
 TGCanvas::TGCanvas(const TGWindow *p, UInt_t w, UInt_t h,
-                   UInt_t options, ULong_t back) :
+                   UInt_t options, Pixel_t back) :
     TGFrame(p, w, h, options, back)
 {
    fVport      = new TGViewPort(this, w-4, h-4, kChildFrame | kOwnBackground,
@@ -2293,8 +2290,8 @@ void TGCanvas::Layout()
 
    fVport->MoveResize(fBorderWidth, fBorderWidth, cw, ch);
 
-   tcw = TMath::Max(container->GetDefaultWidth(), cw);
-   tch = TMath::Max(container->GetDefaultHeight(), ch);
+   tcw = std::max(container->GetDefaultWidth(), cw);
+   tch = std::max(container->GetDefaultHeight(), ch);
    UInt_t curw = container->GetDefaultWidth();
 
    container->SetWidth(0); // force a resize in TGFrame::Resize
@@ -2341,7 +2338,7 @@ void TGCanvas::Layout()
 ////////////////////////////////////////////////////////////////////////////////
 /// Handle message generated by the canvas scrollbars.
 
-Bool_t TGCanvas::ProcessMessage(Long_t msg, Long_t parm1, Long_t)
+Bool_t TGCanvas::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t)
 {
    switch (GET_MSG(msg)) {
       case kC_HSCROLL:
@@ -2445,57 +2442,40 @@ void TGCanvas::ClearViewPort()
 
 void TGCanvas::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   auto extra_args = SaveCtorArgs(out, kSunkenFrame | kDoubleBorder);
 
-   out << std::endl << "   // canvas widget" << std::endl;
+   out << "\n   // canvas widget\n";
 
-   out << "   TGCanvas *";
-   out << GetName() << " = new TGCanvas("<< fParent->GetName()
-       << "," << GetWidth() << "," << GetHeight();
+   out << "   TGCanvas *" << GetName() << " = new TGCanvas(" << fParent->GetName() << "," << GetWidth() << ","
+       << GetHeight() << extra_args << ");\n";
 
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (GetOptions() == (kSunkenFrame | kDoubleBorder)) {
-         out << ");" << std::endl;
-      } else {
-         out << "," << GetOptionString() << ");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
    TGViewPort *vp = GetViewPort();
-   out << std::endl << "   // canvas viewport" << std::endl;
-   out << "   TGViewPort *" << vp->GetName() << " = " << GetName()
-       << "->GetViewPort();" << std::endl;
+   out << "\n   // canvas viewport\n";
+   out << "   TGViewPort *" << vp->GetName() << " = " << GetName() << "->GetViewPort();\n";
 
-   TGContainer *cont = (TGContainer*)GetContainer();
+   TGContainer *cont = (TGContainer *)GetContainer();
    cont->SavePrimitive(out, option);
 
-   out << "   " << vp->GetName() << "->AddFrame(" << cont->GetName()
-       << ");" << std::endl;
+   out << "   " << vp->GetName() << "->AddFrame(" << cont->GetName() << ");\n";
 
    out << "   " << cont->GetName() << "->SetLayoutManager(";
    cont->GetLayoutManager()->SavePrimitive(out, option);
-   out << ");"<< std::endl;
+   out << ");\n";
 
-   out << "   " << cont->GetName() << "->MapSubwindows();" << std::endl;
+   out << "   " << cont->GetName() << "->MapSubwindows();\n";
 
-   out << "   " << GetName() << "->SetContainer(" << cont->GetName()
-       << ");" << std::endl;
+   out << "   " << GetName() << "->SetContainer(" << cont->GetName() << ");\n";
 
-   out << "   " << GetName() << "->MapSubwindows();" << std::endl;
+   out << "   " << GetName() << "->MapSubwindows();\n";
 
    if (fHScrollbar && fHScrollbar->IsMapped())
-      out << "   " << GetName() << "->SetHsbPosition(" << GetHsbPosition()
-          << ");" << std::endl;
-
+      out << "   " << GetName() << "->SetHsbPosition(" << GetHsbPosition() << ");\n";
 
    if (fVScrollbar && fVScrollbar->IsMapped())
-      out << "   " << GetName() << "->SetVsbPosition(" << GetVsbPosition()
-          << ");" << std::endl;
-
+      out << "   " << GetName() << "->SetVsbPosition(" << GetVsbPosition() << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2503,26 +2483,18 @@ void TGCanvas::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 
 void TGContainer::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   // save options and custom color if not default
+   auto extra_args = SaveCtorArgs(out, kSunkenFrame | kDoubleBorder);
 
-   out << std::endl << "   // canvas container" << std::endl;
+   out << "\n   // canvas container\n";
 
-   if ((fParent->GetParent())->InheritsFrom(TGCanvas::Class())) {
-      out << GetName() << " = new TGContainer(" << GetCanvas()->GetName();
-   } else {
-      out << GetName() << " = new TGContainer(" << fParent->GetName();
-      out << "," << GetWidth() << "," << GetHeight();
-   }
+   out << "   TGContainer *" << GetName() << " = new TGContainer(";
+   if ((fParent->GetParent())->InheritsFrom(TGCanvas::Class()))
+      out << GetCanvas()->GetName();
+   else
+      out << fParent->GetName() << "," << GetWidth() << "," << GetHeight();
+   out << extra_args << ");\n";
 
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (GetOptions() == (kSunkenFrame | kDoubleBorder)) {
-         out <<");" << std::endl;
-      } else {
-         out << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 }

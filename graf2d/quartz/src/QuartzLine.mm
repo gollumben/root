@@ -61,10 +61,11 @@ void SetLineType(CGContextRef ctx, Int_t n, Int_t *dash)
    assert(ctx != 0 && "SetLineType, ctx parameter is null");
 
    if (n) {
-      CGFloat lengths[n];
+      CGFloat* lengths = new CGFloat[n];
       for (int i = 0; i < n; i++)
          lengths[i] = dash[i];
       CGContextSetLineDash(ctx, 0, lengths, n);
+      delete[] lengths;
    } else {
       CGContextSetLineDash(ctx, 0, NULL, 0);
    }
@@ -132,7 +133,7 @@ void DrawLine(CGContextRef ctx, Int_t x1, Int_t y1, Int_t x2, Int_t y2)
 
 
 //______________________________________________________________________________
-void DrawPolyLine(CGContextRef ctx, Int_t n, TPoint * xy)
+void DrawPolyLine(CGContextRef ctx, Int_t n, const TPoint *xy)
 {
    // Draw a line through all points.
    // n         : number of points

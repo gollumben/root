@@ -47,7 +47,7 @@ namespace {
 
 TIsAProxy::TIsAProxy(const std::type_info& typ)
    : fType(&typ), fClass(nullptr),
-     fSubTypesReaders(0), fSubTypesWriteLockTaken(kFALSE),
+     fSubTypesReaders(0), fSubTypesWriteLockTaken(kFALSE), fNextLastSlot(0),
      fInit(kFALSE), fVirtual(kFALSE)
 {
    static_assert(sizeof(ClassMap_t)<=sizeof(fSubTypes), "ClassMap size is to large for array");
@@ -103,6 +103,8 @@ TClass* TIsAProxy::operator()(const void *obj)
       return fClass;
    }
 
+   // This cast allows getting the dynamic type of polymorphic objects. A similar strategy is employed in RNTuple's
+   // RUniquePtrField::AppendImpl. If one of them needs updating because of changes in C++, also check the other one.
    DynamicType* ptr = (DynamicType*)obj;
    const std::type_info* typ = &typeid(*ptr);
 

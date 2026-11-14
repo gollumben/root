@@ -37,6 +37,40 @@ ROOT_OBJECT_LIBRARY(MetaCling
   TClingValue.cxx
 )
 
+set (METACLING_HEADERS
+  ClingRAII.h
+  TClingBaseClassInfo.h
+  TClingCallbacks.h
+  TClingCallFunc.h
+  TClingClassInfo.h
+  TClingDataMemberInfo.h
+  TClingDeclInfo.h
+  TClingDiagnostics.h
+  TCling.h
+  TClingMemberIter.h
+  TClingMethodArgInfo.h
+  TClingMethodInfo.h
+  TClingRdictModuleFileExtension.h
+  TClingTypedefInfo.h
+  TClingTypeInfo.h
+  TClingValue.h
+)
+
+target_sources(MetaCling
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS ./
+  FILES
+    ${METACLING_HEADERS}
+)
+
+# This directory contains files that include llvm, which can give warnings.
+if(NOT MSVC)
+  target_compile_options(MetaCling PRIVATE -Wno-error)
+endif()
+
+
 # Register the llvm include directories after clangs. This instructs the compiler to resolve
 # headers from our builtin clang. That's an issue when we are building with bultin_llvm=Off
 # and we have installed clang headers, too.
@@ -44,22 +78,21 @@ target_include_directories(MetaCling SYSTEM PRIVATE
   ${CLANG_INCLUDE_DIRS}
   ${LLVM_INCLUDE_DIRS}
   ${CLAD_INCLUDE_DIRS}
+  ${CMAKE_BINARY_DIR}/etc/cppinterop
 )
 
 target_include_directories(MetaCling PRIVATE
    ${CLING_INCLUDE_DIRS}
-   ${CMAKE_SOURCE_DIR}/core/metacling/res
-   ${CMAKE_SOURCE_DIR}/core/clingutils/res
-   ${CMAKE_SOURCE_DIR}/core/foundation/res
-   ${CMAKE_SOURCE_DIR}/core/zip/inc
-   ${CMAKE_SOURCE_DIR}/core/clib/res
    ${CMAKE_SOURCE_DIR}/core/base/inc
-   ${CMAKE_SOURCE_DIR}/core/meta/inc
-   ${CMAKE_SOURCE_DIR}/core/clib/inc
-   ${CMAKE_SOURCE_DIR}/core/foundation/inc
-   ${CMAKE_SOURCE_DIR}/core/thread/inc
+   ${CMAKE_SOURCE_DIR}/builtins/clib/inc
+   ${CMAKE_SOURCE_DIR}/core/clingutils/res
    ${CMAKE_SOURCE_DIR}/core/cont/inc
-   ${CMAKE_SOURCE_DIR}/core/gui/inc
+   ${CMAKE_SOURCE_DIR}/core/foundation/inc
+   ${CMAKE_SOURCE_DIR}/core/foundation/res
+   ${CMAKE_SOURCE_DIR}/core/meta/inc
+   ${CMAKE_SOURCE_DIR}/core/metacling/res
+   ${CMAKE_SOURCE_DIR}/core/thread/inc
+   ${CMAKE_SOURCE_DIR}/core/zip/inc
    ${CMAKE_SOURCE_DIR}/io/io/inc
    ${CMAKE_BINARY_DIR}/ginclude
 )
@@ -73,20 +106,27 @@ if(MSVC)
    target_include_directories(MetaCling PRIVATE
       ${CMAKE_SOURCE_DIR}/core/winnt/inc
    )
+   set_source_files_properties(TCling.cxx COMPILE_FLAGS /bigobj)
 endif()
 
-add_dependencies(MetaCling CLING)
+add_dependencies(MetaCling CLING clangCppInterOp)
 
 ##### libCling #############################################################
 
 if(NOT builtin_clang)
   set(prefixed_link_libraries)
-  foreach(dep ${CLING_DEPEND_LIBS})
-    if("${dep}" MATCHES "^clang")
-      set(dep "${LLVM_LIBRARY_DIR}/lib${dep}.a")
-     endif()
-     list(APPEND prefixed_link_libraries "${dep}")
-   endforeach()
+  if(MSVC)
+    set(clang_libraries)
+    ROOT_GET_CLANG_LIBRARIES(clang_libraries)
+    list(APPEND prefixed_link_libraries "${clang_libraries}")
+  else()
+    foreach(dep ${CLING_DEPEND_LIBS})
+      if("${dep}" MATCHES "^clang")
+        set(dep "${LLVM_LIBRARY_DIR}/${dep}.a")
+      endif()
+      list(APPEND prefixed_link_libraries "${dep}")
+    endforeach()
+  endif()
   set(LINK_LIBS "${prefixed_link_libraries}")
   link_directories("${LLVM_LIBRARY_DIR}")
 endif()
@@ -102,19 +142,26 @@ if (clad)
   else()
     set(CLING_PLUGIN_LINK_LIBS -Wl,--whole-archive cladPlugin cladDifferentiator -Wl,--no-whole-archive)
   endif()
+  # This will cause a cyclic dependency in adaptiveCpp, as it requires clang to build
+  if(TARGET clang AND NOT experimental_adaptivecpp)
+    # Link our clad libraries to clang. If users use the clang from ROOT they will
+    # also be able to use clad out of the box.
+    add_dependencies(clang clad)
+    target_link_libraries(clang PUBLIC ${CLING_PLUGIN_LINK_LIBS})
+  endif()
 endif()
 
 ROOT_LINKER_LIBRARY(Cling
         $<TARGET_OBJECTS:ClingUtils>
         $<TARGET_OBJECTS:Dictgen>
         $<TARGET_OBJECTS:MetaCling>
+        $<TARGET_OBJECTS:clangCppInterOp>
         LIBRARIES ${CLING_LIBRARIES} ${LINK_LIBS} ${CLING_PLUGIN_LINK_LIBS})
 
-string(TOUPPER "${LLVM_BUILD_TYPE}" THE_BUILD_TYPE)
-if("${THE_BUILD_TYPE}" STREQUAL DEBUG OR "${THE_BUILD_TYPE}" STREQUAL RELWITHDEBINFO)
-  # When these two link at the same time, they can exhaust the RAM on many machines, since they both link against llvm.
-  add_dependencies(Cling rootcling_stage1)
-endif()
+target_link_libraries(Cling PRIVATE Core RIO)
+
+# When these two link at the same time, they can exhaust the RAM on many machines, since they both link against llvm.
+add_dependencies(Cling rootcling_stage1)
 
 if(MSVC)
   set_target_properties(Cling PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
@@ -128,36 +175,61 @@ if(MSVC)
       __std_terminate
       cling_runtime_internal_throwIfInvalidPointer
   )
-  if("${CMAKE_GENERATOR_PLATFORM}" MATCHES "x64")
+  set(cling_exports ${cling_exports}
+    _Smtx_lock_shared
+    _Smtx_unlock_shared
+  )
+  if(MSVC_VERSION GREATER_EQUAL 1951)
+    set(cling_exports ${cling_exports}
+      __std_replace_copy_2
+    )
+  endif()
+  # Export the missing std::filesystem symbols (not exposed by MSVCP140.dll)
+  set(cling_exports ${cling_exports}
+    __std_fs_change_permissions
+    __std_fs_close_handle
+    __std_fs_code_page
+    __std_fs_convert_narrow_to_wide
+    __std_fs_convert_wide_to_narrow
+    __std_fs_convert_wide_to_narrow_replace_chars
+    __std_fs_copy_file
+    __std_fs_create_directory
+    __std_fs_create_directory_symbolic_link
+    __std_fs_create_hard_link
+    __std_fs_create_symbolic_link
+    __std_fs_directory_iterator_advance
+    __std_fs_directory_iterator_close
+    __std_fs_directory_iterator_open
+    __std_fs_equivalent
+    __std_fs_get_current_path
+    __std_fs_get_file_attributes_by_handle
+    __std_fs_get_final_path_name_by_handle
+    __std_fs_get_full_path_name
+    __std_fs_get_stats
+    __std_fs_get_temp_path
+    __std_fs_is_junction_from_reparse_data_buffer
+    __std_fs_open_handle
+    __std_fs_read_name_from_reparse_data_buffer
+    __std_fs_read_reparse_data_buffer
+    __std_fs_remove
+    __std_fs_rename
+    __std_fs_resize_file
+    __std_fs_set_current_path
+    __std_fs_set_last_write_time
+    __std_fs_space
+    __std_fs_write_reparse_data_buffer
+  )
+
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(cling_exports ${cling_exports}
       ??2@YAPEAX_K@Z
-      ??2@YAPEAX_KPEAX@Z
-      ??2@YAPEAX_KHPEBDH@Z
       ??3@YAXPEAX@Z
       ??3@YAXPEAX_K@Z
-      ??3@YAXPEAXHPEBDH@Z
       ??_U@YAPEAX_K@Z
-      ??_U@YAPEAX_KHPEBDH@Z
       ??_V@YAXPEAX@Z
       ??_V@YAXPEAX_K@Z
-      ??_V@YAXPEAXHPEBDH@Z
-      ?print@Decl@clang@@QEBAXAEAVraw_ostream@llvm@@I_N@Z
-      ??6raw_ostream@llvm@@QEAAAEAV01@PEBX@Z
-      ?decls_begin@DeclContext@clang@@QEBA?AVdecl_iterator@12@XZ
-      ?errs@llvm@@YAAEAVraw_ostream@1@XZ
-      ?grow_pod@SmallVectorBase@llvm@@IEAAXPEAX_K1@Z
-      ?write@raw_ostream@llvm@@QEAAAEAV12@E@Z
-      ?write@raw_ostream@llvm@@QEAAAEAV12@PEBD_K@Z
-      ?castFromDeclContext@Decl@clang@@SAPEAV12@PEBVDeclContext@2@@Z
-      ??1raw_ostream@llvm@@UEAA@XZ
-      ??1raw_string_ostream@llvm@@UEAA@XZ
-      ?flush_nonempty@raw_ostream@llvm@@AEAAXXZ
-      ?getASTContext@Decl@clang@@QEBAAEAVASTContext@2@XZ
-      ?preferred_buffer_size@raw_ostream@llvm@@MEBA_KXZ
-      ?write_impl@raw_string_ostream@llvm@@EEAAXPEBD_K@Z
-      ?castToDeclContext@Decl@clang@@SAPEAVDeclContext@2@PEBV12@@Z
-      ?classof@DeclContext@clang@@SA_NPEBVDecl@2@@Z
-      ?_Facet_Register@std@@YAXPEAV_Facet_base@1@@Z
+      ??2@YAPEAX_KAEBUnothrow_t@std@@@Z
+      ??_U@YAPEAX_KAEBUnothrow_t@std@@@Z
       ??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QEAAAEAV01@H@Z
       ??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QEAAAEAV01@M@Z
       ??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QEAAAEAV01@N@Z
@@ -166,6 +238,9 @@ if(MSVC)
       ??$?6U?$char_traits@D@std@@@std@@YAAEAV?$basic_ostream@DU?$char_traits@D@std@@@0@AEAV10@D@Z
       ??$?6U?$char_traits@D@std@@@std@@YAAEAV?$basic_ostream@DU?$char_traits@D@std@@@0@AEAV10@PEBD@Z
       ??$endl@DU?$char_traits@D@std@@@std@@YAAEAV?$basic_ostream@DU?$char_traits@D@std@@@0@AEAV10@@Z
+      ??0LifetimeHandler@internal@runtime@cling@@QEAA@PEAVDynamicExprInfo@123@PEAVDeclContext@clang@@PEBDPEAVInterpreter@3@@Z
+      ??1LifetimeHandler@internal@runtime@cling@@QEAA@XZ
+      ?_Facet_Register@std@@YAXPEAV_Facet_base@1@@Z
     )
     if($<CONFIG:Debug>)
        set(cling_exports ${cling_exports} ??$dyn_cast@VValueDecl@clang@@$$CBVDecl@2@@llvm@@YAPEBVValueDecl@clang@@PEBVDecl@2@@Z)
@@ -178,6 +253,8 @@ if(MSVC)
       ??_U@YAPAXI@Z
       ??_V@YAXPAX@Z
       ??_V@YAXPAXI@Z
+      ??2@YAPAXIABUnothrow_t@std@@@Z
+      ??_U@YAPAXIABUnothrow_t@std@@@Z
       ??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QAEAAV01@H@Z
       ??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QAEAAV01@M@Z
       ??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QAEAAV01@N@Z
@@ -186,8 +263,32 @@ if(MSVC)
       ??$?6U?$char_traits@D@std@@@std@@YAAAV?$basic_ostream@DU?$char_traits@D@std@@@0@AAV10@D@Z
       ??$?6U?$char_traits@D@std@@@std@@YAAAV?$basic_ostream@DU?$char_traits@D@std@@@0@AAV10@PBD@Z
       ??$endl@DU?$char_traits@D@std@@@std@@YAAAV?$basic_ostream@DU?$char_traits@D@std@@@0@AAV10@@Z
+      ??0LifetimeHandler@internal@runtime@cling@@QAE@PAVDynamicExprInfo@123@PAVDeclContext@clang@@PBDPAVInterpreter@3@@Z
+      ??1LifetimeHandler@internal@runtime@cling@@QAE@XZ
       ?_Facet_Register@std@@YAXPAV_Facet_base@1@@Z
     )
+    if(MSVC_VERSION GREATER_EQUAL 1951)
+      set(cling_exports ${cling_exports}
+        __std_replace_copy_2@20=___std_replace_copy_2@20
+      )
+    endif()
+    set(cling_exports ${cling_exports}
+      __std_fs_close_handle@4=___std_fs_close_handle@4
+      __std_fs_get_final_path_name_by_handle@16=___std_fs_get_final_path_name_by_handle@16
+      __std_fs_open_handle@16=___std_fs_open_handle@16
+    )
+    if(MSVC_VERSION GREATER_EQUAL 1938 AND MSVC_VERSION LESS 1940)
+      set(cling_exports ${cling_exports}
+        ??$__std_find_trivial@$$CBDD@@YAPBDPBD0D@Z
+        ??$__std_find_trivial@DD@@YAPADPAD0D@Z
+        ??$__std_find_trivial@HH@@YAPAHPAH0H@Z
+        ??$__std_find_trivial@IH@@YAPAIPAI0H@Z
+        ___std_find_trivial_1@12
+        ___std_find_trivial_2@12
+        ___std_find_trivial_4@12
+        ___std_find_trivial_8@16
+      )
+    endif()
     if(MSVC_VERSION LESS 1914)
       set(cling_exports ${cling_exports} ??3@YAXPAX0@Z ??_V@YAXPAX0@Z)
     endif()
@@ -196,12 +297,30 @@ if(MSVC)
     set(cling_link_str "${cling_link_str} /EXPORT:${sym}")
   endforeach(sym ${cling_exports})
   set_property(TARGET Cling APPEND_STRING PROPERTY LINK_FLAGS "${cling_link_str} ${CLAD_LIBS}")
-  add_dependencies(Cling Core RIO)
-  target_link_libraries(Cling PUBLIC Core RIO)
 endif()
 
-if(APPLE)
-  target_link_libraries(Cling PUBLIC -Wl,-bind_at_load -Wl,-undefined -Wl,dynamic_lookup)
-elseif(NOT MSVC)
-  target_link_libraries(Cling PUBLIC -Wl,--unresolved-symbols=ignore-in-object-files)
+if(NOT APPLE AND NOT MSVC)
+  # Require the linker to resolve the symbol internally and prevent
+  # conflicts when linked with another software using also LLVM like in
+  # the problem reported for Julia in
+  # https://github.com/JuliaHEP/ROOT.jl/issues/17#issuecomment-882719292
+  # and by ALICE in https://github.com/root-project/root/issues/19889
+  # Only needed for Linux: Mac uses linker namespaces and  Windows explicit export/import
+  target_link_libraries(Cling PRIVATE -Wl,-Bsymbolic)
+  # We compile with -fvisibility=hidden in interpreter/, but some symbols of
+  # instantiated templates remain. Use a version script to hide them.
+  target_link_libraries(Cling PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/libCling.script)
+  set_target_properties(Cling PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/libCling.script)
+  # After inlining and hiding symbols, some of them are not referenced anymore
+  # and can be collected by the linker, reducing the library size.
+  target_link_libraries(Cling PRIVATE -Wl,--gc-sections)
+  # Additionally, for Release builds, strip the binary to remove symbol tables.
+  add_custom_command(TARGET Cling POST_BUILD
+    COMMAND $<$<CONFIG:Release>:${CMAKE_STRIP}>
+    ARGS $<TARGET_FILE:Cling>)
 endif()
+
+if (CMAKE_SYSTEM_NAME MATCHES FreeBSD)
+  target_link_libraries(Cling PRIVATE util procstat)
+endif()
+

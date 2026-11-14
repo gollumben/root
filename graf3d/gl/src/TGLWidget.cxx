@@ -61,7 +61,6 @@ By default you want, but for example when not - see TGLPShapeObjEditor.
 Non-copyable.
 */
 
-ClassImp(TGLWidget);
 
 //==============================================================================
 // TGLWidget - system-independent methods
@@ -74,7 +73,7 @@ TGLWidget* TGLWidget::CreateDummy()
 {
    TGLFormat format(Rgl::kNone);
 
-   return Create(format, gClient->GetDefaultRoot(), kFALSE, kFALSE, 0, 1, 1);
+   return Create(format, gClient->GetDefaultRoot(), kFALSE, kFALSE, nullptr, 1, 1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -121,7 +120,7 @@ TGLWidget* TGLWidget::Create(const TGLFormat &format,
    {
       glw->SetFormat();
       glw->fGLContext = new TGLContext
-         (glw, shareDefault, shareDevice && !shareDefault ? shareDevice->GetContext() : 0);
+         (glw, shareDefault, shareDevice && !shareDefault ? shareDevice->GetContext() : nullptr);
    }
    catch (const std::exception &)
    {
@@ -139,11 +138,11 @@ TGLWidget* TGLWidget::Create(const TGLFormat &format,
 
 TGLWidget::TGLWidget(Window_t glw, const TGWindow* p, Bool_t selectInput)
    : TGFrame(gClient, glw, p),
-     fGLContext(0),
+     fGLContext(nullptr),
      fWindowIndex(-1),
      fGLFormat(Rgl::kNone),
      fFromInit(kTRUE),
-     fEventHandler(0)
+     fEventHandler(nullptr)
 {
    if (selectInput)
    {
@@ -364,8 +363,10 @@ void TGLWidget::SetFormat()
       Error("TGLWidget::SetFormat", "Sorry, you should not call this function");
       return;
    }
-   if (!gVirtualX->IsCmdThread())
+   if (!gVirtualX->IsCmdThread()) {
       gROOT->ProcessLineFast(Form("((TGLWidget *)0x%zx)->SetFormat()", (size_t)this));
+      return;
+   }
 
    R__LOCKGUARD(gROOTMutex);
 
@@ -377,6 +378,16 @@ void TGLWidget::SetFormat()
    if (!hDC) {
       Error("TGLWidget::SetFormat", "GetWindowDC failed");
       throw std::runtime_error("GetWindowDC failed");
+   }
+
+   static bool wgl_init = false;
+   if ( ! wgl_init) {
+      wgl_init = true;
+      int version = gladLoaderLoadWGL(hDC);
+      if (version == 0)
+         Warning("TGLWidget::SetFormat", "WGL initalization failed.");
+      else if (gDebug > 0)
+         Info("TGLWidget::SetFormat", "WGL initalization successful.");
    }
 
    const Rgl::TGuardBase &dcGuard = Rgl::make_guard(ReleaseDC, hWND, hDC);
@@ -508,6 +519,17 @@ Window_t TGLWidget::CreateWindow(const TGWindow* parent, const TGLFormat &format
       ::Error("TGLWidget::CreateWindow", "Display is not set!");
       throw std::runtime_error("Display is not set!");
    }
+
+   static std::atomic<bool> s_glx_init_done = false;
+   bool glx_init = false;
+   if (s_glx_init_done.compare_exchange_strong(glx_init, true)) {
+      int version = gladLoaderLoadGLX(dpy, DefaultScreen(dpy));
+      if (version == 0)
+         ::Warning("TGLWidget::CreateWindow", "GLX initalization failed.");
+      else if (gDebug > 0)
+         ::Info("TGLWidget::CreateWindow", "GLX initalization successful.");
+   }
+
    XVisualInfo *visInfo = glXChooseVisual(dpy, DefaultScreen(dpy), &glxfmt[0]);
 
    if (!visInfo) {

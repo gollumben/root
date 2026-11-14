@@ -1,43 +1,84 @@
 /**
   \file hadd.cxx
-  \brief This program will add histograms (see note) and Trees from a list of root files and write them to a target root file.
-  The target file is newly created and must not be
-  identical to one of the source files.
+  \brief This program will merge compatible ROOT objects, such as histograms, Trees and RNTuples,
+         from a list of root files and write them to a target root file.
+         In order for a ROOT object to be mergeable, it must implement the Merge() function.
+         Non-mergeable objects will have all instances copied as-is into the target file.
+         The target file must not be identical to one of the source files.
 
   Syntax:
   ```{.cpp}
-       hadd targetfile source1 source2 ...
+       hadd [flags] targetfile source1 source2 ... [flags]
   ```
-  or
+
+  Flags can be passed before or after the positional arguments.
+  The first positional (non-flag) argument will be interpreted as the targetfile.
+  After that, the first sequence of positional arguments will be interpreted as the input files.
+  If two sequences of positional arguments are separated by flags, hadd will emit an error and abort.
+
+  By default, any argument starting with `-` is interpreted as a flag. If you want to pass filenames
+  starting with `-` you need to pass them after `--`:
   ```{.cpp}
-       hadd -f targetfile source1 source2 ...
+       hadd [flags] -- -file1 -file2 ...
   ```
-  (targetfile is overwritten if it exists)
+  Note that in this case you need to pass ALL positional arguments after `--`.
 
-  \param -a   Append to the output
-  \param -f   Force overwriting of output file.
-  \param -f[0-9] Set target compression level. 0 = uncompressed, 6 = highly compressed.
-  \param -fk  Sets the target file to contain the baskets with the same compression
-              as the input files (unless -O is specified). Compresses the meta data
-              using the compression level specified in the first input or the
-              compression setting after fk (for example 206 when using -fk206)
-  \param -ff  The compression level used is the one specified in the first input
+  If a flag requires an argument, the argument can be specified in any of these ways:
 
-  \param -k   Skip corrupt or non-existent files, do not exit
-  \param -O   Re-optimize basket size when merging TTree
-  \param -v   Explicitly set the verbosity level: 0 request no output, 99 is the default
-  \param -j   Parallelise the execution in multiple processes
-  \param -dbg  Parallelise the execution in multiple processes in debug mode (Does not delete  partial  files  stored
-              inside working directory)
-  \param -d   Carry out the partial multiprocess execution in the specified directory
-  \param -n   Open at most `n` at once (use 0 to request to use the system maximum)
-  \param -experimental-io-features `<feature>` Enables the corresponding experimental feature for output trees
-  \return hadd returns a status code: 0 if OK, -1 otherwise
+     # All equally valid:
+     -j 16
+     -j16
+     -j=16
 
-  When the -f option is specified, one can also specify the compression
-  level of the target file. By default the compression level is 1 (kDefaultZLIB), but
-  if "-f0" is specified, the target file will not be compressed.
-  if "-f6" is specified, the compression level 6 will be used.
+   The first syntax is the preferred one since it's backward-compatible with previous versions of hadd.
+   The -f flag is an exception to this rule: it only supports the `-f[0-9]` syntax.
+
+   Note that merging multiple flags is NOT supported: `-jfa` will be interpreted as -j=fa, which is invalid!
+
+   The flags are as follows:
+
+  \param -a                Append to the output
+  \param -cachesize <SIZE> Resize the prefetching cache used to speed up I/O operations (use 0 to disable).
+  \param -d <DIR>          Carry out the partial multiprocess execution in the specified directory
+  \param -dbg              Enable verbosity. If -j was specified, do not not delete partial files
+                           stored inside working directory.
+  \param -experimental-io-features <FEATURES> Enables the corresponding experimental feature for output trees.
+                                              \see ROOT::Experimental::EIOFeatures
+  \param -f            Force overwriting of output file.
+  \param -f[0-9]       Set target compression algorithm `i` and level `j` passing the number `i*100 + j`, e.g. `-f505`.
+                       The last digit (`j`) can be set from 0 = uncompressed to 9 = highly compressed.
+                       The first digit (`i`) is 1 for ZLIB, 2 for LZMA, 4 for LZ4 and 5 for ZSTD.
+                       Recommended numbers are 101 (ZLIB), 207 (LZMA), 404 (LZ4), 505 (ZSTD),
+                       The default value for this flag is 101 (kDefaultZLIB).
+                       See ROOT::RCompressionSetting and TFile::TFile documentation for more details.
+  \param -fk           Sets the target file to contain the baskets with the same compression as the input files
+                       (unless -O is specified). Compresses the meta data using the compression level specified
+                       in the first input or the compression setting after fk (for example 505 when using -fk505)
+  \param -ff           The compression level used is the one specified in the first input
+  \param -j [N_JOBS]   Parallelise the execution in `N_JOBS` processes. If the number of processes is not specified,
+                       or is 0, use the system maximum.
+  \param -k            Skip corrupt or non-existent files, do not exit
+  \param -L <FILE>     Read the list of objects from FILE and either only merge or skip those objects depending on
+                       the value of "-Ltype". FILE must contain one object name per line, which cannot contain
+                       whitespaces or '/'. You can also pass TDirectory names, which apply to the entire directory
+                       content. Lines beginning with '#' are ignored. If this flag is passed, "-Ltype" MUST be
+                       passed as well.
+  \param -Ltype <SkipListed|OnlyListed> Sets the type of operation performed on the objects listed in FILE given with
+  the
+                       "-L" flag. "SkipListed" will skip all the listed objects; "OnlyListed" will only merge those
+                       objects. If this flag is passed, "-L" must be passed as well.
+  \param -n <N_FILES>  Open at most `N` files at once (use 0 to request to use the system maximum - which is also
+                       the default). This number includes both the input reading files as well as the output file.
+                       Thus, if set to 1, it will be automatically replaced to a minimum of 2. If set to a too large
+  value, it will be clipped to the system maximum.
+  \param -O            Re-optimize basket size when merging TTree
+  \param -T            Do not merge Trees
+  \param -v [LEVEL]    Explicitly set the verbosity level:
+                            <= 0 = only output errors;
+                            1 = only output errors and warnings;
+                            2 = output minimal informative messages, errors and warnings (default);
+                            >= 3 = output all messages.
+  \return hadd returns a status code: 0 if OK, 1 otherwise
 
   For example assume 3 files f1, f2, f3 containing histograms hn and Trees Tn
    - f1 with h1 h2 h3 T1
@@ -97,341 +138,672 @@
   \authors Rene Brun, Dirk Geppert, Sven A. Schmidt, Toby Burnett
 */
 #include "Compression.h"
-#include <ROOT/RConfig.hxx>
-#include "ROOT/TIOFeatures.hxx"
+#include "TClass.h"
 #include "TFile.h"
+#include "TFileMerger.h"
 #include "THashList.h"
 #include "TKey.h"
-#include "TClass.h"
 #include "TSystem.h"
 #include "TUUID.h"
-#include "ROOT/StringConv.hxx"
-#include "snprintf.h"
 
-#include <string>
-#include <iostream>
-#include <fstream>
-#include <cstdlib>
-#include <climits>
-#include <sstream>
+#include <ROOT/RConfig.hxx>
+#include <ROOT/StringConv.hxx>
+#include <ROOT/TIOFeatures.hxx>
+
 #include "haddCommandLineOptionsHelp.h"
+#include "logging.hxx"
 
-#include "TFileMerger.h"
+#include <climits>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <streambuf>
+
 #ifndef R__WIN32
 #include "ROOT/TProcessExecutor.hxx"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int main( int argc, char **argv )
+// NOTE: TFileMerger will use PrintLevel = GetLogVerbosity() - 1. If PrintLevel is < 1, it will print nothing, otherwise
+// it will print everything. To give some granularity to hadd, we do the following:
+// LogVerbosity = 0: only print hadd errors
+// LogVerbosity = 1: only print hadd errors + warnings
+// LogVerbosity = 2: print hadd errors + warnings and TFileMerger messages
+// LogVerbosity > 2: print all hadd and TFileMerger messages.
+static constexpr int kDefaultHaddVerbosity = 2;
+
+using IntFlag_t = uint32_t;
+
+struct HAddArgs {
+   bool fNoTrees;
+   bool fAppend;
+   bool fForce;
+   bool fSkipErrors;
+   bool fReoptimize;
+   bool fDebug;
+   bool fKeepCompressionAsIs;
+   bool fUseFirstInputCompression;
+   bool fHelp;
+
+   std::optional<std::string> fWorkingDir;
+   std::optional<IntFlag_t> fNProcesses;
+   std::optional<std::string> fObjectFilterFile;
+   std::optional<Int_t> fObjectFilterType;
+   std::optional<TString> fCacheSize;
+   std::optional<ROOT::TIOFeatures> fFeatures;
+   std::optional<IntFlag_t> fMaxOpenedFiles;
+   std::optional<IntFlag_t> fVerbosity;
+   std::optional<IntFlag_t> fCompressionSettings;
+
+   int fOutputArgIdx;
+   int fFirstInputIdx;
+   // This is set to true if and only if the user passed `--`. In this special
+   // case, we must not stop parsing positional arguments even if we find one
+   // that starts with a `-`.
+   bool fNoFlagsAfterPositionalArguments;
+};
+
+enum class EFlagResult { kIgnored, kParsed, kErr };
+
+static EFlagResult FlagToggle(const char *arg, const char *flagStr, bool &flagOut)
 {
-   if ( argc < 3 || "-h" == std::string(argv[1]) || "--help" == std::string(argv[1]) ) {
-         fprintf(stderr, kCommandLineOptionsHelp);
-         return 1;
+   const auto argLen = strlen(arg);
+   const auto flagLen = strlen(flagStr);
+   if (argLen == flagLen && strncmp(arg, flagStr, flagLen) == 0) {
+      if (flagOut)
+         Warn() << "duplicate flag: " << flagStr << "\n";
+      flagOut = true;
+      return EFlagResult::kParsed;
+   }
+   return EFlagResult::kIgnored;
+}
+
+// NOTE: not using std::stoi or similar because they have bad error checking.
+// std::stoi will happily parse "120notvalid" as 120.
+static std::optional<IntFlag_t> StrToUInt(const char *str)
+{
+   if (!str)
+      return {};
+
+   uint32_t res = 0;
+   do {
+      if (!isdigit(*str))
+         return {};
+      if (res * 10 < res) // overflow is an error
+         return {};
+      res *= 10;
+      res += *str - '0';
+   } while (*++str);
+
+   return res;
+}
+
+template <typename T>
+struct FlagConvResult {
+   T fValue;
+   EFlagResult fResult;
+};
+
+template <typename T>
+static FlagConvResult<T> ConvertArg(const char *);
+
+template <>
+FlagConvResult<std::string> ConvertArg<std::string>(const char *arg)
+{
+   return {arg, EFlagResult::kParsed};
+}
+
+template <>
+FlagConvResult<IntFlag_t> ConvertArg<IntFlag_t>(const char *arg)
+{
+   // Don't even try to parse arg if it doesn't look like a number.
+   if (!isdigit(*arg))
+      return {0, EFlagResult::kIgnored};
+
+   auto intOpt = StrToUInt(arg);
+   if (intOpt)
+      return {*intOpt, EFlagResult::kParsed};
+
+   Err() << "error parsing integer argument '" << arg << "'\n";
+   return {0, EFlagResult::kErr};
+}
+
+template <>
+FlagConvResult<ROOT::TIOFeatures> ConvertArg<ROOT::TIOFeatures>(const char *arg)
+{
+   ROOT::TIOFeatures features;
+   std::stringstream ss;
+   ss.str(arg);
+   std::string item;
+   while (std::getline(ss, item, ',')) {
+      if (!features.Set(item))
+         Warn() << "ignoring unknown feature request: " << item << "\n";
+   }
+   return {features, EFlagResult::kParsed};
+}
+
+static FlagConvResult<TString> ConvertCacheSize(const char *arg)
+{
+   TString cacheSize;
+   int size;
+   auto parseResult = ROOT::FromHumanReadableSize(arg, size);
+   if (parseResult == ROOT::EFromHumanReadableSize::kParseFail) {
+      Err() << "could not parse the cache size passed after -cachesize: '" << arg << "'\n";
+      return {"", EFlagResult::kErr};
+   } else if (parseResult == ROOT::EFromHumanReadableSize::kOverflow) {
+      double m;
+      const char *munit = nullptr;
+      ROOT::ToHumanReadableSize(INT_MAX, false, &m, &munit);
+      Warn() << "the cache size passed after -cachesize is too large: " << arg << " is greater than " << m << munit
+             << ". We will use the maximum value.\n";
+      return {std::to_string(m) + munit, EFlagResult::kParsed};
+   } else {
+      cacheSize = "cachesize=";
+      cacheSize.Append(arg);
+   }
+   return {cacheSize, EFlagResult::kParsed};
+}
+
+static FlagConvResult<Int_t> ConvertFilterType(const char *arg)
+{
+   if (strcmp(arg, "SkipListed") == 0)
+      return {TFileMerger::kSkipListed, EFlagResult::kParsed};
+   if (strcmp(arg, "OnlyListed") == 0)
+      return {TFileMerger::kOnlyListed, EFlagResult::kParsed};
+
+   Err() << "invalid argument for -Ltype: '" << arg << "'. Can only be 'SkipListed' or 'OnlyListed' (case matters).\n";
+   return {{}, EFlagResult::kErr};
+}
+
+// Parses a flag that is followed by an argument of type T.
+// If `defaultVal` is provided, the following argument is optional and will be set to `defaultVal` if missing.
+// `conv` is used to convert the argument from string to its type T.
+template <typename T>
+static EFlagResult
+FlagArg(int argc, char **argv, int &argIdxInOut, const char *flagStr, std::optional<T> &flagOut,
+        std::optional<T> defaultVal = std::nullopt, FlagConvResult<T> (*conv)(const char *) = ConvertArg<T>)
+{
+   int argIdx = argIdxInOut;
+   const char *arg = argv[argIdx] + 1;
+   int argLen = strlen(arg);
+   int flagLen = strlen(flagStr);
+   const char *nxtArg = nullptr;
+
+   if (strncmp(arg, flagStr, flagLen) != 0)
+      return EFlagResult::kIgnored;
+
+   bool argIsSeparate = false;
+   if (argLen > flagLen) {
+      // interpret anything after the flag as the argument.
+      nxtArg = arg + flagLen;
+      // Ignore one '=', if present
+      if (nxtArg[0] == '=')
+         ++nxtArg;
+   } else if (argLen == flagLen) {
+      argIsSeparate = true;
+      if (argIdx + 1 < argc) {
+         ++argIdxInOut;
+         nxtArg = argv[argIdxInOut];
+      } else {
+         Err() << "expected argument after '-" << flagStr << "' flag.\n";
+         return EFlagResult::kErr;
+      }
+   } else {
+      return EFlagResult::kIgnored;
    }
 
-   ROOT::TIOFeatures features;
-   Bool_t append = kFALSE;
-   Bool_t force = kFALSE;
-   Bool_t skip_errors = kFALSE;
-   Bool_t reoptimize = kFALSE;
-   Bool_t noTrees = kFALSE;
-   Bool_t keepCompressionAsIs = kFALSE;
-   Bool_t useFirstInputCompression = kFALSE;
-   Bool_t multiproc = kFALSE;
-   Bool_t debug = kFALSE;
-   Int_t maxopenedfiles = 0;
-   Int_t verbosity = 99;
-   TString cacheSize;
-   SysInfo_t s;
-   gSystem->GetSysInfo(&s);
-   auto nProcesses = s.fCpus;
-   auto workingDir = gSystem->TempDirectory();
-   int outputPlace = 0;
-   int ffirst = 2;
-   Int_t newcomp = -1;
-   for( int a = 1; a < argc; ++a ) {
-      if ( strcmp(argv[a],"-T") == 0 ) {
-         noTrees = kTRUE;
-         ++ffirst;
-      } else if ( strcmp(argv[a],"-a") == 0 ) {
-         append = kTRUE;
-         ++ffirst;
-      } else if ( strcmp(argv[a],"-f") == 0 ) {
-         force = kTRUE;
-         ++ffirst;
-      } else if ( strcmp(argv[a],"-k") == 0 ) {
-         skip_errors = kTRUE;
-         ++ffirst;
-      } else if ( strcmp(argv[a],"-O") == 0 ) {
-         reoptimize = kTRUE;
-         ++ffirst;
-      } else if (strcmp(argv[a], "-dbg") == 0) {
-         debug = kTRUE;
-         verbosity = kTRUE;
-         ++ffirst;
-      } else if (strcmp(argv[a], "-d") == 0) {
-         if (a + 1 != argc && argv[a + 1][0] != '-') {
-            if (gSystem->AccessPathName(argv[a + 1])) {
-               std::cerr << "Error: could not access the directory specified: " << argv[a + 1]
-                         << ". We will use the system's temporal directory.\n";
-            } else {
-               workingDir = argv[a + 1];
-            }
-            ++a;
-            ++ffirst;
-         } else {
-            std::cout << "-d: no directory specified.  We will use the system's temporal directory.\n";
-         }
-         ++ffirst;
-      } else if (strcmp(argv[a], "-j") == 0) {
-         // If the number of processes is not specified, use the default.
-         if (a + 1 != argc && argv[a + 1][0] != '-') {
-            // number of processes specified
-            Long_t request = 1;
-            for (char *c = argv[a + 1]; *c != '\0'; ++c) {
-               if (!isdigit(*c)) {
-                  // Wrong number of Processes. Use the default:
-                  std::cerr << "Error: could not parse the number of processes to run in parallel passed after -j: "
-                            << argv[a + 1] << ". We will use the system maximum.\n";
-                  request = 0;
-                  break;
-               }
-            }
-            if (request == 1) {
-               request = strtol(argv[a + 1], 0, 10);
-               if (request < kMaxLong && request >= 0) {
-                  nProcesses = (Int_t)request;
-                  ++a;
-                  ++ffirst;
-                  std::cout << "Parallelizing  with " << nProcesses << " processes.\n";
+   auto converted = conv(nxtArg);
+   if (converted.fResult == EFlagResult::kParsed) {
+      flagOut = converted.fValue;
+   } else if (converted.fResult == EFlagResult::kIgnored) {
+      if (defaultVal && argIsSeparate) {
+         flagOut = defaultVal;
+         // If we had tried parsing the next argument, step back one arg idx.
+         argIdxInOut -= (argIdxInOut > argIdx);
+      } else {
+         Err() << "the argument after '-" << flagStr << "' flag was not of the expected type.\n";
+         return EFlagResult::kErr;
+      }
+   } else {
+      return EFlagResult::kErr;
+   }
+
+   return EFlagResult::kParsed;
+}
+
+static bool ValidCompressionSettings(int compSettings)
+{
+   // Must be a number between 0 and 509 (with a 0 in the middle)
+   if (compSettings == 0)
+      return true;
+   // We also accept [1-9] as aliases of [101-109], but it's discouraged.
+   if (compSettings >= 1 && compSettings <= 9) {
+      Warn() << "interpreting " << compSettings << " as " << 100 + compSettings
+             << "."
+                " This behavior is deprecated, please use the full compression settings.\n";
+      return true;
+   }
+   return (compSettings >= 100 && compSettings <= 509) && ((compSettings / 10) % 10 == 0);
+}
+
+// The -f flag has a somewhat complicated logic.
+// We have 4 cases:
+//   1. -f
+//   2. -ff
+//   3. -fk
+//   4. -f[0-509]
+//
+// and a combination thereof (e.g. -fk101, -ff202, -ffk, -fk209)
+// -ff and -f[0-509] are incompatible.
+//
+// ALL these flags imply '-f' ("force overwrite"), but only if they parse successfully.
+// This means that if we see a -f[something] and that "something" doesn't parse to a valid
+// number between 0 and 509, or f or k, we consider the flag invalid and skip it without
+// setting any state.
+//
+// Note that we don't allow `-f [0-9]` because that would be a backwards-incompatible
+// change with the previous arg parsing semantic, changing the meaning of a cmdline like:
+//
+// $ hadd -f 200 f.root g.root  # <- '200' is the output file, not an argument to -f!
+static EFlagResult FlagF(const char *arg, HAddArgs &args)
+{
+   if (arg[0] != 'f')
+      return EFlagResult::kIgnored;
+
+   args.fForce = true;
+   const char *cur = arg + 1;
+   while (*cur) {
+      switch (cur[0]) {
+      case 'f':
+         if (args.fUseFirstInputCompression)
+            Warn() << "duplicate flag: -ff\n";
+         if (args.fCompressionSettings) {
+            std::cerr
+               << "[err] Cannot specify both -ff and -f[0-9]. Either use the first input compression or specify it.\n";
+            return EFlagResult::kErr;
+         } else
+            args.fUseFirstInputCompression = true;
+         break;
+      case 'k':
+         if (args.fKeepCompressionAsIs)
+            Warn() << "duplicate flag: -fk\n";
+         args.fKeepCompressionAsIs = true;
+         break;
+      default:
+         if (isdigit(cur[0])) {
+            if (args.fUseFirstInputCompression) {
+               Err() << "cannot specify both -ff and -f[0-9]. Either use the first input compression or "
+                        "specify it.\n";
+               return EFlagResult::kErr;
+            } else if (!args.fCompressionSettings) {
+               if (auto compLv = StrToUInt(cur)) {
+                  if (ValidCompressionSettings(*compLv)) {
+                     args.fCompressionSettings = *compLv;
+                     // we can't see any other argument after the number, so we return here to avoid
+                     // incorrectly parsing the rest of the characters in `arg`.
+                     return EFlagResult::kParsed;
+                  } else {
+                     Err() << *compLv << " is not a supported compression settings.\n";
+                     return EFlagResult::kErr;
+                  }
                } else {
-                  std::cerr << "Error: could not parse the number of processes to use passed after -j: " << argv[a + 1]
-                            << ". We will use the default value (number of logical cores).\n";
+                  Err() << "failed to parse compression settings '" << cur << "' as an integer.\n";
+                  return EFlagResult::kErr;
                }
-            }
-         }
-         multiproc = kTRUE;
-         ++ffirst;
-      } else if ( strcmp(argv[a],"-cachesize=") == 0 ) {
-         int size;
-         static const size_t arglen = strlen("-cachesize=");
-         auto parseResult = ROOT::FromHumanReadableSize(argv[a]+arglen,size);
-         if (parseResult == ROOT::EFromHumanReadableSize::kParseFail) {
-            std::cerr << "Error: could not parse the cache size passed after -cachesize: "
-                      << argv[a + 1] << ". We will use the default value.\n";
-         } else if (parseResult == ROOT::EFromHumanReadableSize::kOverflow) {
-            double m;
-            const char *munit = nullptr;
-            ROOT::ToHumanReadableSize(INT_MAX,false,&m,&munit);
-            std::cerr << "Error: the cache size passed after -cachesize is too large: "
-                      << argv[a + 1] << " is greater than " << m << munit
-                      << ". We will use the default value.\n";
-         } else {
-            cacheSize = "cachesize=";
-            cacheSize.Append(argv[a]+1);
-         }
-         ++ffirst;
-      } else if ( strcmp(argv[a],"-cachesize") == 0 ) {
-         if (a+1 >= argc) {
-            std::cerr << "Error: no cache size number was provided after -cachesize.\n";
-         } else {
-            int size;
-            auto parseResult = ROOT::FromHumanReadableSize(argv[a+1],size);
-            if (parseResult == ROOT::EFromHumanReadableSize::kParseFail) {
-               std::cerr << "Error: could not parse the cache size passed after -cachesize: "
-                         << argv[a + 1] << ". We will use the default value.\n";
-            } else if (parseResult == ROOT::EFromHumanReadableSize::kOverflow) {
-               double m;
-               const char *munit = nullptr;
-               ROOT::ToHumanReadableSize(INT_MAX,false,&m,&munit);
-               std::cerr << "Error: the cache size passed after -cachesize is too large: "
-                         << argv[a + 1] << " is greater than " << m << munit
-                         << ". We will use the default value.\n";
-               ++a;
-               ++ffirst;
             } else {
-               cacheSize = "cachesize=";
-               cacheSize.Append(argv[a+1]);
-               ++a;
-               ++ffirst;
+               Err() << "cannot specify -f[0-9] multiple times!\n";
+               return EFlagResult::kErr;
             }
-         }
-         ++ffirst;
-      } else if (!strcmp(argv[a], "-experimental-io-features")) {
-         if (a+1 >= argc) {
-            std::cerr << "Error: no IO feature was specified after -experimental-io-features; ignoring\n";
          } else {
-            std::stringstream ss;
-            ss.str(argv[++a]);
-            ++ffirst;
-            std::string item;
-            while (std::getline(ss, item, ',')) {
-               if (!features.Set(item)) {
-                  std::cerr << "Ignoring unknown feature request: " << item << std::endl;
-               }
-            }
+            Err() << "invalid flag: " << arg << "\n";
+            return EFlagResult::kErr;
          }
-         ++ffirst;
-      } else if ( strcmp(argv[a],"-n") == 0 ) {
-         if (a+1 >= argc) {
-            std::cerr << "Error: no maximum number of opened was provided after -n.\n";
+      }
+      ++cur;
+   }
+
+   return EFlagResult::kParsed;
+}
+
+// Returns nullopt if any of the flags failed to parse.
+// If an unknown flag is encountered, it will print a warning and go on.
+static std::optional<HAddArgs> ParseArgs(int argc, char **argv)
+{
+   HAddArgs args{};
+
+   enum {
+      kParseStart,
+      kParseFirstFlagGroup,
+      kParseFirstPosArgGroup,
+      kParseSecondFlagGroup,
+   } parseState = kParseStart;
+
+   for (int argIdx = 1; argIdx < argc; ++argIdx) {
+      const char *argRaw = argv[argIdx];
+      if (!*argRaw)
+         continue;
+
+      if (!args.fNoFlagsAfterPositionalArguments && argRaw[0] == '-' && argRaw[1] != '\0') {
+         if (argRaw[1] == '-' && argRaw[2] == '\0') {
+            // special case `--`: force parsing to consider all future args as positional arguments.
+            if (parseState > kParseFirstFlagGroup) {
+               Err()
+                  << "found `--`, but we've already parsed (or are still parsing) a sequence of positional arguments!"
+                     " This is not supported: you must have exactly one sequence of positional arguments, so if you"
+                     " need to use `--` make sure to pass *all* positional arguments after it.";
+               return {};
+            }
+            args.fNoFlagsAfterPositionalArguments = true;
+            continue;
+         }
+
+         // parse flag
+         parseState = (parseState == kParseFirstPosArgGroup) ? kParseSecondFlagGroup : kParseFirstFlagGroup;
+
+         const char *arg = argRaw + 1;
+         bool validFlag = false;
+
+#define PARSE_FLAG(func, ...)                     \
+   do {                                           \
+      if (!validFlag) {                           \
+         const auto res = func(__VA_ARGS__);      \
+         if (res == EFlagResult::kErr)            \
+            return {};                            \
+         validFlag = res == EFlagResult::kParsed; \
+      }                                           \
+   } while (0)
+
+         // NOTE: if two flags have the same prefix (e.g. -Ltype and -L) always put the longest one first!
+         PARSE_FLAG(FlagToggle, arg, "T", args.fNoTrees);
+         PARSE_FLAG(FlagToggle, arg, "a", args.fAppend);
+         PARSE_FLAG(FlagToggle, arg, "k", args.fSkipErrors);
+         PARSE_FLAG(FlagToggle, arg, "O", args.fReoptimize);
+         PARSE_FLAG(FlagToggle, arg, "dbg", args.fDebug);
+         // Accept --help, -help and -h as "help"
+         PARSE_FLAG(FlagToggle, arg, "-help", args.fHelp);
+         PARSE_FLAG(FlagToggle, arg, "help", args.fHelp);
+         PARSE_FLAG(FlagToggle, arg, "h", args.fHelp);
+         PARSE_FLAG(FlagArg, argc, argv, argIdx, "d", args.fWorkingDir);
+         PARSE_FLAG(FlagArg, argc, argv, argIdx, "j", args.fNProcesses, {0});
+         PARSE_FLAG(FlagArg, argc, argv, argIdx, "Ltype", args.fObjectFilterType, {}, ConvertFilterType);
+         PARSE_FLAG(FlagArg, argc, argv, argIdx, "L", args.fObjectFilterFile);
+         PARSE_FLAG(FlagArg, argc, argv, argIdx, "cachesize", args.fCacheSize, {}, ConvertCacheSize);
+         PARSE_FLAG(FlagArg, argc, argv, argIdx, "experimental-io-features", args.fFeatures);
+         PARSE_FLAG(FlagArg, argc, argv, argIdx, "n", args.fMaxOpenedFiles);
+         PARSE_FLAG(FlagArg, argc, argv, argIdx, "v", args.fVerbosity, {kDefaultHaddVerbosity});
+         PARSE_FLAG(FlagF, arg, args);
+
+#undef PARSE_FLAG
+
+         if (!validFlag)
+            Warn() << "unknown flag: " << argRaw << "\n";
+
+      } else if (!args.fOutputArgIdx) {
+         // First positional argument is the output
+         args.fOutputArgIdx = argIdx;
+         assert(parseState < kParseFirstPosArgGroup);
+         parseState = kParseFirstPosArgGroup;
+      } else {
+         // We should be in the same positional argument group as the output, error otherwise
+         if (parseState == kParseFirstPosArgGroup) {
+            if (!args.fFirstInputIdx) {
+               args.fFirstInputIdx = argIdx;
+            }
          } else {
-            Long_t request = strtol(argv[a+1], 0, 10);
-            if (request < kMaxLong && request >= 0) {
-               maxopenedfiles = (Int_t)request;
-               ++a;
-               ++ffirst;
-            } else {
-               std::cerr << "Error: could not parse the max number of opened file passed after -n: " << argv[a+1] << ". We will use the system maximum.\n";
-            }
+            Err() << "seen a positional argument '" << argRaw
+                  << "' after some flags."
+                     " Positional arguments were already parsed at this point (from '"
+                  << argv[args.fOutputArgIdx]
+                  << "' onwards), and you can only have one sequence of them, so you cannot pass more."
+                     " Please group your positional arguments all together so that hadd works as you expect.\n"
+                     "Cmdline: ";
+            for (int i = 0; i < argc; ++i)
+               std::cerr << argv[i] << " ";
+            std::cerr << "\n";
+
+            return {};
          }
-         ++ffirst;
-      } else if ( strcmp(argv[a],"-v") == 0 ) {
-         if (a+1 == argc || argv[a+1][0] == '-') {
-            // Verbosity level was not specified use the default:
-            verbosity = 99;
-//         if (a+1 >= argc) {
-//            std::cerr << "Error: no verbosity level was provided after -v.\n";
-         } else {
-            Bool_t hasFollowupNumber = kTRUE;
-            for (char *c = argv[a+1]; *c != '\0'; ++c) {
-               if (!isdigit(*c)) {
-                  // Verbosity level was not specified use the default:
-                  hasFollowupNumber = kFALSE;
-                  break;
-               }
-            }
-            if (hasFollowupNumber) {
-               Long_t request = strtol(argv[a+1], 0, 10);
-               if (request < kMaxLong && request >= 0) {
-                  verbosity = (Int_t)request;
-                  ++a;
-                  ++ffirst;
-               } else {
-                  verbosity = 99;
-                  std::cerr << "Error: could not parse the verbosity level passed after -v: " << argv[a+1] << ". We will use the default value (99).\n";
-               }
-            }
-         }
-         ++ffirst;
-      } else if ( argv[a][0] == '-' ) {
-         bool farg = false;
-         if (force && argv[a][1] == 'f') {
-            // Bad argument
-            std::cerr << "Error: Using option " << argv[a] << " more than once is not supported.\n";
-            ++ffirst;
-            farg = true;
-         }
-         const char *prefix = "";
-         if (argv[a][1] == 'f' && argv[a][2] == 'k') {
-            farg = true;
-            force = kTRUE;
-            keepCompressionAsIs = kTRUE;
-            prefix = "k";
-         }
-         if (argv[a][1] == 'f' && argv[a][2] == 'f') {
-            farg = true;
-            force = kTRUE;
-            useFirstInputCompression = kTRUE;
-            if (argv[a][3] != '\0') {
-               std::cerr << "Error: option -ff should not have any suffix: " << argv[a] << " (suffix has been ignored)\n";
-            }
-         }
-         char ft[7];
-         for (int alg = 0; !useFirstInputCompression && alg <= 5; ++alg) {
-            for( int j=0; j<=9; ++j ) {
-               const int comp = (alg*100)+j;
-               snprintf(ft,7,"-f%s%d",prefix,comp);
-               if (!strcmp(argv[a],ft)) {
-                  farg = true;
-                  force = kTRUE;
-                  newcomp = comp;
-                  break;
-               }
-            }
-         }
-         if (!farg) {
-            // Bad argument
-            std::cerr << "Error: option " << argv[a] << " is not a supported option.\n";
-         }
-         ++ffirst;
-      } else if (!outputPlace) {
-         outputPlace = a;
       }
    }
+
+   return args;
+}
+
+// Returns the flags to add to the file merger's flags, or -1 in case of errors.
+static Int_t ParseFilterFile(const std::optional<std::string> &filterFileName,
+                             std::optional<Int_t> objectFilterType, TFileMerger &fileMerger)
+{
+   if (filterFileName) {
+      std::ifstream filterFile(*filterFileName);
+      if (!filterFile) {
+         Err() << "error opening filter file '" << *filterFileName << "'\n";
+         return -1;
+      }
+      TString filteredObjects;
+      std::string line;
+      std::string objPath;
+      int nObjects = 0;
+      while (std::getline(filterFile, line)) {
+         std::istringstream ss(line);
+         // only read exactly 1 token per line (strips any whitespaces and such)
+         objPath.clear();
+         ss >> objPath;
+         if (!objPath.empty() && objPath[0] != '#') {
+            filteredObjects.Append(objPath + ' ');
+            ++nObjects;
+         }
+      }
+
+      if (nObjects) {
+         Info(2) << "added " << nObjects << " object from filter file '" << *filterFileName << "'\n";
+         fileMerger.AddObjectNames(filteredObjects);
+      } else {
+         Warn() << "no objects were added from filter file '" << *filterFileName << "'\n";
+      }
+
+      assert(objectFilterType.has_value());
+      const auto filterFlag = *objectFilterType;
+      assert(filterFlag == TFileMerger::kSkipListed || filterFlag == TFileMerger::kOnlyListed);
+      return filterFlag;
+   }
+   return 0;
+}
+
+static bool FilesAreEquivalent(std::string_view source, std::string_view target)
+{
+   const bool sourceHasProtocol = source.find_first_of("://") == std::string_view::npos;
+   const bool targetHasProtocol = target.find_first_of("://") == std::string_view::npos;
+   if (sourceHasProtocol != targetHasProtocol)
+      return false;
+
+   // We cannot use std::filesystem functions for file paths that have a protocol.
+   if (!sourceHasProtocol)
+      return source == target;
+
+   return std::filesystem::exists(target) && std::filesystem::equivalent(source, target);
+}
+
+int main(int argc, char **argv)
+{
+   InitLog("hadd", kDefaultHaddVerbosity);
+
+   const auto argsOpt = ParseArgs(argc, argv);
+   if (!argsOpt)
+      return 1;
+   const HAddArgs &args = *argsOpt;
+
+   if (args.fHelp) {
+      fputs(kCommandLineOptionsHelp, stderr);
+      return 0;
+   }
+
+   ROOT::TIOFeatures features = args.fFeatures.value_or(ROOT::TIOFeatures{});
+   Int_t maxopenedfiles = args.fMaxOpenedFiles.value_or(0);
+   SetLogVerbosity(args.fVerbosity.value_or(kDefaultHaddVerbosity));
+   Int_t newcomp = args.fCompressionSettings.value_or(-1);
+   TString cacheSize = args.fCacheSize.value_or("");
+
+   // For the -j flag (nProcesses), we check if the flag is present and, if so, if it has a
+   // valid value (i.e. any value > 0).
+   // If the flag is present at all, we do multiprocessing. If the value of nProcesses is invalid,
+   // we default to the number of cpus on the machine.
+   Bool_t multiproc = args.fNProcesses.has_value();
+   int nProcesses;
+   if (args.fNProcesses && *args.fNProcesses > 0) {
+      nProcesses = *args.fNProcesses;
+   } else {
+      SysInfo_t s;
+      gSystem->GetSysInfo(&s);
+      nProcesses = s.fCpus;
+   }
+   if (multiproc)
+      Info(2) << "parallelizing  with " << nProcesses << " processes.\n";
+
+   // If the user specified a workingDir, use that. Otherwise, default to the system temp dir.
+   std::string workingDir;
+   if (!args.fWorkingDir) {
+      workingDir = gSystem->TempDirectory();
+   } else if (args.fWorkingDir && gSystem->AccessPathName(args.fWorkingDir->c_str())) {
+      Err() << "could not access the directory specified: " << *args.fWorkingDir << ".\n";
+      return 1;
+   } else {
+      workingDir = *args.fWorkingDir;
+   }
+
+   // Verify that -L and -Ltype are either both present or both absent.
+   if (args.fObjectFilterFile.has_value() != args.fObjectFilterType.has_value()) {
+      Err() << "-L must always be passed along with -Ltype.\n";
+      return 1;
+   }
+
+   const char *targetname = 0;
+   if (!args.fOutputArgIdx) {
+      Err() << "missing output file.\n";
+      fputs(kCommandLineShortHelp, stderr);
+      return 1;
+   }
+   if (!args.fFirstInputIdx) {
+      Err() << "missing input file.\n";
+      fputs(kCommandLineShortHelp, stderr);
+      return 1;
+   }
+   targetname = argv[args.fOutputArgIdx];
+
+   Info(2) << "target file: " << targetname << "\n";
+
+   if (args.fCacheSize)
+      Info(2) << "Using " << cacheSize << "\n";
+
+   ////////////////////////////// end flags processing /////////////////////////////////
 
    gSystem->Load("libTreePlayer");
 
-   const char *targetname = 0;
-   if (outputPlace) {
-      targetname = argv[outputPlace];
-   } else {
-      targetname = argv[ffirst-1];
-   }
-
-   if (verbosity > 1) {
-      std::cout << "hadd Target file: " << targetname << std::endl;
-   }
-
    TFileMerger fileMerger(kFALSE, kFALSE);
    fileMerger.SetMsgPrefix("hadd");
-   fileMerger.SetPrintLevel(verbosity - 1);
+   fileMerger.SetPrintLevel(GetLogVerbosity() - 1);
    if (maxopenedfiles > 0) {
       fileMerger.SetMaxOpenedFiles(maxopenedfiles);
    }
-   if (newcomp == -1) {
-      if (useFirstInputCompression || keepCompressionAsIs) {
-         // grab from the first file.
-         TFile *firstInput = nullptr;
-         if (argv[ffirst] && argv[ffirst][0]=='@') {
-            std::ifstream indirect_file(argv[ffirst]+1);
-            if( ! indirect_file.is_open() ) {
-               std::cerr<< "hadd could not open indirect file " << (argv[ffirst]+1) << std::endl;
+   // The following section will collect all input filenames into a vector,
+   // including those listed within an indirect file.
+   // If any file can not be accessed, it will error out, unless args.fSkipErrors is true
+   std::vector<std::string> allSubfiles;
+   for (int a = args.fFirstInputIdx; a < argc; ++a) {
+      if (!args.fNoFlagsAfterPositionalArguments && argv[a] && argv[a][0] == '-') {
+         break;
+      }
+      if (argv[a] && argv[a][0] == '@') {
+         std::ifstream indirect_file(argv[a] + 1);
+         if (!indirect_file.is_open()) {
+            Err() << "could not open indirect file " << (argv[a] + 1) << std::endl;
+            if (!args.fSkipErrors)
                return 1;
-            }
+         } else {
             std::string line;
-            while( indirect_file ){
-               if( std::getline(indirect_file, line) && line.length() ) {
-                  firstInput = TFile::Open(line.c_str());
-                  break;
+            while (indirect_file) {
+               if (std::getline(indirect_file, line) && line.length()) {
+                  if (gSystem->AccessPathName(line.c_str(), kReadPermission) == kTRUE) {
+                     Err() << "could not validate the file name \"" << line << "\" within indirect file "
+                           << (argv[a] + 1) << std::endl;
+                     if (!args.fSkipErrors)
+                        return 1;
+                  } else if (FilesAreEquivalent(line, targetname)) {
+                     Err() << "file " << line << " cannot be both the target and an input!\n";
+                     if (!args.fSkipErrors)
+                        return 1;
+                  } else {
+                     allSubfiles.emplace_back(line);
+                  }
                }
             }
-         } else {
-            firstInput = TFile::Open(argv[ffirst]);
          }
+      } else {
+         const char *line = argv[a];
+         if (gSystem->AccessPathName(line, kReadPermission) == kTRUE) {
+            Err() << "could not validate argument \"" << line << "\" as input file " << std::endl;
+            if (!args.fSkipErrors)
+               return 1;
+         } else if (FilesAreEquivalent(line, targetname)) {
+            Err() << "file " << line << " cannot be both the target and an input!\n";
+            if (!args.fSkipErrors)
+               return 1;
+         } else {
+            allSubfiles.emplace_back(line);
+         }
+      }
+   }
+   if (allSubfiles.empty()) {
+      Err() << "could not find any valid input file " << std::endl;
+      return 1;
+   }
+   // The next snippet determines the output compression if unset
+   if (newcomp == -1) {
+      if (args.fUseFirstInputCompression || args.fKeepCompressionAsIs) {
+         // grab from the first file.
+         TFile *firstInput = TFile::Open(allSubfiles.front().c_str());
          if (firstInput && !firstInput->IsZombie())
             newcomp = firstInput->GetCompressionSettings();
          else
-            newcomp = ROOT::RCompressionSetting::EDefaults::kUseCompiledDefault % 100;
+            newcomp = ROOT::RCompressionSetting::EDefaults::kUseCompiledDefault;
          delete firstInput;
-      } else newcomp = ROOT::RCompressionSetting::EDefaults::kUseCompiledDefault % 100; // default compression level.
-   }
-   if (verbosity > 1) {
-      if (keepCompressionAsIs && !reoptimize)
-         std::cout << "hadd compression setting for meta data: " << newcomp << '\n';
-      else
-         std::cout << "hadd compression setting for all output: " << newcomp << '\n';
-   }
-   if (append) {
-      if (!fileMerger.OutputFile(targetname, "UPDATE", newcomp)) {
-         std::cerr << "hadd error opening target file for update :" << argv[ffirst-1] << "." << std::endl;
-         exit(2);
+         fileMerger.SetMergeOptions(TString("FirstSrcCompression"));
+      } else {
+         newcomp = ROOT::RCompressionSetting::EDefaults::kUseCompiledDefault;
+         fileMerger.SetMergeOptions(TString("DefaultCompression"));
       }
-   } else if (!fileMerger.OutputFile(targetname, force, newcomp)) {
-      std::cerr << "hadd error opening target file (does " << argv[ffirst-1] << " exist?)." << std::endl;
-      if (!force) std::cerr << "Pass \"-f\" argument to force re-creation of output file." << std::endl;
-      exit(1);
+   }
+   if (args.fKeepCompressionAsIs && !args.fReoptimize)
+      Info(2) << "compression setting for meta data: " << newcomp << '\n';
+   else
+      Info(2) << "compression setting for all output: " << newcomp << '\n';
+
+   if (args.fAppend) {
+      if (!fileMerger.OutputFile(targetname, "UPDATE", newcomp)) {
+         Err() << "error opening target file for update :" << targetname << ".\n";
+         return 2;
+      }
+   } else if (!fileMerger.OutputFile(targetname, args.fForce, newcomp)) {
+      std::stringstream ss;
+      ss << "error opening target file (does " << targetname << " exist?).\n";
+      if (!args.fForce)
+         ss << "pass \"-f\" argument to force re-creation of output file.\n";
+      Err() << ss.str();
+      return 1;
    }
 
-   auto filesToProcess = argc - ffirst;
-   auto step = (filesToProcess + nProcesses - 1) / nProcesses;
+   auto step = (allSubfiles.size() + nProcesses - 1) / nProcesses;
    if (multiproc && step < 3) {
       // At least 3 files per process
       step = 3;
-      nProcesses = (filesToProcess + step - 1) / step;
-      std::cout << "Each process should handle at least 3 files for efficiency.";
-      std::cout << " Setting the number of processes to: " << nProcesses << std::endl;
+      nProcesses = (allSubfiles.size() + step - 1) / step;
+      Info(2) << "each process should handle at least 3 files for efficiency."
+                 " Setting the number of processes to: "
+              << nProcesses << std::endl;
    }
    if (nProcesses == 1)
       multiproc = kFALSE;
@@ -445,7 +817,7 @@ int main( int argc, char **argv )
    if (multiproc) {
       auto uuid = TUUID();
       auto partialTail = uuid.AsString();
-      for (auto i = 0; (i * step) < filesToProcess; i++) {
+      for (auto i = 0; (i * step) < allSubfiles.size(); i++) {
          std::stringstream buffer;
          buffer << workingDir << "/partial" << i << "_" << partialTail << ".root";
          partialFiles.emplace_back(buffer.str());
@@ -454,46 +826,40 @@ int main( int argc, char **argv )
 #endif
 
    auto mergeFiles = [&](TFileMerger &merger) {
-      if (reoptimize) {
+      if (args.fReoptimize) {
          merger.SetFastMethod(kFALSE);
       } else {
-         if (!keepCompressionAsIs && merger.HasCompressionChange()) {
-            // Don't warn if the user any request re-optimization.
-            std::cout << "hadd Sources and Target have different compression levels" << std::endl;
-            std::cout << "hadd merging will be slower" << std::endl;
+         if (!args.fKeepCompressionAsIs && merger.HasCompressionChange()) {
+            // Don't warn if the user has requested any re-optimization.
+            Warn() << "Sources and Target have different compression settings\n"
+                      "hadd merging will be slower\n";
          }
       }
-      merger.SetNotrees(noTrees);
-      merger.SetMergeOptions(cacheSize);
+      merger.SetNotrees(args.fNoTrees);
+      merger.SetMergeOptions(TString(merger.GetMergeOptions()) + " " + cacheSize);
+      merger.SetErrorBehavior(args.fSkipErrors ? TFileMerger::EErrorBehavior::kSkipOnError
+                                               : TFileMerger::EErrorBehavior::kFailOnError);
       merger.SetIOFeatures(features);
-      Bool_t status;
-      if (append)
-         status = merger.PartialMerge(TFileMerger::kIncremental | TFileMerger::kAll);
+      Int_t fileMergerFlags = TFileMerger::kAll;
+      Int_t extraFlags = ParseFilterFile(args.fObjectFilterFile, args.fObjectFilterType, merger);
+      if (extraFlags < 0)
+         return false;
+      fileMergerFlags |= extraFlags;
+      if (args.fAppend)
+         fileMergerFlags |= TFileMerger::kIncremental;
       else
-         status = merger.Merge();
+         fileMergerFlags |= TFileMerger::kRegular;
+      Bool_t status = merger.PartialMerge(fileMergerFlags);
       return status;
    };
 
    auto sequentialMerge = [&](TFileMerger &merger, int start, int nFiles) {
-
-      for (auto i = start; i < (start + nFiles) && i < argc; i++) {
-         if (argv[i] && argv[i][0] == '@') {
-            std::ifstream indirect_file(argv[i] + 1);
-            if (!indirect_file.is_open()) {
-               std::cerr << "hadd could not open indirect file " << (argv[i] + 1) << std::endl;
-               return kFALSE;
-            }
-            while (indirect_file) {
-               std::string line;
-               if (std::getline(indirect_file, line) && line.length() && !merger.AddFile(line.c_str())) {
-                  return kFALSE;
-               }
-            }
-         } else if (!merger.AddFile(argv[i])) {
-            if (skip_errors) {
-               std::cerr << "hadd skipping file with error: " << argv[i] << std::endl;
+      for (auto i = start; i < (start + nFiles) && i < static_cast<int>(allSubfiles.size()); i++) {
+         if (!merger.AddFile(allSubfiles[i].c_str())) {
+            if (args.fSkipErrors) {
+               Warn() << "skipping file with error: " << allSubfiles[i] << std::endl;
             } else {
-               std::cerr << "hadd exiting due to error in " << argv[i] << std::endl;
+               Err() << "exiting due to error in " << allSubfiles[i] << std::endl;
                return kFALSE;
             }
          }
@@ -504,12 +870,12 @@ int main( int argc, char **argv )
    auto parallelMerge = [&](int start) {
       TFileMerger mergerP(kFALSE, kFALSE);
       mergerP.SetMsgPrefix("hadd");
-      mergerP.SetPrintLevel(verbosity - 1);
+      mergerP.SetPrintLevel(GetLogVerbosity() - 1);
       if (maxopenedfiles > 0) {
          mergerP.SetMaxOpenedFiles(maxopenedfiles / nProcesses);
       }
-      if (!mergerP.OutputFile(partialFiles[(start - ffirst) / step].c_str(), newcomp)) {
-         std::cerr << "hadd error opening target partial file" << std::endl;
+      if (!mergerP.OutputFile(partialFiles[start / step].c_str(), args.fForce, newcomp)) {
+         Err() << "error opening target partial file\n";
          exit(1);
       }
       return sequentialMerge(mergerP, start, step);
@@ -527,36 +893,32 @@ int main( int argc, char **argv )
 #ifndef R__WIN32
    if (multiproc) {
       ROOT::TProcessExecutor p(nProcesses);
-      auto res = p.Map(parallelMerge, ROOT::TSeqI(ffirst, argc, step));
+      auto res = p.Map(parallelMerge, ROOT::TSeqI(0, allSubfiles.size(), step));
       status = std::accumulate(res.begin(), res.end(), 0U) == partialFiles.size();
       if (status) {
          status = reductionFunc();
       } else {
-         std::cout << "hadd failed at the parallel stage" << std::endl;
+         Err() << "failed at the parallel stage\n";
       }
-      if (!debug) {
+      if (!args.fDebug) {
          for (const auto &pf : partialFiles) {
             gSystem->Unlink(pf.c_str());
          }
       }
    } else {
-      status = sequentialMerge(fileMerger, ffirst, filesToProcess);
+      status = sequentialMerge(fileMerger, 0, allSubfiles.size());
    }
 #else
-   status = sequentialMerge(fileMerger, ffirst, filesToProcess);
+   status = sequentialMerge(fileMerger, 0, allSubfiles.size());
 #endif
 
    if (status) {
-      if (verbosity == 1) {
-         std::cout << "hadd merged " << fileMerger.GetMergeList()->GetEntries() << " input files in " << targetname
-                   << ".\n";
-      }
+      Info(3) << "merged " << allSubfiles.size() << " (" << fileMerger.GetMergeList()->GetEntries()
+              << ") input (partial) files into " << targetname << "\n";
       return 0;
    } else {
-      if (verbosity == 1) {
-         std::cout << "hadd failure during the merge of " << fileMerger.GetMergeList()->GetEntries()
-                   << " input files in " << targetname << ".\n";
-      }
+      Err() << "failure during the merge of " << allSubfiles.size() << " (" << fileMerger.GetMergeList()->GetEntries()
+            << ") input (partial) files into " << targetname << "\n";
       return 1;
    }
 }

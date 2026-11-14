@@ -30,8 +30,9 @@
 #include "TQObject.h"
 
 #include "GuiTypes.h"
-#include "TString.h"
 #include "Buttons.h"
+
+#include <utility>
 
 // forward declarations
 class TAxis;
@@ -44,26 +45,61 @@ class TH1F;
 class TFrame;
 class TLegend;
 class TBox;
+class TString;
 class TVirtualViewer3D;
 class TVirtualPadPainter;
 
 class TVirtualPad : public TObject, public TAttLine, public TAttFill,
                     public TAttPad, public TQObject {
 
+public:
+
+   /** small helper class to store/restore gPad context in TPad methods */
+   class TContext {
+       Bool_t fInteractive{kFALSE};
+       TVirtualPad *fSaved{nullptr};
+   public:
+       TContext(Bool_t _interactive = kFALSE);
+       TContext(TVirtualPad *gpad, Bool_t interactive = kFALSE, Bool_t not_null = kFALSE);
+       ~TContext();
+       auto IsInteractive() const { return fInteractive; }
+       auto GetSaved() const { return fSaved; }
+       void PadDeleted(TVirtualPad *pad);
+   };
+
+   /** Helper class to store interactive parameters for individual objects
+    *  Should be used via MakeInteractive() / GetInteractive() / FreeInteractive() methods in the objects ExecuteEvent */
+   class TInteractive {
+      protected:
+         TObject *fObject = nullptr;
+      public:
+         TInteractive() = default;
+         virtual ~TInteractive() = default;
+         void SetObject(TObject *obj) { fObject = obj; }
+         TObject *GetObject() const { return fObject; }
+   };
+
 protected:
-   Bool_t         fResizing;         //!true when resizing the pad
+
+   Bool_t         fResizing;         ///<!true when resizing the pad
 
    void  *GetSender() override { return this; }  //used to set gTQSender
 
+   virtual TInteractive *Interactive(TObject * /* obj */ = nullptr, TInteractive * /* init */ = nullptr) { return nullptr; }
+
 public:
+
    TVirtualPad();
    TVirtualPad(const char *name, const char *title, Double_t xlow,
                Double_t ylow, Double_t xup, Double_t yup,
                Color_t color=19, Short_t bordersize=4, Short_t bordermode=1);
    virtual ~TVirtualPad();
    virtual void     AbsCoordinates(Bool_t set) = 0;
-   virtual Double_t AbsPixeltoX(Int_t px) = 0;
-   virtual Double_t AbsPixeltoY(Int_t py) = 0;
+   virtual Double_t AbsPixeltoX(Double_t px) = 0;
+   virtual Double_t AbsPixeltoY(Double_t py) = 0;
+   virtual void     AbsPixeltoXY(Double_t xpixel, Double_t ypixel, Double_t &x, Double_t &y) = 0;
+   virtual void     Add(TObject *obj, Option_t *opt = "", Bool_t modified = kTRUE) = 0;
+   virtual void     AddFirst(TObject *obj, Option_t *opt = "", Bool_t modified = kTRUE) = 0;
    virtual void     AddExec(const char *name, const char *command) = 0;
    virtual TLegend *BuildLegend(Double_t x1=0.3, Double_t y1=0.21, Double_t x2=0.3, Double_t y2=0.21, const char *title="", Option_t *option = "") = 0;
    virtual TVirtualPad* cd(Int_t subpadnumber=0) = 0;
@@ -78,12 +114,14 @@ public:
    virtual void     DrawClassObject(const TObject *obj, Option_t *option="") = 0;
    virtual TH1F    *DrawFrame(Double_t xmin, Double_t ymin, Double_t xmax, Double_t ymax, const char *title="") = 0;
    virtual void     ExecuteEventAxis(Int_t event, Int_t px, Int_t py, TAxis *axis) = 0;
+   virtual void     FeedbackMode(Bool_t set) = 0;
    virtual void     UnZoomed() { Emit("UnZoomed()"); } // *SIGNAL*
    virtual Short_t  GetBorderMode() const = 0;
    virtual Short_t  GetBorderSize() const = 0;
    virtual Int_t    GetCanvasID() const = 0;
    virtual TCanvasImp *GetCanvasImp() const = 0;
    virtual TCanvas  *GetCanvas() const = 0;
+   virtual Int_t    GetDoubleBuffer() const  = 0;
    virtual TVirtualPad *GetVirtCanvas() const = 0;
    virtual Int_t    GetEvent() const  = 0;
    virtual Int_t    GetEventX() const = 0;
@@ -100,6 +138,8 @@ public:
    virtual Double_t GetHNDC() const = 0;
    virtual UInt_t   GetWw() const = 0;
    virtual UInt_t   GetWh() const = 0;
+   virtual UInt_t   GetPadWidth() const = 0;
+   virtual UInt_t   GetPadHeight() const = 0;
    virtual Double_t GetAbsXlowNDC() const = 0;
    virtual Double_t GetAbsYlowNDC() const = 0;
    virtual Double_t GetAbsWNDC() const = 0;
@@ -146,8 +186,10 @@ public:
    virtual Bool_t   IsModified() const = 0;
    virtual Bool_t   IsRetained() const = 0;
    virtual Bool_t   IsVertical() const = 0;
+   virtual Bool_t   IsWeb() const { return kFALSE; }
            void     ls(Option_t *option="") const override = 0;
    virtual void     Modified(Bool_t flag=1) = 0;
+   virtual void     ModifiedUpdate() = 0;
    virtual Bool_t   OpaqueMoving() const = 0;
    virtual Bool_t   OpaqueResizing() const = 0;
    virtual Double_t PadtoX(Double_t x) const = 0;
@@ -169,21 +211,28 @@ public:
    virtual void     PaintPolyLineNDC(Int_t n, Double_t *x, Double_t *y, Option_t *option="") = 0;
    virtual void     PaintPolyMarker(Int_t n, Float_t *x, Float_t *y, Option_t *option="") = 0;
    virtual void     PaintPolyMarker(Int_t n, Double_t *x, Double_t *y, Option_t *option="") = 0;
+   virtual void     PaintSegments(Int_t n, Double_t *x, Double_t *y, Option_t *option="");
+   virtual void     PaintSegmentsNDC(Int_t n, Double_t *u, Double_t *v);
+   virtual void     PaintMarker3D(Double_t x, Double_t y, Double_t z) = 0;
    virtual void     PaintModified() = 0;
    virtual void     PaintText(Double_t x, Double_t y, const char *text) = 0;
    virtual void     PaintText(Double_t x, Double_t y, const wchar_t *text) = 0;
    virtual void     PaintTextNDC(Double_t u, Double_t v, const char *text) = 0;
    virtual void     PaintTextNDC(Double_t u, Double_t v, const wchar_t *text) = 0;
-   virtual Double_t PixeltoX(Int_t px) = 0;
-   virtual Double_t PixeltoY(Int_t py) = 0;
+   virtual void     PaintTextUrl(Double_t x, Double_t y, const char *text, const char *url) = 0;
+   virtual Double_t PixeltoX(Double_t px) = 0;
+   virtual Double_t PixeltoY(Double_t py) = 0;
+   virtual void     PixeltoXY(Double_t xpixel, Double_t ypixel, Double_t &x, Double_t &y) = 0;
            void     Pop() override = 0;
            void     Print(const char *filename="") const override = 0;
    virtual void     Print(const char *filename, Option_t *option) = 0;
    virtual void     Range(Double_t x1, Double_t y1, Double_t x2, Double_t y2) = 0;
    virtual void     RangeAxis(Double_t xmin, Double_t ymin, Double_t xmax, Double_t ymax) = 0;
+   virtual void     RangeAxisChanged() { Emit("RangeAxisChanged()"); } // *SIGNAL*
            void     RecursiveRemove(TObject *obj) override = 0;
+   virtual TObject *Remove(TObject *obj, Bool_t modified = kTRUE) = 0;
    virtual void     RedrawAxis(Option_t *option="") = 0;
-   virtual void     ResetView3D(TObject *view=0) = 0;
+   virtual void     ResetView3D(TObject *view = nullptr) = 0;
    virtual void     ResizePad(Option_t *option="") = 0;
            void     SaveAs(const char *filename="",Option_t *option="") const override = 0;
    virtual void     SetBatch(Bool_t batch=kTRUE) = 0;
@@ -221,26 +270,46 @@ public:
    virtual void     SetPhi(Double_t phi=30) = 0;
    virtual void     SetToolTipText(const char *text, Long_t delayms = 1000) = 0;
    virtual void     SetVertical(Bool_t vert=kTRUE) = 0;
-   virtual void     SetView(TView *view=0) = 0;
+   virtual void     SetView(TView *view = nullptr) = 0;
    virtual void     SetViewer3D(TVirtualViewer3D * /*viewer3d*/) {}
    virtual void     ShowGuidelines(TObject *object, const Int_t event, const char mode = 'i', const bool cling = true) = 0;
    virtual TObject *WaitPrimitive(const char *pname="", const char *emode="") = 0;
    virtual void     Update() = 0;
+   virtual void     UpdateAsync() = 0;
    virtual Int_t    UtoAbsPixel(Double_t u) const = 0;
    virtual Int_t    VtoAbsPixel(Double_t v) const = 0;
    virtual Int_t    UtoPixel(Double_t u) const = 0;
    virtual Int_t    VtoPixel(Double_t v) const = 0;
    virtual Int_t    XtoAbsPixel(Double_t x) const = 0;
    virtual Int_t    YtoAbsPixel(Double_t y) const = 0;
+   virtual Int_t    HtoAbsPixel(Double_t y1, Double_t y2) const = 0;
+   virtual Int_t    WtoAbsPixel(Double_t x1, Double_t x2) const = 0;
+   virtual void     XYtoAbsPixel(Double_t x, Double_t y, Int_t &xpixel, Int_t &ypixel) const = 0;
+   virtual void     XYtoAbsPixel(Double_t x, Double_t y, Double_t &xpixel, Double_t &ypixel) const = 0;
    virtual Double_t XtoPad(Double_t x) const = 0;
    virtual Double_t YtoPad(Double_t y) const = 0;
    virtual Int_t    XtoPixel(Double_t x) const = 0;
    virtual Int_t    YtoPixel(Double_t y) const = 0;
+   virtual void     XYtoPixel(Double_t x, Double_t y, Int_t &xpixel, Int_t &ypixel) const = 0;
+   virtual void     XYtoPixel(Double_t x, Double_t y, Double_t &xpixel, Double_t &ypixel) const = 0;
 
-   virtual Int_t    IncrementPaletteColor(Int_t i, TString opt) = 0;
+   template<typename T, typename... Rest>
+   T *MakeInteractive(TObject *obj, Rest&&... rest)
+   {
+      auto inter = new T(std::forward<Rest>(rest)...);
+      Interactive(obj, inter);
+      return inter;
+   }
+
+   template<typename T>
+   T *GetInteractive(TObject *obj) { return dynamic_cast<T *>(Interactive(obj)); }
+
+   void FreeInteractive(TObject *obj);
+
+   virtual Int_t    IncrementPaletteColor(Int_t i, const TString &opt) = 0;
    virtual Int_t    NextPaletteColor() = 0;
 
-   virtual Bool_t   PlaceBox(TObject *o, Double_t w, Double_t h, Double_t &xl, Double_t &yb) = 0;
+   virtual Bool_t   PlaceBox(TObject *o, Double_t w, Double_t h, Double_t &xl, Double_t &yb, Option_t* opt = "lb") = 0;
 
    virtual TObject *CreateToolTip(const TBox *b, const char *text, Long_t delayms) = 0;
    virtual void     DeleteToolTip(TObject *tip) = 0;
@@ -283,9 +352,7 @@ private:
 };
 
 
-#ifndef __CINT__
 #define gPad (TVirtualPad::Pad())
-#endif
 R__EXTERN Int_t (*gThreadXAR)(const char *xact, Int_t nb, void **ar, Int_t *iret);
 
 #endif

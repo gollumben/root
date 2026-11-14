@@ -51,6 +51,8 @@ but the class metadata comes from the Clang C++ compiler, not CINT.
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "ROOT/BitUtils.hxx"
+
 #include <sstream>
 #include <string>
 
@@ -70,21 +72,20 @@ static std::string FullyQualifiedName(const Decl *decl) {
 
 TClingClassInfo::TClingClassInfo(cling::Interpreter *interp, Bool_t all)
    : TClingDeclInfo(nullptr), fInterp(interp), fFirstTime(true), fDescend(false), fIterAll(all),
-     fIsIter(true), fType(0), fOffsetCache(0)
+     fIsIter(true), fOffsetCache(0)
 {
    TranslationUnitDecl *TU =
       interp->getCI()->getASTContext().getTranslationUnitDecl();
    fFirstTime = true;
    SetDecl(TU);
-   fType = 0;
 }
 
 TClingClassInfo::TClingClassInfo(cling::Interpreter *interp, const char *name, bool intantiateTemplate /* = true */)
    : TClingDeclInfo(nullptr), fInterp(interp), fFirstTime(true), fDescend(false), fIterAll(kTRUE), fIsIter(false),
-     fType(0), fTitle(""), fOffsetCache(0)
+     fOffsetCache(0)
 {
    const cling::LookupHelper& lh = fInterp->getLookupHelper();
-   const Type *type = 0;
+   const Type *type = nullptr;
    const Decl *decl = lh.findScope(name,
                                    gDebug > 5 ? cling::LookupHelper::WithDiagnostics
                                    : cling::LookupHelper::NoDiagnostics,
@@ -99,9 +100,8 @@ TClingClassInfo::TClingClassInfo(cling::Interpreter *interp, const char *name, b
       }
    }
    if (!decl && type) {
-      const TagType *tagtype =type->getAs<TagType>();
-      if (tagtype) {
-         decl = tagtype->getDecl();
+      if (const auto *TD = type->getAsTagDecl()) {
+         decl = TD;
       }
    }
    SetDecl(decl);
@@ -116,17 +116,24 @@ TClingClassInfo::TClingClassInfo(cling::Interpreter *interp, const char *name, b
 TClingClassInfo::TClingClassInfo(cling::Interpreter *interp,
                                  const Type &tag)
    : TClingDeclInfo(nullptr), fInterp(interp), fFirstTime(true), fDescend(false), fIterAll(kTRUE),
-     fIsIter(false), fType(0), fTitle(""), fOffsetCache(0)
+     fIsIter(false), fOffsetCache(0)
 {
    Init(tag);
 }
 
-TClingClassInfo::TClingClassInfo(cling::Interpreter *interp,
-                                 const Decl *D)
-   : TClingDeclInfo(nullptr), fInterp(interp), fFirstTime(true), fDescend(false), fIterAll(kTRUE),
-     fIsIter(false), fType(0), fTitle(""), fOffsetCache(0)
+TClingClassInfo::TClingClassInfo(cling::Interpreter *interp, const Decl *D, const Type *T)
+   : TClingDeclInfo(nullptr),
+     fInterp(interp),
+     fFirstTime(true),
+     fDescend(false),
+     fIterAll(kTRUE),
+     fIsIter(false),
+     fOffsetCache(0)
 {
    Init(D);
+   // The type as found by the lookup, conserving typedefs like Double32_t
+   // (may be null).
+   fType = T;
 }
 
 void TClingClassInfo::AddBaseOffsetValue(const clang::Decl* decl, ptrdiff_t offset)
@@ -134,7 +141,7 @@ void TClingClassInfo::AddBaseOffsetValue(const clang::Decl* decl, ptrdiff_t offs
    // Add the offset value from this class to the non-virtual base class
    // determined by the parameter decl.
 
-   OffsetPtrFunc_t executableFunc = 0;
+   OffsetPtrFunc_t executableFunc = nullptr;
    std::unique_lock<std::mutex> lock(fOffsetCacheMutex);
    fOffsetCache[decl] = std::make_pair(offset, executableFunc);
 }
@@ -195,6 +202,17 @@ long TClingClassInfo::ClassProperty() const
    if (CRD->isPolymorphic()) {
       property |= kClassHasVirtual;
    }
+   if (CRD->isAggregate() || CRD->isPOD()) {
+      // according to the C++ standard, being a POD implies being an aggregate
+      property |= kClassIsAggregate;
+   }
+   if (CRD->hasDefinition() && fInterp->getSema().IsCXXTriviallyRelocatableType(*CRD)) {
+      // Trivial relocatability in the C++26 sense ([class.prop]), as computed by
+      // Sema. This is more accurate than isTriviallyCopyable(): every trivially
+      // copyable class is trivially relocatable, but not vice versa -- e.g. a
+      // polymorphic class whose bases and members are all trivially relocatable.
+      property |= kClassIsTriviallyRelocatable;
+   }
    return property;
 }
 
@@ -211,7 +229,7 @@ void TClingClassInfo::Delete(void *arena, const ROOT::TMetaUtils::TNormalizedCtx
             FullyQualifiedName(GetDecl()).c_str());
       return;
    }
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    cf.ExecDestructor(this, arena, /*nary=*/0, /*withFree=*/true);
 }
 
@@ -231,7 +249,7 @@ void TClingClassInfo::DeleteArray(void *arena, bool dtorOnly, const ROOT::TMetaU
       Error("DeleteArray", "Placement delete of an array is unsupported!\n");
       return;
    }
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    cf.ExecDestructor(this, arena, /*nary=*/1, /*withFree=*/true);
 }
 
@@ -242,7 +260,7 @@ void TClingClassInfo::Destruct(void *arena, const ROOT::TMetaUtils::TNormalizedC
    if (!IsLoaded()) {
       return;
    }
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    cf.ExecDestructor(this, arena, /*nary=*/0, /*withFree=*/false);
 }
 
@@ -251,16 +269,16 @@ const FunctionTemplateDecl *TClingClassInfo::GetFunctionTemplate(const char *fna
    // Return any method or function in this scope with the name 'fname'.
 
    if (!IsLoaded()) {
-      return 0;
+      return nullptr;
    }
 
    if (fType) {
       const TypedefType *TT = llvm::dyn_cast<TypedefType>(fType);
       if (TT) {
          llvm::StringRef tname(TT->getDecl()->getName());
-         if (tname.equals(fname)) {
+         if (tname == fname) {
             const NamedDecl *ndecl = llvm::dyn_cast<NamedDecl>(GetDecl());
-            if (ndecl && !ndecl->getName().equals(fname)) {
+            if (ndecl && ndecl->getName() != fname) {
                // Constructor name matching the typedef type, use the decl name instead.
                return GetFunctionTemplate(ndecl->getName().str().c_str());
             }
@@ -273,7 +291,7 @@ const FunctionTemplateDecl *TClingClassInfo::GetFunctionTemplate(const char *fna
                                 gDebug > 5 ? cling::LookupHelper::WithDiagnostics
                                 : cling::LookupHelper::NoDiagnostics, false);
    if (fd) return fd->getCanonicalDecl();
-   return 0;
+   return nullptr;
 }
 
 const clang::ValueDecl *TClingClassInfo::GetDataMember(const char *name) const
@@ -287,7 +305,7 @@ const clang::ValueDecl *TClingClassInfo::GetDataMember(const char *name) const
                           gDebug > 5 ? cling::LookupHelper::WithDiagnostics
                           : cling::LookupHelper::NoDiagnostics);
    if (vd) return llvm::dyn_cast<ValueDecl>(vd->getCanonicalDecl());
-   else return 0;
+   else return nullptr;
 }
 
 TClingMethodInfo TClingClassInfo::GetMethod(const char *fname) const
@@ -305,9 +323,9 @@ TClingMethodInfo TClingClassInfo::GetMethod(const char *fname) const
       const TypedefType *TT = llvm::dyn_cast<TypedefType>(fType);
       if (TT) {
          llvm::StringRef tname(TT->getDecl()->getName());
-         if (tname.equals(fname)) {
+         if (tname == fname) {
             const NamedDecl *ndecl = llvm::dyn_cast<NamedDecl>(GetDecl());
-            if (ndecl && !ndecl->getName().equals(fname)) {
+            if (ndecl && ndecl->getName() != fname) {
                // Constructor name matching the typedef type, use the decl name instead.
                return GetMethod(ndecl->getName().str().c_str());
             }
@@ -356,9 +374,9 @@ TClingMethodInfo TClingClassInfo::GetMethod(const char *fname,
       const TypedefType *TT = llvm::dyn_cast<TypedefType>(fType);
       if (TT) {
          llvm::StringRef tname(TT->getDecl()->getName());
-         if (tname.equals(fname)) {
+         if (tname == fname) {
             const NamedDecl *ndecl = llvm::dyn_cast<NamedDecl>(GetDecl());
-            if (ndecl && !ndecl->getName().equals(fname)) {
+            if (ndecl && ndecl->getName() != fname) {
                // Constructor name matching the typedef type, use the decl name instead.
                return GetMethod(ndecl->getName().str().c_str(),proto,
                                 objectIsConst,poffset,
@@ -450,9 +468,9 @@ TClingMethodInfo TClingClassInfo::GetMethod(const char *fname,
       const TypedefType *TT = llvm::dyn_cast<TypedefType>(fType);
       if (TT) {
          llvm::StringRef tname(TT->getDecl()->getName());
-         if (tname.equals(fname)) {
+         if (tname == fname) {
             const NamedDecl *ndecl = llvm::dyn_cast<NamedDecl>(GetDecl());
-            if (ndecl && !ndecl->getName().equals(fname)) {
+            if (ndecl && ndecl->getName() != fname) {
                // Constructor name matching the typedef type, use the decl name instead.
                return GetMethod(ndecl->getName().str().c_str(),proto,objectIsConst,poffset,
                                 mode,imode);
@@ -516,9 +534,9 @@ TClingMethodInfo TClingClassInfo::GetMethodWithArgs(const char *fname,
       const TypedefType *TT = llvm::dyn_cast<TypedefType>(fType);
       if (TT) {
          llvm::StringRef tname(TT->getDecl()->getName());
-         if (tname.equals(fname)) {
+         if (tname == fname) {
             const NamedDecl *ndecl = llvm::dyn_cast<NamedDecl>(GetDecl());
-            if (ndecl && !ndecl->getName().equals(fname)) {
+            if (ndecl && ndecl->getName() != fname) {
                // Constructor name matching the typedef type, use the decl name instead.
                return GetMethod(ndecl->getName().str().c_str(),arglist,
                                 objectIsConst,poffset
@@ -574,7 +592,7 @@ int TClingClassInfo::GetMethodNArg(const char *method, const char *proto,
 
    R__LOCKGUARD(gInterpreterMutex);
 
-   TClingMethodInfo mi = GetMethod(method, proto, objectIsConst, 0, mode);
+   TClingMethodInfo mi = GetMethod(method, proto, objectIsConst, nullptr, mode);
    int clang_val = -1;
    if (mi.IsValid()) {
       unsigned num_params = mi.GetTargetFunctionDecl()->getNumParams();
@@ -727,7 +745,7 @@ void TClingClassInfo::Init(const char *name)
    fIsIter = false;
    fIter = DeclContext::decl_iterator();
    SetDecl(nullptr);
-   fType = 0;
+   fType = nullptr;
    fIterStack.clear();
    const cling::LookupHelper& lh = fInterp->getLookupHelper();
    SetDecl(lh.findScope(name, gDebug > 5 ? cling::LookupHelper::WithDiagnostics
@@ -742,9 +760,8 @@ void TClingClassInfo::Init(const char *name)
       }
    }
    if (!GetDecl() && fType) {
-      const TagType *tagtype =fType->getAs<TagType>();
-      if (tagtype) {
-         SetDecl(tagtype->getDecl());
+      if (const auto *TD = fType->getAsTagDecl()) {
+         SetDecl(TD);
       }
    }
 }
@@ -756,7 +773,7 @@ void TClingClassInfo::Init(const Decl* decl)
    fIsIter = false;
    fIter = DeclContext::decl_iterator();
    SetDecl(decl);
-   fType = 0;
+   fType = nullptr;
    fIterStack.clear();
 }
 
@@ -772,11 +789,9 @@ void TClingClassInfo::Init(const Type &tag)
 
    R__LOCKGUARD(gInterpreterMutex);
 
-   const TagType *tagtype = fType->getAs<TagType>();
-   if (tagtype) {
-      SetDecl(tagtype->getDecl());
-   }
-   else {
+   if (const auto *TD = fType->getAsTagDecl()) {
+      SetDecl(TD);
+   } else {
       SetDecl(nullptr);
    }
    if (!GetDecl()) {
@@ -815,6 +830,7 @@ bool TClingClassInfo::IsBase(const char *name) const
 
 bool TClingClassInfo::IsEnum(cling::Interpreter *interp, const char *name)
 {
+   R__LOCKGUARD(gInterpreterMutex);
    // Note: This is a static member function.
    TClingClassInfo info(interp, name);
    if (info.IsValid() && (info.Property() & kIsEnum)) {
@@ -834,12 +850,14 @@ EDataType TClingClassInfo::GetUnderlyingType() const
 {
    if (!IsValid())
       return kNumDataTypes;
-   if (GetDecl() == 0)
+   if (GetDecl() == nullptr)
       return kNumDataTypes;
 
    if (auto ED = llvm::dyn_cast<EnumDecl>(GetDecl())) {
       R__LOCKGUARD(gInterpreterMutex);
       auto Ty = ED->getIntegerType().getTypePtrOrNull();
+      if (Ty)
+         Ty = Ty->getUnqualifiedDesugaredType();
       if (auto BTy = llvm::dyn_cast_or_null<BuiltinType>(Ty)) {
          switch (BTy->getKind()) {
          case BuiltinType::Bool:
@@ -887,7 +905,7 @@ bool TClingClassInfo::IsLoaded() const
    if (!IsValid()) {
       return false;
    }
-   if (GetDecl() == 0) {
+   if (GetDecl() == nullptr) {
       return false;
    }
 
@@ -900,7 +918,7 @@ bool TClingClassInfo::IsLoaded() const
       }
    } else {
       const TagDecl *TD = llvm::dyn_cast<TagDecl>(GetDecl());
-      if (TD && TD->getDefinition() == 0) {
+      if (TD && TD->getDefinition() == nullptr) {
          return false;
       }
    }
@@ -1003,7 +1021,7 @@ int TClingClassInfo::InternalNext()
          if (!*fIter) {
             // We have reached the end of the translation unit, all done.
             SetDecl(nullptr);
-            fType = 0;
+            fType = nullptr;
             return 0;
          }
       }
@@ -1037,14 +1055,14 @@ int TClingClassInfo::InternalNext()
          }
          // Iterator is now valid.
          SetDecl(*fIter);
-         fType = 0;
+         fType = nullptr;
          if (GetDecl()) {
             if (GetDecl()->isInvalidDecl()) {
                Warning("TClingClassInfo::Next()","Reached an invalid decl.");
             }
             if (const RecordDecl *RD =
                   llvm::dyn_cast<RecordDecl>(GetDecl())) {
-               fType = RD->getASTContext().getRecordType(RD).getTypePtr();
+               fType = RD->getASTContext().getCanonicalTagType(RD).getTypePtr();
             }
          }
          return 1;
@@ -1093,7 +1111,7 @@ void *TClingClassInfo::New(const ROOT::TMetaUtils::TNormalizedCtxt &normCtxt) co
       }
    } // End of Lock section.
    void* obj = nullptr;
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    obj = cf.ExecDefaultConstructor(this, kind, type_name,
                                    /*address=*/nullptr, /*nary=*/0);
    if (!obj) {
@@ -1143,7 +1161,7 @@ void *TClingClassInfo::New(int n, const ROOT::TMetaUtils::TNormalizedCtxt &normC
       }
    } // End of Lock section.
    void* obj = nullptr;
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    obj = cf.ExecDefaultConstructor(this, kind, type_name,
                                    /*address=*/nullptr, /*nary=*/(unsigned long)n);
    if (!obj) {
@@ -1194,7 +1212,7 @@ void *TClingClassInfo::New(int n, void *arena, const ROOT::TMetaUtils::TNormaliz
       }
    } // End of Lock section
    void* obj = nullptr;
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    // Note: This will always return arena.
    obj = cf.ExecDefaultConstructor(this, kind, type_name,
                                    /*address=*/arena, /*nary=*/(unsigned long)n);
@@ -1239,7 +1257,7 @@ void *TClingClassInfo::New(void *arena, const ROOT::TMetaUtils::TNormalizedCtxt 
       }
    } // End of Locked section.
    void* obj = nullptr;
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    // Note: This will always return arena.
    obj = cf.ExecDefaultConstructor(this, kind, type_name,
                                     /*address=*/arena, /*nary=*/0);
@@ -1262,7 +1280,7 @@ long TClingClassInfo::Property() const
 
    const clang::DeclContext *ctxt = GetDecl()->getDeclContext();
    clang::NamespaceDecl *std_ns =fInterp->getSema().getStdNamespace();
-   while (! ctxt->isTranslationUnit())  {
+   while (ctxt && ! ctxt->isTranslationUnit())  {
       if (ctxt->Equals(std_ns)) {
          property |= kIsDefinedInStd;
          break;
@@ -1311,6 +1329,12 @@ int TClingClassInfo::RootFlag() const
    return 0;
 }
 
+/// Return the size of the class in bytes as reported by clang.
+///
+/// Returns -1 if the class info is invalid, 0 for a forward-declared class,
+/// an enum, or a class with no definition, and 1 for a namespace (a special
+/// value inherited from CINT).  For all other cases the actual byte size
+/// obtained from the clang ASTRecordLayout is returned.
 int TClingClassInfo::Size() const
 {
    if (!IsValid()) {
@@ -1349,6 +1373,46 @@ int TClingClassInfo::Size() const
    return clang_size;
 }
 
+/// Return the alignment of the class in bytes as reported by clang.
+///
+/// Returns (size_t)-1 if the class info is invalid, 0 for a forward-declared
+/// class, an enum, a namespace or or a class with no definition. For all other
+/// cases the actual alignment obtained from the clang ASTRecordLayout is
+/// returned.
+size_t TClingClassInfo::GetAlignOf() const
+{
+   if (!IsValid()) {
+      return -1;
+   }
+   if (!GetDecl()) {
+      // A forward declared class.
+      return 0;
+   }
+
+   R__LOCKGUARD(gInterpreterMutex);
+
+   Decl::Kind DK = GetDecl()->getKind();
+   if (DK == Decl::Namespace) {
+      return 0;
+   } else if (DK == Decl::Enum) {
+      return 0;
+   }
+   const RecordDecl *RD = llvm::dyn_cast<RecordDecl>(GetDecl());
+   if (!RD) {
+      return -1;
+   }
+   if (!RD->getDefinition()) {
+      // Forward-declared class.
+      return 0;
+   }
+   ASTContext &Context = GetDecl()->getASTContext();
+   cling::Interpreter::PushTransactionRAII RAII(fInterp);
+   const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
+   auto align = Layout.getAlignment().getQuantity();
+   assert(ROOT::Internal::IsValidAlignment(align));
+   return align;
+}
+
 Longptr_t TClingClassInfo::Tagnum() const
 {
    if (!IsValid()) {
@@ -1360,10 +1424,10 @@ Longptr_t TClingClassInfo::Tagnum() const
 const char *TClingClassInfo::FileName()
 {
    if (!IsValid()) {
-      return 0;
+      return nullptr;
    }
    if (fDeclFileName.empty())
-     fDeclFileName = ROOT::TMetaUtils::GetFileName(*GetDecl(), *fInterp);
+      fDeclFileName = ROOT::TMetaUtils::GetFileName(*GetDecl(), *fInterp);
    return fDeclFileName.c_str();
 }
 
@@ -1392,7 +1456,7 @@ void TClingClassInfo::FullName(std::string &output, const ROOT::TMetaUtils::TNor
 const char *TClingClassInfo::Title()
 {
    if (!IsValid()) {
-      return 0;
+      return nullptr;
    }
    // NOTE: We cannot cache the result, since we are really an iterator.
    // Try to get the comment either from the annotation or the header
@@ -1424,7 +1488,7 @@ const char *TClingClassInfo::Title()
    const CXXRecordDecl *CRD =
       llvm::dyn_cast<CXXRecordDecl>(GetDecl());
    if (CRD && !CRD->isFromASTFile()) {
-      fTitle = ROOT::TMetaUtils::GetClassComment(*CRD,0,*fInterp).str();
+      fTitle = ROOT::TMetaUtils::GetClassComment(*CRD,nullptr,*fInterp).str();
    }
    return fTitle.c_str();
 }
@@ -1432,7 +1496,7 @@ const char *TClingClassInfo::Title()
 const char *TClingClassInfo::TmpltName() const
 {
    if (!IsValid()) {
-      return 0;
+      return nullptr;
    }
 
    R__LOCKGUARD(gInterpreterMutex);
@@ -1446,4 +1510,3 @@ const char *TClingClassInfo::TmpltName() const
    }
    return buf.c_str();  // NOLINT
 }
-

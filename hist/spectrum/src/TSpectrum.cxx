@@ -7,14 +7,15 @@
 #include "TList.h"
 #include "TH1.h"
 #include "TMath.h"
-#include "snprintf.h"
+
+#include <cstdio>
 
 /** \class TSpectrum
     \ingroup Spectrum
     \brief Advanced Spectra Processing
     \author Miroslav Morhac
 
- \legacy{TSpectrum}
+ \legacy{TSpectrum, For modeling a spectrum fitting and estimating the background one can use RooFit while for deconvolution and unfolding one can use TUnfold.}
 
  This class contains advanced spectra processing functions for:
 
@@ -29,23 +30,12 @@
  2.  M.Morhac et al.: Efficient one- and two-dimensional Gold deconvolution and its application to gamma-ray spectra decomposition. Nuclear Instruments and Methods in Physics Research A 401 (1997) 385-408.
  3.  M.Morhac et al.: Identification of peaks in multidimensional coincidence gamma-ray spectra. Nuclear Instruments and Methods in Research Physics A 443(2000), 108-125.
 
- These NIM papers are also available as doc or ps files from:
-
- - [Spectrum.doc](https://root.cern.ch/download/Spectrum.doc)
- - [SpectrumDec.ps.gz](https://root.cern.ch/download/SpectrumDec.ps.gz)
- - [SpectrumSrc.ps.gz](https://root.cern.ch/download/SpectrumSrc.ps.gz)
- - [SpectrumBck.ps.gz](https://root.cern.ch/download/SpectrumBck.ps.gz)
-
- See also the
- [online documentation](https://root.cern/root/htmldoc/guides/spectrum/Spectrum.html) and
- [tutorials](https://root.cern.ch/doc/master/group__tutorial__spectrum.html).
 */
 
 Int_t TSpectrum::fgIterations    = 3;
 Int_t TSpectrum::fgAverageWindow = 3;
 
 #define PEAK_WINDOW 1024
-ClassImp(TSpectrum);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -58,7 +48,7 @@ TSpectrum::TSpectrum() :TNamed("Spectrum", "Miroslav Morhac peak finder")
    fPositionX  = new Double_t[n];
    fPositionY  = new Double_t[n];
    fResolution = 1;
-   fHistogram  = 0;
+   fHistogram  = nullptr;
    fNPeaks     = 0;
 }
 
@@ -79,7 +69,7 @@ TSpectrum::TSpectrum(Int_t maxpositions, Double_t resolution)
    fPosition  = new Double_t[n];
    fPositionX = new Double_t[n];
    fPositionY = new Double_t[n];
-   fHistogram = 0;
+   fHistogram = nullptr;
    fNPeaks    = 0;
    SetResolution(resolution);
 }
@@ -122,8 +112,8 @@ void TSpectrum::SetDeconIterations(Int_t n)
 /// #### Parameters:
 ///
 ///   - h: input 1-d histogram
-///   - numberIterations, (default value = 20)
-///      Increasing numberIterations make the result smoother and lower.
+///   - nIter, (default value = 20)
+///      Increasing number of iterations makes the result smoother and lower.
 ///   - option: may contain one of the following options:
 ///
 ///      - to set the direction parameter
@@ -152,14 +142,14 @@ void TSpectrum::SetDeconIterations(Int_t n)
 ///   as the input histogram h, but only bins from `binmin` to `binmax` will be filled
 ///   with the estimated background.
 
-TH1 *TSpectrum::Background(const TH1 * h, int numberIterations,
+TH1 *TSpectrum::Background(const TH1 * h, Int_t nIter,
                            Option_t * option)
 {
-   if (h == 0) return 0;
+   if (h == nullptr) return nullptr;
    Int_t dimension = h->GetDimension();
-   if (dimension > 1) {
-      Error("Search", "Only implemented for 1-d histograms");
-      return 0;
+   if (dimension != 1) {
+      Error("Background", "Only implemented for 1-d histograms");
+      return nullptr;
    }
    TString opt = option;
    opt.ToLower();
@@ -191,7 +181,7 @@ TH1 *TSpectrum::Background(const TH1 * h, int numberIterations,
    for (i = 0; i < size; i++) source[i] = h->GetBinContent(i + first);
 
    //find background (source is input and in output contains the background
-   Background(source,size,numberIterations, direction, filterOrder,smoothing,
+   Background(source,size,nIter, direction, filterOrder,smoothing,
               smoothWindow,compton);
 
    //create output histogram containing background
@@ -269,7 +259,7 @@ void TSpectrum::Print(Option_t *) const
 Int_t TSpectrum::Search(const TH1 * hin, Double_t sigma, Option_t * option,
                         Double_t threshold)
 {
-   if (hin == 0) return 0;
+   if (hin == nullptr) return 0;
    Int_t dimension = hin->GetDimension();
    if (dimension > 2) {
       Error("Search", "Only implemented for 1-d and 2-d histograms");
@@ -361,7 +351,7 @@ void TSpectrum::SetResolution(Double_t resolution)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// This function calculates background spectrum from source spectrum.
-/// The result is placed in the vector pointed by spe1945ctrum pointer.
+/// The result is placed in the vector pointed by spectrum pointer.
 /// The goal is to separate the useful information (peaks) from useless
 /// information (background).
 ///
@@ -419,7 +409,7 @@ void TSpectrum::SetResolution(Double_t resolution)
 /// Original spectrum is shown in black color, estimated background in red color.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_incr.C
+/// ../../../tutorials/legacy/spectrum/Background_incr.C
 /// End_Macro
 ///
 /// ### Example 2 script Background_decr.C:
@@ -434,7 +424,7 @@ void TSpectrum::SetResolution(Double_t resolution)
 /// color, estimated background in red color.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_decr.C
+/// ../../../tutorials/legacy/spectrum/Background_decr.C
 /// End_Macro
 ///
 /// ### Example 3 script Background_width.C:
@@ -451,7 +441,7 @@ void TSpectrum::SetResolution(Double_t resolution)
 /// 2*numberIterations+1 was greater than the widths of preserved objects (peaks).
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_width.C
+/// ../../../tutorials/legacy/spectrum/Background_width.C
 /// End_Macro
 ///
 /// ### Example 4 script Background_width2.C:
@@ -463,7 +453,7 @@ void TSpectrum::SetResolution(Double_t resolution)
 /// 40 (magenta line) using decreasing clipping window algorithm.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_width2.C
+/// ../../../tutorials/legacy/spectrum/Background_width2.C
 /// End_Macro
 ///
 /// ### Example 5 script Background_order.C:
@@ -478,7 +468,7 @@ void TSpectrum::SetResolution(Double_t resolution)
 /// clipping window algorithm.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_order.C
+/// ../../../tutorials/legacy/spectrum/Background_order.C
 /// End_Macro
 ///
 /// ### Example 6 script Background_smooth.C:
@@ -492,7 +482,7 @@ void TSpectrum::SetResolution(Double_t resolution)
 /// \image html TSpectrum_Background_smooth1.jpg Principle of background estimation algorithm with simultaneous smoothing.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_smooth.C
+/// ../../../tutorials/legacy/spectrum/Background_smooth.C
 /// End_Macro
 ///
 /// ### Example 8 script Background_compton.C:
@@ -509,13 +499,13 @@ void TSpectrum::SetResolution(Double_t resolution)
 /// window algorithm and smoothing (smoothingWindow=5).
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_compton.C
+/// ../../../tutorials/legacy/spectrum/Background_compton.C
 /// End_Macro
 
-const char *TSpectrum::Background(Double_t *spectrum, int ssize,
-                                          int numberIterations,
-                                          int direction, int filterOrder,
-                                          bool smoothing,int smoothWindow,
+const char *TSpectrum::Background(Double_t *spectrum, Int_t ssize,
+                                          Int_t numberIterations,
+                                          Int_t direction, Int_t filterOrder,
+                                          bool smoothing, Int_t smoothWindow,
                                           bool compton)
 {
    int i, j, w, bw, b1, b2, priz;
@@ -1154,7 +1144,7 @@ const char *TSpectrum::Background(Double_t *spectrum, int ssize,
    for (j = 0; j < ssize; j++)
       spectrum[j] = working_space[ssize + j];
    delete[]working_space;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1192,7 +1182,7 @@ const char *TSpectrum::Background(Double_t *spectrum, int ssize,
 /// ### Example 14 - script Smoothing.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Smoothing.C
+/// ../../../tutorials/legacy/spectrum/Smoothing.C
 /// End_Macro
 
 const char* TSpectrum::SmoothMarkov(Double_t *source, int ssize, int averWindow)
@@ -1213,7 +1203,7 @@ const char* TSpectrum::SmoothMarkov(Double_t *source, int ssize, int averWindow)
    }
    if(maxch == 0) {
       delete [] working_space;
-      return 0 ;
+      return nullptr ;
    }
 
    nom = 1;
@@ -1261,7 +1251,7 @@ const char* TSpectrum::SmoothMarkov(Double_t *source, int ssize, int averWindow)
    for(i = 0; i < ssize; i++)
       source[i] = working_space[i] * area;
    delete[]working_space;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1383,7 +1373,7 @@ const char* TSpectrum::SmoothMarkov(Double_t *source, int ssize, int averWindow)
 /// \image html TSpectrum_Deconvolution2.jpg Principle how the response matrix is composed inside of the Deconvolution function.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Deconvolution.C
+/// ../../../tutorials/legacy/spectrum/Deconvolution.C
 /// End_Macro
 ///
 /// ### Examples of Gold deconvolution method:
@@ -1439,7 +1429,7 @@ const char* TSpectrum::SmoothMarkov(Double_t *source, int ssize, int averWindow)
 /// (10000 iterations) with red color.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Deconvolution_wide.C
+/// ../../../tutorials/legacy/spectrum/Deconvolution_wide.C
 /// End_Macro
 ///
 /// ### Example 10 - script Deconvolution_wide_boost.C :
@@ -1456,7 +1446,7 @@ const char* TSpectrum::SmoothMarkov(Double_t *source, int ssize, int averWindow)
 /// the estimation of the position of small right hand peak.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Deconvolution_wide_boost.C
+/// ../../../tutorials/legacy/spectrum/Deconvolution_wide_boost.C
 /// End_Macro
 
 const char *TSpectrum::Deconvolution(Double_t *source, const Double_t *response,
@@ -1588,7 +1578,7 @@ const char *TSpectrum::Deconvolution(Double_t *source, const Double_t *response,
    for (i = 0; i < ssize; i++)
       source[i] = area * working_space[ssize + i];
    delete[]working_space;
-   return 0;
+   return nullptr;
 }
 
 
@@ -1647,7 +1637,7 @@ const char *TSpectrum::Deconvolution(Double_t *source, const Double_t *response,
 /// the deconvolution (10000 iterations) with red color.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/DeconvolutionRL_wide.C
+/// ../../../tutorials/legacy/spectrum/DeconvolutionRL_wide.C
 /// End_Macro
 ///
 /// ### Example 12 - script DeconvolutionRL_wide_boost.C :
@@ -1662,7 +1652,7 @@ const char *TSpectrum::Deconvolution(Double_t *source, const Double_t *response,
 /// to the results achieved by Gold deconvolution.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/DeconvolutionRL_wide_boost.C
+/// ../../../tutorials/legacy/spectrum/DeconvolutionRL_wide_boost.C
 /// End_Macro
 
 const char *TSpectrum::DeconvolutionRL(Double_t *source, const Double_t *response,
@@ -1768,7 +1758,7 @@ const char *TSpectrum::DeconvolutionRL(Double_t *source, const Double_t *respons
    for (i = 0; i < ssize; i++)
       source[i] = working_space[ssize + i];
    delete[]working_space;
-   return 0;
+   return nullptr;
 }
 
 
@@ -2036,7 +2026,7 @@ const char *TSpectrum::Unfolding(Double_t *source,
          source[i] = 0;
    }
    delete[]working_space;
-   return 0;
+   return nullptr;
 }
 
 
@@ -2114,7 +2104,7 @@ const char *TSpectrum::Unfolding(Double_t *source,
 /// #### Script:
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/SearchHR1.C
+/// ../../../tutorials/legacy/spectrum/SearchHR1.C
 /// End_Macro
 ///
 /// ### Example 16 - script SearchHR3.C:
@@ -2123,7 +2113,7 @@ const char *TSpectrum::Unfolding(Double_t *source,
 /// sigma=8, smoothing width=3.
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/SearchHR3.C
+/// ../../../tutorials/legacy/spectrum/SearchHR3.C
 /// End_Macro
 
 Int_t TSpectrum::SearchHighRes(Double_t *source,Double_t *destVector, int ssize,

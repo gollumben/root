@@ -14,6 +14,7 @@ if(NOT MSVC)
     TMPWorkerTree.h
     ROOT/TTreeProcessorMP.hxx
   )
+  list(APPEND TREEPLAYER_EXTRA_DEPENDENCIES MultiProc)
 endif()
 
 if(imt)
@@ -21,39 +22,48 @@ if(imt)
   list(APPEND TREEPLAYER_EXTRA_DEPENDENCIES Imt)
 endif()
 
+set (EXTRA_DICT_OPTS)
+if (runtime_cxxmodules AND WIN32)
+  set (EXTRA_DICT_OPTS NO_CXXMODULE)
+endif()
+
+set(TREEPLAYER_HEADERS
+  ROOT/TTreeReaderFast.hxx
+  ROOT/TTreeReaderValueFast.hxx
+  TBranchProxyClassDescriptor.h
+  TBranchProxyDescriptor.h
+  TBranchProxyDirector.h
+  TBranchProxy.h
+  TChainIndex.h
+  TFileDrawMap.h
+  TFormLeafInfo.h
+  TFormLeafInfoReference.h
+  TFriendProxyDescriptor.h
+  TFriendProxy.h
+  TRefArrayProxy.h
+  TRefProxy.h
+  TSelectorDraw.h
+  TSelectorEntries.h
+  TSimpleAnalysis.h
+  TTreeDrawArgsParser.h
+  TTreeFormula.h
+  TTreeFormulaManager.h
+  TTreeGeneratorBase.h
+  TTreeIndex.h
+  TTreePerfStats.h
+  TTreePlayer.h
+  TTreeProxyGenerator.h
+  TTreeReaderArray.h
+  TTreeReaderGenerator.h
+  TTreeReader.h
+  TTreeReaderUtils.h
+  TTreeReaderValue.h
+  TTreeTableInterface.h
+)
+
 ROOT_STANDARD_LIBRARY_PACKAGE(TreePlayer
   HEADERS
-    ROOT/TTreeReaderFast.hxx
-    ROOT/TTreeReaderValueFast.hxx
-    TBranchProxyClassDescriptor.h
-    TBranchProxyDescriptor.h
-    TBranchProxyDirector.h
-    TBranchProxy.h
-    TChainIndex.h
-    TFileDrawMap.h
-    TFormLeafInfo.h
-    TFormLeafInfoReference.h
-    TFriendProxyDescriptor.h
-    TFriendProxy.h
-    TRefArrayProxy.h
-    TRefProxy.h
-    TSelectorDraw.h
-    TSelectorEntries.h
-    TSimpleAnalysis.h
-    TTreeDrawArgsParser.h
-    TTreeFormula.h
-    TTreeFormulaManager.h
-    TTreeGeneratorBase.h
-    TTreeIndex.h
-    TTreePerfStats.h
-    TTreePlayer.h
-    TTreeProxyGenerator.h
-    TTreeReaderArray.h
-    TTreeReaderGenerator.h
-    TTreeReader.h
-    TTreeReaderUtils.h
-    TTreeReaderValue.h
-    TTreeTableInterface.h
+    ${TREEPLAYER_HEADERS}
     ${TREEPLAYER_EXTRA_HEADERS}
   SOURCES
     src/TBranchProxyClassDescriptor.cxx
@@ -97,6 +107,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(TreePlayer
     MathCore
     RIO
     Tree
+  ${EXTRA_DICT_OPTS}
 )
 
 if(NOT MSVC)
@@ -110,5 +121,18 @@ endif()
 if(imt)
   target_sources(TreePlayer PRIVATE src/TTreeProcessorMT.cxx)
 endif()
+
+set(RELATIVE_INC_HEADERS ${TREEPLAYER_HEADERS} ${TREEPLAYER_EXTRA_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+target_sources(TreePlayer
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/
+  FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/TBranchProxyTemplate.h
+    inc/LinkDef.h
+)
 
 ROOT_ADD_TEST_SUBDIRECTORY(test)

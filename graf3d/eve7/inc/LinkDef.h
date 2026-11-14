@@ -13,7 +13,7 @@
 // LinkDef.h - REve objects and services.
 //==============================================================================
 
-#ifdef __CINT__
+#ifdef __CLING__
 
 #pragma link off all globals;
 #pragma link off all classes;
@@ -204,7 +204,8 @@
 
 // Not yet ported
 // #pragma link C++ class ROOT::Experimental::REveGeoNode+;
-// #pragma link C++ class ROOT::Experimental::REveGeoTopNode+;
+#pragma link C++ class ROOT::Experimental::REveGeoOverlapTable+;
+#pragma link C++ class ROOT::Experimental::REveGeoTopNodeData+;
 
 // REveCalo
 #pragma link C++ class ROOT::Experimental::REveCaloData+;
@@ -219,6 +220,16 @@
 // REveJetCone
 #pragma link C++ class ROOT::Experimental::REveJetCone+;
 #pragma link C++ class ROOT::Experimental::REveJetConeProjected+;
+
+// REveText
+#pragma link C++ class ROOT::Experimental::REveText+;
+#pragma link C++ class ROOT::Experimental::REveProjectionAxis+;
+
+// REveLogo
+#pragma link C++ class ROOT::Experimental::REveLogo+;
+
+// REveSMorph
+#pragma link C++ class ROOT::Experimental::REveSMorph+;
 
 // Ellipse
 #pragma link C++ class ROOT::Experimental::REveEllipsoid+;
@@ -247,17 +258,8 @@
 // Tables
 #pragma link C++ class ROOT::Experimental::REveTableViewInfo;
 
-// Geometry viewer
-#pragma link C++ class ROOT::Experimental::REveGeomNodeBase+;
-#pragma link C++ class ROOT::Experimental::REveGeomNode+;
-#pragma link C++ class ROOT::Experimental::REveGeomVisible+;
-#pragma link C++ class ROOT::Experimental::RGeomRenderInfo+;
-#pragma link C++ class ROOT::Experimental::RGeomRawRenderInfo+;
-#pragma link C++ class ROOT::Experimental::RGeomShapeRenderInfo;
-#pragma link C++ class ROOT::Experimental::REveGeomDescription+;
-#pragma link C++ class ROOT::Experimental::REveGeomDrawing+;
-#pragma link C++ class ROOT::Experimental::REveGeomRequest+;
-#pragma link C++ class ROOT::Experimental::REveGeomNodeInfo+;
-#pragma link C++ class ROOT::Experimental::REveGeomConfig+;
+// Camera
+#pragma link C++ class ROOT::Experimental::REveCamera+;
+#pragma link C++ enum ROOT::Experimental::REveCamera::ECameraType;
 
 #endif

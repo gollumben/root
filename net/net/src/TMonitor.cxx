@@ -43,9 +43,9 @@ private:
 
 public:
    TSocketHandler(TMonitor *m, TSocket *s, Int_t interest, Bool_t mainloop = kTRUE);
-   Bool_t   Notify();
-   Bool_t   ReadNotify() { return Notify(); }
-   Bool_t   WriteNotify() { return Notify(); }
+   Bool_t   Notify() override;
+   Bool_t   ReadNotify() override { return Notify(); }
+   Bool_t   WriteNotify() override { return Notify(); }
    TSocket *GetSocket() const { return fSocket; }
 };
 
@@ -79,7 +79,7 @@ private:
 
 public:
    TTimeOutTimer(TMonitor *m, Long_t ms);
-   Bool_t  Notify();
+   Bool_t  Notify() override;
 };
 
 TTimeOutTimer::TTimeOutTimer(TMonitor *m, Long_t ms)
@@ -100,7 +100,6 @@ Bool_t TTimeOutTimer::Notify()
 //------------------------------------------------------------------------------
 
 
-ClassImp(TMonitor);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a monitor object. If mainloop is true the monitoring will be
@@ -330,7 +329,7 @@ TSocket *TMonitor::Select()
    if (fInterrupt) {
       fInterrupt = kFALSE;
       fReady = 0;
-      Info("Select","*** interrupt occured ***");
+      Info("Select","*** interrupt occurred ***");
    }
 
    return fReady;
@@ -361,7 +360,7 @@ TSocket *TMonitor::Select(Long_t timeout)
    if (fInterrupt) {
       fInterrupt = kFALSE;
       fReady = 0;
-      Info("Select","*** interrupt occured ***");
+      Info("Select","*** interrupt occurred ***");
    }
 
    return fReady;

@@ -3,6 +3,7 @@
 
 
 /** \class TLorentzRotation
+    \legacy{TLorentzRotation, Consider using instead ROOT::Math::LorentzRotation.}
     \ingroup Physics
 The TLorentzRotation class describes Lorentz transformations including
 Lorentz boosts and rotations (see TRotation)
@@ -19,7 +20,7 @@ Lorentz boosts and rotations (see TRotation)
 
 ### Declaration
 By default it is initialized to the identity matrix, but it may also be
-intialized by an other TLorentzRotation,
+initialized by an other TLorentzRotation,
 by a pure TRotation or by a boost:
 
  TLorentzRotation l; // l is
@@ -131,7 +132,6 @@ operator of the TLorentzVector class.:
 
 #include "TLorentzRotation.h"
 
-ClassImp(TLorentzRotation);
 
 TLorentzRotation::TLorentzRotation()
   : fxx(1.0), fxy(0.0), fxz(0.0), fxt(0.0),
@@ -145,7 +145,7 @@ TLorentzRotation::TLorentzRotation(const TRotation & r)
     fzx(r.ZX()), fzy(r.ZY()), fzz(r.ZZ()), fzt(0.0),
     ftx(0.0),    fty(0.0),    ftz(0.0),    ftt(1.0) {}
 
-TLorentzRotation::TLorentzRotation(const TLorentzRotation & r) : TObject(r),
+TLorentzRotation::TLorentzRotation(const TLorentzRotation & r) noexcept : TObject(r),
     fxx(r.fxx), fxy(r.fxy), fxz(r.fxz), fxt(r.fxt),
     fyx(r.fyx), fyy(r.fyy), fyz(r.fyz), fyt(r.fyt),
     fzx(r.fzx), fzy(r.fzy), fzz(r.fzz), fzt(r.fzt),
@@ -175,7 +175,7 @@ TLorentzRotation::TLorentzRotation(const TVector3 & p) {
 }
 
 Double_t TLorentzRotation::operator () (int i, int j) const {
-   //derefencing operator
+   //dereferencing operator
    if (i == 0) {
       if (j == 0) { return fxx; }
       if (j == 1) { return fxy; }

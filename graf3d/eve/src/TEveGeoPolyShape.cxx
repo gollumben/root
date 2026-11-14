@@ -32,7 +32,6 @@
 Description of TEveGeoPolyShape
 */
 
-ClassImp(TEveGeoPolyShape);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -51,7 +50,7 @@ TEveGeoPolyShape* TEveGeoPolyShape::Construct(TGeoCompositeShape *cshape, Int_t 
    TEvePad       pad;
    TEvePadHolder gpad(kFALSE, &pad);
    TGLScenePad   scene_pad(&pad);
-   pad.GetListOfPrimitives()->Add(cshape);
+   pad.Add(cshape);
    pad.SetViewer3D(&scene_pad);
 
    TEveGeoManagerHolder gmgr(TEveGeoShape::GetGeoMangeur(), n_seg);
@@ -85,12 +84,12 @@ TEveGeoPolyShape* TEveGeoPolyShape::Construct(TGeoCompositeShape *cshape, Int_t 
          gPad->GetViewer3D()->CloseComposite();
    }
    scene_pad.EndScene();
-   pad.SetViewer3D(0);
+   pad.SetViewer3D(nullptr);
 
    TGLFaceSet* fs = dynamic_cast<TGLFaceSet*>(scene_pad.FindLogical(cshape));
    if (!fs) {
       ::Warning("TEveGeoPolyShape::Construct", "Failed extracting CSG tesselation for shape '%s'.", cshape->GetName());
-      return 0;
+      return nullptr;
    }
 
    TEveGeoPolyShape *egps = new TEveGeoPolyShape;

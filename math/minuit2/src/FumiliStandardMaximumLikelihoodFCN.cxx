@@ -17,7 +17,7 @@ namespace ROOT {
 
 namespace Minuit2 {
 
-std::vector<double> FumiliStandardMaximumLikelihoodFCN::Elements(const std::vector<double> &par) const
+std::vector<double> FumiliStandardMaximumLikelihoodFCN::Elements(std::vector<double> const &par) const
 {
 
    //   calculate likelihood element f(i) = pdf(x(i))
@@ -54,7 +54,7 @@ int FumiliStandardMaximumLikelihoodFCN::GetNumberOfMeasurements() const
    return fPositions.size();
 }
 
-void FumiliStandardMaximumLikelihoodFCN::EvaluateAll(const std::vector<double> &par)
+void FumiliStandardMaximumLikelihoodFCN::EvaluateAll(std::vector<double> const &par)
 {
    // Evaluate in one loop likelihood value, gradient and hessian
 
@@ -68,8 +68,6 @@ void FumiliStandardMaximumLikelihoodFCN::EvaluateAll(const std::vector<double> &
    std::vector<double> &h = Hessian();
    int npar = par.size();
    double logLikelihood = 0;
-   grad.resize(npar);
-   h.resize(static_cast<unsigned int>(0.5 * npar * (npar + 1)));
    grad.assign(npar, 0.0);
    h.assign(static_cast<unsigned int>(0.5 * npar * (npar + 1)), 0.0);
 

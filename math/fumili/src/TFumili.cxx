@@ -110,15 +110,16 @@ function argument.
 #include "TList.h"
 #include "TVirtualFitter.h"
 
+#include <iostream>
+
 
 extern void H1FitChisquareFumili(Int_t &npar, Double_t *gin, Double_t &f, Double_t *u, Int_t flag);
 extern void H1FitLikelihoodFumili(Int_t &npar, Double_t *gin, Double_t &f, Double_t *u, Int_t flag);
 extern void GraphFitChisquareFumili(Int_t &npar, Double_t *gin, Double_t &f, Double_t *u, Int_t flag);
 
 
-ClassImp(TFumili);
 
-TFumili *gFumili=0;
+TFumili *gFumili=nullptr;
 // Machine dependent values  fiXME!!
 // But don't set min=max=0 if param is unlimited
 static const Double_t gMAXDOUBLE=1e300;
@@ -131,7 +132,6 @@ TFumili::TFumili(Int_t maxpar)
    // maxpar is the maximum number of parameters used with TFumili object
    //
    fMaxParam = TMath::Max(maxpar,25);
-   if (fMaxParam>200) fMaxParam=200;
    BuildArrays();
 
    fNumericDerivatives = true;
@@ -141,12 +141,12 @@ TFumili::TFumili(Int_t maxpar)
    fWARN    = true;
    fDEBUG   = false;
    fNlog    = 0;
-   fSumLog  = 0;
+   fSumLog  = nullptr;
    fNED1    = 0;
    fNED2    = 0;
    fNED12   = fNED1+fNED2;
-   fEXDA    = 0;
-   fFCN     = 0;
+   fEXDA    = nullptr;
+   fFCN     = nullptr;
    fNfcn    = 0;
    fRP      = 1.e-15; //precision
    fS       = 1e10;
@@ -165,6 +165,15 @@ TFumili::TFumili(Int_t maxpar)
    gFumili = this;
    gROOT->GetListOfSpecials()->Add(gFumili);
 }
+
+void TFumili::SetParNumber(Int_t ParNum){
+   fNpar = ParNum;
+   if (fNpar > fMaxParam) {
+      DeleteArrays();
+      fMaxParam = fNpar;
+      BuildArrays();
+   }
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 ///
@@ -210,7 +219,7 @@ TFumili::~TFumili() {
    DeleteArrays();
    if (gROOT && !gROOT->TestBit(TObject::kInvalidObject))
       gROOT->GetListOfSpecials()->Remove(this);
-   if (gFumili == this) gFumili = 0;
+   if (gFumili == this) gFumili = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1059,6 +1068,27 @@ Bool_t TFumili::IsFixed(Int_t ipar) const
    else                return kFALSE;
 }
 
+void PrintVector(const char * name, int n, double * x) {
+   // print vector data
+   std::cout << name << " : {";
+   for (int i  = 0; i < n; i++)
+      std::cout << "  " << x[i];
+   std::cout << " }\n";
+}
+void PrintMatrix(const char * name, int n, double * x) {
+   // print matrix data
+   std::cout << name << " : \n";
+   int index = 0;
+   for (int i  = 0; i < n; i++) {
+      for (int j  = 0; j <= i; j++) {
+         std::cout << "  " << x[index];
+         index++;
+      }
+      std::cout << std::endl;
+   }
+   std::cout << "\n";
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Main minimization procedure
 ///
@@ -1084,6 +1114,8 @@ Int_t TFumili::Minimize()
    //
    Int_t parn;
 
+   // I think this funciton call is needed for getting fA and fNpar
+   // and fAMX fAMN ?
    if(fFCN) {
       Eval(parn,fGr,fS,fA,9); fNfcn++;
    }
@@ -1094,7 +1126,7 @@ Int_t TFumili::Minimize()
 
    Int_t nn2, n, fixFLG,  ifix1, fi, nn3, nn1, n0;
    Double_t t1;
-   Double_t sp, t, olds=0;
+   Double_t sp, t = 0, olds=0;
    Double_t bi, aiMAX=0, amb;
    Double_t afix, sigi, akap;
    Double_t alambd, al, bm, abi, abm;
@@ -1127,7 +1159,17 @@ L3: // Start Iteration
    nn1 = 1;
    t1 = 1.;
 
+
+
+//perform iteration
 L4: // New iteration
+
+   if (fDEBUG) {
+      std::cout << "New iteration - nfcn " << fNfcn << " nn1 = " << nn1 << " fGT " << fGT << "\n";
+      PrintVector("Parameter",n,fA);
+      PrintVector("PL ",n,fPL);
+      PrintVector("Step ",n,fDA);
+   }
 
    // fS - objective function value - zero first
    fS = 0.;
@@ -1135,7 +1177,7 @@ L4: // New iteration
    n0 = 0;
    for( i = 0; i < n; i++) {
       fGr[i]=0.; // zero gradients
-      if (fPL0[i] > .0) {
+      if (fPL0[i] > .0) {   // fLO is negative for fixed parameters
          n0=n0+1;
          // new iteration - new parallelepiped
          if (fPL[i] > .0) fPL0[i]=fPL[i];
@@ -1162,15 +1204,18 @@ L4: // New iteration
    if (ijkl == -1) fINDFLG[0]=1;
 
    // sp - scaled on fS machine precision
+   // compute precision epsilon (fRP is 1.E-15)
    sp=fRP*TMath::Abs(fS);
 
    // save fZ-matrix
    for( i=0; i < nn0; i++) fZ0[i] = fZ[i];
    if (nn3 > 0) {
       if (nn1 <= fNstepDec) {
+         // conditions on next step point
          t=2.*(fS-olds-fGT);
          if (fINDFLG[0] == 0) {
             if (TMath::Abs(fS-olds) <= sp && -fGT <= sp) goto L19;
+            if (fDEBUG) std::cout << " factor t is " << -fGT/t << std::endl;
             if(        0.59*t < -fGT) goto L19;
             t = -fGT/t;
             if (t < 0.25 ) t = 0.25;
@@ -1179,6 +1224,8 @@ L4: // New iteration
          fGT = fGT*t;
          t1 = t1*t;
          nn2=0;
+         // loop on parameter
+         // change parameter value using step  fPL and fDA
          for( i = 0; i < n; i++) {
             if (fPL[i] > 0.) {
                fA[i]=fA[i]-fDA[i];
@@ -1188,12 +1235,19 @@ L4: // New iteration
             }
          }
          nn1=nn1+1;
+         if (fDEBUG) {
+            std::cout << "change all PL and steps by factor t " << t << std::endl;
+         }
          goto L4;
       }
    }
 
 L19:
 
+   if (fDEBUG)
+      std::cout << "exit iteration (L19) t = " << t << " fGT = " << fGT << std::endl;
+
+   // flag here should be equal to zero
    if(fINDFLG[0] != 0) {
       fENDFLG=-4;
       printf("trying to execute an illegal jump at L85\n");
@@ -1216,6 +1270,8 @@ L19:
             // or vice versa then fix parameter again and increment k1 by i1
             if ((fA[i] >= fAMX[i] && fGr[i] < 0.) ||
                    (fA[i] <= fAMN[i] && fGr[i] > 0.)) {
+               if (fDEBUG)
+                  std::cout << "Fix parameters with values outside boundary and negative derivative " << std::endl;
                fPL[i] = 0.;
                k1 = k1 + i1; // i1 stands for fZ-matrix row-number multiplier
                ///  - skip this row
@@ -1240,6 +1296,7 @@ L19:
    }
 
    // INVERT fZ-matrix (mconvd() procedure)
+   // fZ stores lower diagonal part of symmetrix matrix
    i1 = 1;
    l  = 1;
    for( i = 0; i < n; i++) {// extract diagonal elements to fR-vector
@@ -1251,16 +1308,27 @@ L19:
    }
 
    n0 = i1 - 1;
+   if (fDEBUG)
+      PrintMatrix("Approximate Hessian matrix  ",n0,fZ);
+
    InvertZ(n0);
 
    // fZ matrix now is inverted
    if (fINDFLG[0] != 0) { // problems
+      if (fDEBUG)
+         std::cout << "Some problems inverting the matrix - go back and try reducing again" << std::endl;
       // some PLs now have negative values, try to reduce fZ-matrix again
       fINDFLG[0] = 0;
       fINDFLG[1] = 1; // errors can be infinite
       fixFLG = fixFLG + 1;
       fi = 0;
       goto L19;
+   }
+
+   if (fDEBUG) {
+      PrintMatrix("Approximate Covariance matrix (inverse of Hessian ) ",n0,fZ);
+      PrintVector("Current gradient",n,fGr);
+      PrintVector("Current step",n,fDA);
    }
 
    // ... CALCULATE THEORETICAL STEP TO MINIMUM
@@ -1283,6 +1351,9 @@ L19:
          i1=i1+1;
       }
    }
+   if (fDEBUG)
+      PrintVector("theoretical step (Newton)",n,fDA);
+
    //          ... CHECK FOR PARAMETERS ON BOUNDARY
 
    afix=0.;
@@ -1292,6 +1363,7 @@ L19:
    for( i = 0; i < n; i++)
       if (fPL[i] > .0) {
          sigi = TMath::Sqrt(TMath::Abs(fZ[l - 1])); // calculate \sqrt{Z^{-1}_{ii}}
+         // original fR is diagonal of Hessian (not inverted matrix)
          fR[i] = fR[i]*fZ[l - 1];      // Z_ii * Z^-1_ii
          if (fEPS > .0) fParamError[i]=sigi;
          if ((fA[i] >= fAMX[i] && fDA[i] > 0.) || (fA[i] <= fAMN[i]
@@ -1305,6 +1377,9 @@ L19:
                ifix=i;
                ifix1=i;
             }
+            if (fDEBUG)
+               std::cout << "Parameter " << i << " is outside bounds "
+                         << akap << "  " << afix << "  " << ifix << std::endl;
          }
          i1=i1+1;
          l=l+i1;
@@ -1315,6 +1390,10 @@ L19:
       fPL[ifix] = -1.;
       fixFLG = fixFLG + 1;
       fi = 0;
+
+      if (fDEBUG) {
+         std::cout << "Parameter " << ifix << " is the worst - fix it and repeat step calculation " << std::endl;
+      }
       //.. REPEAT CALCULATION OF THEORETICAL STEP AFTER fiXING EACH PARAMETER
       goto L19;
    }
@@ -1343,11 +1422,17 @@ L19:
          if ( bi > bm) {
             bi = bm;
             abi = abm;
+            if (fDEBUG)
+               std::cout << "Reduce parallelepide for "
+                        << i << " from " << fPL[i] << " to " << bi << std::endl;
          }
          // if calculated step is out of bounds
          if ( TMath::Abs(fDA[i]) > bi) {
             // decrease step splitter alambdA if needed
+            // by definition al is less than 1
             al = TMath::Abs(bi/fDA[i]);
+            if (fDEBUG)
+               std::cout << "step out of bound for  " << i <<  " reduce to " << al << std::endl;
             if (alambd > al) {
                imax=i;
                aiMAX=abi;
@@ -1359,6 +1444,9 @@ L19:
          if (akap > fAKAPPA) fAKAPPA=akap;
       }
    }
+
+   if (fDEBUG)
+      std::cout << "Compute now corrected step - min found correction factor " << alambd << " max of akappa " << fAKAPPA << " nn2 " << nn2 << std::endl;
    //... CALCULATE NEW CORRECTED STEP
    fGT = 0.;
    amb = 1.e18;
@@ -1368,6 +1456,8 @@ L19:
       if (fPL[i] > .0) {
          if (nn2 > fNlimMul ) {
             if (TMath::Abs(fDA[i]/fPL[i]) > amb ) {
+               if (fDEBUG)
+                  std::cout << "increase parallelipid 4-times for " << i << std::endl;
                fPL[i] = 4.*fPL[i]; // increase parallelepiped
                t1=4.; // flag - that fPL was increased
             }
@@ -1377,6 +1467,10 @@ L19:
          // expected function value change in next iteration
          fGT = fGT + fDA[i]*fGr[i];
       }
+   }
+   if (fDEBUG) {
+      PrintVector("Reduced step",n,fDA);
+      std::cout << "after applying step reduction of " << alambd << " expected function change is " << fGT << std::endl;
    }
 
    //.. CHECK IF MINIMUM ATTAINED AND SET EXIT MODE
@@ -1398,6 +1492,8 @@ L19:
                for( i = 0; i < fNpar; i++) fPL[i] = fPL0[i];
                fINDFLG[1] = 0;
                // and repeat iteration
+               if (fDEBUG)
+                  std::cout << "We have fixed some params - released and repeat " << std::endl;
                goto L19;
             } else {
                if( ifix1 >= 0) {
@@ -1458,6 +1554,8 @@ L19:
       }
       return fENDFLG - 1;
    }
+   if (fDEBUG)
+      std::cout << "Continue and repeat iteration " << std::endl;
    goto L3;
 }
 
@@ -1627,7 +1725,7 @@ void TFumili::SetFitMethod(const char *name)
 ////////////////////////////////////////////////////////////////////////////////
 /// Sets for parameter number ipar initial parameter value,
 /// name parname, initial error verr and limits vlow and vhigh
-/// - If vlow = vhigh but not equil to zero, parameter will be fixed.
+/// - If vlow = vhigh but not equal to zero, parameter will be fixed.
 /// - If vlow = vhigh = 0, parameter is released and its limits are discarded
 
 Int_t TFumili::SetParameter(Int_t ipar,const char *parname,Double_t value,Double_t verr,Double_t vlow, Double_t vhigh) {
@@ -1736,8 +1834,8 @@ void TFumili::FitChisquare(Int_t &npar, Double_t *gin, Double_t &f, Double_t *u,
    }
    Double_t cu,eu,fu,fsum;
    Double_t x[3];
-   Double_t *zik=0;
-   Double_t *pl0=0;
+   Double_t *zik=nullptr;
+   Double_t *pl0=nullptr;
 
    TH1 *hfit = (TH1*)GetObjectFit();
    TF1 *f1   = (TF1*)GetUserFunc();
@@ -1802,8 +1900,8 @@ void TFumili::FitChisquareI(Int_t &npar, Double_t *gin, Double_t &f, Double_t *u
 {
    Double_t cu,eu,fu,fsum;
    Double_t x[3];
-   Double_t *zik=0;
-   Double_t *pl0=0;
+   Double_t *zik=nullptr;
+   Double_t *pl0=nullptr;
 
    TH1 *hfit = (TH1*)GetObjectFit();
    TF1 *f1   = (TF1*)GetUserFunc();

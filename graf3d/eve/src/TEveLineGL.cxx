@@ -20,12 +20,11 @@
 GL-renderer for TEveLine class.
 */
 
-ClassImp(TEveLineGL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
-TEveLineGL::TEveLineGL() : TPointSet3DGL(), fM(0)
+TEveLineGL::TEveLineGL() : TPointSet3DGL(), fM(nullptr)
 {
    // fDLCache = false; // Disable display list.
    fMultiColor = kTRUE;

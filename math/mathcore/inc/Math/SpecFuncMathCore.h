@@ -8,8 +8,6 @@
  *                                                                    *
  **********************************************************************/
 
-
-
 /**
 
 Special mathematical functions.
@@ -23,7 +21,6 @@ N1687=04-0127, September 10, 2004</A>
 
 @defgroup SpecFunc Special functions
 @ingroup MathCore
-@ingroup MathMore
 
 */
 
@@ -211,7 +208,7 @@ namespace Math {
 
   Calculates the real part of the cosine integral Re(Ci).
 
-  For x<0, the imaginary part is \pi i and has to be added by the user,
+  For x<0, the imaginary part is \f$\pi i\f$ and has to be added by the user,
   for x>0 the imaginary part of Ci(x) is 0.
 
   \f[ Ci(x) = - \int_{x}^{\infty} \frac{\cos t}{t} dt = \gamma + \ln x + \int_{0}^{x} \frac{\cos t - 1}{t} dt\f]

@@ -11,7 +11,7 @@
 
 #include <ROOT/Browsable/RHolder.hxx>
 
-#include <ROOT/RNTuple.hxx>
+#include <ROOT/RNTupleReader.hxx>
 #include <ROOT/RMiniFile.hxx>
 
 #include "TClass.h"
@@ -24,26 +24,29 @@ class RPageSource;
 }
 }
 
-class RFieldHolder : public ROOT::Experimental::Browsable::RHolder {
-   std::shared_ptr<ROOT::Experimental::Detail::RPageSource> fNtplSource;
+class RFieldHolder : public ROOT::Browsable::RHolder {
+   std::shared_ptr<ROOT::RNTupleReader> fNtplReader;
    std::string fParentName;
 
-   ROOT::Experimental::DescriptorId_t fFieldId;
+   ROOT::DescriptorId_t fFieldId;
+   std::string fDisplayName;
 
 public:
-   RFieldHolder(std::shared_ptr<ROOT::Experimental::Detail::RPageSource> ntplSource,
-                const std::string &parent_name,
-                ROOT::Experimental::DescriptorId_t id)
-                : fNtplSource(ntplSource), fParentName(parent_name), fFieldId(id) {}
+   RFieldHolder(std::shared_ptr<ROOT::RNTupleReader> ntplReader, const std::string &parent_name,
+                ROOT::DescriptorId_t id, const std::string &displayName)
+      : fNtplReader(ntplReader), fParentName(parent_name), fFieldId(id), fDisplayName(displayName)
+   {
+   }
 
-   const TClass *GetClass() const override { return TClass::GetClass<ROOT::Experimental::RNTuple>(); }
+   const TClass *GetClass() const override { return TClass::GetClass<ROOT::RNTuple>(); }
 
    /** Returns direct (temporary) object pointer */
    const void *GetObject() const override { return nullptr; }
 
-   auto GetNtplSource() const { return fNtplSource; }
+   auto GetNtplReader() const { return fNtplReader; }
    auto GetParentName() const { return fParentName; }
    auto GetId() const { return fFieldId; }
+   auto GetDisplayName() const { return fDisplayName; }
 };
 
 #endif

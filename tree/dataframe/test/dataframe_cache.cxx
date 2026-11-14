@@ -1,6 +1,7 @@
 #include "ROOT/RDataFrame.hxx"
 #include "ROOT/TSeq.hxx"
 #include "ROOT/RTrivialDS.hxx"
+#include "Compression.h"
 #include "TH1F.h"
 #include "TRandom.h"
 #include "TSystem.h"
@@ -8,6 +9,9 @@
 #include "gtest/gtest.h"
 
 #include <algorithm>
+
+#include <TFile.h>
+#include <TTree.h>
 
 using namespace ROOT::RDF;
 using namespace ROOT::VecOps;
@@ -32,24 +36,24 @@ TEST(Cache, FundType)
 
 TEST(Cache, Ambiguity)
 {
-// This test verifies that the correct method is called and there is no ambiguity between the JIT call to Cache using
-// a column list as a parameter and the JIT call to Cache using the Regexp.
-ROOT::RDataFrame tdf(5);
-int i = 1;
-auto d = tdf.Define("c0", [&i]() { return i++; }).Define("c1", []() { return 1.; });
+   // This test verifies that the correct method is called and there is no ambiguity between the JIT call to Cache using
+   // a column list as a parameter and the JIT call to Cache using the Regexp.
+   ROOT::RDataFrame tdf(5);
+   int i = 1;
+   auto d = tdf.Define("c0", [&i]() { return i++; }).Define("c1", []() { return 1.; });
 
-auto cached_1 = d.Cache({"c0"});
-auto cached_2 = d.Cache({"c0", "c1"});
+   auto cached_1 = d.Cache({"c0"});
+   auto cached_2 = d.Cache({"c0", "c1"});
 
-auto c_1 = cached_1.Count();
-auto c_2 = cached_2.Count();
+   auto c_1 = cached_1.Count();
+   auto c_2 = cached_2.Count();
 
-EXPECT_EQ(5UL, *c_1);
-EXPECT_EQ(5UL, *c_2);
+   EXPECT_EQ(5UL, *c_1);
+   EXPECT_EQ(5UL, *c_2);
 }
 
 /*
-// The contiguity has been dropped since now caching is backed up by a TDS
+// The contiguity has been dropped since now caching is backed up by a data source
 // TODO: we can optimise this. The reason why addresses are not contiguous with
 // data sources (now cache is achieved with a data source) is linked to Snapshot.
 // Indeed we need to set an address for each branch and keep that constant
@@ -142,9 +146,10 @@ TEST(Cache, InternalColumnsSnapshot)
    auto colName = "tdfMySecretcol_";
    auto orig = tdf.Define(colName, [&f]() { return f++; }).Define("dummy", []() { return 0.f; });
    auto cached = orig.Cache<float, float>({colName, "dummy"});
-   auto snapshot = cached.Snapshot("t", "InternalColumnsSnapshot.root", "", {"RECREATE", ROOT::kZLIB, 0, 0, 99, false});
+   auto snapshot = cached.Snapshot("t", "InternalColumnsSnapshot.root", "",
+                                   {"RECREATE", ROOT::RCompressionSetting::EAlgorithm::kZLIB, 0, 0, 99, false});
 
-   auto op = [&](){
+   auto op = [&]() {
       testing::internal::CaptureStderr();
       snapshot->Mean<ULong64_t>(colName);
    };
@@ -205,10 +210,11 @@ TEST(Cache, evtCounter)
    const std::vector<ULong64_t> evenE_ref{0, 2};
    const std::vector<ULong64_t> allE_ref{0, 1};
 
-   auto test = [&](std::string_view entryColName){
-      auto c0 = ROOT::RDataFrame(4).Alias("entry", entryColName)
-                  .Filter([](ULong64_t e) { return 0 == e % 2; }, {"entry"})
-                  .Cache<ULong64_t>({"entry"});
+   auto test = [&](std::string_view entryColName) {
+      auto c0 = ROOT::RDataFrame(4)
+                   .Alias("entry", entryColName)
+                   .Filter([](ULong64_t e) { return 0 == e % 2; }, {"entry"})
+                   .Cache<ULong64_t>({"entry"});
       auto evenE = c0.Take<ULong64_t>("entry");
       for (auto i : {0, 1}) {
          EXPECT_EQ(evenE->at(i), evenE_ref[i]);
@@ -221,10 +227,7 @@ TEST(Cache, evtCounter)
 
    test("tdfentry_");
    test("rdfentry_");
-
 }
-
-#ifdef R__B64
 
 TEST(Cache, Regex)
 {
@@ -253,46 +256,40 @@ TEST(Cache, Regex)
    ROOT::RDataFrame df(1);
    ROOT::RDF::RNode n(df);
    std::string base("col_");
-   std::vector<std::string> defColNames; defColNames.reserve(128);
-   auto addCol = [base, &defColNames](ROOT::RDF::RNode &node, int i) {
-      auto colName = base+std::to_string(i);
-      defColNames.emplace_back(colName);
-      return ROOT::RDF::RNode(node.Define(colName, [](){return 0;}));
-   };
    for (auto i : ROOT::TSeqI(128)) {
-      n = addCol(n, i);
+      auto colName = base + std::to_string(i);
+      n = n.Define(colName, []() { return 0; });
    }
-   int cursor = 0;
    const auto df_even_cols = n.Cache(".*[02468]$").GetColumnNames();
+
+   std::vector<std::string> evenColNames;
+   for (auto i : ROOT::TSeqI(0, 128, 2))
+      evenColNames.emplace_back(base + std::to_string(i));
+   std::sort(evenColNames.begin(), evenColNames.end());
+
+   std::size_t cursor = 0u;
    for (auto &&col : df_even_cols) {
-      EXPECT_TRUE(col == defColNames[cursor]) << "Checking even columns. An error was encountered: expecting "
-                                              << defColNames[cursor] << " but found " << col;
-      cursor+=2;
+      EXPECT_TRUE(col == evenColNames[cursor]) << "Checking even columns. An error was encountered: expecting "
+                                               << evenColNames[cursor] << " but found " << col;
+      ++cursor;
    }
 
-   cursor = 1;
-   const auto df_odd_cols = n.Cache(".*[13579]$").GetColumnNames();
-   for (auto &&col : df_odd_cols) {
-      EXPECT_TRUE(col == defColNames[cursor]) << "Checking odd columns. An error was encountered: expecting "
-                                              << defColNames[cursor] << " but found " << col;
-      cursor+=2;
+   std::vector<std::string> colNamesWith2And5;
+   for (auto i : ROOT::TSeqI(128)) {
+      const auto s = std::to_string(i);
+      if (s.back() == '2' || s.back() == '5') {
+         colNamesWith2And5.emplace_back(base + s);
+      }
    }
-
-   cursor = 1;
+   std::sort(colNamesWith2And5.begin(), colNamesWith2And5.end());
+   cursor = 0u;
    const auto df_or_cols = n.Cache("(col_.*[2]$|col_.*[5]$)").GetColumnNames();
    for (auto &&col : df_or_cols) {
-      cursor++;
-      auto cursorAsString = std::to_string(cursor);
-      auto last = cursorAsString.back();
-      while (last != '2' && last != '5') {
-        cursor++;
-        cursorAsString = std::to_string(cursor);
-        last = cursorAsString.back();
-      }
-      EXPECT_TRUE(col == defColNames[cursor]) << "Checking columns chosen with an or. An error was encountered!: expecting "
-                                              << defColNames[cursor] << " but found " << col;
+      EXPECT_TRUE(col == colNamesWith2And5[cursor])
+         << "Checking columns chosen with an or. An error was encountered!: expecting " << colNamesWith2And5[cursor]
+         << " but found " << col;
+      ++cursor;
    }
-
 }
 
 TEST(Cache, Carrays)
@@ -334,8 +331,6 @@ TEST(Cache, Carrays)
 
    gSystem->Unlink(fileName);
 }
-
-#endif // R__B64
 
 // ROOT-10563
 TEST(Cache, Alias)

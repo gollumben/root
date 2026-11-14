@@ -47,6 +47,8 @@ namespace ROOT {
      like global or local coordinate systems.
 
      @ingroup GenVector
+
+     @see GenVector
     */
 
     template <class CoordSystem, class Tag = DefaultCoordinateSystemTag >
@@ -64,29 +66,28 @@ namespace ROOT {
          Default constructor. Construct an empty object with zero values
       */
 
-      PositionVector3D() : fCoordinates() { }
+      constexpr PositionVector3D() noexcept = default;
 
       /**
          Construct from three values of type <em>Scalar</em>.
          In the case of a XYZPoint the values are x,y,z
          In the case of  a polar vector they are r,theta,phi
       */
-      PositionVector3D(const Scalar & a, const Scalar & b, const Scalar & c) :
-        fCoordinates ( a , b,  c)  { }
+      constexpr PositionVector3D(const Scalar &a, const Scalar &b, const Scalar &c) noexcept : fCoordinates(a, b, c) {}
 
      /**
           Construct from a position vector expressed in different
           coordinates, or using a different Scalar type
       */
       template <class T>
-      explicit PositionVector3D( const PositionVector3D<T,Tag> & v) :
+      explicit constexpr PositionVector3D( const PositionVector3D<T,Tag> & v) :
         fCoordinates ( v.Coordinates() ) { }
 
      /**
           Construct from an arbitrary displacement vector
       */
       template <class T>
-      explicit PositionVector3D( const DisplacementVector3D<T,Tag> & p) :
+      explicit constexpr PositionVector3D( const DisplacementVector3D<T,Tag> & p) :
         fCoordinates ( p.Coordinates() ) { }
 
       /**
@@ -94,7 +95,7 @@ namespace ROOT {
           Precondition: v must implement methods x(), y() and z()
       */
       template <class ForeignVector>
-      explicit PositionVector3D( const ForeignVector & v) :
+      explicit constexpr PositionVector3D( const ForeignVector & v) :
         fCoordinates ( Cartesian3D<Scalar>( v.x(), v.y(), v.z() ) ) { }
 
 #ifdef LATER
@@ -253,6 +254,14 @@ namespace ROOT {
       }
 
       // ------ Individual element access, in various coordinate systems ------
+
+      /**
+          Dimension
+      */
+      unsigned int Dimension() const
+      {
+         return fDimension;
+      };
 
       /**
           Cartesian X, converting if necessary from internal coordinate system.
@@ -456,16 +465,17 @@ namespace ROOT {
     private:
 
       CoordSystem fCoordinates;
+      static constexpr unsigned int fDimension = CoordinateType::Dimension;
 
       // Prohibited methods
 
       // this should not compile (if from a vector or points with different tag
 
       template <class OtherCoords, class OtherTag>
-      explicit PositionVector3D( const PositionVector3D<OtherCoords, OtherTag> & );
+      explicit constexpr PositionVector3D( const PositionVector3D<OtherCoords, OtherTag> & );
 
       template <class OtherCoords, class OtherTag>
-      explicit PositionVector3D( const DisplacementVector3D<OtherCoords, OtherTag> & );
+      explicit constexpr PositionVector3D( const DisplacementVector3D<OtherCoords, OtherTag> & );
 
       template <class OtherCoords, class OtherTag>
       PositionVector3D & operator=( const PositionVector3D<OtherCoords, OtherTag> & );
@@ -606,7 +616,7 @@ namespace ROOT {
     {
        if (os) {
           os << "{ ";
-          for (std::size_t i = 0; i < PositionVector3D<T, U>::Scalar::Size; ++i) {
+          for (std::size_t i = 0; i < PositionVector3D<T, U>::Scalar::size(); ++i) {
              os << "(" << v.x()[i] << "," << v.y()[i] << "," << v.z()[i] << ") ";
           }
           os << "}";

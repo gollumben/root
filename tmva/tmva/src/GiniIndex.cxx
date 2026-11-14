@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : TMVA::GiniIndex                                                       *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description: Implementation of the GiniIndex as separation criterion           *
  *              Large Gini Indices (maximum 0.5) mean , that the sample is well   *
@@ -31,7 +31,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::GiniIndex
@@ -67,7 +67,6 @@ Gini(Sample) = \frac{2sb}{(s+b)^2}
 
 #include "Rtypes.h"
 
-ClassImp(TMVA::GiniIndex);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// what we use here is 2*Gini.. as for the later use the factor

@@ -22,13 +22,12 @@
 OpenGL renderer class for TEveBox.
 */
 
-ClassImp(TEveBoxGL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
 TEveBoxGL::TEveBoxGL() :
-   TGLObject(), fM(0)
+   TGLObject(), fM(nullptr)
 {
    // fDLCache = kFALSE; // Disable display list.
 }
@@ -229,13 +228,12 @@ void TEveBoxGL::DirectDraw(TGLRnrCtx&) const
 OpenGL renderer class for TEveBoxProjected.
 */
 
-ClassImp(TEveBoxProjectedGL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
 TEveBoxProjectedGL::TEveBoxProjectedGL() :
-   TGLObject(), fM(0)
+   TGLObject(), fM(nullptr)
 {
    // fDLCache = kFALSE; // Disable display list.
 }

@@ -27,34 +27,34 @@ class REveVSD : public TObject {
    REveVSD &operator=(const REveVSD &) = delete;
 
 protected:
-   TFile *fFile{nullptr};           //!
-   TDirectory *fDirectory{nullptr}; //!
+   TFile *fFile{nullptr};           ///<!
+   TDirectory *fDirectory{nullptr}; ///<!
 
-   Int_t fBuffSize{0}; //!
-   Int_t fVerbose{0};  //!
+   Int_t fBuffSize{0}; ///<!
+   Int_t fVerbose{0};  ///<!
 
 public:
-   TTree *fTreeK{nullptr};  //! Kinematics.
-   TTree *fTreeH{nullptr};  //! Hits.
-   TTree *fTreeC{nullptr};  //! Clusters.
-   TTree *fTreeR{nullptr};  //! Reconstructed tracks.
-   TTree *fTreeKK{nullptr}; //! Kinks.
-   TTree *fTreeV0{nullptr}; //! VO's.
-   TTree *fTreeCC{nullptr}; //! Cascades.
-   TTree *fTreeGI{nullptr}; //! Sim-Rec cross references.
+   TTree *fTreeK{nullptr};  ///<! Kinematics.
+   TTree *fTreeH{nullptr};  ///<! Hits.
+   TTree *fTreeC{nullptr};  ///<! Clusters.
+   TTree *fTreeR{nullptr};  ///<! Reconstructed tracks.
+   TTree *fTreeKK{nullptr}; ///<! Kinks.
+   TTree *fTreeV0{nullptr}; ///<! VO's.
+   TTree *fTreeCC{nullptr}; ///<! Cascades.
+   TTree *fTreeGI{nullptr}; ///<! Sim-Rec cross references.
 
-   REveMCTrack fK, *fpK{nullptr};         //!
-   REveHit fH, *fpH{nullptr};             //!
-   REveCluster fC, *fpC{nullptr};         //!
-   REveRecTrack fR, *fpR{nullptr};        //!
-   REveRecKink fKK, *fpKK{nullptr};       //!
-   REveRecV0 fV0, *fpV0{nullptr};         //!
-   REveRecCascade fCC, *fpCC{nullptr};    //!
-   REveMCRecCrossRef fGI, *fpGI{nullptr}; //!
+   REveMCTrack fK, *fpK{nullptr};         ///<!
+   REveHit fH, *fpH{nullptr};             ///<!
+   REveCluster fC, *fpC{nullptr};         ///<!
+   REveRecTrack fR, *fpR{nullptr};        ///<!
+   REveRecKink fKK, *fpKK{nullptr};       ///<!
+   REveRecV0 fV0, *fpV0{nullptr};         ///<!
+   REveRecCascade fCC, *fpCC{nullptr};    ///<!
+   REveMCRecCrossRef fGI, *fpGI{nullptr}; ///<!
 
 public:
    REveVSD(const char *name = "REveVSD", const char *title = "");
-   virtual ~REveVSD();
+   ~REveVSD() override;
 
    virtual void SetDirectory(TDirectory *dir);
 
@@ -69,7 +69,7 @@ public:
 
    static void DisableTObjectStreamersForVSDStruct();
 
-   ClassDef(REveVSD, 1); // Visualization Summary Data - a collection of trees holding standard event data in experiment independent format.
+   ClassDefOverride(REveVSD, 1); // Visualization Summary Data - a collection of trees holding standard event data in experiment independent format.
 };
 
 } // namespace Experimental

@@ -28,52 +28,52 @@ public:
    /// Copy constructor
    TFormLeafInfoReference(const TFormLeafInfoReference& orig);
    /// Default destructor
-   virtual ~TFormLeafInfoReference();
+   ~TFormLeafInfoReference() override;
    /// Exception safe swap.
    void Swap(TFormLeafInfoReference &other);
    /// Exception safe assignment operator.
    TFormLeafInfoReference &operator=(const TFormLeafInfoReference &orig);
    /// Virtual copy constructor
-   virtual TFormLeafInfo* DeepCopy()  const;
+   TFormLeafInfo* DeepCopy()  const override;
 
    /// Access to the info's proxy
    Proxy*           GetProxy()        const      {  return fProxy;        }
    /// Access to the info's connected branch
    TBranch*         GetBranch()       const      {  return fBranch;       }
    /// Access to the info's connected branch
-   void             SetBranch(TBranch* branch)
+   void             SetBranch(TBranch* branch) override
    {  fBranch = branch; if ( fNext ) fNext->SetBranch(branch);            }
    /// Access to the offset of the data
    virtual Int_t    GetOffset()       const     {  return fOffset;       }
    /// Return true only if the underlying data is an integral value
-   virtual Bool_t   IsInteger()       const     {  return kFALSE;         }
+   bool     IsInteger()       const override     {  return false;         }
    /// Return true only if the underlying data is a string
-   virtual Bool_t   IsString()        const     {  return kFALSE;         }
+   bool     IsString()        const override     {  return false;         }
    /// Return true only if the underlying data is a reference
-   virtual Bool_t   IsReference()     const     {  return kTRUE;          }
+   bool     IsReference()     const override     {  return true;          }
    /// Access to target class pointer (if available)
-   virtual TClass*  GetClass()        const;
+   TClass*  GetClass()        const override;
    /// Access to the value class of the reference proxy
    virtual TClass*  GetValueClass(TLeaf* from);
    /// Access to the value class from the object pointer
    virtual TClass*  GetValueClass(void* from);
    /// Return the address of the local value
-   virtual void    *GetLocalValuePointer( TLeaf *from, Int_t instance = 0);
+   void    *GetLocalValuePointer( TLeaf *from, Int_t instance = 0) override;
    /// Return the address of the local value
-   virtual void    *GetLocalValuePointer(char *from, Int_t instance = 0);
+   void    *GetLocalValuePointer(char *from, Int_t instance = 0) override;
    /// Return true if any of underlying data has a array size counter
-   virtual Bool_t HasCounter() const;
+   bool HasCounter() const override;
    /// Return the size of the underlying array for the current entry in the TTree.
-   virtual Int_t ReadCounterValue(char *where);
+   Int_t ReadCounterValue(char *where) override;
    /// Return the current size of the array container
-   virtual Int_t GetCounterValue(TLeaf* leaf);
+   Int_t GetCounterValue(TLeaf* leaf) override;
 
    /// Access value of referenced object (macro from TFormLeafInfo.g)
-   DECLARE_GETVAL;
+   DECLARE_GETVAL( , override);
    /// Read value of referenced object
-   DECLARE_READVAL;
+   DECLARE_READVAL( , override);
    /// TFormLeafInfo overload: Update (and propagate) cached information
-   virtual Bool_t   Update();
+   bool     Update() override;
 };
 
 #endif /* ROOT_TFormLeafInfoReference */

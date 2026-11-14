@@ -8,7 +8,7 @@
 
 #include "data.h"
 
-#include "RErrorIgnoreRAII.hxx"
+#include "ROOT/TestSupport.hxx"
 
 #include <memory>
 
@@ -83,32 +83,26 @@ TEST(TTreeReaderLeafs, LeafListCaseA) {
    EXPECT_EQ(Bool, *trBool);
 }
 
-
-
-std::unique_ptr<TTree> CreateTree() {
+std::unique_ptr<TTree> CreateTree()
+{
    TInterpreter::EErrorCode error = TInterpreter::kNoError;
    gInterpreter->ProcessLine("#include \"data.h\"", &error);
    if (error != TInterpreter::kNoError)
       return {};
 
    Data data;
+   data.Init();
+   auto &vecDataMember = data.GetVecMember();
    auto tree = std::make_unique<TTree>("T", "test tree");
    tree->Branch("Data", &data);
-   data.fArray = new double[4]{12., 13., 14., 15.};
-   data.fSize = 4;
-   data.fUArray = new float[2]{42., 43.};
-   data.fUSize = 2;
-   data.fVec = { 17., 18., 19., 20., 21., 22.};
-   data.fDouble32 = 17.;
-   data.fFloat16 = 44.;
    tree->Fill();
 
-   data.fVec.clear();
-   data.fVec.resize(3210, 1001.f); // ROOT-8747
+   vecDataMember.clear();
+   vecDataMember.resize(3210, 1001.f); // ROOT-8747
    tree->Fill();
 
-   data.fVec.clear();
-   data.fVec.resize(2, 42.f); // ROOT-8747
+   vecDataMember.clear();
+   vecDataMember.resize(2, 42.f); // ROOT-8747
    tree->Fill();
 
    tree->ResetBranchAddresses();
@@ -130,9 +124,13 @@ TEST(TTreeReaderLeafs, LeafList) {
    EXPECT_EQ(4u, arr.GetSize());
    EXPECT_EQ(2u, arrU.GetSize());
    EXPECT_EQ(6u, vec.GetSize());
-   //FAILS EXPECT_FLOAT_EQ(13., arr[1]);
-   //FAILS EXPECT_DOUBLE_EQ(43., arrU[1]);
+   {
+      using namespace ROOT::TestSupport;
+      EXPECT_FLOAT_EQ(13., arr[1]);
+      EXPECT_DOUBLE_EQ(43., arrU[1]);
+   }
    EXPECT_DOUBLE_EQ(19., vec[2]);
+
    EXPECT_DOUBLE_EQ(17., vec[0]);
    // T->Scan("fUArray") claims fUArray only has one instance per row.
 
@@ -186,9 +184,12 @@ TEST(TTreeReaderLeafs, ArrayWithReaderValue)
    TTreeReader tr(tree.get());
    TTreeReaderValue<double> valueOfArr(tr, "arr");
    {
-      RErrorIgnoreRAII errorIgnRAII;
+      ROOT::TestSupport::CheckDiagsRAII check;
+      check.requiredDiag(kError, "TTreeReaderValueBase", "Must use TTreeReaderArray to read branch", false);
+      check.requiredDiag(kError, "TTreeReaderValueBase", /*The branch xxx*/ "contains data of type", false);
+      check.requiredDiag(kError, "TTreeReaderValue", /*Value reader for xxx*/ "not properly initialized", false);
       tr.Next();
-      *valueOfArr;
+      EXPECT_EQ(valueOfArr.Get(), nullptr);
    }
    EXPECT_FALSE(valueOfArr.IsValid());
 }
@@ -251,5 +252,33 @@ TEST(TTreeReaderLeafs, BranchAndLeafWithDifferentNames)
    ASSERT_TRUE(r.Next());
    EXPECT_EQ(*rv, 42);
    EXPECT_EQ(*rvwithdot, 42);
+   EXPECT_FALSE(r.Next());
+}
+
+// Test for https://github.com/root-project/root/issues/9758
+// A TTreeReaderArray of a typedef'd fundamental type (e.g. ULong64_t) must be
+// readable through the extended "branch.leaf" syntax, not only through the plain
+// branch name. The leaf type name ("ULong64_t") and the reader's resolved type
+// name ("unsigned long long") differ, so the leaf/reader match must compare the
+// underlying data type, not the dictionary identity.
+TEST(TTreeReaderLeafs, ArrayLeafTypedefWithDots)
+{
+   TTree t("t", "t");
+   Int_t n = 3;
+   ULong64_t x[3] = {1, 2, 3};
+   t.Branch("n", &n, "n/I");
+   t.Branch("x", x, "x[n]/l");
+   t.Fill();
+
+   TTreeReader r(&t);
+   TTreeReaderArray<ULong64_t> arr(r, "x");
+   TTreeReaderArray<ULong64_t> arrWithDot(r, "x.x");
+   ASSERT_TRUE(r.Next());
+   ASSERT_EQ(arr.GetSize(), 3u);
+   ASSERT_EQ(arrWithDot.GetSize(), 3u);
+   for (std::size_t i = 0; i < arr.GetSize(); ++i) {
+      EXPECT_EQ(arr[i], x[i]);
+      EXPECT_EQ(arrWithDot[i], x[i]);
+   }
    EXPECT_FALSE(r.Next());
 }

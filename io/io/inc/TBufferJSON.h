@@ -45,11 +45,13 @@ public:
      kSameSuppression = 20,          ///< zero suppression plus compress many similar values together
      kBase64          = 30,          ///< all binary arrays will be compressed with base64 coding, supported by JSROOT
 
-     kSkipTypeInfo  = 100            ///< do not store typenames in JSON
+     kSkipTypeInfo  = 100,           ///< do not store typenames in JSON
+
+     kStoreInfNaN = 1000             ///< explicitly store special float numbers as strings ("inf", "nan")
    };
 
    TBufferJSON(TBuffer::EMode mode = TBuffer::kWrite);
-   virtual ~TBufferJSON();
+   ~TBufferJSON() override;
 
    void SetCompact(int level);
    void SetTypenameTag(const char *tag = "_typename");
@@ -76,6 +78,8 @@ public:
    {
       return ConvertToJSON(obj, TClass::GetClass<T>(), compact, member_name);
    }
+
+   static TString zipJSON(const char *json);
 
    template <class T>
    static Bool_t FromJSON(T *&obj, const char *json)
@@ -176,22 +180,22 @@ public:
    void WriteArray(const Float_t *f, Int_t n) final;
    void WriteArray(const Double_t *d, Int_t n) final;
 
-   void WriteFastArray(const Bool_t *b, Int_t n) final;
-   void WriteFastArray(const Char_t *c, Int_t n) final;
-   void WriteFastArrayString(const Char_t *c, Int_t n) final;
-   void WriteFastArray(const UChar_t *c, Int_t n) final;
-   void WriteFastArray(const Short_t *h, Int_t n) final;
-   void WriteFastArray(const UShort_t *h, Int_t n) final;
-   void WriteFastArray(const Int_t *i, Int_t n) final;
-   void WriteFastArray(const UInt_t *i, Int_t n) final;
-   void WriteFastArray(const Long_t *l, Int_t n) final;
-   void WriteFastArray(const ULong_t *l, Int_t n) final;
-   void WriteFastArray(const Long64_t *l, Int_t n) final;
-   void WriteFastArray(const ULong64_t *l, Int_t n) final;
-   void WriteFastArray(const Float_t *f, Int_t n) final;
-   void WriteFastArray(const Double_t *d, Int_t n) final;
-   void WriteFastArray(void *start, const TClass *cl, Int_t n = 1, TMemberStreamer *s = nullptr) final;
-   Int_t WriteFastArray(void **startp, const TClass *cl, Int_t n = 1, Bool_t isPreAlloc = kFALSE,
+   void WriteFastArray(const Bool_t *b, Long64_t n) final;
+   void WriteFastArray(const Char_t *c, Long64_t n) final;
+   void WriteFastArrayString(const Char_t *c, Long64_t n) final;
+   void WriteFastArray(const UChar_t *c, Long64_t n) final;
+   void WriteFastArray(const Short_t *h, Long64_t n) final;
+   void WriteFastArray(const UShort_t *h, Long64_t n) final;
+   void WriteFastArray(const Int_t *i, Long64_t n) final;
+   void WriteFastArray(const UInt_t *i, Long64_t n) final;
+   void WriteFastArray(const Long_t *l, Long64_t n) final;
+   void WriteFastArray(const ULong_t *l, Long64_t n) final;
+   void WriteFastArray(const Long64_t *l, Long64_t n) final;
+   void WriteFastArray(const ULong64_t *l, Long64_t n) final;
+   void WriteFastArray(const Float_t *f, Long64_t n) final;
+   void WriteFastArray(const Double_t *d, Long64_t n) final;
+   void WriteFastArray(void *start, const TClass *cl, Long64_t n = 1, TMemberStreamer *s = nullptr) final;
+   Int_t WriteFastArray(void **startp, const TClass *cl, Long64_t n = 1, Bool_t isPreAlloc = kFALSE,
                         TMemberStreamer *s = nullptr) final;
 
    void StreamObject(void *obj, const TClass *cl, const TClass *onFileClass = nullptr) final;
@@ -299,19 +303,19 @@ protected:
    void JsonPushValue();
 
    template <typename T>
-   R__ALWAYS_INLINE void JsonWriteArrayCompress(const T *vname, Int_t arrsize, const char *typname);
+   void JsonWriteArrayCompress(const T *vname, Int_t arrsize, const char *typname);
 
    template <typename T>
-   R__ALWAYS_INLINE void JsonReadBasic(T &value);
+   void JsonReadBasic(T &value);
 
    template <typename T>
-   R__ALWAYS_INLINE Int_t JsonReadArray(T *value);
+   Int_t JsonReadArray(T *value);
 
    template <typename T>
-   R__ALWAYS_INLINE void JsonReadFastArray(T *arr, Int_t arrsize, bool asstring = false);
+   void JsonReadFastArray(T *arr, Int_t arrsize, bool asstring = false);
 
    template <typename T>
-   R__ALWAYS_INLINE void JsonWriteFastArray(const T *arr, Int_t arrsize, const char *typname,
+   void JsonWriteFastArray(const T *arr, Long64_t arrsize, const char *typname,
                                             void (TBufferJSON::*method)(const T *, Int_t, const char *));
 
    TString fOutBuffer;                 ///<!  main output buffer for json code
@@ -325,6 +329,7 @@ protected:
    Int_t fArrayCompact{0};             ///<!  0 - no array compression, 1 - exclude leading/trailing zeros, 2 - check value repetition
    TString fArraySepar;                ///<!  depending from compression level, ", " or ","
    TString fNumericLocale;             ///<!  stored value of setlocale(LC_NUMERIC), which should be recovered at the end
+   Bool_t fStoreInfNaN{kFALSE};        ///<! when true, store inf and nan as string, this is not portable for other JSON readers
    TString fTypeNameTag;               ///<! JSON member used for storing class name, when empty - no class name will be stored
    TString fTypeVersionTag;            ///<! JSON member used to store class version, default empty
    std::vector<const TClass *> fSkipClasses; ///<! list of classes, which class info is not stored

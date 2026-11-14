@@ -348,6 +348,11 @@ namespace cling {
     m_InputValidator->reset();
   }
 
+  bool MetaProcessor::awaitingMoreInput() const {
+    return m_InputValidator->getLastResult() ==
+           InputValidator::ValidationResult::kIncomplete;
+  }
+
   int MetaProcessor::getExpectedIndent() const {
     return m_InputValidator->getExpectedIndent();
   }
@@ -381,7 +386,8 @@ namespace cling {
         llvm::StringRef magicStr(magic,in.gcount());
         llvm::file_magic fileType
           = llvm::identify_magic(magicStr);
-        if (fileType != llvm::file_magic::unknown)
+        if (fileType != llvm::file_magic::unknown &&
+            fileType != llvm::file_magic::tapi_file)
           return reportIOErr(filename, "read from binary");
 
         unsigned printable = 0;
@@ -488,6 +494,8 @@ namespace cling {
     if (content.back() != ';')
       content.append(";");
 
+    Interpreter::InputFlagsRAII RAII(m_Interp, Interpreter::kInputFromFile |
+                                               (lineByLine ? Interpreter::kIFFLineByLine : 0));
     Interpreter::CompilationResult ret = Interpreter::kSuccess;
     if (lineByLine) {
       int rslt = 0;

@@ -17,23 +17,45 @@ ROOT_ADD_GTEST(TestOptimizeConfigParameters
                TestOptimizeConfigParameters.cxx
                LIBRARIES TMVA)
 
+ROOT_ADD_GTEST(TestUseOffsetOrNotReadingRegression
+               TestUseOffsetOrNotReadingRegression.cxx
+               LIBRARIES TMVA)
+
 if(dataframe)
-    # RTensor
-    ROOT_ADD_GTEST(rtensor rtensor.cxx LIBRARIES ROOTVecOps TMVA)
-    ROOT_ADD_GTEST(rtensor-iterator rtensor_iterator.cxx LIBRARIES ROOTVecOps TMVA)
-    ROOT_ADD_GTEST(rtensor-utils rtensor_utils.cxx LIBRARIES ROOTVecOps TMVA ROOTDataFrame)
-    # RStandardScaler
-    ROOT_ADD_GTEST(rstandardscaler rstandardscaler.cxx LIBRARIES ROOTVecOps TMVA ROOTDataFrame)
     # RReader
     ROOT_ADD_GTEST(rreader rreader.cxx LIBRARIES ROOTVecOps TMVA ROOTDataFrame)
     # Tree inference system and user interface
-    ROOT_ADD_GTEST(branchlessForest branchlessForest.cxx LIBRARIES TMVA)
-    ROOT_ADD_GTEST(rbdt rbdt.cxx LIBRARIES ROOTVecOps TMVA)
+    # Commented out right now because RBDT doesn't provide low-level interfaces
+    # since the sync with FastForest. Only the construction from XGBoost models
+    # is supported. If this feature becomes necessary to implement, one can
+    # resurrect these tests.
+    # ROOT_ADD_GTEST(branchlessForest branchlessForest.cxx LIBRARIES TMVA)
+    # ROOT_ADD_GTEST(rbdt rbdt.cxx LIBRARIES ROOTVecOps TMVAUtils)
 endif()
 
-if(dataframe AND NOT pyroot_legacy)
-  find_python_module(xgboost QUIET)
-  if (PY_XGBOOST_FOUND)
+if(dataframe)
+  # Test uses the xgboost sklearn plugin, so we need to check for sklearn too.
+  # It also uses pandas to test the case where the training data is passed via
+  # a pandas DataFrame.
+  ROOT_FIND_PYTHON_MODULE(xgboost)
+  ROOT_FIND_PYTHON_MODULE(pandas)
+  ROOT_FIND_PYTHON_MODULE(sklearn)
+  if (ROOT_XGBOOST_FOUND AND ROOT_SKLEARN_FOUND AND ROOT_PANDAS_FOUND)
     ROOT_ADD_PYUNITTEST(rbdt_xgboost rbdt_xgboost.py)
   endif()
+endif()
+
+#--stressTMVA--------------------------------------------------------------------------------------
+
+ROOT_EXECUTABLE(stressTMVA stressTMVA.cxx LIBRARIES TMVA)
+
+ROOT_ADD_TEST(test-stresstmva COMMAND stressTMVA -b LABELS longtest TIMEOUT 1800)
+
+if(tmva-cpu)
+  target_compile_definitions(stressTMVA PRIVATE DNNCPU)
+endif()
+
+if(tmva-gpu)
+  target_compile_definitions(stressTMVA PRIVATE DNNCUDA)
+  set_property(TEST test-stresstmva PROPERTY RESOURCE_LOCK GPU)
 endif()

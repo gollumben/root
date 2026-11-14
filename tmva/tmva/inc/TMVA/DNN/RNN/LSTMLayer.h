@@ -35,7 +35,9 @@
 #include <vector>
 
 #include "TMatrix.h"
+#include "TMVA/DNN/GeneralLayer.h"
 #include "TMVA/DNN/Functions.h"
+#include "TMVA/DNN/CNN/ContextHandles.h"
 
 namespace TMVA
 {
@@ -80,7 +82,7 @@ private:
    bool fReturnSequence = false;                ///< Return in output full sequence or just last element
 
    DNN::EActivationFunction fF1;                ///< Activation function: sigmoid
-   DNN::EActivationFunction fF2;                ///< Activaton function: tanh
+   DNN::EActivationFunction fF2;                ///< Activation function: tanh
 
    Matrix_t fInputValue;                        ///< Computed input gate values
    Matrix_t fCandidateValue;                    ///< Computed candidate values
@@ -155,14 +157,14 @@ public:
 
    /*! Initialize the weights according to the given initialization
     **  method. */
-   virtual void Initialize();
+   void Initialize() override;
 
    /*! Initialize the hidden state and cell state method. */
    void InitState(DNN::EInitialization m = DNN::EInitialization::kZero);
 
    /*! Computes the next hidden state
     *  and next cell state with given input matrix. */
-   void Forward(Tensor_t &input, bool isTraining = true);
+   void Forward(Tensor_t &input, bool isTraining = true) override;
 
    /*! Forward for a single cell (time unit) */
    void CellForward(Matrix_t &inputGateValues, const Matrix_t &forgetGateValues,
@@ -171,7 +173,7 @@ public:
    /*! Backpropagates the error. Must only be called directly at the corresponding
     *  call to Forward(...). */
    void Backward(Tensor_t &gradients_backward,
-                 const Tensor_t &activations_backward);
+                 const Tensor_t &activations_backward) override;
 
    /* Updates weights and biases, given the learning rate */
    void Update(const Scalar_t learningRate);
@@ -199,13 +201,13 @@ public:
    void OutputGate(const Matrix_t &input, Matrix_t &dout);
 
    /*! Prints the info about the layer */
-   void Print() const;
+   void Print() const override;
 
    /*! Writes the information and the weights about the layer in an XML node. */
-   void AddWeightsXMLTo(void *parent);
+   void AddWeightsXMLTo(void *parent) override;
 
    /*! Read the information and the weights about the layer from XML node. */
-   void ReadWeightsFromXML(void *parent);
+   void ReadWeightsFromXML(void *parent) override;
 
    /*! Getters */
    size_t GetInputSize()               const { return this->GetInputWidth(); }
@@ -564,7 +566,8 @@ auto inline TBasicLSTMLayer<Architecture_t>::Forward(Tensor_t &input, bool  isTr
       Tensor_t &y = this->fY;
       Architecture_t::Rearrange(x, input);
 
-      const auto &weights = this->GetWeightsAt(0);
+      //const auto &weights = this->GetWeightsAt(0);
+      const auto &weights = this->GetWeightsTensor();
       // Tensor_t cx({1}); // not used for normal RNN
       // Tensor_t cy({1}); // not used for normal RNN
 
@@ -576,8 +579,8 @@ auto inline TBasicLSTMLayer<Architecture_t>::Forward(Tensor_t &input, bool  isTr
       auto &hy = this->fState;
       auto &cy = this->fCell;
 
-      auto rnnDesc = static_cast<RNNDescriptors_t &>(*fDescriptors);
-      auto rnnWork = static_cast<RNNWorkspace_t &>(*fWorkspace);
+      auto & rnnDesc = static_cast<RNNDescriptors_t &>(*fDescriptors);
+      auto & rnnWork = static_cast<RNNWorkspace_t &>(*fWorkspace);
 
       Architecture_t::RNNForward(x, hx, cx, weights, y, hy, cy, rnnDesc, rnnWork, isTraining);
 
@@ -702,7 +705,7 @@ auto inline TBasicLSTMLayer<Architecture_t>::Backward(Tensor_t &gradients_backwa
 
          // Tensor_t tmp1 = y.At(y.GetShape()[0] - 1).Reshape({y.GetShape()[1], 1, y.GetShape()[2]});
          // dy is a tensor of shape (rowmajor for Cudnn): T x B x S
-         // and this->ActivatuonGradients is  B x (T=1) x S
+         // and this->ActivationGradients is  B x (T=1) x S
          Tensor_t tmp2 = dy.At(dy.GetShape()[0] - 1).Reshape({dy.GetShape()[1], 1, dy.GetShape()[2]});
 
          // Architecture_t::Copy(tmp1, this->GetOutput());
@@ -731,8 +734,8 @@ auto inline TBasicLSTMLayer<Architecture_t>::Backward(Tensor_t &gradients_backwa
       auto &dhx = hx;
       auto &dcx = cx;
 
-      auto rnnDesc = static_cast<RNNDescriptors_t &>(*fDescriptors);
-      auto rnnWork = static_cast<RNNWorkspace_t &>(*fWorkspace);
+      auto & rnnDesc = static_cast<RNNDescriptors_t &>(*fDescriptors);
+      auto & rnnWork = static_cast<RNNWorkspace_t &>(*fWorkspace);
 
       Architecture_t::RNNBackward(x, hx, cx, y, dy, dhy, dcy, weights, dx, dhx, dcx, weightGradients, rnnDesc, rnnWork);
 
@@ -786,7 +789,7 @@ auto inline TBasicLSTMLayer<Architecture_t>::Backward(Tensor_t &gradients_backwa
       Architecture_t::Rearrange(arr_output, this->GetOutput());
       Architecture_t::Rearrange(arr_actgradients, this->GetActivationGradients());
    } else {
-      // here for CPU need to transpose the input activatuon gradients into the right format
+      // here for CPU need to transpose the input activation gradients into the right format
       arr_output = fY;
       Architecture_t::InitializeZero(arr_actgradients);
       // need to reshape to pad a time dimension = 1 (note here is columnmajor tensors)
@@ -830,7 +833,7 @@ auto inline TBasicLSTMLayer<Architecture_t>::Backward(Tensor_t &gradients_backwa
          // During forward propagation, each gate value calculates their gradients.
          Matrix_t dx = arr_gradients_backward[t-1];
          CellBackward(state_gradients_backward, cell_gradients_backward,
-         	          prevStateActivations, prevCellActivations,
+                      prevStateActivations, prevCellActivations,
                       this->GetInputGateTensorAt(t-1), this->GetForgetGateTensorAt(t-1),
                       this->GetCandidateGateTensorAt(t-1), this->GetOutputGateTensorAt(t-1),
                       arr_activations_backward[t-1], dx,
@@ -841,7 +844,7 @@ auto inline TBasicLSTMLayer<Architecture_t>::Backward(Tensor_t &gradients_backwa
          const Matrix_t &prevCellActivations = initState;
          Matrix_t dx = arr_gradients_backward[t-1];
          CellBackward(state_gradients_backward, cell_gradients_backward,
-         	          prevStateActivations, prevCellActivations,
+                      prevStateActivations, prevCellActivations,
                       this->GetInputGateTensorAt(t-1), this->GetForgetGateTensorAt(t-1),
                       this->GetCandidateGateTensorAt(t-1), this->GetOutputGateTensorAt(t-1),
                       arr_activations_backward[t-1], dx,
@@ -922,15 +925,15 @@ template <typename Architecture_t>
 auto inline TBasicLSTMLayer<Architecture_t>::AddWeightsXMLTo(void *parent)
 -> void
 {
-   auto layerxml = gTools().xmlengine().NewChild(parent, 0, "LSTMLayer");
+   auto layerxml = gTools().xmlengine().NewChild(parent, nullptr, "LSTMLayer");
 
    // Write all other info like outputSize, cellSize, inputSize, timeSteps, rememberState
-   gTools().xmlengine().NewAttr(layerxml, 0, "StateSize", gTools().StringFromInt(this->GetStateSize()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "CellSize", gTools().StringFromInt(this->GetCellSize()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "InputSize", gTools().StringFromInt(this->GetInputSize()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "TimeSteps", gTools().StringFromInt(this->GetTimeSteps()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "RememberState", gTools().StringFromInt(this->DoesRememberState()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "ReturnSequence", gTools().StringFromInt(this->DoesReturnSequence()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "StateSize", gTools().StringFromInt(this->GetStateSize()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "CellSize", gTools().StringFromInt(this->GetCellSize()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "InputSize", gTools().StringFromInt(this->GetInputSize()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "TimeSteps", gTools().StringFromInt(this->GetTimeSteps()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "RememberState", gTools().StringFromInt(this->DoesRememberState()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "ReturnSequence", gTools().StringFromInt(this->DoesReturnSequence()));
 
    // write weights and bias matrices
    this->WriteMatrixToXML(layerxml, "InputWeights", this->GetWeightsAt(0));
@@ -952,7 +955,7 @@ template <typename Architecture_t>
 auto inline TBasicLSTMLayer<Architecture_t>::ReadWeightsFromXML(void *parent)
 -> void
 {
-	// Read weights and biases
+    // Read weights and biases
    this->ReadMatrixXML(parent, "InputWeights", this->GetWeightsAt(0));
    this->ReadMatrixXML(parent, "InputStateWeights", this->GetWeightsAt(1));
    this->ReadMatrixXML(parent, "InputBiases", this->GetBiasesAt(0));

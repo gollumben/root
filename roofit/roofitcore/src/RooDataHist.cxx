@@ -19,7 +19,7 @@
 \class RooDataHist
 \ingroup Roofitcore
 
-The RooDataHist is a container class to hold N-dimensional binned data. Each bin's central
+Container class to hold N-dimensional binned data. Each bin's central
 coordinates in N-dimensional space are represented by a RooArgSet containing RooRealVar, RooCategory
 or RooStringVar objects, thus data can be binned in real and/or discrete dimensions.
 
@@ -38,14 +38,12 @@ datahist->get(1)->Print("V"); std::cout << "w=" << datahist->weight(1) << std::e
 See RooAbsData::plotOn().
 
 ### Creating a datahist using RDataFrame
-\see RooAbsDataHelper, rf408_RDataFrameToRooFit.C
+See RooAbsDataHelper, rf408_RDataFrameToRooFit.C
 
 **/
 
 #include "RooDataHist.h"
 
-#include "RooFit.h"
-#include "Riostream.h"
 #include "RooMsgService.h"
 #include "RooDataHistSliceIter.h"
 #include "RooAbsLValue.h"
@@ -60,24 +58,26 @@ See RooAbsData::plotOn().
 #include "RooLinkedListIter.h"
 #include "RooTreeDataStore.h"
 #include "RooVectorDataStore.h"
-#include "RooTrace.h"
 #include "RooFormulaVar.h"
-#include "RooFormula.h"
+#include "RooFormulaUtils.h"
 #include "RooUniformBinning.h"
-#include "RooSpan.h"
 
-#include "ROOT/StringUtils.hxx"
+#include "RooFitImplHelpers.h"
+
+#include <ROOT/RSpan.hxx>
+#include <ROOT/StringUtils.hxx>
 
 #include "TAxis.h"
 #include "TH1.h"
 #include "TTree.h"
 #include "TBuffer.h"
-#include "TMath.h"
 #include "Math/Util.h"
 
-using namespace std;
+#include <string>
+#include <ostream>
 
-ClassImp(RooDataHist);
+using std::string, std::ostream;
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -85,9 +85,16 @@ ClassImp(RooDataHist);
 
 RooDataHist::RooDataHist()
 {
-  TRACE_CREATE
 }
 
+
+std::unique_ptr<RooAbsDataStore>
+RooDataHist::makeDefaultDataStore(RooStringView name, RooStringView title, RooArgSet const &vars)
+{
+   return RooAbsData::defaultStorageType == RooAbsData::Tree
+             ? static_cast<std::unique_ptr<RooAbsDataStore>>(std::make_unique<RooTreeDataStore>(name, title, vars))
+             : static_cast<std::unique_ptr<RooAbsDataStore>>(std::make_unique<RooVectorDataStore>(name, title, vars));
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -106,26 +113,23 @@ RooDataHist::RooDataHist()
 /// construct a RooThresholdCategory of the real dimension to be binned variably.
 /// Set the thresholds at the desired bin boundaries, and construct the
 /// data hist as a function of the threshold category instead of the real variable.
-RooDataHist::RooDataHist(std::string_view name, std::string_view title, const RooArgSet& vars, const char* binningName) : 
+RooDataHist::RooDataHist(RooStringView name, RooStringView title, const RooArgSet& vars, const char* binningName) :
   RooAbsData(name,title,vars)
 {
   // Initialize datastore
-  _dstore = (defaultStorageType==Tree) ? ((RooAbsDataStore*) new RooTreeDataStore(name,title,_vars)) : 
-                                         ((RooAbsDataStore*) new RooVectorDataStore(name,title,_vars)) ;
-  
+  _dstore = makeDefaultDataStore(name, title, _vars);
+
   initialize(binningName) ;
 
   registerWeightArraysToDataStore();
 
-  appendToDir(this,kTRUE) ;
-  TRACE_CREATE
 }
 
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor of a data hist from an existing data collection (binned or unbinned)
-/// The RooArgSet 'vars' defines the dimensions of the histogram. 
+/// The RooArgSet 'vars' defines the dimensions of the histogram.
 /// The range and number of bins in each dimensions are taken
 /// from getMin(), getMax(), getBins() of each argument passed.
 ///
@@ -143,19 +147,10 @@ RooDataHist::RooDataHist(std::string_view name, std::string_view title, const Ro
 /// If the constructed data hist has less dimensions that in source data collection,
 /// all missing dimensions will be projected.
 
-RooDataHist::RooDataHist(std::string_view name, std::string_view title, const RooArgSet& vars, const RooAbsData& data, Double_t wgt) :
-  RooAbsData(name,title,vars)
+RooDataHist::RooDataHist(RooStringView name, RooStringView title, const RooArgSet& vars, const RooAbsData& data, double wgt) :
+  RooDataHist(name,title,vars)
 {
-  // Initialize datastore
-  _dstore = (defaultStorageType==Tree) ? ((RooAbsDataStore*) new RooTreeDataStore(name,title,_vars)) : 
-                                         ((RooAbsDataStore*) new RooVectorDataStore(name,title,_vars)) ;
-
-  initialize() ;
-  registerWeightArraysToDataStore();
-
-  add(data,(const RooFormulaVar*)0,wgt) ;
-  appendToDir(this,kTRUE) ;
-  TRACE_CREATE
+  add(data,static_cast<const RooFormulaVar*>(nullptr),wgt);
 }
 
 
@@ -166,21 +161,19 @@ RooDataHist::RooDataHist(std::string_view name, std::string_view title, const Ro
 /// in the histMap argument. The state names used in histMap must correspond to predefined states
 /// 'indexCat'
 ///
-/// The RooArgList 'vars' defines the dimensions of the histogram. 
+/// The RooArgList 'vars' defines the dimensions of the histogram.
 /// The ranges and number of bins are taken from the input histogram and must be the same in all histograms
 
-RooDataHist::RooDataHist(std::string_view name, std::string_view title, const RooArgList& vars, RooCategory& indexCat, 
-			 map<string,TH1*> histMap, Double_t wgt) :
+RooDataHist::RooDataHist(RooStringView name, RooStringView title, const RooArgList& vars, RooCategory& indexCat,
+          std::map<string,TH1*> histMap, double wgt) :
   RooAbsData(name,title,RooArgSet(vars,&indexCat))
 {
   // Initialize datastore
-  _dstore = (defaultStorageType==Tree) ? ((RooAbsDataStore*) new RooTreeDataStore(name,title,_vars)) : 
-                                         ((RooAbsDataStore*) new RooVectorDataStore(name,title,_vars)) ;
-  
-  importTH1Set(vars, indexCat, histMap, wgt, kFALSE) ;
+  _dstore = makeDefaultDataStore(name, title, _vars);
+
+  importTH1Set(vars, indexCat, histMap, wgt, false) ;
 
   registerWeightArraysToDataStore();
-  TRACE_CREATE
 }
 
 
@@ -191,21 +184,19 @@ RooDataHist::RooDataHist(std::string_view name, std::string_view title, const Ro
 /// in the histMap argument. The state names used in histMap must correspond to predefined states
 /// 'indexCat'
 ///
-/// The RooArgList 'vars' defines the dimensions of the histogram. 
+/// The RooArgList 'vars' defines the dimensions of the histogram.
 /// The ranges and number of bins are taken from the input histogram and must be the same in all histograms
 
-RooDataHist::RooDataHist(std::string_view name, std::string_view title, const RooArgList& vars, RooCategory& indexCat, 
-			 map<string,RooDataHist*> dhistMap, Double_t wgt) :
+RooDataHist::RooDataHist(RooStringView name, RooStringView title, const RooArgList& vars, RooCategory& indexCat,
+          std::map<string,RooDataHist*> dhistMap, double wgt) :
   RooAbsData(name,title,RooArgSet(vars,&indexCat))
 {
   // Initialize datastore
-  _dstore = (defaultStorageType==Tree) ? ((RooAbsDataStore*) new RooTreeDataStore(name,title,_vars)) : 
-                                         ((RooAbsDataStore*) new RooVectorDataStore(name,title,_vars)) ;
-  
+  _dstore = makeDefaultDataStore(name, title, _vars);
+
   importDHistSet(vars, indexCat, dhistMap, wgt) ;
 
   registerWeightArraysToDataStore();
-  TRACE_CREATE
 }
 
 
@@ -216,24 +207,25 @@ RooDataHist::RooDataHist(std::string_view name, std::string_view title, const Ro
 /// and number of bins are taken from the input histogram, and the corresponding
 /// values are set accordingly on the arguments in 'vars'
 
-RooDataHist::RooDataHist(std::string_view name, std::string_view title, const RooArgList& vars, const TH1* hist, Double_t wgt) :
+RooDataHist::RooDataHist(RooStringView name, RooStringView title, const RooArgList& vars, const TH1* hist, double wgt) :
   RooAbsData(name,title,vars)
 {
   // Initialize datastore
-  _dstore = (defaultStorageType==Tree) ? ((RooAbsDataStore*) new RooTreeDataStore(name,title,_vars)) : 
-                                         ((RooAbsDataStore*) new RooVectorDataStore(name,title,_vars)) ;
+  _dstore = makeDefaultDataStore(name, title, _vars);
 
   // Check consistency in number of dimensions
-  if (vars.getSize() != hist->GetDimension()) {
-    coutE(InputArguments) << "RooDataHist::ctor(" << GetName() << ") ERROR: dimension of input histogram must match "
-			  << "number of dimension variables" << endl ;
-    assert(0) ; 
+  if (int(vars.size()) != hist->GetDimension()) {
+    std::stringstream errorMsgStream;
+    errorMsgStream << "RooDataHist::ctor(" << GetName() << ") ERROR: dimension of input histogram must match "
+                   << "number of dimension variables";
+    const std::string errorMsg = errorMsgStream.str();
+    coutE(InputArguments) << errorMsg << std::endl;
+    throw std::invalid_argument(errorMsg);
   }
 
-  importTH1(vars,*hist,wgt, kFALSE) ;
+  importTH1(vars,*hist,wgt, false) ;
 
   registerWeightArraysToDataStore();
-  TRACE_CREATE
 }
 
 
@@ -246,126 +238,131 @@ RooDataHist::RooDataHist(std::string_view name, std::string_view title, const Ro
 ///
 /// <table>
 /// <tr><th> Optional Argument <th> Effect
-/// <tr><td> Import(TH1&, Bool_t impDens) <td> Import contents of the given TH1/2/3 into this binned dataset. The
+/// <tr><td> Import(TH1&, bool impDens) <td> Import contents of the given TH1/2/3 into this binned dataset. The
 ///                                 ranges and binning of the binned dataset are automatically adjusted to
-///                                 match those of the imported histogram. 
+///                                 match those of the imported histogram.
 ///
 ///                                 Please note: for TH1& with unequal binning _only_,
 ///                                 you should decide if you want to import the absolute bin content,
 ///                                 or the bin content expressed as density. The latter is default and will
 ///                                 result in the same histogram as the original TH1. For certain types of
 ///                                 bin contents (containing efficiencies, asymmetries, or ratio is general)
-///                                 you should import the absolute value and set impDens to kFALSE
-///                                 
+///                                 you should import the absolute value and set impDens to false
 ///
-/// <tr><td> Weight(Double_t)          <td> Apply given weight factor when importing histograms
+///
+/// <tr><td> Weight(double)          <td> Apply given weight factor when importing histograms
 ///
 /// <tr><td> Index(RooCategory&)       <td> Prepare import of multiple TH1/1/2/3 into a N+1 dimensional RooDataHist
 ///                              where the extra discrete dimension labels the source of the imported histogram
 ///                              If the index category defines states for which no histogram is be imported
 ///                              the corresponding bins will be left empty.
-///                              
+///
 /// <tr><td> Import(const char*, TH1&) <td> Import a THx to be associated with the given state name of the index category
 ///                              specified in Index(). If the given state name is not yet defined in the index
 ///                              category it will be added on the fly. The import command can be specified
-///                              multiple times. 
+///                              multiple times.
 /// <tr><td> Import(map<string,TH1*>&) <td> As above, but allows specification of many imports in a single operation
 /// <tr><td> `GlobalObservables(const RooArgSet&)`      <td> Define the set of global observables to be stored in this RooDataHist.
 ///                                                          A snapshot of the passed RooArgSet is stored, meaning the values wont't change unexpectedly.
 /// </table>
-///                              
+///
 
-RooDataHist::RooDataHist(std::string_view name, std::string_view title, const RooArgList& vars, const RooCmdArg& arg1, const RooCmdArg& arg2, const RooCmdArg& arg3,
-			 const RooCmdArg& arg4,const RooCmdArg& arg5,const RooCmdArg& arg6,const RooCmdArg& arg7,const RooCmdArg& arg8) :
-  RooAbsData(name,title,RooArgSet(vars,(RooAbsArg*)RooCmdConfig::decodeObjOnTheFly("RooDataHist::RooDataHist", "IndexCat",0,0,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8)))
+RooDataHist::RooDataHist(RooStringView name, RooStringView title, const RooArgList& vars, const RooCmdArg& arg1, const RooCmdArg& arg2, const RooCmdArg& arg3,
+          const RooCmdArg& arg4,const RooCmdArg& arg5,const RooCmdArg& arg6,const RooCmdArg& arg7,const RooCmdArg& arg8) :
+  RooAbsData(name,title,RooArgSet(vars,static_cast<RooAbsArg*>(RooCmdConfig::decodeObjOnTheFly("RooDataHist::RooDataHist", "IndexCat",0,nullptr,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8))))
 {
   // Initialize datastore
-  _dstore = (defaultStorageType==Tree) ? ((RooAbsDataStore*) new RooTreeDataStore(name,title,_vars)) : 
-                                         ((RooAbsDataStore*) new RooVectorDataStore(name,title,_vars)) ;
+  _dstore = makeDefaultDataStore(name, title, _vars);
 
   // Define configuration for this method
-  RooCmdConfig pc(Form("RooDataHist::ctor(%s)",GetName())) ;
+  RooCmdConfig pc("RooDataHist::ctor(" + std::string(GetName()) + ")");
   pc.defineObject("impHist","ImportHisto",0) ;
   pc.defineInt("impDens","ImportHisto",0) ;
   pc.defineObject("indexCat","IndexCat",0) ;
-  pc.defineObject("impSliceHist","ImportHistoSlice",0,0,kTRUE) ; // array
-  pc.defineString("impSliceState","ImportHistoSlice",0,"",kTRUE) ; // array
-  pc.defineObject("impSliceDHist","ImportDataHistSlice",0,0,kTRUE) ; // array
-  pc.defineString("impSliceDState","ImportDataHistSlice",0,"",kTRUE) ; // array
-  pc.defineDouble("weight","Weight",0,1) ; 
-  pc.defineObject("dummy1","ImportDataHistSliceMany",0) ;
-  pc.defineObject("dummy2","ImportHistoSliceMany",0) ;
-  pc.defineSet("glObs","GlobalObservables",0,0) ;
-  pc.defineMutex("ImportHisto","ImportHistoSlice","ImportDataHistSlice") ;
-  pc.defineDependency("ImportHistoSlice","IndexCat") ;
-  pc.defineDependency("ImportDataHistSlice","IndexCat") ;
+  pc.defineObject("impSliceData","ImportDataSlice",0,nullptr,true) ; // array
+  pc.defineString("impSliceState","ImportDataSlice",0,"",true) ; // array
+  pc.defineDouble("weight","Weight",0,1) ;
+  pc.defineObject("dummy1","ImportDataSliceMany",0) ;
+  pc.defineSet("glObs","GlobalObservables",0,nullptr) ;
+  pc.defineMutex("ImportHisto","ImportDataSlice");
+  pc.defineDependency("ImportDataSlice","IndexCat") ;
 
   RooLinkedList l ;
-  l.Add((TObject*)&arg1) ;  l.Add((TObject*)&arg2) ;  
+  l.Add((TObject*)&arg1) ;  l.Add((TObject*)&arg2) ;
   l.Add((TObject*)&arg3) ;  l.Add((TObject*)&arg4) ;
-  l.Add((TObject*)&arg5) ;  l.Add((TObject*)&arg6) ;  
+  l.Add((TObject*)&arg5) ;  l.Add((TObject*)&arg6) ;
   l.Add((TObject*)&arg7) ;  l.Add((TObject*)&arg8) ;
 
-  // Process & check varargs 
+  // Process & check varargs
   pc.process(l) ;
-  if (!pc.ok(kTRUE)) {
-    assert(0) ;
-    return ;
+  if (!pc.ok(true)) {
+    throw std::invalid_argument("Invalid command arguments passed to RooDataHist constructor!");
   }
 
   if(pc.getSet("glObs")) setGlobalObservables(*pc.getSet("glObs"));
 
   TH1* impHist = static_cast<TH1*>(pc.getObject("impHist")) ;
-  Bool_t impDens = pc.getInt("impDens") ;
-  Double_t initWgt = pc.getDouble("weight") ;
-  const char* impSliceNames = pc.getString("impSliceState","",kTRUE) ;
-  const RooLinkedList& impSliceHistos = pc.getObjectList("impSliceHist") ;
+  bool impDens = pc.getInt("impDens") ;
+  double initWgt = pc.getDouble("weight") ;
   RooCategory* indexCat = static_cast<RooCategory*>(pc.getObject("indexCat")) ;
-  const char* impSliceDNames = pc.getString("impSliceDState","",kTRUE) ;
-  const RooLinkedList& impSliceDHistos = pc.getObjectList("impSliceDHist") ;
+  const char* impSliceNames = pc.getString("impSliceState","",true) ;
+  const RooLinkedList& impSliceHistos = pc.getObjectList("impSliceData") ;
 
 
   if (impHist) {
-    
+
     // Initialize importing contents from TH1
     importTH1(vars,*impHist,initWgt, impDens) ;
 
   } else if (indexCat) {
 
 
-    if (impSliceHistos.GetSize()>0) {
+      // Initialize importing mapped set of RooDataHists and TH1s
+      std::map<std::string,RooDataHist*> dmap ;
+      std::map<std::string,TH1*> hmap ;
+      auto hiter = impSliceHistos.begin() ;
+      for (const auto& token : ROOT::Split(impSliceNames, ",", /*skipEmpty=*/true)) {
 
-      // Initialize importing mapped set of TH1s
-      map<string,TH1*> hmap ;
-      TIter hiter = impSliceHistos.MakeIterator() ;
-      for (const auto& token : ROOT::Split(impSliceNames, ",")) {
-        auto histo = static_cast<TH1*>(hiter.Next());
-        assert(histo);
-        hmap[token] = histo;
-      }
-      importTH1Set(vars,*indexCat,hmap,initWgt,kFALSE) ;
-    } else {
+        if (!indexCat->hasLabel(token)) {
+           std::stringstream errorMsgStream;
+           errorMsgStream << "RooDataHist::RooDataHist(\"" << GetName() << "\") "
+                          << "you are providing import data for the category state \"" << token
+                          << "\", but the index category \"" << indexCat->GetName() << "\" has no such state!";
+           const std::string errorMsg = errorMsgStream.str();
+           coutE(InputArguments) << errorMsg << std::endl;
+           throw std::invalid_argument(errorMsg);
+        }
 
-      // Initialize importing mapped set of RooDataHists
-      map<string,RooDataHist*> dmap ;
-      TIter hiter = impSliceDHistos.MakeIterator() ;
-      for (const auto& token : ROOT::Split(impSliceDNames, ",")) {
-        dmap[token] = (RooDataHist*) hiter.Next() ;
+        if(auto dHist = dynamic_cast<RooDataHist*>(*hiter)) {
+           dmap[token] = dHist;
+        }
+        if(auto hHist = dynamic_cast<TH1*>(*hiter)) {
+           hmap[token] = hHist;
+        }
+        ++hiter;
       }
-      importDHistSet(vars,*indexCat,dmap,initWgt) ;
-    }
+      if(!dmap.empty() && !hmap.empty()) {
+         std::stringstream errorMsgStream;
+         errorMsgStream << "RooDataHist::ctor(" << GetName() << ") ERROR: you can't import mix of TH1 and RooDataHist";
+         const std::string errorMsg = errorMsgStream.str();
+         coutE(InputArguments) << errorMsg << std::endl;
+         throw std::invalid_argument(errorMsg);
+      }
+      if (!dmap.empty()) {
+         importDHistSet(vars,*indexCat,dmap,initWgt);
+      }
+      if (!hmap.empty()) {
+         importTH1Set(vars,*indexCat,hmap,initWgt,false);
+      }
 
 
   } else {
 
     // Initialize empty
-    initialize() ;
-    appendToDir(this,kTRUE) ;    
-
+    initialize();
   }
 
   registerWeightArraysToDataStore();
-  TRACE_CREATE
 
 }
 
@@ -375,61 +372,59 @@ RooDataHist::RooDataHist(std::string_view name, std::string_view title, const Ro
 ////////////////////////////////////////////////////////////////////////////////
 /// Import data from given TH1/2/3 into this RooDataHist
 
-void RooDataHist::importTH1(const RooArgList& vars, const TH1& histo, Double_t wgt, Bool_t doDensityCorrection) 
+void RooDataHist::importTH1(const RooArgList& vars, const TH1& histo, double wgt, bool doDensityCorrection)
 {
   // Adjust binning of internal observables to match that of input THx
   Int_t offset[3]{0, 0, 0};
   adjustBinning(vars, histo, offset) ;
-  
+
   // Initialize internal data structure
-  initialize() ;
-  appendToDir(this,kTRUE) ;
+  initialize();
 
   // Define x,y,z as 1st, 2nd and 3rd observable
-  RooRealVar* xvar = (RooRealVar*) _vars.find(vars.at(0)->GetName()) ;
-  RooRealVar* yvar = (RooRealVar*) (vars.at(1) ? _vars.find(vars.at(1)->GetName()) : 0 ) ;
-  RooRealVar* zvar = (RooRealVar*) (vars.at(2) ? _vars.find(vars.at(2)->GetName()) : 0 ) ;
+  RooRealVar* xvar = static_cast<RooRealVar*>(_vars.find(vars.at(0)->GetName())) ;
+  RooRealVar* yvar = static_cast<RooRealVar*>(vars.at(1) ? _vars.find(vars.at(1)->GetName()) : nullptr ) ;
+  RooRealVar* zvar = static_cast<RooRealVar*>(vars.at(2) ? _vars.find(vars.at(2)->GetName()) : nullptr ) ;
 
   // Transfer contents
-  Int_t xmin(0),ymin(0),zmin(0) ;
+  Int_t xmin(0);
+  Int_t ymin(0);
+  Int_t zmin(0);
   RooArgSet vset(*xvar) ;
-  Double_t volume = xvar->getMax()-xvar->getMin() ;
   xmin = offset[0] ;
   if (yvar) {
     vset.add(*yvar) ;
     ymin = offset[1] ;
-    volume *= (yvar->getMax()-yvar->getMin()) ;
   }
   if (zvar) {
     vset.add(*zvar) ;
     zmin = offset[2] ;
-    volume *= (zvar->getMax()-zvar->getMin()) ;
   }
-  //Double_t avgBV = volume / numEntries() ;
-//   cout << "average bin volume = " << avgBV << endl ;
 
-  Int_t ix(0),iy(0),iz(0) ;
-  for (ix=0 ; ix < xvar->getBins() ; ix++) {
-    xvar->setBin(ix) ;
+  Int_t iX(0);
+  Int_t iY(0);
+  Int_t iz(0);
+  for (iX=0 ; iX < xvar->getBins() ; iX++) {
+    xvar->setBin(iX) ;
     if (yvar) {
-      for (iy=0 ; iy < yvar->getBins() ; iy++) {
-        yvar->setBin(iy) ;
+      for (iY=0 ; iY < yvar->getBins() ; iY++) {
+        yvar->setBin(iY) ;
         if (zvar) {
           for (iz=0 ; iz < zvar->getBins() ; iz++) {
             zvar->setBin(iz) ;
-            Double_t bv = doDensityCorrection ? binVolume(vset) : 1;
-            add(vset,bv*histo.GetBinContent(ix+1+xmin,iy+1+ymin,iz+1+zmin)*wgt,bv*TMath::Power(histo.GetBinError(ix+1+xmin,iy+1+ymin,iz+1+zmin)*wgt,2)) ;
+            double bv = doDensityCorrection ? binVolume(vset) : 1;
+            add(vset,bv*histo.GetBinContent(iX+1+xmin,iY+1+ymin,iz+1+zmin)*wgt,bv*std::pow(histo.GetBinError(iX+1+xmin,iY+1+ymin,iz+1+zmin)*wgt,2)) ;
           }
         } else {
-          Double_t bv = doDensityCorrection ? binVolume(vset) : 1;
-          add(vset,bv*histo.GetBinContent(ix+1+xmin,iy+1+ymin)*wgt,bv*TMath::Power(histo.GetBinError(ix+1+xmin,iy+1+ymin)*wgt,2)) ;
+          double bv = doDensityCorrection ? binVolume(vset) : 1;
+          add(vset,bv*histo.GetBinContent(iX+1+xmin,iY+1+ymin)*wgt,bv*std::pow(histo.GetBinError(iX+1+xmin,iY+1+ymin)*wgt,2)) ;
         }
       }
     } else {
-      Double_t bv = doDensityCorrection ? binVolume(vset) : 1 ;
-      add(vset,bv*histo.GetBinContent(ix+1+xmin)*wgt,bv*TMath::Power(histo.GetBinError(ix+1+xmin)*wgt,2)) ;	    
+      double bv = doDensityCorrection ? binVolume(vset) : 1 ;
+      add(vset,bv*histo.GetBinContent(iX+1+xmin)*wgt,bv*std::pow(histo.GetBinError(iX+1+xmin)*wgt,2)) ;
     }
-  }  
+  }
 
 }
 
@@ -446,6 +441,51 @@ bool checkConsistentAxes(const TH1* first, const TH1* second) {
       && (first->GetNbinsZ() == 1 || (first->GetZaxis()->GetXmin() == second->GetZaxis()->GetXmin()
                                    && first->GetZaxis()->GetXmax() == second->GetZaxis()->GetXmax() ) );
 }
+
+bool hasConsistentLayoutAndBinning(RooDataHist const& h1, RooDataHist const& h2) {
+
+  // Relative tolerance for bin boundary comparison
+  constexpr double tolerance = 1e-6;
+
+  auto const& vars1 = *h1.get();
+  auto const& vars2 = *h2.get();
+
+  // Check if number of variables and names is consistent
+  if(!vars1.hasSameLayout(vars2)) {
+    return false;
+  }
+
+  for(std::size_t iVar = 0; iVar < vars1.size(); ++iVar) {
+    auto * var1 = dynamic_cast<RooRealVar*>(vars1[iVar]);
+    auto * var2 = dynamic_cast<RooRealVar*>(vars2[iVar]);
+
+    // Check if variables are consistently real-valued
+    if((!var1 && var2) || (var1 && !var2)) return false;
+
+    // Not a real-valued variable
+    if(!var1) continue;
+
+    // Now check the binning
+    auto const& bng1 = var1->getBinning();
+    auto const& bng2 = var2->getBinning();
+
+    // Compare bin numbers
+    if(bng1.numBins() != bng2.numBins()) return false;
+
+    std::size_t nBins = bng1.numBins();
+
+    // Compare bin boundaries
+    for(std::size_t iBin = 0; iBin < nBins; ++iBin) {
+      double v1 = bng1.binLow(iBin);
+      double v2 = bng2.binLow(iBin);
+      if(std::abs((v1 - v2) / v1) > tolerance) return false;
+    }
+    double v1 = bng1.binHigh(nBins - 1);
+    double v2 = bng2.binHigh(nBins - 1);
+    if(std::abs((v1 - v2) / v1) > tolerance) return false;
+  }
+  return true;
+}
 }
 
 
@@ -454,12 +494,12 @@ bool checkConsistentAxes(const TH1* first, const TH1* second) {
 /// in the constructed RooDataHist. The stl map provides the mapping between the indexCat state labels
 /// and the import source
 
-void RooDataHist::importTH1Set(const RooArgList& vars, RooCategory& indexCat, map<string,TH1*> hmap, Double_t wgt, Bool_t doDensityCorrection) 
+void RooDataHist::importTH1Set(const RooArgList& vars, RooCategory& indexCat, std::map<string,TH1*> hmap, double wgt, bool doDensityCorrection)
 {
-  RooCategory* icat = (RooCategory*) _vars.find(indexCat.GetName()) ;
+  RooCategory* icat = static_cast<RooCategory*>(_vars.find(indexCat.GetName())) ;
 
-  TH1* histo(0) ;  
-  Bool_t init(kFALSE) ;
+  TH1* histo(nullptr) ;
+  bool init(false) ;
   for (const auto& hiter : hmap) {
     // Store pointer to first histogram from which binning specification will be taken
     if (!histo) {
@@ -474,7 +514,7 @@ void RooDataHist::importTH1Set(const RooArgList& vars, RooCategory& indexCat, ma
     // Define state labels in index category (both in provided indexCat and in internal copy in dataset)
     if (!indexCat.hasLabel(hiter.first)) {
       indexCat.defineType(hiter.first) ;
-      coutI(InputArguments) << "RooDataHist::importTH1Set(" << GetName() << ") defining state \"" << hiter.first << "\" in index category " << indexCat.GetName() << endl ;
+      coutI(InputArguments) << "RooDataHist::importTH1Set(" << GetName() << ") defining state \"" << hiter.first << "\" in index category " << indexCat.GetName() << std::endl ;
     }
     if (!icat->hasLabel(hiter.first)) {
       icat->defineType(hiter.first) ;
@@ -482,32 +522,33 @@ void RooDataHist::importTH1Set(const RooArgList& vars, RooCategory& indexCat, ma
   }
 
   // Check consistency in number of dimensions
-  if (histo && (vars.getSize() != histo->GetDimension())) {
+  if (histo && int(vars.size()) != histo->GetDimension()) {
     coutE(InputArguments) << "RooDataHist::importTH1Set(" << GetName() << "): dimension of input histogram must match "
-			  << "number of continuous variables" << endl ;
+           << "number of continuous variables" << std::endl ;
     throw std::invalid_argument("Inputs histograms for RooDataHist are not compatible with dimensions of variables.");
   }
-  
+
   // Copy bins and ranges from THx to dimension observables
   Int_t offset[3] ;
   adjustBinning(vars,*histo,offset) ;
-  
+
   // Initialize internal data structure
   if (!init) {
-    initialize() ;
-    appendToDir(this,kTRUE) ;
-    init = kTRUE ;
+     initialize();
+     init = true;
   }
 
   // Define x,y,z as 1st, 2nd and 3rd observable
-  RooRealVar* xvar = (RooRealVar*) _vars.find(vars.at(0)->GetName()) ;
-  RooRealVar* yvar = (RooRealVar*) (vars.at(1) ? _vars.find(vars.at(1)->GetName()) : 0 ) ;
-  RooRealVar* zvar = (RooRealVar*) (vars.at(2) ? _vars.find(vars.at(2)->GetName()) : 0 ) ;
+  RooRealVar* xvar = static_cast<RooRealVar*>(_vars.find(vars.at(0)->GetName())) ;
+  RooRealVar* yvar = static_cast<RooRealVar*>(vars.at(1) ? _vars.find(vars.at(1)->GetName()) : nullptr ) ;
+  RooRealVar* zvar = static_cast<RooRealVar*>(vars.at(2) ? _vars.find(vars.at(2)->GetName()) : nullptr ) ;
 
   // Transfer contents
-  Int_t xmin(0),ymin(0),zmin(0) ;
+  Int_t xmin(0);
+  Int_t ymin(0);
+  Int_t zmin(0);
   RooArgSet vset(*xvar) ;
-  Double_t volume = xvar->getMax()-xvar->getMin() ;
+  double volume = xvar->getMax()-xvar->getMin() ;
   xmin = offset[0] ;
   if (yvar) {
     vset.add(*yvar) ;
@@ -519,33 +560,36 @@ void RooDataHist::importTH1Set(const RooArgList& vars, RooCategory& indexCat, ma
     zmin = offset[2] ;
     volume *= (zvar->getMax()-zvar->getMin()) ;
   }
-  Double_t avgBV = volume / numEntries() ;
-  
-  Int_t ic(0),ix(0),iy(0),iz(0) ;
-  for (ic=0 ; ic < icat->numBins(0) ; ic++) {
+  double avgBV = volume / numEntries() ;
+
+  Int_t ic(0);
+  Int_t iX(0);
+  Int_t iY(0);
+  Int_t iz(0);
+  for (ic=0 ; ic < icat->numBins(nullptr) ; ic++) {
     icat->setBin(ic) ;
     histo = hmap[icat->getCurrentLabel()] ;
-    for (ix=0 ; ix < xvar->getBins() ; ix++) {
-      xvar->setBin(ix) ;
+    for (iX=0 ; iX < xvar->getBins() ; iX++) {
+      xvar->setBin(iX) ;
       if (yvar) {
-        for (iy=0 ; iy < yvar->getBins() ; iy++) {
-          yvar->setBin(iy) ;
+        for (iY=0 ; iY < yvar->getBins() ; iY++) {
+          yvar->setBin(iY) ;
           if (zvar) {
             for (iz=0 ; iz < zvar->getBins() ; iz++) {
               zvar->setBin(iz) ;
-              Double_t bv = doDensityCorrection ? binVolume(vset)/avgBV : 1;
-              add(vset,bv*histo->GetBinContent(ix+1+xmin,iy+1+ymin,iz+1+zmin)*wgt,bv*TMath::Power(histo->GetBinError(ix+1+xmin,iy+1+ymin,iz+1+zmin)*wgt,2)) ;
+              double bv = doDensityCorrection ? binVolume(vset)/avgBV : 1;
+              add(vset,bv*histo->GetBinContent(iX+1+xmin,iY+1+ymin,iz+1+zmin)*wgt,bv*std::pow(histo->GetBinError(iX+1+xmin,iY+1+ymin,iz+1+zmin)*wgt,2)) ;
             }
           } else {
-            Double_t bv = doDensityCorrection ? binVolume(vset)/avgBV : 1;
-            add(vset,bv*histo->GetBinContent(ix+1+xmin,iy+1+ymin)*wgt,bv*TMath::Power(histo->GetBinError(ix+1+xmin,iy+1+ymin)*wgt,2)) ;
+            double bv = doDensityCorrection ? binVolume(vset)/avgBV : 1;
+            add(vset,bv*histo->GetBinContent(iX+1+xmin,iY+1+ymin)*wgt,bv*std::pow(histo->GetBinError(iX+1+xmin,iY+1+ymin)*wgt,2)) ;
           }
         }
       } else {
-        Double_t bv = doDensityCorrection ? binVolume(vset)/avgBV : 1;
-        add(vset,bv*histo->GetBinContent(ix+1+xmin)*wgt,bv*TMath::Power(histo->GetBinError(ix+1+xmin)*wgt,2)) ;
+        double bv = doDensityCorrection ? binVolume(vset)/avgBV : 1;
+        add(vset,bv*histo->GetBinContent(iX+1+xmin)*wgt,bv*std::pow(histo->GetBinError(iX+1+xmin)*wgt,2)) ;
       }
-    }  
+    }
   }
 
 }
@@ -557,39 +601,62 @@ void RooDataHist::importTH1Set(const RooArgList& vars, RooCategory& indexCat, ma
 /// in the constructed RooDataHist. The stl map provides the mapping between the indexCat state labels
 /// and the import source
 
-void RooDataHist::importDHistSet(const RooArgList& /*vars*/, RooCategory& indexCat, std::map<std::string,RooDataHist*> dmap, Double_t initWgt) 
+void RooDataHist::importDHistSet(const RooArgList & /*vars*/, RooCategory &indexCat,
+                                 std::map<std::string, RooDataHist *> dmap, double initWgt)
 {
-  RooCategory* icat = (RooCategory*) _vars.find(indexCat.GetName()) ;
+   auto *icat = static_cast<RooCategory *>(_vars.find(indexCat.GetName()));
 
-  for (const auto& diter : dmap) {
+   RooDataHist *dhistForBinning = nullptr;
 
-    // Define state labels in index category (both in provided indexCat and in internal copy in dataset)
-    if (!indexCat.hasLabel(diter.first)) {
-      indexCat.defineType(diter.first) ;
-      coutI(InputArguments) << "RooDataHist::importDHistSet(" << GetName() << ") defining state \"" << diter.first << "\" in index category " << indexCat.GetName() << endl ;
-    }
-    if (!icat->hasLabel(diter.first)) {
-      icat->defineType(diter.first) ;
-    }
-  }
+   for (const auto &diter : dmap) {
 
-  initialize() ;
-  appendToDir(this,kTRUE) ;  
+      std::string const &label = diter.first;
+      RooDataHist *dhist = diter.second;
 
+      if (!dhistForBinning) {
+         dhistForBinning = dhist;
+      } else {
+         if (!hasConsistentLayoutAndBinning(*dhistForBinning, *dhist)) {
+            coutE(InputArguments) << "Layout or binning of histogram " << dhist->GetName()
+                                  << " is not consistent with first processed "
+                                  << "histogram " << dhistForBinning->GetName() << std::endl;
+            throw std::invalid_argument("Layout or binning of inputs for RooDataHist is inconsistent");
+         }
+      }
 
-  for (const auto& diter : dmap) {
+      // Define state labels in index category (both in provided indexCat and in internal copy in dataset)
+      if (!indexCat.hasLabel(label)) {
+         indexCat.defineType(label);
+         coutI(InputArguments) << "RooDataHist::importDHistSet(" << GetName() << ") defining state \"" << label
+                               << "\" in index category " << indexCat.GetName() << std::endl;
+      }
+      if (!icat->hasLabel(label)) {
+         icat->defineType(label);
+      }
+   }
 
-    RooDataHist* dhist = diter.second ;
+   // adjust the binning of the created histogram
+   for (auto *theirVar : dynamic_range_cast<RooRealVar *>(dhistForBinning->_vars)) {
+      auto *ourVar = dynamic_cast<RooRealVar *>(_vars.find(theirVar->GetName()));
+      if (!theirVar || !ourVar)
+         continue;
+      ourVar->setBinning(theirVar->getBinning());
+   }
 
-    icat->setLabel(diter.first.c_str()) ;
+   initialize();
 
-    // Transfer contents
-    for (Int_t i=0 ; i<dhist->numEntries() ; i++) {
-      _vars.assign(*dhist->get(i)) ;
-      add(_vars,dhist->weight()*initWgt, pow(dhist->weightError(SumW2),2) ) ;
-    }
+   for (const auto &diter : dmap) {
+      std::string const &label = diter.first;
+      RooDataHist *dhist = diter.second;
 
-  }
+      icat->setLabel(label.c_str());
+
+      // Transfer contents
+      for (Int_t i = 0; i < dhist->numEntries(); i++) {
+         _vars.assign(*dhist->get(i));
+         add(_vars, dhist->weight(i) * initWgt, pow(dhist->weightError(SumW2), 2));
+      }
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -598,58 +665,62 @@ void RooDataHist::importDHistSet(const RooArgList& /*vars*/, RooCategory& indexC
 void RooDataHist::_adjustBinning(RooRealVar &theirVar, const TAxis &axis,
     RooRealVar *ourVar, Int_t *offset)
 {
-  if (!dynamic_cast<RooRealVar*>(static_cast<RooAbsArg*>(ourVar))) {
-    coutE(InputArguments) << "RooDataHist::adjustBinning(" << GetName() << ") ERROR: dimension " << ourVar->GetName() << " must be real" << endl ;
-    assert(0) ;
-  }
+  const std::string ourVarName(ourVar->GetName() ? ourVar->GetName() : "");
+  const std::string ownName(GetName() ? GetName() : "");
+  // RooRealVar is derived from RooAbsRealLValue which is itself
+  // derived from RooAbsReal and a virtual class RooAbsLValue
+  // supplying setter functions, check if ourVar is indeed derived
+  // as real
+  if (!dynamic_cast<RooAbsReal *>(ourVar)) {
+    coutE(InputArguments) << "RooDataHist::adjustBinning(" << ownName << ") ERROR: dimension " << ourVarName
+                          << " must be real\n";
+    throw std::logic_error("Incorrect type object (" + ourVarName +
+                           ") passed as argument to RooDataHist::_adjustBinning. Please report this issue.");
+   }
 
   const double xlo = theirVar.getMin();
   const double xhi = theirVar.getMax();
 
-  if (axis.GetXbins()->GetArray()) {
-    RooBinning xbins(axis.GetNbins(), axis.GetXbins()->GetArray());
+   const bool isUniform = !axis.GetXbins()->GetArray();
+   std::unique_ptr<RooAbsBinning> xbins;
 
-    const double tolerance = 1e-6 * xbins.averageBinWidth();
-    
-    // Adjust xlo/xhi to nearest boundary
-    const double xloAdj = xbins.binLow(xbins.binNumber(xlo + tolerance));
-    const double xhiAdj = xbins.binHigh(xbins.binNumber(xhi - tolerance));
-    xbins.setRange(xloAdj, xhiAdj);
+   if (!isUniform) {
+      xbins = std::make_unique<RooBinning>(axis.GetNbins(), axis.GetXbins()->GetArray());
+   } else {
+      xbins = std::make_unique<RooUniformBinning>(axis.GetXmin(), axis.GetXmax(), axis.GetNbins());
+   }
 
-    theirVar.setBinning(xbins);
+   const double tolerance = 1e-6 * xbins->averageBinWidth();
 
-    if (true || fabs(xloAdj - xlo) > tolerance || fabs(xhiAdj - xhi) > tolerance) {
-      coutI(DataHandling)<< "RooDataHist::adjustBinning(" << GetName() << "): fit range of variable " << ourVar->GetName() << " expanded to nearest bin boundaries: [" << xlo << "," << xhi << "] --> [" << xloAdj << "," << xhiAdj << "]" << endl;
-    }
+   // Adjust xlo/xhi to nearest boundary
+   const int iBinLo = xbins->binNumber(xlo + tolerance);
+   const int iBinHi = xbins->binNumber(xhi - tolerance);
+   const int nBinsAdj = iBinHi - iBinLo + 1;
+   const double xloAdj = xbins->binLow(iBinLo);
+   const double xhiAdj = xbins->binHigh(iBinHi);
 
-    ourVar->setBinning(xbins);
+   if (isUniform) {
+      xbins = std::make_unique<RooUniformBinning>(xloAdj, xhiAdj, nBinsAdj);
+      theirVar.setRange(xloAdj, xhiAdj);
+   } else {
+      xbins->setRange(xloAdj, xhiAdj);
+      theirVar.setBinning(*xbins);
+   }
 
-    if (offset) {
-      *offset = xbins.rawBinNumber(xloAdj + tolerance);
-    }
-  } else {
-    RooBinning xbins(axis.GetXmin(), axis.GetXmax());
-    xbins.addUniform(axis.GetNbins(), axis.GetXmin(), axis.GetXmax());
+   if (std::abs(xloAdj - xlo) > tolerance || std::abs(xhiAdj - xhi) > tolerance) {
+      coutI(DataHandling) << "RooDataHist::adjustBinning(" << ownName << "): fit range of variable " << ourVarName
+                          << " expanded to nearest bin boundaries: [" << xlo << "," << xhi << "] --> [" << xloAdj << ","
+                          << xhiAdj << "]"
+                          << "\n";
+   }
 
-    const double tolerance = 1e-6 * xbins.averageBinWidth();
+   ourVar->setBinning(*xbins);
 
-    // Adjust xlo/xhi to nearest boundary
-    const double xloAdj = xbins.binLow(xbins.binNumber(xlo + tolerance));
-    const double xhiAdj = xbins.binHigh(xbins.binNumber(xhi - tolerance));
-    xbins.setRange(xloAdj, xhiAdj);
-    theirVar.setRange(xloAdj, xhiAdj);
-
-    if (fabs(xloAdj - xlo) > tolerance || fabs(xhiAdj - xhi) > tolerance) {
-      coutI(DataHandling)<< "RooDataHist::adjustBinning(" << GetName() << "): fit range of variable " << ourVar->GetName() << " expanded to nearest bin boundaries: [" << xlo << "," << xhi << "] --> [" << xloAdj << "," << xhiAdj << "]" << endl;
-    }
-
-    RooUniformBinning xbins2(xloAdj, xhiAdj, xbins.numBins());
-    ourVar->setBinning(xbins2);
-
-    if (offset) {
-      *offset = xbins.rawBinNumber(xloAdj + tolerance);
-    }
-  }
+   // The offset is the bin number of the adjusted lower limit of the RooFit
+   // variable in the original TH1 histogram, starting from zero.
+   if (offset) {
+      *offset = axis.FindFixBin(xloAdj + tolerance) - 1;
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -663,7 +734,7 @@ void RooDataHist::_adjustBinning(RooRealVar &theirVar, const TAxis &axis,
 
 void RooDataHist::adjustBinning(const RooArgList& vars, const TH1& href, Int_t* offset)
 {
-  auto xvar = static_cast<RooRealVar*>( _vars.find(*vars.at(0)) );
+  auto xvar = static_cast<RooRealVar*>(_vars.find(*vars.at(0)) );
   _adjustBinning(*static_cast<RooRealVar*>(vars.at(0)), *href.GetXaxis(), xvar, offset ? &offset[0] : nullptr);
 
   if (vars.at(1)) {
@@ -707,7 +778,7 @@ void initArray(double*& arr, std::size_t n, double val) {
 /// multipliers needed for N-space to 1-dim array jump table,
 /// and fill the internal tree with all bin center coordinates
 
-void RooDataHist::initialize(const char* binningName, Bool_t fillTree)
+void RooDataHist::initialize(const char* binningName, bool fillTree)
 {
   _lvvars.clear();
   _lvbins.clear();
@@ -721,24 +792,35 @@ void RooDataHist::initialize(const char* binningName, Bool_t fillTree)
       }
     }
 
+    // If the variable has no binning explicitly set (the default for a
+    // freshly-constructed RooRealVar, which reports zero bins), materialize the
+    // historical default binning. _vars holds this dataset's own clones (see
+    // RooAbsData::initializeVars, which addClone's the input variables), so this
+    // does not affect the user's original variable.
+    if (RooRealVar* rrv = dynamic_cast<RooRealVar*>(_vars[i])) {
+      if (rrv->getBins() == 0) {
+        rrv->setBinning(RooUniformBinning(rrv->getMin(), rrv->getMax(), RooAbsRealLValue::DefaultNBins));
+      }
+    }
+
     auto lvarg = dynamic_cast<RooAbsLValue*>(_vars[i]);
     assert(lvarg);
     _lvvars.push_back(lvarg);
 
-    const RooAbsBinning* binning = lvarg->getBinningPtr(0);
+    const RooAbsBinning* binning = lvarg->getBinningPtr(nullptr);
     _lvbins.emplace_back(binning ? binning->clone() : nullptr);
   }
 
-  
+
   // Allocate coefficients array
-  _idxMult.resize(_vars.getSize()) ;
+  _idxMult.resize(_vars.size()) ;
 
   _arrSize = 1 ;
   unsigned int n = 0u;
   for (const auto var : _vars) {
     auto arg = dynamic_cast<const RooAbsLValue*>(var);
     assert(arg);
-    
+
     // Calculate sub-index multipliers for master index
     for (unsigned int i = 0u; i<n; i++) {
       _idxMult[i] *= arg->numBins() ;
@@ -770,8 +852,10 @@ void RooDataHist::initialize(const char* binningName, Bool_t fillTree)
   // Calculate plot bins of components from master index
 
   for (Int_t ibin=0 ; ibin < _arrSize ; ibin++) {
-    Int_t j(0), idx(0), tmp(ibin) ;
-    Double_t theBinVolume(1) ;
+    Int_t j(0);
+    Int_t idx(0);
+    Int_t tmp(ibin);
+    double theBinVolume(1) ;
     for (auto arg2 : _lvvars) {
       idx  = tmp / _idxMult[j] ;
       tmp -= idx*_idxMult[j++] ;
@@ -793,9 +877,9 @@ void RooDataHist::checkBinBounds() const
 {
   if (!_binbounds.empty()) return;
   for (auto& it : _lvbins) {
-    _binbounds.push_back(std::vector<Double_t>());
+    _binbounds.push_back(std::vector<double>());
     if (it) {
-      std::vector<Double_t>& bounds = _binbounds.back();
+      std::vector<double>& bounds = _binbounds.back();
       bounds.reserve(2 * it->numBins());
       for (Int_t i = 0; i < it->numBins(); ++i) {
         bounds.push_back(it->binLow(i));
@@ -825,103 +909,49 @@ RooDataHist::RooDataHist(const RooDataHist& other, const char* newname) :
     auto lvarg = dynamic_cast<RooAbsLValue*>(rvarg);
     assert(lvarg);
     _lvvars.push_back(lvarg);
-    const RooAbsBinning* binning = lvarg->getBinningPtr(0);
-    _lvbins.emplace_back(binning ? binning->clone() : 0) ;
+    const RooAbsBinning* binning = lvarg->getBinningPtr(nullptr);
+    _lvbins.emplace_back(binning ? binning->clone() : nullptr) ;
   }
 
   registerWeightArraysToDataStore();
-
- appendToDir(this,kTRUE) ;
 }
-
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// Constructor of a data hist from (part of) an existing data hist. The dimensions
-/// of the data set are defined by the 'vars' RooArgSet, which can be identical
-/// to 'dset' dimensions, or a subset thereof. Reduced dimensions will be projected
-/// in the output data hist. The optional 'cutVar' formula variable can used to 
-/// select the subset of bins to be copied.
-///
-/// For most uses the RooAbsData::reduce() wrapper function, which uses this constructor, 
-/// is the most convenient way to create a subset of an existing data  
-
-RooDataHist::RooDataHist(std::string_view name, std::string_view title, RooDataHist* h, const RooArgSet& varSubset, 
-			 const RooFormulaVar* cutVar, const char* cutRange, Int_t nStart, Int_t nStop, Bool_t copyCache) :
-  RooAbsData(name,title,varSubset)
-{
-  // Initialize datastore
-  _dstore = new RooTreeDataStore(name,title,*h->_dstore,_vars,cutVar,cutRange,nStart,nStop,copyCache) ;
-  
-  initialize(0,kFALSE) ;
-
-  // Copy weight array etc
-  assert(_arrSize == h->_arrSize);
-  cloneArray(_wgt, h->_wgt, _arrSize);
-  cloneArray(_errLo, h->_errLo, _arrSize);
-  cloneArray(_errHi, h->_errHi, _arrSize);
-  cloneArray(_binv, h->_binv, _arrSize);
-  cloneArray(_sumw2, h->_sumw2, _arrSize);
-
-  registerWeightArraysToDataStore();
-
-  appendToDir(this,kTRUE) ;
-  TRACE_CREATE
-}
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// Construct a clone of this dataset that contains only the cached variables
-
-RooAbsData* RooDataHist::cacheClone(const RooAbsArg* newCacheOwner, const RooArgSet* newCacheVars, const char* newName) 
-{
-  checkInit() ;
-
-  RooDataHist* dhist = new RooDataHist(newName?newName:GetName(),GetTitle(),this,*get(),0,0,0,2000000000,kTRUE) ; 
-
-  RooArgSet* selCacheVars = (RooArgSet*) newCacheVars->selectCommon(dhist->_cachedVars) ;
-  dhist->attachCache(newCacheOwner, *selCacheVars) ;
-  delete selCacheVars ;
-
-  return dhist ;
-}
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Implementation of RooAbsData virtual method that drives the RooAbsData::reduce() methods
 
-RooAbsData* RooDataHist::reduceEng(const RooArgSet& varSubset, const RooFormulaVar* cutVar, const char* cutRange, 
-    std::size_t nStart, std::size_t nStop, Bool_t /*copyCache*/)
+std::unique_ptr<RooAbsData> RooDataHist::reduceEng(const RooArgSet& varSubset, const RooFormulaVar* cutVar, const char* cutRange,
+    std::size_t nStart, std::size_t nStop) const
 {
   checkInit() ;
-  RooArgSet* myVarSubset = (RooArgSet*) _vars.selectCommon(varSubset) ;
-  RooDataHist *rdh = new RooDataHist(GetName(), GetTitle(), *myVarSubset) ;
-  delete myVarSubset ;
+  RooArgSet myVarSubset;
+  _vars.selectCommon(varSubset, myVarSubset);
+  auto rdh = std::make_unique<RooDataHist>(GetName(), GetTitle(), myVarSubset);
 
-  RooFormulaVar* cloneVar = 0;
-  RooArgSet* tmp(0) ;
+  RooFormulaVar* cloneVar = nullptr;
+  std::unique_ptr<RooArgSet> tmp;
   if (cutVar) {
+    tmp = std::make_unique<RooArgSet>();
     // Deep clone cutVar and attach clone to this dataset
-    tmp = (RooArgSet*) RooArgSet(*cutVar).snapshot() ;
-    if (!tmp) {
-      coutE(DataHandling) << "RooDataHist::reduceEng(" << GetName() << ") Couldn't deep-clone cut variable, abort," << endl ;
-      return 0 ;
+    if (RooArgSet(*cutVar).snapshot(*tmp)) {
+      coutE(DataHandling) << "RooDataHist::reduceEng(" << GetName() << ") Couldn't deep-clone cut variable, abort," << std::endl ;
+      return nullptr;
     }
-    cloneVar = (RooFormulaVar*) tmp->find(*cutVar) ;
+    cloneVar = static_cast<RooFormulaVar*>(tmp->find(*cutVar));
     cloneVar->attachDataSet(*this) ;
   }
 
-  Double_t lo,hi ;
+  double lo;
+  double hi;
   const std::size_t nevt = nStop < static_cast<std::size_t>(numEntries()) ? nStop : static_cast<std::size_t>(numEntries());
   for (auto i=nStart; i<nevt ; i++) {
     const RooArgSet* row = get(i) ;
 
-    Bool_t doSelect(kTRUE) ;
+    bool doSelect(true) ;
     if (cutRange) {
       for (const auto arg : *row) {
         if (!arg->inRange(cutRange)) {
-          doSelect = kFALSE ;
+          doSelect = false ;
           break ;
         }
       }
@@ -930,13 +960,9 @@ RooAbsData* RooDataHist::reduceEng(const RooArgSet& varSubset, const RooFormulaV
 
     if (!cloneVar || cloneVar->getVal()) {
       weightError(lo,hi,SumW2) ;
-      rdh->add(*row,weight(),lo*lo) ;
+      rdh->add(*row,weight(i),lo*lo) ;
     }
   }
-
-  if (cloneVar) {
-    delete tmp ;
-  } 
 
   return rdh ;
 }
@@ -946,16 +972,15 @@ RooAbsData* RooDataHist::reduceEng(const RooArgSet& varSubset, const RooFormulaV
 ////////////////////////////////////////////////////////////////////////////////
 /// Destructor
 
-RooDataHist::~RooDataHist() 
+RooDataHist::~RooDataHist()
 {
-	delete[] _wgt;
-	delete[] _errLo;
-	delete[] _errHi;
-	delete[] _sumw2;
-	delete[] _binv;
+   delete[] _wgt;
+   delete[] _errLo;
+   delete[] _errHi;
+   delete[] _sumw2;
+   delete[] _binv;
 
    removeFromDir(this) ;
-  TRACE_DESTROY
 }
 
 
@@ -968,13 +993,53 @@ RooDataHist::~RooDataHist()
 /// \param[in] fast If the variables in `coord` and the ones of the data hist have the
 /// same size and layout, `fast` can be set to skip checking that all variables are
 /// present in `coord`.
-Int_t RooDataHist::getIndex(const RooAbsCollection& coord, Bool_t fast) const {
+Int_t RooDataHist::getIndex(const RooAbsCollection& coord, bool fast) const {
   checkInit() ;
   return calcTreeIndex(coord, fast);
 }
 
+std::string RooDataHist::declWeightArrayForCodeSquash(RooFit::Experimental::CodegenContext &ctx,
+                                                      bool correctForBinSize) const
+{
+   std::vector<double> vals(_arrSize);
+   for (std::size_t i = 0; i < vals.size(); ++i) {
+      vals[i] = correctForBinSize ? _wgt[i] / _binv[i] : _wgt[i];
+   }
+   return ctx.buildArg(vals);
+}
 
+std::string RooDataHist::calculateTreeIndexForCodeSquash(RooFit::Experimental::CodegenContext &ctx,
+                                                         const RooAbsCollection &coords, bool reverse) const
+{
+   assert(coords.size() == _vars.size());
 
+   std::string code;
+   int idxMult = 1;
+
+   for (std::size_t i = 0; i < _vars.size(); ++i) {
+
+      std::size_t iVar = reverse ? _vars.size() - 1 - i : i;
+      const RooAbsArg *internalVar = _vars[iVar];
+      const RooAbsArg *theVar = coords[iVar];
+
+      const RooAbsBinning *binning = _lvbins[iVar].get();
+      if (!binning) {
+         coutE(InputArguments) << "RooHistPdf::weight(" << GetName()
+                               << ") ERROR: Code Squashing currently does not support category values." << std::endl;
+         return "";
+      }
+
+      if (i > 0)
+         code += " + ";
+      code += binning->translateBinNumber(ctx, *theVar, idxMult);
+
+      // Use RooAbsLValue here because it also generalized to categories, which
+      // is useful in the future. dynamic_cast because it's a cross-cast.
+      idxMult *= dynamic_cast<RooAbsLValue const *>(internalVar)->numBins();
+   }
+
+   return _vars.size() == 1 ? code : "(" + code + ")";
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Calculate the bin index corresponding to the coordinates passed as argument.
@@ -983,8 +1048,16 @@ Int_t RooDataHist::getIndex(const RooAbsCollection& coord, Bool_t fast) const {
 /// as the internal coordinates. In this case, values are looked up only by index.
 std::size_t RooDataHist::calcTreeIndex(const RooAbsCollection& coords, bool fast) const
 {
-  // With fast, caller promises that layout of "coords" is identical to our internal "vars"
-  assert(!fast || coords.hasSameLayout(_vars));
+  // With fast, caller promises that layout of `coords` is identical to our internal `vars`.
+  // Previously, this was verified with an assert in debug mode like this:
+  //
+  //    assert(!fast || coords.hasSameLayout(_vars));
+  //
+  // However, there are usecases where the externally provided `coords` have
+  // different names than the internal variables, even though they correspond
+  // to each other. For example, if the observables in the computation graph
+  // are renamed with `redirectServers`. Hence, we can't do a meaningful assert
+  // here.
 
   if (&_vars == &coords)
     fast = true;
@@ -1003,8 +1076,12 @@ std::size_t RooDataHist::calcTreeIndex(const RooAbsCollection& coords, bool fast
       // Variable is not in external coordinates. Use current internal value.
       theVar = internalVar;
     }
-    // If fast is on, users promise that the sets have the same layout
-    assert(!fast || strcmp(internalVar->GetName(), theVar->GetName()) == 0);
+    // If fast is on, users promise that the sets have the same layout:
+    //
+    //   assert(!fast || strcmp(internalVar->GetName(), theVar->GetName()) == 0);
+    //
+    // This assert is commented out for the same reasons that applied to the
+    // other assert explained above.
 
     if (binning) {
       assert(dynamic_cast<const RooAbsReal*>(theVar));
@@ -1022,55 +1099,282 @@ std::size_t RooDataHist::calcTreeIndex(const RooAbsCollection& coords, bool fast
 }
 
 
-
-////////////////////////////////////////////////////////////////////////////////
-/// Debug stuff, should go...
-
-void RooDataHist::dump2() 
-{  
-  cout << "_arrSize = " << _arrSize << endl ;
-  for (Int_t i=0 ; i < _arrSize ; i++) {
-    cout << "wgt[" << i << "] = " << _wgt[i]
-         << "\tsumw2[" << i << "] = " << (_sumw2 ? _sumw2[i] : -1.)
-         << "\tvol[" << i << "] = " << _binv[i] << endl ;
-  }
-}
-
-
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Back end function to plotting functionality. Plot RooDataHist on given
 /// frame in mode specified by plot options 'o'. The main purpose of
 /// this function is to match the specified binning on 'o' to the
 /// internal binning of the plot observable in this RooDataHist.
-/// \see RooAbsData::plotOn() for plotting options.
-RooPlot *RooDataHist::plotOn(RooPlot *frame, PlotOpt o) const 
+/// \note see RooAbsData::plotOnImpl() for plotting options.
+RooPlot *RooDataHist::plotOnImpl(RooPlot *frame, PlotOpt o) const
 {
   checkInit() ;
-  if (o.bins) return RooAbsData::plotOn(frame,o) ;
+  if (o.bins) return RooAbsData::plotOnImpl(frame,o) ;
 
-  if(0 == frame) {
-    coutE(InputArguments) << ClassName() << "::" << GetName() << ":plotOn: frame is null" << endl;
-    return 0;
+  if(!frame) {
+    coutE(InputArguments) << ClassName() << "::" << GetName() << ":plotOn: frame is null" << std::endl;
+    return nullptr;
   }
-  RooAbsRealLValue *var= (RooAbsRealLValue*) frame->getPlotVar();
-  if(0 == var) {
+  auto var= static_cast<RooAbsRealLValue*>(frame->getPlotVar());
+  if(!var) {
     coutE(InputArguments) << ClassName() << "::" << GetName()
-	 << ":plotOn: frame does not specify a plot variable" << endl;
-    return 0;
+    << ":plotOn: frame does not specify a plot variable" << std::endl;
+    return nullptr;
   }
 
-  RooRealVar* dataVar = (RooRealVar*) _vars.find(*var) ;
+  auto dataVar = static_cast<RooRealVar*>(_vars.find(*var));
   if (!dataVar) {
     coutE(InputArguments) << ClassName() << "::" << GetName()
-	 << ":plotOn: dataset doesn't contain plot frame variable" << endl;
-    return 0;
+    << ":plotOn: dataset doesn't contain plot frame variable" << std::endl;
+    return nullptr;
   }
 
   o.bins = &dataVar->getBinning() ;
-  o.correctForBinWidth = kFALSE ;
-  return RooAbsData::plotOn(frame,o) ;
+  return RooAbsData::plotOnImpl(frame,o) ;
 }
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// A vectorized version of interpolateDim for boundary safe quadratic
+/// interpolation of one dimensional histograms.
+///
+/// \param[out] output An array of interpolated weights corresponding to the
+///                    values in xVals.
+/// \param[in] xVals An array of event coordinates for which the weights should be
+///                  calculated.
+/// \param[in] correctForBinSize Enable the inverse bin volume correction factor.
+/// \param[in] cdfBoundaries Enable the special boundary condition for a cdf:
+///                          Underflow bins are assumed to have weight zero and
+///                          overflow bins have weight one. Otherwise, the
+///                          histogram is mirrored at the boundaries for the
+///                          interpolation.
+
+void RooDataHist::interpolateQuadratic(double* output, std::span<const double> xVals,
+                                       bool correctForBinSize, bool cdfBoundaries)
+{
+  const std::size_t nBins = numEntries();
+  const std::size_t nEvents = xVals.size();
+
+  RooAbsBinning const& binning = *_lvbins[0];
+  // Reuse the output buffer for bin indices and zero-initialize it
+  auto binIndices = reinterpret_cast<int*>(output + nEvents) - nEvents;
+  std::fill(binIndices, binIndices + nEvents, 0);
+  binning.binNumbers(xVals.data(), binIndices, nEvents);
+
+  // Extend coordinates and weights with one extra point before the first bin
+  // and one extra point after the last bin. This means the original histogram
+  // bins span elements 1 to nBins in coordsExt and weightsExt
+  std::vector<double> coordsExt(nBins+3);
+  double* binCoords = coordsExt.data() + 2;
+  binCoords[0] = binning.lowBound() + 0.5*_binv[0];
+  for (std::size_t binIdx = 1; binIdx < nBins ; ++binIdx) {
+    if (binning.isUniform()) {
+      double binWidth = _binv[0];
+      binCoords[binIdx] = binIdx*binWidth + binCoords[0];
+    }
+    else {
+      double binCentDiff = 0.5*_binv[binIdx-1] + 0.5*_binv[binIdx];
+      binCoords[binIdx] = binCoords[binIdx-1] + binCentDiff;
+    }
+  }
+
+  std::vector<double> weightsExt(nBins+3);
+  // Fill weights for bins that are inside histogram boundaries
+  for (std::size_t binIdx = 0; binIdx < nBins; ++binIdx) {
+    weightsExt[binIdx+2] = correctForBinSize ? _wgt[binIdx] / _binv[binIdx] : _wgt[binIdx];
+  }
+
+  if (cdfBoundaries) {
+    coordsExt[0] = - 1e-10 + binning.lowBound();
+    weightsExt[0] = 0.;
+
+    coordsExt[1] = binning.lowBound();
+    weightsExt[1] = 0.;
+
+    coordsExt[nBins+2] = binning.highBound();
+    weightsExt[nBins+2] = 1.;
+  }
+  else {
+    // Mirror first two bins and last bin
+    coordsExt[0] = binCoords[1] - 2*_binv[0] - _binv[1];
+    weightsExt[0] = weightsExt[3];
+
+    coordsExt[1] = binCoords[0] - _binv[0];
+    weightsExt[1] = weightsExt[2];
+
+    coordsExt[nBins+2] = binCoords[nBins-1] + _binv[nBins-1];
+    weightsExt[nBins+2] = weightsExt[nBins+1];
+  }
+
+  // We use the current bin center and two bin centers on the left for
+  // interpolation if xVal is to the left of the current bin center
+  for (std::size_t i = 0; i < nEvents ; ++i) {
+    double xVal = xVals[i];
+    std::size_t binIdx = binIndices[i] + 2;
+
+    // If xVal is to the right of the current bin center, shift all bin
+    // coordinates one step to the right and use that for the interpolation
+    if (xVal > coordsExt[binIdx]) {
+        binIdx += 1;
+    }
+
+    double x1 = coordsExt[binIdx-2];
+    double y1 = weightsExt[binIdx-2];
+
+    double x2 = coordsExt[binIdx-1];
+    double y2 = weightsExt[binIdx-1];
+
+    double x3 = coordsExt[binIdx];
+    double y3 = weightsExt[binIdx];
+
+    // Evaluate a few repeated factors
+    double quotient = (x3-x1) / (x2-x1);
+    double x1Sqrd = x1*x1;
+    double x3Sqrd = x3*x3;
+    // Solve coefficients in system of three quadratic equations!
+    double secondCoeff = (y3 - y1 - (y2-y1) * quotient) / (x3Sqrd - x1Sqrd - (x2*x2 - x1Sqrd) * quotient);
+    double firstCoeff = (y3 - y1 - secondCoeff*(x3Sqrd - x1Sqrd)) / (x3-x1);
+    double zerothCoeff = y1 - secondCoeff*x1Sqrd - firstCoeff*x1;
+    // Get the interpolated weight using the equation of a second degree polynomial
+    output[i] = secondCoeff * xVal * xVal + firstCoeff * xVal + zerothCoeff;
+  }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// A vectorized version of interpolateDim for boundary safe linear
+/// interpolation of one dimensional histograms.
+///
+/// \param[out] output An array of interpolated weights corresponding to the
+///                    values in xVals.
+/// \param[in] xVals An array of event coordinates for which the weights should be
+///                  calculated.
+/// \param[in] correctForBinSize Enable the inverse bin volume correction factor.
+/// \param[in] cdfBoundaries Enable the special boundary condition for a cdf:
+///                          Underflow bins are assumed to have weight zero and
+///                          overflow bins have weight one. Otherwise, the
+///                          histogram is mirrored at the boundaries for the
+///                          interpolation.
+
+void RooDataHist::interpolateLinear(double* output, std::span<const double> xVals,
+                                    bool correctForBinSize, bool cdfBoundaries)
+{
+  const std::size_t nBins = numEntries();
+  const std::size_t nEvents = xVals.size();
+
+  RooAbsBinning const& binning = *_lvbins[0];
+  // Reuse the output buffer for bin indices and zero-initialize it
+  auto binIndices = reinterpret_cast<int*>(output + nEvents) - nEvents;
+  std::fill(binIndices, binIndices + nEvents, 0);
+  binning.binNumbers(xVals.data(), binIndices, nEvents);
+
+  // Extend coordinates and weights with one extra point before the first bin
+  // and one extra point after the last bin. This means the original histogram
+  // bins span elements 1 to nBins in coordsExt and weightsExt
+  std::vector<double> coordsExt(nBins+2);
+  double* binCoords = coordsExt.data() + 1;
+  binCoords[0] = binning.lowBound() + 0.5*_binv[0];
+  for (std::size_t binIdx = 1; binIdx < nBins ; ++binIdx) {
+    if (binning.isUniform()) {
+      double binWidth = _binv[0];
+      binCoords[binIdx] = binIdx*binWidth + binCoords[0];
+    }
+    else {
+      double binCentDiff = 0.5*_binv[binIdx-1] + 0.5*_binv[binIdx];
+      binCoords[binIdx] = binCoords[binIdx-1] + binCentDiff;
+    }
+  }
+
+  std::vector<double> weightsExt(nBins+2);
+  // Fill weights for bins that are inside histogram boundaries
+  for (std::size_t binIdx = 0; binIdx < nBins; ++binIdx) {
+    weightsExt[binIdx+1] = correctForBinSize ? _wgt[binIdx] / _binv[binIdx] : _wgt[binIdx];
+  }
+
+  // Fill weights for bins that are outside histogram boundaries
+  if (cdfBoundaries) {
+    coordsExt[0] = binning.lowBound();
+    weightsExt[0] = 0.;
+    coordsExt[nBins+1] = binning.highBound();
+    weightsExt[nBins+1] = 1.;
+  }
+  else {
+    // Mirror first and last bins
+    coordsExt[0] = binCoords[0] - _binv[0];
+    weightsExt[0] = weightsExt[1];
+    coordsExt[nBins+1] = binCoords[nBins-1] + _binv[nBins-1];
+    weightsExt[nBins+1] = weightsExt[nBins];
+  }
+
+  // Interpolate between current bin center and one bin center to the left
+  // if xVal is to the left of the current bin center
+  for (std::size_t i = 0; i < nEvents ; ++i) {
+      double xVal = xVals[i];
+      std::size_t binIdx = binIndices[i] + 1;
+
+      // If xVal is to the right of the current bin center, interpolate between
+      // current bin center and one bin center to the right instead
+      if (xVal > coordsExt[binIdx]) { binIdx += 1; }
+
+      double x1 = coordsExt[binIdx-1];
+      double y1 = weightsExt[binIdx-1];
+      double x2 = coordsExt[binIdx];
+      double y2 = weightsExt[binIdx];
+
+      // Find coefficients by solving a system of two linear equations
+      double firstCoeff = (y2-y1) / (x2-x1);
+      double zerothCoeff = y1 - firstCoeff * x1;
+      // Get the interpolated weight using the equation of a straight line
+      output[i] = firstCoeff * xVal + zerothCoeff;
+  }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// A vectorized version of RooDataHist::weight() for one dimensional histograms
+/// with up to one dimensional interpolation.
+/// \param[out] output An array of weights corresponding the values in xVals.
+/// \param[in] xVals An array of coordinates for which the weights should be
+///                  calculated.
+/// \param[in] intOrder Interpolation order; 0th and 1st order are supported.
+/// \param[in] correctForBinSize Enable the inverse bin volume correction factor.
+/// \param[in] cdfBoundaries Enable the special boundary condition for a cdf:
+///                          Underflow bins are assumed to have weight zero and
+///                          overflow bins have weight one. Otherwise, the
+///                          histogram is mirrored at the boundaries for the
+///                          interpolation.
+
+void RooDataHist::weights(double* output, std::span<double const> xVals, int intOrder, bool correctForBinSize, bool cdfBoundaries)
+{
+  auto const nEvents = xVals.size();
+
+  if (intOrder == 0) {
+    RooAbsBinning const& binning = *_lvbins[0];
+
+    // Reuse the output buffer for bin indices and zero-initialize it
+    auto binIndices = reinterpret_cast<int*>(output + nEvents) - nEvents;
+    std::fill(binIndices, binIndices + nEvents, 0);
+    binning.binNumbers(xVals.data(), binIndices, nEvents);
+
+    for (std::size_t i=0; i < nEvents; ++i) {
+      auto binIdx = binIndices[i];
+      output[i] = correctForBinSize ? _wgt[binIdx] / _binv[binIdx] : _wgt[binIdx];
+    }
+  }
+  else if (intOrder == 1) {
+    interpolateLinear(output, xVals, correctForBinSize, cdfBoundaries);
+  }
+    else if (intOrder == 2) {
+    interpolateQuadratic(output, xVals, correctForBinSize, cdfBoundaries);
+  }
+  else {
+    // Higher dimensional scenarios not yet implemented
+    coutE(InputArguments) << "RooDataHist::weights(" << GetName() << ") interpolation in "
+                          << intOrder << " dimensions not yet implemented" << std::endl ;
+    // Fall back to 1st order interpolation
+    weights(output, xVals, 1, correctForBinSize, cdfBoundaries);
+  }
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// A faster version of RooDataHist::weight that assumes the passed arguments
@@ -1081,30 +1385,26 @@ RooPlot *RooDataHist::plotOn(RooPlot *frame, PlotOpt o) const
 ///                     used for the interpolation. If zero, the bare weight for
 ///                     the bin enclosing the coordinatesis returned.
 /// \param[in] correctForBinSize Enable the inverse bin volume correction factor.
-/// \param[in] cdfBoundaries Enable the special boundary coundition for a cdf:
-///                          underflow bins are assumed to have weight zero and 
+/// \param[in] cdfBoundaries Enable the special boundary condition for a cdf:
+///                          underflow bins are assumed to have weight zero and
 ///                          overflow bins have weight one. Otherwise, the
 ///                          histogram is mirrored at the boundaries for the
 ///                          interpolation.
 
-double RooDataHist::weightFast(const RooArgSet& bin, Int_t intOrder, Bool_t correctForBinSize, Bool_t cdfBoundaries)
+double RooDataHist::weightFast(const RooArgSet& bin, Int_t intOrder, bool correctForBinSize, bool cdfBoundaries)
 {
   checkInit() ;
 
   // Handle illegal intOrder values
   if (intOrder<0) {
-    coutE(InputArguments) << "RooDataHist::weight(" << GetName() << ") ERROR: interpolation order must be positive" << endl ;
+    coutE(InputArguments) << "RooDataHist::weight(" << GetName() << ") ERROR: interpolation order must be positive" << std::endl ;
     return 0 ;
   }
 
   // Handle no-interpolation case
   if (intOrder==0) {
     const auto idx = calcTreeIndex(bin, true);
-    if (correctForBinSize) {
-      return get_wgt(idx) / _binv[idx];
-    } else {
-      return get_wgt(idx);
-    }
+    return correctForBinSize ? _wgt[idx] / _binv[idx] : _wgt[idx];
   }
 
   // Handle all interpolation cases
@@ -1119,31 +1419,27 @@ double RooDataHist::weightFast(const RooArgSet& bin, Int_t intOrder, Bool_t corr
 ///                     used for the interpolation. If zero, the bare weight for
 ///                     the bin enclosing the coordinatesis returned.
 /// \param[in] correctForBinSize Enable the inverse bin volume correction factor.
-/// \param[in] cdfBoundaries Enable the special boundary coundition for a cdf:
-///                          underflow bins are assumed to have weight zero and 
+/// \param[in] cdfBoundaries Enable the special boundary condition for a cdf:
+///                          underflow bins are assumed to have weight zero and
 ///                          overflow bins have weight one. Otherwise, the
 ///                          histogram is mirrored at the boundaries for the
 ///                          interpolation.
 /// \param[in] oneSafe Ignored.
 
-Double_t RooDataHist::weight(const RooArgSet& bin, Int_t intOrder, Bool_t correctForBinSize, Bool_t cdfBoundaries, Bool_t /*oneSafe*/)
+double RooDataHist::weight(const RooArgSet& bin, Int_t intOrder, bool correctForBinSize, bool cdfBoundaries, bool /*oneSafe*/)
 {
   checkInit() ;
 
   // Handle illegal intOrder values
   if (intOrder<0) {
-    coutE(InputArguments) << "RooDataHist::weight(" << GetName() << ") ERROR: interpolation order must be positive" << endl ;
+    coutE(InputArguments) << "RooDataHist::weight(" << GetName() << ") ERROR: interpolation order must be positive" << std::endl ;
     return 0 ;
   }
 
   // Handle no-interpolation case
-  if (intOrder==0) {    
+  if (intOrder==0) {
     const auto idx = calcTreeIndex(bin, false);
-    if (correctForBinSize) {
-      return get_wgt(idx) / _binv[idx];
-    } else {
-      return get_wgt(idx);
-    }
+    return correctForBinSize ? _wgt[idx] / _binv[idx] : _wgt[idx];
   }
 
   // Handle all interpolation cases
@@ -1160,8 +1456,8 @@ Double_t RooDataHist::weight(const RooArgSet& bin, Int_t intOrder, Bool_t correc
 /// \param[in] intOrder Interpolation order, i.e. how many neighbouring bins are
 ///                     used for the interpolation.
 /// \param[in] correctForBinSize Enable the inverse bin volume correction factor.
-/// \param[in] cdfBoundaries Enable the special boundary coundition for a cdf:
-///                          underflow bins are assumed to have weight zero and 
+/// \param[in] cdfBoundaries Enable the special boundary condition for a cdf:
+///                          underflow bins are assumed to have weight zero and
 ///                          overflow bins have weight one. Otherwise, the
 ///                          histogram is mirrored at the boundaries for the
 ///                          interpolation.
@@ -1174,11 +1470,18 @@ double RooDataHist::weightInterpolated(const RooArgSet& bin, int intOrder, bool 
   double wInt{0} ;
   if (varInfo.nRealVars == 1) {
 
+    // buffer needs to be 2 x (interpolation order + 1), with the factor 2 for x and y.
+    _interpolationBuffer.resize(2 * intOrder + 2);
+
     // 1-dimensional interpolation
     auto const& realX = static_cast<RooRealVar const&>(*bin[varInfo.realVarIdx1]);
     wInt = interpolateDim(varInfo.realVarIdx1, realX.getVal(), centralIdx, intOrder, correctForBinSize, cdfBoundaries) ;
-    
+
   } else if (varInfo.nRealVars == 2) {
+
+    // buffer needs to be 2 x 2 x (interpolation order + 1), with one factor 2
+    // for x and y, and the other for the number of dimensions.
+    _interpolationBuffer.resize(4 * intOrder + 4);
 
     // 2-dimensional interpolation
     auto const& realX = static_cast<RooRealVar const&>(*bin[varInfo.realVarIdx1]);
@@ -1186,17 +1489,25 @@ double RooDataHist::weightInterpolated(const RooArgSet& bin, int intOrder, bool 
     double xval = realX.getVal() ;
     double yval = realY.getVal() ;
 
-    RooAbsBinning const& binningY = realY.getBinning();
-    
+    // Use the internal binning of the y variable, not the binning of the
+    // variable passed in `bin`. The latter may be a different object than the
+    // one owned by this RooDataHist (e.g. the histogram observable clone of a
+    // RooHistPdf), with an unrelated default binning. The bin indexing below
+    // relies on `_idxMult` and `centralIdx`, which are both expressed in terms
+    // of the internal binning, so the y binning must match it too. This mirrors
+    // what calcTreeIndex() and interpolateDim() do for the other dimensions.
+    RooAbsBinning const& binningY = static_cast<RooRealVar const&>(*_vars[varInfo.realVarIdx2]).getBinning();
+
     int ybinC = binningY.binNumber(yval) ;
     int ybinLo = ybinC-intOrder/2 - ((yval<binningY.binCenter(ybinC))?1:0) ;
     int ybinM = binningY.numBins() ;
 
     auto idxMultY = _idxMult[varInfo.realVarIdx2];
     auto offsetIdx = centralIdx - idxMultY * ybinC;
-    
-    double yarr[10] = {} ;
-    double xarr[10] = {} ;
+
+    // Use a class-member buffer to avoid repeated heap allocations.
+    double * yarr = _interpolationBuffer.data() + 2 * intOrder + 2; // add offset to skip part reserved for other dim
+    double * xarr = yarr + intOrder + 1;
     for (int i=ybinLo ; i<=intOrder+ybinLo ; i++) {
       int ibin ;
       if (i>=0 && i<ybinM) {
@@ -1213,24 +1524,24 @@ double RooDataHist::weightInterpolated(const RooArgSet& bin, int intOrder, bool 
         xarr[i-ybinLo] = 2*binningY.lowBound()-binningY.binCenter(ibin) ;
       }
       auto centralIdxX = offsetIdx + idxMultY * ibin;
-      yarr[i-ybinLo] = interpolateDim(varInfo.realVarIdx1,xval,centralIdxX,intOrder,correctForBinSize,kFALSE) ;
+      yarr[i-ybinLo] = interpolateDim(varInfo.realVarIdx1,xval,centralIdxX,intOrder,correctForBinSize,false) ;
     }
 
     if (gDebug>7) {
-      cout << "RooDataHist interpolating data is" << endl ;
-      cout << "xarr = " ;
-      for (int q=0; q<=intOrder ; q++) cout << xarr[q] << " " ;
-      cout << " yarr = " ;
-      for (int q=0; q<=intOrder ; q++) cout << yarr[q] << " " ;
-      cout << endl ;
+      std::cout << "RooDataHist interpolating data is" << std::endl ;
+      std::cout << "xarr = " ;
+      for (int q=0; q<=intOrder ; q++) std::cout << xarr[q] << " " ;
+      std::cout << " yarr = " ;
+      for (int q=0; q<=intOrder ; q++) std::cout << yarr[q] << " " ;
+      std::cout << std::endl ;
     }
     wInt = RooMath::interpolate(xarr,yarr,intOrder+1,yval) ;
 
   } else {
 
     // Higher dimensional scenarios not yet implemented
-    coutE(InputArguments) << "RooDataHist::weight(" << GetName() << ") interpolation in " 
-                          << varInfo.nRealVars << " dimensions not yet implemented" << endl ;
+    coutE(InputArguments) << "RooDataHist::weight(" << GetName() << ") interpolation in "
+                          << varInfo.nRealVars << " dimensions not yet implemented" << std::endl ;
     return weightFast(bin,0,correctForBinSize,cdfBoundaries) ;
 
   }
@@ -1239,9 +1550,18 @@ double RooDataHist::weightInterpolated(const RooArgSet& bin, int intOrder, bool 
 }
 
 
+void RooDataHist::initializeAsymErrArrays() const {
+  if (!_errLo || !_errHi) {
+    initArray(_errLo, _arrSize, -1.);
+    initArray(_errHi, _arrSize, -1.);
+    registerWeightArraysToDataStore();
+  }
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the asymmetric errors on the current weight.
-/// \see weightError(ErrorType) const for symmetric error.
+/// \note see weightError(ErrorType) const for symmetric error.
 /// \param[out] lo Low error.
 /// \param[out] hi High error.
 /// \param[in] etype Type of error to compute. May throw if not supported.
@@ -1250,45 +1570,44 @@ double RooDataHist::weightInterpolated(const RooArgSet& bin, int intOrder, bool 
 /// - `SumW2` The square root of the sum of weights. (Symmetric).
 /// - `None` Return zero.
 void RooDataHist::weightError(double& lo, double& hi, ErrorType etype) const
-{ 
+{
   checkInit() ;
 
   switch (etype) {
 
   case Auto:
-    throw std::invalid_argument(Form("RooDataHist::weightError(%s) error type Auto not allowed here",GetName())) ;
+    throw std::invalid_argument("RooDataHist::weightError(" + std::string(GetName()) + ") error type Auto not allowed here");
     break ;
 
   case Expected:
-    throw std::invalid_argument(Form("RooDataHist::weightError(%s) error type Expected not allowed here",GetName())) ;
+    throw std::invalid_argument("RooDataHist::weightError(" + std::string(GetName()) + ") error type Expected not allowed here");
     break ;
 
-  case Poisson:
-    if (get_curWgtErrLo() >= 0) {
-      // Weight is preset or precalculated    
-      lo = get_curWgtErrLo();
-      hi = get_curWgtErrHi();
+  case Poisson: {
+    if (_errLo && _errLo[_curIndex] >= 0.0) {
+      // Weight is preset or precalculated
+      lo = _errLo[_curIndex];
+      hi = _errHi[_curIndex];
       return ;
     }
-    
-    if (!_errLo || !_errHi) {
-      // We didn't track asymmetric errors so far, so now we need to allocate
-      initArray(_errLo, _arrSize, -1.);
-      initArray(_errHi, _arrSize, -1.);
-      registerWeightArraysToDataStore();
-    }
+
+    // We didn't track asymmetric errors so far, so now we need to allocate
+    initializeAsymErrArrays();
 
     // Calculate poisson errors
-    Double_t ym,yp ;  
-    RooHistError::instance().getPoissonInterval(Int_t(weight()+0.5),ym,yp,1) ;
-    _errLo[_curIndex] = weight()-ym;
-    _errHi[_curIndex] = yp-weight();
+    double ym;
+    double yp;
+    const double w = weight(_curIndex);
+    RooHistError::instance().getPoissonInterval(Int_t(w+0.5),ym,yp,1) ;
+    _errLo[_curIndex] = w-ym;
+    _errHi[_curIndex] = yp-w;
     lo = _errLo[_curIndex];
     hi = _errHi[_curIndex];
     return ;
+  }
 
   case SumW2:
-    lo = sqrt(get_curSumW2());
+    lo = std::sqrt(weightSquared(_curIndex));
     hi = lo;
     return ;
 
@@ -1315,12 +1634,12 @@ void RooDataHist::weightError(double& lo, double& hi, ErrorType etype) const
 /// \param[in] intOrder Interpolation order, i.e. how many neighbouring bins are
 ///                     used for the interpolation.
 /// \param[in] correctForBinSize Enable the inverse bin volume correction factor.
-/// \param[in] cdfBoundaries Enable the special boundary coundition for a cdf:
-///                          underflow bins are assumed to have weight zero and 
+/// \param[in] cdfBoundaries Enable the special boundary condition for a cdf:
+///                          underflow bins are assumed to have weight zero and
 ///                          overflow bins have weight one. Otherwise, the
 ///                          histogram is mirrored at the boundaries for the
 ///                          interpolation.
-double RooDataHist::interpolateDim(int iDim, double xval, size_t centralIdx, int intOrder, bool correctForBinSize, bool cdfBoundaries) 
+double RooDataHist::interpolateDim(int iDim, double xval, size_t centralIdx, int intOrder, bool correctForBinSize, bool cdfBoundaries)
 {
   auto const& binning = static_cast<RooRealVar&>(*_vars[iDim]).getBinning();
 
@@ -1332,8 +1651,10 @@ double RooDataHist::interpolateDim(int iDim, double xval, size_t centralIdx, int
   auto idxMult = _idxMult[iDim];
   auto offsetIdx = centralIdx - idxMult * fbinC;
 
-  double yarr[10] ;
-  double xarr[10] ;
+  // Use a class-member buffer to avoid repeated heap allocations.
+  double * yarr = _interpolationBuffer.data();
+  double * xarr = yarr + intOrder + 1;
+
   for (int i=fbinLo ; i<=intOrder+fbinLo ; i++) {
     int ibin ;
     if (i>=0 && i<fbinM) {
@@ -1341,7 +1662,7 @@ double RooDataHist::interpolateDim(int iDim, double xval, size_t centralIdx, int
       ibin = i ;
       xarr[i-fbinLo] = binning.binCenter(ibin) ;
       auto idx = offsetIdx + idxMult * ibin;
-      yarr[i - fbinLo] = get_wgt(idx);
+      yarr[i - fbinLo] = _wgt[idx];
       if (correctForBinSize) yarr[i-fbinLo] /=  _binv[idx] ;
     } else if (i>=fbinM) {
       // Overflow: mirror
@@ -1352,7 +1673,7 @@ double RooDataHist::interpolateDim(int iDim, double xval, size_t centralIdx, int
       } else {
         auto idx = offsetIdx + idxMult * ibin;
         xarr[i-fbinLo] = 2*binning.highBound()-binning.binCenter(ibin) ;
-        yarr[i - fbinLo] = get_wgt(idx);
+        yarr[i - fbinLo] = _wgt[idx];
         if (correctForBinSize)
           yarr[i - fbinLo] /= _binv[idx];
       }
@@ -1360,12 +1681,12 @@ double RooDataHist::interpolateDim(int iDim, double xval, size_t centralIdx, int
       // Underflow: mirror
       ibin = -i - 1 ;
       if (cdfBoundaries) {
-        xarr[i-fbinLo] = binning.lowBound()-ibin*(1e-10) ; ;
+        xarr[i-fbinLo] = binning.lowBound()-ibin*(1e-10) ;
         yarr[i-fbinLo] = 0.0 ;
       } else {
         auto idx = offsetIdx + idxMult * ibin;
         xarr[i-fbinLo] = 2*binning.lowBound()-binning.binCenter(ibin) ;
-        yarr[i - fbinLo] = get_wgt(idx);
+        yarr[i - fbinLo] = _wgt[idx];
         if (correctForBinSize)
           yarr[i - fbinLo] /= _binv[idx];
       }
@@ -1384,7 +1705,7 @@ double RooDataHist::interpolateDim(int iDim, double xval, size_t centralIdx, int
 /// \param[in] wgt Increment by this weight.
 /// \param[in] sumw2 Optionally, track the sum of squared weights. If a value > 0 or
 /// a weight != 1. is passed for the first time, a vector for the squared weights will be allocated.
-void RooDataHist::add(const RooArgSet& row, Double_t wgt, Double_t sumw2) 
+void RooDataHist::add(const RooArgSet& row, double wgt, double sumw2)
 {
   checkInit() ;
 
@@ -1412,15 +1733,11 @@ void RooDataHist::add(const RooArgSet& row, Double_t wgt, Double_t sumw2)
 /// \param[in] wgt New bin content.
 /// \param[in] wgtErrLo Low error of the bin content.
 /// \param[in] wgtErrHi High error of the bin content.
-void RooDataHist::set(const RooArgSet& row, Double_t wgt, Double_t wgtErrLo, Double_t wgtErrHi) 
+void RooDataHist::set(const RooArgSet& row, double wgt, double wgtErrLo, double wgtErrHi)
 {
   checkInit() ;
 
-  if (!_errLo || !_errHi) {
-    initArray(_errLo, _arrSize, -1.);
-    initArray(_errHi, _arrSize, -1.);
-    registerWeightArraysToDataStore();
-  }
+  initializeAsymErrArrays();
 
   const auto idx = calcTreeIndex(row, false);
 
@@ -1453,13 +1770,12 @@ void RooDataHist::set(std::size_t binNumber, double wgt, double wgtErr) {
   if (_errHi) _errHi[binNumber] = wgtErr;
   if (_sumw2) _sumw2[binNumber] = wgtErr*wgtErr;
 
-  _cache_sum_valid = kFALSE ;
+  _cache_sum_valid = false ;
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set bin content of bin that was last loaded with get(std::size_t).
-/// \deprecated Prefer set(std::size_t, double, double).
 /// \param[in] wgt New bin content.
 /// \param[in] wgtErr Optional error of the bin content.
 void RooDataHist::set(double wgt, double wgtErr) {
@@ -1476,7 +1792,7 @@ void RooDataHist::set(double wgt, double wgtErr) {
 /// \param[in] row Coordinates to compute the bin from.
 /// \param[in] wgt New bin content.
 /// \param[in] wgtErr Optional error of the bin content.
-void RooDataHist::set(const RooArgSet& row, Double_t wgt, Double_t wgtErr) {
+void RooDataHist::set(const RooArgSet& row, double wgt, double wgtErr) {
   set(calcTreeIndex(row, false), wgt, wgtErr);
 }
 
@@ -1487,8 +1803,8 @@ void RooDataHist::set(const RooArgSet& row, Double_t wgt, Double_t wgtErr) {
 /// Optional cut string expression selects the data points to be added and can
 /// reference any variable contained in this data set
 
-void RooDataHist::add(const RooAbsData& dset, const char* cut, Double_t wgt) 
-{  
+void RooDataHist::add(const RooAbsData& dset, const char* cut, double wgt)
+{
   RooFormulaVar cutVar("select",cut,*dset.get()) ;
   add(dset,&cutVar,wgt) ;
 }
@@ -1499,21 +1815,21 @@ void RooDataHist::add(const RooAbsData& dset, const char* cut, Double_t wgt)
 /// Add all data points contained in 'dset' to this data set with given weight.
 /// Optional RooFormulaVar pointer selects the data points to be added.
 
-void RooDataHist::add(const RooAbsData& dset, const RooFormulaVar* cutVar, Double_t wgt) 
+void RooDataHist::add(const RooAbsData& dset, const RooFormulaVar* cutVar, double wgt)
 {
   checkInit() ;
 
-  RooFormulaVar* cloneVar = 0;
-  RooArgSet* tmp(0) ;
+  RooFormulaVar* cloneVar = nullptr;
+  std::unique_ptr<RooArgSet> tmp;
   if (cutVar) {
     // Deep clone cutVar and attach clone to this dataset
-    tmp = (RooArgSet*) RooArgSet(*cutVar).snapshot() ;
-    if (!tmp) {
-      coutE(DataHandling) << "RooDataHist::add(" << GetName() << ") Couldn't deep-clone cut variable, abort," << endl ;
+    tmp = std::make_unique<RooArgSet>();
+    if(RooArgSet(*cutVar).snapshot(*tmp)) {
+      coutE(DataHandling) << "RooDataHist::add(" << GetName() << ") Couldn't deep-clone cut variable, abort," << std::endl ;
       return ;
     }
 
-    cloneVar = (RooFormulaVar*) tmp->find(*cutVar) ;
+    cloneVar = static_cast<RooFormulaVar*>(tmp->find(*cutVar)) ;
     cloneVar->attachDataSet(dset) ;
   }
 
@@ -1526,11 +1842,7 @@ void RooDataHist::add(const RooAbsData& dset, const RooFormulaVar* cutVar, Doubl
     }
   }
 
-  if (cloneVar) {
-    delete tmp ;
-  } 
-
-  _cache_sum_valid = kFALSE ;
+  _cache_sum_valid = false ;
 }
 
 
@@ -1542,7 +1854,7 @@ void RooDataHist::add(const RooAbsData& dset, const RooFormulaVar* cutVar, Doubl
 /// with the N-dimensional bin volume, making the return value
 /// the integral over the function represented by this histogram.
 /// \param[in] inverseBinCor Divide by the N-dimensional bin volume.
-Double_t RooDataHist::sum(bool correctForBinSize, bool inverseBinCor) const 
+double RooDataHist::sum(bool correctForBinSize, bool inverseBinCor) const
 {
   checkInit() ;
 
@@ -1555,14 +1867,14 @@ Double_t RooDataHist::sum(bool correctForBinSize, bool inverseBinCor) const
   ROOT::Math::KahanSum<double> kahanSum;
   for (Int_t i=0; i < _arrSize; i++) {
     const double theBinVolume = correctForBinSize ? (inverseBinCor ? 1/_binv[i] : _binv[i]) : 1.0 ;
-    kahanSum += get_wgt(i) * theBinVolume;
+    kahanSum += _wgt[i] * theBinVolume;
   }
 
   // Store result in cache
   _cache_sum_valid = cache_code;
-  _cache_sum = kahanSum;
+  _cache_sum = kahanSum.Sum();
 
-  return kahanSum;
+  return kahanSum.Sum();
 }
 
 
@@ -1570,7 +1882,7 @@ Double_t RooDataHist::sum(bool correctForBinSize, bool inverseBinCor) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the sum of the weights of a multi-dimensional slice of the histogram
 /// by summing only over the dimensions specified in sumSet.
-///   
+///
 /// The coordinates of all other dimensions are fixed to those given in sliceSet
 ///
 /// If correctForBinSize is specified, the sum of weights
@@ -1578,7 +1890,7 @@ Double_t RooDataHist::sum(bool correctForBinSize, bool inverseBinCor) const
 /// making the return value the integral over the function
 /// represented by this histogram
 
-Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet, bool correctForBinSize, bool inverseBinCor)
+double RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet, bool correctForBinSize, bool inverseBinCor)
 {
   checkInit() ;
 
@@ -1597,9 +1909,9 @@ Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet, bo
      pbinv = &calculatePartialBinVolume(sumSet);
   }
 
-  // Calculate mask and refence plot bins for non-iterating variables
-  std::vector<bool> mask(_vars.getSize());
-  std::vector<int> refBin(_vars.getSize());
+  // Calculate mask and reference plot bins for non-iterating variables
+  std::vector<bool> mask(_vars.size());
+  std::vector<int> refBin(_vars.size());
 
   for (unsigned int i = 0; i < _vars.size(); ++i) {
     const RooAbsArg*    arg   = _vars[i];
@@ -1612,13 +1924,13 @@ Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet, bo
       refBin[i] = argLv->getBin();
     }
   }
-    
+
   // Loop over entire data set, skipping masked entries
   ROOT::Math::KahanSum<double> total;
   for (Int_t ibin=0; ibin < _arrSize; ++ibin) {
 
     std::size_t tmpibin = ibin;
-    Bool_t skip(false) ;
+    bool skip(false) ;
 
     // Check if this bin belongs in selected slice
     for (unsigned int ivar = 0; !skip && ivar < _vars.size(); ++ivar) {
@@ -1627,22 +1939,22 @@ Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet, bo
       if (mask[ivar] && idx!=refBin[ivar])
         skip = true ;
     }
-    
+
     if (!skip) {
       const double theBinVolume = correctForBinSize ? (inverseBinCor ? 1/(*pbinv)[ibin] : (*pbinv)[ibin] ) : 1.0 ;
-      total += get_wgt(ibin) * theBinVolume;
+      total += _wgt[ibin] * theBinVolume;
     }
   }
 
   _vars.assign(varSave) ;
 
-  return total;
+  return total.Sum();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the sum of the weights of a multi-dimensional slice of the histogram
 /// by summing only over the dimensions specified in sumSet.
-///   
+///
 /// The coordinates of all other dimensions are fixed to those given in sliceSet
 ///
 /// If correctForBinSize is specified, the sum of weights
@@ -1655,7 +1967,7 @@ Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet, bo
 /// fraction of the bin volume that falls inside the range, i.e. a factor of
 /// binVolumeInRange/totalBinVolume.
 
-Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet,
+double RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet,
                           bool correctForBinSize, bool inverseBinCor,
                           const std::map<const RooAbsArg*, std::pair<double, double> >& ranges,
                           std::function<double(int)> getBinScale)
@@ -1672,10 +1984,10 @@ Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet,
 
   // Calculate mask and reference plot bins for non-iterating variables,
   // and get ranges for iterating variables
-  std::vector<bool> mask(_vars.getSize());
-  std::vector<int> refBin(_vars.getSize());
-  std::vector<double> rangeLo(_vars.getSize(), -std::numeric_limits<Double_t>::infinity());
-  std::vector<double> rangeHi(_vars.getSize(), +std::numeric_limits<Double_t>::infinity());
+  std::vector<bool> mask(_vars.size());
+  std::vector<int> refBin(_vars.size());
+  std::vector<double> rangeLo(_vars.size(), -std::numeric_limits<double>::infinity());
+  std::vector<double> rangeHi(_vars.size(), +std::numeric_limits<double>::infinity());
 
   for (std::size_t i = 0; i < _vars.size(); ++i) {
     const RooAbsArg* arg = _vars[i];
@@ -1710,11 +2022,11 @@ Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet,
     if (skip) continue;
 
     // Work out bin volume
-    // It's not necessary to figure out the bin volume for the slice-only set explicitely here.
+    // It's not necessary to figure out the bin volume for the slice-only set explicitly here.
     // We need to loop over the sumSet anyway to get the partial bin containment correction,
     // so we can get the slice-only set volume later by dividing _binv[ibin] / binVolumeSumSetFull.
-    Double_t binVolumeSumSetFull = 1.;
-    Double_t binVolumeSumSetInRange = 1.;
+    double binVolumeSumSetFull = 1.;
+    double binVolumeSumSetInRange = 1.;
     for (Int_t ivar = 0, tmp = ibin; ivar < (int)_vars.size(); ++ivar) {
       const Int_t idx = tmp / _idxMult[ivar];
       tmp -= idx*_idxMult[ivar];
@@ -1726,8 +2038,8 @@ Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet,
       }
 
       if (_binbounds[ivar].empty()) continue;
-      const Double_t binLo = _binbounds[ivar][2 * idx];
-      const Double_t binHi = _binbounds[ivar][2 * idx + 1];
+      const double binLo = _binbounds[ivar][2 * idx];
+      const double binHi = _binbounds[ivar][2 * idx + 1];
       if (binHi < rangeLo[ivar] || binLo > rangeHi[ivar]) {
         // bin is outside of allowed range - effective bin volume is zero
         binVolumeSumSetInRange = 0.;
@@ -1737,15 +2049,15 @@ Double_t RooDataHist::sum(const RooArgSet& sumSet, const RooArgSet& sliceSet,
       binVolumeSumSetFull *= binHi - binLo;
       binVolumeSumSetInRange *= std::min(rangeHi[ivar], binHi) - std::max(rangeLo[ivar], binLo);
     }
-    const Double_t corrPartial = binVolumeSumSetInRange / binVolumeSumSetFull;
+    const double corrPartial = binVolumeSumSetInRange / binVolumeSumSetFull;
     if (0. == corrPartial) continue;
-    const Double_t corr = correctForBinSize ? (inverseBinCor ? binVolumeSumSetFull / _binv[ibin] : binVolumeSumSetFull ) : 1.0;
-    total += getBinScale(ibin)*(get_wgt(ibin) * corr * corrPartial);
+    const double corr = correctForBinSize ? (inverseBinCor ? binVolumeSumSetFull / _binv[ibin] : binVolumeSumSetFull ) : 1.0;
+    total += getBinScale(ibin)*(_wgt[ibin] * corr * corrPartial);
   }
 
   _vars.assign(varSave);
 
-  return total;
+  return total.Sum();
 }
 
 
@@ -1774,15 +2086,16 @@ const std::vector<double>& RooDataHist::calculatePartialBinVolume(const RooArgSe
   pbinv.resize(_arrSize);
 
   // Calculate plot bins of components from master index
-  std::vector<bool> selDim(_vars.getSize());
+  std::vector<bool> selDim(_vars.size());
   for (std::size_t i = 0; i < selDim.size(); ++i) {
     selDim[i] = (code >> i) & 1 ;
   }
 
   // Recalculate partial bin volume cache
   for (Int_t ibin=0; ibin < _arrSize ;ibin++) {
-    Int_t idx(0), tmp(ibin) ;
-    Double_t theBinVolume(1) ;
+    Int_t idx(0);
+    Int_t tmp(ibin);
+    double theBinVolume(1) ;
     for (unsigned int j=0; j < _lvvars.size(); ++j) {
       const RooAbsLValue* arg = _lvvars[j];
       assert(arg);
@@ -1800,26 +2113,10 @@ const std::vector<double>& RooDataHist::calculatePartialBinVolume(const RooArgSe
 }
 
 
-
-////////////////////////////////////////////////////////////////////////////////
-/// Return the number of bins
-
-Int_t RooDataHist::numEntries() const 
-{
-  return RooAbsData::numEntries() ;
-}
-
-
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Sum the weights of all bins.
-Double_t RooDataHist::sumEntries() const {
-
-  if (_maskedWeights.empty()) {
-    return ROOT::Math::KahanSum<double>::Accumulate(_wgt, _wgt + _arrSize);
-  } else {
-    return ROOT::Math::KahanSum<double>::Accumulate(_maskedWeights.begin(), _maskedWeights.end());
-  }
+double RooDataHist::sumEntries() const {
+  return ROOT::Math::KahanSum<double>::Accumulate(_wgt, _wgt + _arrSize).Sum();
 }
 
 
@@ -1829,35 +2126,31 @@ Double_t RooDataHist::sumEntries() const {
 /// and in named range cutRange (if specified)
 /// Return the
 
-Double_t RooDataHist::sumEntries(const char* cutSpec, const char* cutRange) const
+double RooDataHist::sumEntries(const char* cutSpec, const char* cutRange) const
 {
   checkInit() ;
 
-  if (cutSpec==0 && cutRange==0) {
+  if (cutSpec==nullptr && cutRange==nullptr) {
     return sumEntries();
   } else {
-    
-    // Setup RooFormulaVar for cutSpec if it is present
-    RooFormula* select = 0 ;
-    if (cutSpec) {
-      select = new RooFormula("select",cutSpec,*get()) ;
-    }
-    
+
+     // Setup a formula evaluator for cutSpec if it is present
+     std::unique_ptr<RooFormulaEvaluator> select;
+     if (cutSpec) {
+        select = RooFormulaUtils::makeFormulaEvaluator("select", cutSpec, *get());
+     }
+
     // Otherwise sum the weights in the event
     ROOT::Math::KahanSum<> kahanSum;
     for (Int_t i=0; i < _arrSize; i++) {
       get(i) ;
-      if ((!_maskedWeights.empty() && _maskedWeights[i] == 0.)
-          || (select && select->eval() == 0.)
-          || (cutRange && !_vars.allInRange(cutRange)))
-          continue;
+      if ((select && RooFormulaUtils::evalFormula(*select, _vars) == 0.) || (cutRange && !_vars.allInRange(cutRange)))
+         continue;
 
       kahanSum += weight(i);
     }
-    
-    if (select) delete select ;
-    
-    return kahanSum;
+
+    return kahanSum.Sum();
   }
 }
 
@@ -1866,7 +2159,7 @@ Double_t RooDataHist::sumEntries(const char* cutSpec, const char* cutRange) cons
 ////////////////////////////////////////////////////////////////////////////////
 /// Reset all bin weights to zero
 
-void RooDataHist::reset() 
+void RooDataHist::reset()
 {
   // WVE DO NOT CALL RooTreeData::reset() for binned
   // datasets as this will delete the bin definitions
@@ -1910,40 +2203,26 @@ const RooArgSet* RooDataHist::get(const RooArgSet& coord) const {
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the volume of the bin enclosing coordinates 'coord'.
-Double_t RooDataHist::binVolume(const RooArgSet& coord) const {
+double RooDataHist::binVolume(const RooArgSet& coord) const {
   checkInit() ;
   return _binv[calcTreeIndex(coord, false)] ;
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set all the event weight of all bins to the specified value
-
-void RooDataHist::setAllWeights(Double_t value) 
-{
-  for (Int_t i=0 ; i<_arrSize ; i++) {
-    _wgt[i] = value ;
-  }
-
-  _cache_sum_valid = kFALSE ;
-}
-
-
-
-////////////////////////////////////////////////////////////////////////////////
 /// Create an iterator over all bins in a slice defined by the subset of observables
 /// listed in sliceArg. The position of the slice is given by otherArgs
 
-TIterator* RooDataHist::sliceIterator(RooAbsArg& sliceArg, const RooArgSet& otherArgs) 
+TIterator* RooDataHist::sliceIterator(RooAbsArg& sliceArg, const RooArgSet& otherArgs)
 {
   // Update to current position
   _vars.assign(otherArgs) ;
   _curIndex = calcTreeIndex(_vars, true);
-  
+
   RooAbsArg* intArg = _vars.find(sliceArg) ;
   if (!intArg) {
-    coutE(InputArguments) << "RooDataHist::sliceIterator() variable " << sliceArg.GetName() << " is not part of this RooDataHist" << endl ;
-    return 0 ;
+    coutE(InputArguments) << "RooDataHist::sliceIterator() variable " << sliceArg.GetName() << " is not part of this RooDataHist" << std::endl ;
+    return nullptr ;
   }
   return new RooDataHistSliceIter(*this,*intArg) ;
 }
@@ -1952,10 +2231,11 @@ TIterator* RooDataHist::sliceIterator(RooAbsArg& sliceArg, const RooArgSet& othe
 ////////////////////////////////////////////////////////////////////////////////
 /// Change the name of the RooDataHist
 
-void RooDataHist::SetName(const char *name) 
+void RooDataHist::SetName(const char *name)
 {
   if (_dir) _dir->GetList()->Remove(this);
-  TNamed::SetName(name) ;
+  // We need to use the function from RooAbsData, because it already overrides TNamed::SetName
+  RooAbsData::SetName(name);
   if (_dir) _dir->GetList()->Add(this);
 }
 
@@ -1963,18 +2243,17 @@ void RooDataHist::SetName(const char *name)
 ////////////////////////////////////////////////////////////////////////////////
 /// Change the title of this RooDataHist
 
-void RooDataHist::SetNameTitle(const char *name, const char* title) 
+void RooDataHist::SetNameTitle(const char *name, const char* title)
 {
-  if (_dir) _dir->GetList()->Remove(this);
-  TNamed::SetNameTitle(name,title) ;
-  if (_dir) _dir->GetList()->Add(this);
+  SetName(name);
+  SetTitle(title);
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Print value of the dataset, i.e. the sum of weights contained in the dataset
 
-void RooDataHist::printValue(ostream& os) const 
+void RooDataHist::printValue(ostream& os) const
 {
   os << numEntries() << " bins (" << sumEntries() << " weights)" ;
 }
@@ -1985,13 +2264,13 @@ void RooDataHist::printValue(ostream& os) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Print argument of dataset, i.e. the observable names
 
-void RooDataHist::printArgs(ostream& os) const 
+void RooDataHist::printArgs(ostream& os) const
 {
-  os << "[" ;    
-  Bool_t first(kTRUE) ;
+  os << "[" ;
+  bool first(true) ;
   for (const auto arg : _vars) {
     if (first) {
-      first=kFALSE ;
+      first=false ;
     } else {
       os << "," ;
     }
@@ -2003,39 +2282,14 @@ void RooDataHist::printArgs(ostream& os) const
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Compute which bins of the dataset are part of the currently set fit range.
-void RooDataHist::cacheValidEntries() 
-{
-  checkInit() ;
-
-  _maskedWeights.assign(_wgt, _wgt + _arrSize);
-  if(_sumw2) _maskedSumw2.assign(_sumw2, _sumw2 + _arrSize);
-
-  for (Int_t i=0; i < _arrSize; ++i) {
-    get(i) ;
-
-    for (const auto arg : _vars) {
-      if (!arg->inRange(nullptr)) {
-        _maskedWeights[i] = 0.;
-        if(_sumw2) _maskedSumw2[i] = 0.;
-        break;
-      }
-    }
-  }
-
-}
-
-
-
-////////////////////////////////////////////////////////////////////////////////
 /// Returns true if dataset contains entries with a non-integer weight.
 
-Bool_t RooDataHist::isNonPoissonWeighted() const
+bool RooDataHist::isNonPoissonWeighted() const
 {
   for (Int_t i=0; i < _arrSize; ++i) {
     const double wgt = _wgt[i];
     double intpart;
-    if (fabs(std::modf(wgt, &intpart)) > 1.E-10)
+    if (std::abs(std::modf(wgt, &intpart)) > 1.E-10)
       return true;
   }
 
@@ -2046,34 +2300,71 @@ Bool_t RooDataHist::isNonPoissonWeighted() const
 ////////////////////////////////////////////////////////////////////////////////
 /// Print the details on the dataset contents
 
-void RooDataHist::printMultiline(ostream& os, Int_t content, Bool_t verbose, TString indent) const 
+void RooDataHist::printMultiline(ostream& os, Int_t content, bool verbose, TString indent) const
 {
-  RooAbsData::printMultiline(os,content,verbose,indent) ;  
+  RooAbsData::printMultiline(os,content,verbose,indent) ;
 
-  os << indent << "Binned Dataset " << GetName() << " (" << GetTitle() << ")" << endl ;
-  os << indent << "  Contains " << numEntries() << " bins with a total weight of " << sumEntries() << endl;
-  
+  os << indent << "Binned Dataset " << GetName() << " (" << GetTitle() << ")" << std::endl ;
+  os << indent << "  Contains " << numEntries() << " bins with a total weight of " << sumEntries() << std::endl;
+
   if (!verbose) {
-    os << indent << "  Observables " << _vars << endl ;
+    os << indent << "  Observables " << _vars << std::endl ;
   } else {
     os << indent << "  Observables: " ;
     _vars.printStream(os,kName|kValue|kExtras|kTitle,kVerbose,indent+"  ") ;
   }
 
   if(verbose) {
-    if (_cachedVars.getSize()>0) {
-      os << indent << "  Caches " << _cachedVars << endl ;
+    if (!_cachedVars.empty()) {
+      os << indent << "  Caches " << _cachedVars << std::endl ;
     }
   }
 }
 
-void RooDataHist::printDataHistogram(ostream& os, RooRealVar* obs) const
+/**
+ * \brief Prints the contents of the RooDataHist to the specified output stream.
+ *
+ * This function iterates through all bins of the histogram and prints the
+ * coordinates of each bin, along with its weight and statistical error.
+ * It is designed to be robust, handling empty or invalid datasets,
+ * and works for histograms of any dimension.
+ *
+ * \param os The output stream (e.g., std::cout) to write the contents to.
+ */
+void RooDataHist::printContents(std::ostream& os) const
 {
-  for(Int_t i=0; i<obs->getBins(); ++i){
-    this->get(i);
-    obs->setBin(i);
-    os << this->weight() << " +/- " << this->weightSquared() << endl;
-  }
+    os << "Contents of RooDataHist \"" << GetName() << "\"" << std::endl;
+
+    if (numEntries() == 0) {
+        os << "(dataset is empty)" << std::endl;
+        return;
+    }
+
+    for (int i = 0; i < numEntries(); ++i) {
+        const RooArgSet* obs = get(i); // load i-th bin
+        os << "  Bin " << i << ": ";
+
+        bool first = true;
+        for (const auto* var : *obs) {
+            if (!first) os << ", ";
+            first = false;
+
+            os << var->GetName() << "=";
+            if (auto realVar = dynamic_cast<const RooRealVar*>(var)) {
+                os << realVar->getVal();
+            } else if (auto catVar = dynamic_cast<const RooCategory*>(var)) {
+                os << catVar->getCurrentLabel();
+            } else {
+                os << "(unsupported type)"; //added as a precaution
+            }
+        }
+
+        double lo;
+        double hi;
+        weightError(lo, hi, RooAbsData::SumW2);
+        os << ", weight=" << weight(i) << " +/- [" << lo << "," << hi << "]"
+           << std::endl;
+    }
 }
 
 
@@ -2082,13 +2373,14 @@ void RooDataHist::printDataHistogram(ostream& os, RooRealVar* obs) const
 void RooDataHist::Streamer(TBuffer &R__b) {
   if (R__b.IsReading()) {
 
-    UInt_t R__s, R__c;
+    UInt_t R__s;
+    UInt_t R__c;
     Version_t R__v = R__b.ReadVersion(&R__s, &R__c);
 
     if (R__v > 2) {
       R__b.ReadClassBuffer(RooDataHist::Class(),this,R__v,R__s,R__c);
       R__b.CheckByteCount(R__s, R__c, RooDataHist::IsA());
-      initialize(0, false);
+      initialize(nullptr, false);
     } else {
 
       // Legacy dataset conversion happens here. Legacy RooDataHist inherits from RooTreeData
@@ -2097,18 +2389,19 @@ void RooDataHist::Streamer(TBuffer &R__b) {
       // new-style RooAbsData base class
 
       // --- This is the contents of the streamer code of RooTreeData version 2 ---
-      UInt_t R__s1, R__c1;
+      UInt_t R__s1;
+      UInt_t R__c1;
       Version_t R__v1 = R__b.ReadVersion(&R__s1, &R__c1); if (R__v1) { }
 
       RooAbsData::Streamer(R__b);
-      TTree* X_tree(0) ; R__b >> X_tree;
+      TTree* X_tree(nullptr) ; R__b >> X_tree;
       RooArgSet X_truth ; X_truth.Streamer(R__b);
       TString X_blindString ; X_blindString.Streamer(R__b);
       R__b.CheckByteCount(R__s1, R__c1, TClass::GetClass("RooTreeData"));
       // --- End of RooTreeData-v1 streamer
 
       // Construct RooTreeDataStore from X_tree and complete initialization of new-style RooAbsData
-      _dstore = new RooTreeDataStore(X_tree,_vars) ;
+      _dstore = std::make_unique<RooTreeDataStore>(X_tree,_vars);
       _dstore->SetName(GetName()) ;
       _dstore->SetTitle(GetTitle()) ;
       _dstore->checkInit() ;
@@ -2116,19 +2409,19 @@ void RooDataHist::Streamer(TBuffer &R__b) {
       RooDirItem::Streamer(R__b);
       R__b >> _arrSize;
       delete [] _wgt;
-      _wgt = new Double_t[_arrSize];
+      _wgt = new double[_arrSize];
       R__b.ReadFastArray(_wgt,_arrSize);
       delete [] _errLo;
-      _errLo = new Double_t[_arrSize];
+      _errLo = new double[_arrSize];
       R__b.ReadFastArray(_errLo,_arrSize);
       delete [] _errHi;
-      _errHi = new Double_t[_arrSize];
+      _errHi = new double[_arrSize];
       R__b.ReadFastArray(_errHi,_arrSize);
       delete [] _sumw2;
-      _sumw2 = new Double_t[_arrSize];
+      _sumw2 = new double[_arrSize];
       R__b.ReadFastArray(_sumw2,_arrSize);
       delete [] _binv;
-      _binv = new Double_t[_arrSize];
+      _binv = new double[_arrSize];
       RooArgSet tmpSet;
       tmpSet.Streamer(R__b);
       double tmp;
@@ -2151,32 +2444,10 @@ void RooDataHist::Streamer(TBuffer &R__b) {
 ////////////////////////////////////////////////////////////////////////////////
 /// Return event weights of all events in range [first, first+len).
 /// If cacheValidEntries() has been called, out-of-range events will have a weight of 0.
-RooSpan<const double> RooDataHist::getWeightBatch(std::size_t first, std::size_t len, bool sumW2 /*=false*/) const {
-  if(sumW2 && _sumw2) {
-    return _maskedSumw2.empty() ?
-        RooSpan<const double>{_sumw2 + first, len} :
-        RooSpan<const double>{_maskedSumw2.data() + first, len};
-  } else {
-    return _maskedWeights.empty() ?
-        RooSpan<const double>{_wgt + first, len} :
-        RooSpan<const double>{_maskedWeights.data() + first, len};
-  }
+std::span<const double> RooDataHist::getWeightBatch(std::size_t first, std::size_t len, bool sumW2 /*=false*/) const {
+  return {(sumW2 && _sumw2 ? _sumw2 : _wgt) + first, len};
 }
 
-
-////////////////////////////////////////////////////////////////////////////////
-/// Write information to retrieve data columns into `evalData.spans`.
-/// All spans belonging to variables of this dataset are overwritten. Spans to other
-/// variables remain intact.
-/// \param[out] evalData Store references to all data batches in this struct's `spans`.
-/// The key to retrieve an item is the pointer of the variable that owns the data.
-/// \param first Index of first event that ends up in the batch.
-/// \param len   Number of events in each batch.
-void RooDataHist::getBatches(RooBatchCompute::RunContext& evalData, std::size_t begin, std::size_t len) const {
-  for (auto&& batch : store()->getBatches(begin, len).spans) {
-    evalData.spans[batch.first] = std::move(batch.second);
-  }
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Hand over pointers to our weight arrays to the data store implementation.
@@ -2188,7 +2459,7 @@ void RooDataHist::registerWeightArraysToDataStore() const {
 ////////////////////////////////////////////////////////////////////////////////
 /// Return reference to VarInfo struct with cached histogram variable
 /// information that is frequently used for histogram weights retrieval.
-/// 
+///
 /// If the `_varInfo` struct was not initialized yet, it will be initialized in
 /// this function.
 RooDataHist::VarInfo const& RooDataHist::getVarInfo() {

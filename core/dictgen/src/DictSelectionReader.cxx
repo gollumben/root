@@ -251,7 +251,7 @@ bool DictSelectionReader::FirstPass(const clang::RecordDecl &recordDecl)
 {
    std::string className;
    ROOT::TMetaUtils::GetQualifiedName(
-      className, *recordDecl.getTypeForDecl(), recordDecl);
+      className, recordDecl.getASTContext().getCanonicalTagType(&recordDecl), recordDecl);
 
    // Strip ROOT::Meta::Selection
    className.replace(0, 23, "");
@@ -312,7 +312,7 @@ bool DictSelectionReader::SecondPass(const clang::RecordDecl &recordDecl)
    if (InSelectionNamespace(recordDecl)) return true;
 
    std::string className;
-   GetQualifiedName(className, *recordDecl.getTypeForDecl(), recordDecl);
+   GetQualifiedName(className, recordDecl.getASTContext().getCanonicalTagType(&recordDecl), recordDecl);
 
    // If the class is not among those which have fields the type of which are to
    // be autoselected or excluded
@@ -359,7 +359,6 @@ bool DictSelectionReader::SecondPass(const clang::RecordDecl &recordDecl)
          // Now we take care of the transient and unsplittable members
          if (tInfo.fTransientMembers.empty() && tInfo.fUnsplittableMembers.empty()) continue;
          clang::ASTContext &C = recordDecl.getASTContext();
-         clang::SourceRange commentRange; // Empty: this is a fake comment
          std::string userDefinedProperty;
          userDefinedProperty.reserve(100);
          for (auto fieldPtr : recordDecl.fields()) {
@@ -370,7 +369,7 @@ bool DictSelectionReader::SecondPass(const clang::RecordDecl &recordDecl)
                userDefinedProperty = propNames::comment + propNames::separator + "||";
             }
             if (!userDefinedProperty.empty()) {
-               fieldPtr->addAttr(new(C) clang::AnnotateAttr(commentRange, C, userDefinedProperty, 0));
+               fieldPtr->addAttr(clang::AnnotateAttr::CreateImplicit(C, userDefinedProperty, nullptr, 0));
                userDefinedProperty = "";
             }
          }

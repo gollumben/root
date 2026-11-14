@@ -41,6 +41,7 @@ set(EVE_HEADERS1
   TEveViewer.h
   TEveViewerListEditor.h
   TEveVSD.h
+  TEveVSDStructs.h
   TEveWindow.h
   TEveWindowEditor.h
   TEveWindowManager.h
@@ -229,7 +230,7 @@ if(MSVC)
       OpenGL::GL
       OpenGL::GLU
       ${FTGL_LIBRARIES}
-      RGlew
+      ROOTGlad
     DEPENDENCIES
       Core
       EG
@@ -246,6 +247,29 @@ if(MSVC)
     MODULE
       Eve
     MULTIDICT
+  )
+  
+  set(RELATIVE_INC_HEADERS ${EVE_HEADERS1})
+  list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+  target_sources(Eve
+  PRIVATE
+    FILE_SET private_header_files
+    TYPE HEADERS
+    BASE_DIRS inc/
+    FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef1.h
+  )
+  set(RELATIVE_INC_HEADERS ${EVE_HEADERS2})
+  list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+  target_sources(G__Eve2
+  PRIVATE
+    FILE_SET private_header_files
+    TYPE HEADERS
+    BASE_DIRS inc/
+    FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef2.h
   )
 
   ROOT_INSTALL_HEADERS()
@@ -264,7 +288,7 @@ else()
       OpenGL::GL
       OpenGL::GLU
       ${FTGL_LIBRARIES}
-      RGlew
+      ROOTGlad
     DEPENDENCIES
       Core
       EG
@@ -272,6 +296,19 @@ else()
       Geom
       RGL
       Physics
+  )
+  set(RELATIVE_INC_HEADERS ${EVE_HEADERS1} ${EVE_HEADERS2})
+  list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+  target_sources(Eve
+  PRIVATE
+    FILE_SET private_header_files
+    TYPE HEADERS
+    BASE_DIRS inc/
+    FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef.h
+    inc/LinkDef1.h
+    inc/LinkDef2.h
   )
 endif()
 

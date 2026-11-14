@@ -22,7 +22,6 @@ Data member is public for historical reasons.
 #include "TBuffer.h"
 
 
-ClassImp(TArray);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Generate an out-of-bounds error. Always returns false.
@@ -54,7 +53,7 @@ TArray *TArray::ReadArray(TBuffer &b, const TClass *clReq)
    TArray *a;
    if (!clRef) {
 
-      a = 0;
+      a = nullptr;
 
    } else {
 
@@ -63,7 +62,7 @@ TArray *TArray::ReadArray(TBuffer &b, const TClass *clReq)
          ::Error("TArray::ReadArray", "could not create object of class %s",
                  clRef->GetName());
          // Exception
-         return 0;
+         return nullptr;
       }
 
       a->Streamer(b);

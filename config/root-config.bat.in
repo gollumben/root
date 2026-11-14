@@ -8,11 +8,11 @@ setlocal EnableDelayedExpansion
 
 set "usage="
 for %%u in (
-   "Usage: root-config [--version] [--cflags] [--libs] [--glibs] [--evelibs]"
-   " [--bindir] [--libdir] [--incdir] [--etcdir] [--tutdir] [--has-<feature>]"
-   " [--arch] [--platform] [--config] [--features] [--ncpu] [--git-revision]"
-   " [--python-version] [--python2-version] [--python3-version] [--cc] [--cxx]"
-   " [--f77] [--ld ] [--help]"
+   "Usage: root-config [--prefix] [--version] [--cflags] [--libs] [--glibs]"
+   " [--evelibs] [--bindir] [--libdir] [--incdir] [--etcdir] [--tutdir]"
+   " [--has-<feature>] [--arch] [--platform] [--config] [--features] [--ncpu]"
+   " [--git-revision] [--python-version] [--python3-version]"
+   " [--cc] [--cxx] [--cxxstandard] [--f77] [--ld ] [--help]"
 ) do set usage=!usage!%%~u^
 
 
@@ -21,6 +21,10 @@ if "%1"=="" (
    exit /b 1
 )
 
+for %%i in ("%~dp0..") do set "folder=%%~fi"
+
+set ROOTSYS=%folder%
+set prefix=%ROOTSYS%
 set arch=@architecture@
 set platform=@CMAKE_SYSTEM@
 set bindir=%ROOTSYS%\bin
@@ -40,8 +44,8 @@ set srcdir=@top_srcdir@
 rem convert forward slashes to backslashes
 set srcdir=!srcdir:/=\!
 
-set cflags=-nologo @BLDCFLAGS@ -EHsc- -W3 -D_WIN32
-set cxxflags=-nologo @BLDCXXFLAGS@ -EHsc- -W3 -D_WIN32
+set cflags=@__cflags@
+set cxxflags=@__cxxflags@
 if "@BLDCFLAGS@"=="-MDd" (
     set cflags=!cflags! -Od -Z7
     set cxxflags=!cxxflags! -Od -Z7
@@ -49,6 +53,9 @@ if "@BLDCFLAGS@"=="-MDd" (
     set cflags=!cflags! -O2
     set cxxflags=!cxxflags! -O2
 )
+rem add double-quotes to allow PowerShell usage like: Invoke-Expression "cl test.cpp $(root-config --cflags --libs)"
+set cxxflags=!cxxflags:-FIw32pragma.h=-FI"w32pragma.h"!
+set cxxflags=!cxxflags:-FIsehmap.h=-FI"sehmap.h"!
 
 set rootglibs=libGui.lib
 set rootevelibs=libEve.lib libEG.lib libGeom.lib libGed.lib libRGL.lib
@@ -75,7 +82,11 @@ for %%w in (%*) do (
       for %%f in (%features%) do (
          if %%f==!feature! (
             set res=%%f
-            set out=!out! yes
+            if not "!out!"=="" (
+               set out=!out! yes
+            ) else (
+               set out=yes
+            )
          )
       )
       if !res!=="" (
@@ -86,48 +97,44 @@ for %%w in (%*) do (
          )
          if !known!=="" (
             set out=!out! --has-!feature!: unknown feature^^!
+            set err=1
          ) else (
-            set out=!out! no
+            if not "!out!"=="" (
+               set out=!out! no
+            ) else (
+               set out=no
+            )
          )
-         set err=1
       )
+   )
+   if "!arg!"=="--prefix" (
+      rem Output the prefix
+      set out=!out! !prefix!
    )
    if "!arg!"=="--version" (
-      rem Output the version number. If RVersion.h can not be found, give up.
-      if exist !incdir!\RVersion.h (
-         for /f "tokens=2,3" %%a in (!incdir!\RVersion.h) do (
-            if "%%a"=="ROOT_RELEASE" (
-               set ROOT_RELEASE=%%~b
-            )
-         )
-         set out=!out! !ROOT_RELEASE!
-      ) else (
-         echo "cannot read ${incdir}/RVersion.h"
-         exit /b 1
-      )
+      set out=!out! @ROOT_VERSION@
    )
    if "!arg!"=="--git-revision" (
-      rem Output the git revision number. If RGitCommit.h can not be found, give up.
-      if exist !incdir!\RGitCommit.h (
-         for /f "tokens=2,3" %%a in (!incdir!\RGitCommit.h) do (
-            if "%%a"=="ROOT_GIT_COMMIT" (
-               set ROOT_GIT_COMMIT=%%~b
-            )
+      if exist !etcdir!\gitinfo.txt (
+         for /f "skip=1" %%l in (!etcdir!\gitinfo.txt) do (
+            set ROOT_GIT_COMMIT=%%~l
+            goto COMMITSET
          )
-         set out=!out! !ROOT_GIT_COMMIT!
       ) else (
-         echo "cannot read !incdir!\RGitCommit.h"
+         echo "cannot read !etcdir!\gitinfo.txt"
          exit /b 1
       )
+      :COMMITSET
+      set out=!out! !ROOT_GIT_COMMIT!
    )
    if "!arg!"=="--python-version" (
       set out=!out! @pythonvers@
    )
-   if "!arg!"=="--python2-version" (
-      set out=!$out! @python2vers@
-   )
    if "!arg!"=="--python3-version" (
       set out=!$out! @python3vers@
+   )
+   if "!arg!"=="--cxxstandard" (
+      set out=!out! @CMAKE_CXX_STANDARD@
    )
    if "!arg!"=="--cflags" (
       set out=!out! !cxxflags! -I!incdir!
@@ -200,7 +207,7 @@ if "!out!"=="" (
    echo.
    goto print_help
 )
-echo !out!
+echo|set /p=!out!
 
 exit /b !err!
 
@@ -210,6 +217,7 @@ echo Usage: %0 [options]
 echo.
 echo   --arch                Print the architecture (compiler/OS)
 echo   --platform            Print the platform (OS)
+echo   --prefix              Print the prefix
 echo   --libs                Print regular ROOT libraries
 echo   --glibs               Print regular + GUI ROOT libraries
 echo   --evelibs             Print regular + GUI + Eve libraries
@@ -227,7 +235,6 @@ echo   --has-^<feature^>       Test if ^<feature^> is compiled in
 echo   --version             Print the ROOT version
 echo   --git-revision        Print the ROOT git revision number
 echo   --python-version      Print the Python version used by ROOT
-echo   --python2-version     Print the Python2 version used by PyROOT
 echo   --python3-version     Print the Python3 version used by PyROOT
 echo   --ncpu                Print number of available (hyperthreaded) cores
 echo   --cc                  Print alternative C compiler specified when ROOT was built

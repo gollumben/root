@@ -27,7 +27,6 @@ GL Axis.
 To draw a 3D axis in a GL window. The labels are drawn using FTGL.
 */
 
-ClassImp(TGLAxis);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -44,10 +43,10 @@ void TGLAxis::Init()
 {
    fNDiv = fNDiv1 = fNDiv2 = fNDiv3 = 0;
    fNTicks1 = fNTicks2 = 0;
-   fTicks1          = 0;
-   fTicks2          = 0;
-   fLabels          = 0;
-   fText            = 0;
+   fTicks1          = nullptr;
+   fTicks2          = nullptr;
+   fLabels          = nullptr;
+   fText            = nullptr;
    fAngle1          = 90.;
    fAngle2          = 0.;
    fAngle3          = 0.;
@@ -310,11 +309,11 @@ void TGLAxis::TicksPositions(Option_t *opt)
    // Clean the tick marks arrays if they exist.
    if (fTicks1) {
       delete [] fTicks1;
-      fTicks1 = 0;
+      fTicks1 = nullptr;
    }
    if (fTicks2) {
       delete [] fTicks2;
-      fTicks2 = 0;
+      fTicks2 = nullptr;
    }
 
    // Compute the tick marks positions according to the options.

@@ -44,8 +44,8 @@ protected:
    TBufferIO() {} // NOLINT: not allowed to use = default because of TObject::kIsOnHeap detection, see ROOT-10300
 
    TBufferIO(TBuffer::EMode mode);
-   TBufferIO(TBuffer::EMode mode, Int_t bufsiz);
-   TBufferIO(TBuffer::EMode mode, Int_t bufsiz, void *buf, Bool_t adopt = kTRUE,
+   TBufferIO(TBuffer::EMode mode, Int_t bufsize);
+   TBufferIO(TBuffer::EMode mode, Int_t bufsize, void *buf, Bool_t adopt = kTRUE,
              ReAllocCharFun_t reallocfunc = nullptr);
 
    ////////////////////////////////////////////////////////////////////////////////
@@ -71,7 +71,7 @@ public:
       kUser3 = BIT(23)  // free for user
    };
 
-   virtual ~TBufferIO();
+   ~TBufferIO() override;
 
    Int_t GetVersionOwner() const override;
 

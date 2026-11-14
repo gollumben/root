@@ -33,7 +33,6 @@ It also defines the pure virtual manipulation interface methods the
 concrete ortho and perspective classes must implement.
 */
 
-ClassImp(TGLCamera);
 
 const Double_t TGLCamera::fgInterestBoxExpansion = 1.3;
 UInt_t         TGLCamera::fgDollyDeltaSens       = 500;
@@ -158,7 +157,7 @@ void TGLCamera::UpdateCache() const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Return the the current camera frustum. If asBox == kFALSE return
+/// Return the current camera frustum. If asBox == kFALSE return
 /// a true frustum (truncated square based pyramid). If asBox == kTRUE
 /// return a true box, using the far clipping plane intersection projected
 /// back to the near plane.

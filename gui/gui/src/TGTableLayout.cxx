@@ -50,7 +50,7 @@ parameter 'homogeneous' is set to kTRUE.
 
 This class describes layout hints used by the TGTableLayout class.
 It specifies the column/row division number on which to attach the
-child frame. This number starts from 0 and goes to #_columns/#_rows
+child frame. This number starts from 0 and goes to #%_columns/#%_rows
 respectively (0 indicates the first row/column).
 
 Below are described all parameters of TGTableLayoutHints constructor
@@ -78,8 +78,6 @@ child frame. By default these are 0.
 #include <iostream>
 
 
-ClassImp(TGTableLayout);
-ClassImp(TGTableLayoutHints);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TGTableLayout constructor.
@@ -158,20 +156,20 @@ void TGTableLayout::FindRowColSizesSinglyAttached()
       TGTableLayoutHints *layout =
             dynamic_cast<TGTableLayoutHints*>(ptr->fLayout);
       if (!layout) {
-         Error("FindRowColSizesSinglyAttached", "didn't get TGTableLayoutHints from %s, layout = 0x%lx",
-               ptr->fFrame->GetName(), (ULong_t)ptr->fLayout);
+         Error("FindRowColSizesSinglyAttached", "didn't get TGTableLayoutHints from %s, layout = 0x%zx",
+               ptr->fFrame->GetName(), (size_t)ptr->fLayout);
          return;
       }
       UInt_t col = layout->GetAttachLeft();
       if (col == (layout->GetAttachRight() - 1))
-         fCol[col].fDefSize = TMath::Max(fCol[col].fDefSize,
+         fCol[col].fDefSize = std::max(fCol[col].fDefSize,
                                          ptr->fFrame->GetDefaultWidth() +
                                          layout->GetPadLeft() +
                                          layout->GetPadRight());
 
       UInt_t row = layout->GetAttachTop();
       if (row == (layout->GetAttachBottom() - 1))
-         fRow[row].fDefSize = TMath::Max(fRow[row].fDefSize,
+         fRow[row].fDefSize = std::max(fRow[row].fDefSize,
                                          ptr->fFrame->GetDefaultHeight() +
                                          layout->GetPadTop() +
                                          layout->GetPadBottom());
@@ -190,10 +188,10 @@ void TGTableLayout::FindRowColSizesHomogeneous()
 
    // find max
    for (col = 0; col < fNcols; ++col)
-      max_width = TMath::Max(max_width,fCol[col].fDefSize);
+      max_width = std::max(max_width,fCol[col].fDefSize);
 
    for (row = 0; row < fNrows; ++row)
-      max_height = TMath::Max(max_height,fRow[row].fDefSize);
+      max_height = std::max(max_height,fRow[row].fDefSize);
 
    // set max
    for (col = 0; col < fNcols; ++col) fCol[col].fDefSize = max_width;
@@ -278,7 +276,7 @@ void TGTableLayout::SetRowColResize(UInt_t real_size, UInt_t nthings,
             UInt_t size = real_size;
             for (ind = 0; ind < nthings; ++ ind) {
                UInt_t extra = size / (nthings - ind);
-               thing[ind].fRealSize = TMath::Max(1U, extra);
+               thing[ind].fRealSize = std::max(1U, extra);
                size -= extra;
             }
          }
@@ -290,7 +288,7 @@ void TGTableLayout::SetRowColResize(UInt_t real_size, UInt_t nthings,
             UInt_t size = real_size;
             for (ind = 0; ind < nthings; ++ ind) {
                UInt_t extra = size / (nthings - ind);
-               thing[ind].fRealSize = TMath::Max(1U, extra);
+               thing[ind].fRealSize = std::max(1U, extra);
                size -= extra;
             }
          }
@@ -325,7 +323,7 @@ void TGTableLayout::SetRowColResize(UInt_t real_size, UInt_t nthings,
             for (ind = 0; ind < nthings; ++ind)
                if (thing[ind].fShrink) {
                   UInt_t size2 = thing[ind].fRealSize;
-                  thing[ind].fRealSize = TMath::Max(1U,thing[ind].fRealSize - extra / nshrink);
+                  thing[ind].fRealSize = std::max(1U,thing[ind].fRealSize - extra / nshrink);
                   extra -= size2 - thing[ind].fRealSize;
                   --nshrink;
                   if (thing[ind].fRealSize < 2) {
@@ -667,69 +665,41 @@ void TGTableLayoutHints::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
 
    // Save table layout hints as a C++ statement(s) on output stream out.
 
-   TString hints;
    UInt_t pad = GetPadLeft()+GetPadRight()+GetPadTop()+GetPadBottom();
 
-   if (!GetLayoutHints()) return;
+   if (!GetLayoutHints())
+      return;
 
-   if ((fLayoutHints == kLHintsNormal) && (pad == 0)) return;
+   if ((fLayoutHints == kLHintsNormal) && (pad == 0))
+      return;
 
-   if (fLayoutHints & kLHintsLeft) {
-      if (hints.Length() == 0) hints  = "kLHintsLeft";
-      else                     hints += " | kLHintsLeft";
-   }
-   if (fLayoutHints & kLHintsCenterX) {
-      if  (hints.Length() == 0) hints  = "kLHintsCenterX";
-      else                     hints += " | kLHintsCenterX";
-   }
-   if (fLayoutHints & kLHintsRight) {
-      if (hints.Length() == 0) hints  = "kLHintsRight";
-      else                     hints += " | kLHintsRight";
-   }
-   if (fLayoutHints & kLHintsTop) {
-      if (hints.Length() == 0) hints  = "kLHintsTop";
-      else                     hints += " | kLHintsTop";
-   }
-   if (fLayoutHints & kLHintsCenterY) {
-      if (hints.Length() == 0) hints  = "kLHintsCenterY";
-      else                     hints += " | kLHintsCenterY";
-   }
-   if (fLayoutHints & kLHintsBottom) {
-      if (hints.Length() == 0) hints  = "kLHintsBottom";
-      else                     hints += " | kLHintsBottom";
-   }
-   if (fLayoutHints & kLHintsExpandX) {
-      if (hints.Length() == 0) hints  = "kLHintsExpandX";
-      else                     hints += " | kLHintsExpandX";
-   }
-   if (fLayoutHints & kLHintsExpandY) {
-      if (hints.Length() == 0) hints  = "kLHintsExpandY";
-      else                     hints += " | kLHintsExpandY";
-   }
-   if (fLayoutHints & kLHintsShrinkX) {
-      if (hints.Length() == 0) hints  = "kLHintsShrinkX";
-      else                     hints += " | kLHintsShrinkX";
-   }
-   if (fLayoutHints & kLHintsShrinkY) {
-      if (hints.Length() == 0) hints  = "kLHintsShrinkY";
-      else                     hints += " | kLHintsShrinkY";
-   }
-   if (fLayoutHints & kLHintsFillX) {
-      if (hints.Length() == 0) hints  = "kLHintsFillX";
-      else                     hints += " | kLHintsFillX";
-   }
-   if (fLayoutHints & kLHintsFillY) {
-      if (hints.Length() == 0) hints  = "kLHintsFillY";
-      else                     hints += " | kLHintsFillY";
-   }
-   out << ", new TGTableLayoutHints(" << GetAttachLeft() << "," << GetAttachRight()
-       << "," << GetAttachTop()  << "," << GetAttachBottom()
-       << "," << hints;
+   TString hints;
+   auto add = [this, &hints](UInt_t mask, const char *name) {
+      if (fLayoutHints & mask) {
+         if (hints.Length())
+            hints.Append(" | ");
+         hints.Append(name);
+      }
+   };
 
-   if (pad) {
-      out << "," << GetPadLeft() << "," << GetPadRight()
-          << "," << GetPadTop()  << "," << GetPadBottom();
-   }
+   add(kLHintsLeft, "kLHintsLeft");
+   add(kLHintsCenterX, "kLHintsCenterX");
+   add(kLHintsRight, "kLHintsRight");
+   add(kLHintsTop, "kLHintsTop");
+   add(kLHintsCenterY, "kLHintsCenterY");
+   add(kLHintsBottom, "kLHintsBottom");
+   add(kLHintsExpandX, "kLHintsExpandX");
+   add(kLHintsExpandY, "kLHintsExpandY");
+   add(kLHintsShrinkX, "kLHintsShrinkX");
+   add(kLHintsShrinkY, "kLHintsShrinkY");
+   add(kLHintsFillX, "kLHintsFillX");
+   add(kLHintsFillY, "kLHintsFillY");
+
+   out << ", new TGTableLayoutHints(" << GetAttachLeft() << "," << GetAttachRight() << "," << GetAttachTop() << ","
+       << GetAttachBottom() << "," << hints;
+
+   if (pad)
+      out << "," << GetPadLeft() << "," << GetPadRight() << "," << GetPadTop() << "," << GetPadBottom();
    out << ")";
 }
 
@@ -746,9 +716,8 @@ void TGTableLayout::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
          out << ", kTRUE";
       else
          out << ", kFALSE";
-   out << fSep;
+      out << fSep;
    }
-   out  << ")";
+   out << ")";
    // hints parameter is not used/saved currently
-
 }

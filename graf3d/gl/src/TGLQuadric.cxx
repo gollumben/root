@@ -18,13 +18,12 @@ Wrapper class for GLU quadric shape drawing object. Lazy creation of
 internal GLU raw quadric on first call to TGLQuadric::Get()
 */
 
-ClassImp(TGLQuadric);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Construct quadric
 
 TGLQuadric::TGLQuadric() :
-   fQuad(0)
+   fQuad(nullptr)
 {
 }
 

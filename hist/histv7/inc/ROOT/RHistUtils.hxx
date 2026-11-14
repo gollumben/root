@@ -1,65 +1,340 @@
-/// \file ROOT/RHistUtils.hxx
-/// \ingroup HistV7
-/// \author Axel Naumann <axel@cern.ch>
-/// \date 2016-06-01
-/// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
+/// \file
+/// \warning This file contains implementation details that will change without notice. User code should never include
+/// this header directly.
 
-/*************************************************************************
- * Copyright (C) 1995-2016, Rene Brun and Fons Rademakers.               *
- * All rights reserved.                                                  *
- *                                                                       *
- * For the licensing terms see $ROOTSYS/LICENSE.                         *
- * For the list of contributors see $ROOTSYS/README/CREDITS.             *
- *************************************************************************/
+#ifndef ROOT_RHistUtils
+#define ROOT_RHistUtils
 
-#ifndef ROOT7_RHistUtils
-#define ROOT7_RHistUtils
-
-#include <array>
+#include <tuple>
 #include <type_traits>
+#include <utility>
+
+#ifdef _MSC_VER
+#include <atomic>
+#include <cstddef>
+
+#include <intrin.h>
+#endif
 
 namespace ROOT {
 namespace Experimental {
+namespace Internal {
 
-class RLogChannel;
-/// Log channel for Hist diagnostics.
-RLogChannel &HistLog(); // implemented in RAxis.cxx
-
-namespace Hist {
-
-template <int DIMENSIONS>
-struct RCoordArray: std::array<double, DIMENSIONS> {
-   using Base_t = std::array<double, DIMENSIONS>;
-
-   /// Default construction.
-   RCoordArray() = default;
-
-   /// Construction with one `double` per `DIMENSION`.
-   template<class...ELEMENTS, class = typename std::enable_if<sizeof...(ELEMENTS) + 1 == DIMENSIONS>::type>
-   RCoordArray(double x, ELEMENTS...el): Base_t{{x, el...}} {}
-
-   /// Fallback constructor, invoked if the one above fails because of the wrong number of
-   /// arguments / coordinates.
-   template<class T, class...ELEMENTS, class = typename std::enable_if<sizeof...(ELEMENTS) + 1 != DIMENSIONS>::type>
-   RCoordArray(T, ELEMENTS...) {
-      static_assert(sizeof...(ELEMENTS) + 1 == DIMENSIONS, "Number of coordinates does not match DIMENSIONS");
-   }
-
-   /// Construction from a C-style array.
-   RCoordArray(double (&arr)[DIMENSIONS]): Base_t(arr) {}
-
-   /// Copy-construction from a C++-style array.
-   /// (No need for a move-constructor, it isn't any better for doubles)
-   RCoordArray(const std::array<double, DIMENSIONS>& arr): Base_t(arr) {}
+template <typename T, typename... Ts>
+struct LastType : LastType<Ts...> {};
+template <typename T>
+struct LastType<T> {
+   using type = T;
 };
 
-template <int DIMENSIONS>
-//using CoordArray_t = std::array<double, DIMENSIONS>;
-using CoordArray_t = RCoordArray<DIMENSIONS>;
+template <typename... Ts, std::size_t... I, typename A>
+std::tuple<const Ts &..., const A &>
+AppendReferenceImpl(const std::tuple<Ts...> &t, std::index_sequence<I...>, const A &a)
+{
+   return std::tuple<const Ts &..., const A &>(std::get<I>(t)..., a);
+}
 
+template <typename... Ts, typename A>
+std::tuple<const Ts &..., const A &> AppendReference(const std::tuple<Ts...> &t, const A &a)
+{
+   return AppendReferenceImpl(t, std::make_index_sequence<sizeof...(Ts)>(), a);
+}
 
-} // namespace Hist
+#ifdef _MSC_VER
+namespace MSVC {
+template <std::size_t N>
+struct AtomicOps {};
+
+template <>
+struct AtomicOps<1> {
+   static void Load(const void *ptr, void *ret)
+   {
+      *static_cast<char *>(ret) = __iso_volatile_load8(static_cast<const char *>(ptr));
+   }
+   static void Store(void *ptr, void *val)
+   {
+      __iso_volatile_store8(static_cast<char *>(ptr), *static_cast<char *>(val));
+   }
+   static void Add(void *ptr, const void *val)
+   {
+      _InterlockedExchangeAdd8(static_cast<char *>(ptr), *static_cast<const char *>(val));
+   }
+   static bool CompareExchange(void *ptr, void *expected, const void *desired)
+   {
+      // MSVC functions have the arguments reversed...
+      const char expectedVal = *static_cast<char *>(expected);
+      const char desiredVal = *static_cast<const char *>(desired);
+      const char previous = _InterlockedCompareExchange8(static_cast<char *>(ptr), desiredVal, expectedVal);
+      if (previous == expectedVal) {
+         return true;
+      }
+      *static_cast<char *>(expected) = previous;
+      return false;
+   }
+};
+
+template <>
+struct AtomicOps<2> {
+   static void Load(const void *ptr, void *ret)
+   {
+      *static_cast<short *>(ret) = __iso_volatile_load16(static_cast<const short *>(ptr));
+   }
+   static void Store(void *ptr, void *val)
+   {
+      __iso_volatile_store16(static_cast<short *>(ptr), *static_cast<short *>(val));
+   }
+   static void Add(void *ptr, const void *val)
+   {
+      _InterlockedExchangeAdd16(static_cast<short *>(ptr), *static_cast<const short *>(val));
+   }
+   static bool CompareExchange(void *ptr, void *expected, const void *desired)
+   {
+      // MSVC functions have the arguments reversed...
+      const short expectedVal = *static_cast<short *>(expected);
+      const short desiredVal = *static_cast<const short *>(desired);
+      const short previous = _InterlockedCompareExchange16(static_cast<short *>(ptr), desiredVal, expectedVal);
+      if (previous == expectedVal) {
+         return true;
+      }
+      *static_cast<short *>(expected) = previous;
+      return false;
+   }
+};
+
+template <>
+struct AtomicOps<4> {
+   static void Load(const void *ptr, void *ret)
+   {
+      *static_cast<int *>(ret) = __iso_volatile_load32(static_cast<const int *>(ptr));
+   }
+   static void Store(void *ptr, void *val)
+   {
+      __iso_volatile_store32(static_cast<int *>(ptr), *static_cast<int *>(val));
+   }
+   static void Add(void *ptr, const void *val)
+   {
+      _InterlockedExchangeAdd(static_cast<long *>(ptr), *static_cast<const long *>(val));
+   }
+   static bool CompareExchange(void *ptr, void *expected, const void *desired)
+   {
+      // MSVC functions have the arguments reversed...
+      const long expectedVal = *static_cast<long *>(expected);
+      const long desiredVal = *static_cast<const long *>(desired);
+      const long previous = _InterlockedCompareExchange(static_cast<long *>(ptr), desiredVal, expectedVal);
+      if (previous == expectedVal) {
+         return true;
+      }
+      *static_cast<long *>(expected) = previous;
+      return false;
+   }
+};
+
+template <>
+struct AtomicOps<8> {
+   static void Load(const void *ptr, void *ret)
+   {
+      *static_cast<__int64 *>(ret) = __iso_volatile_load64(static_cast<const __int64 *>(ptr));
+   }
+   static void Store(void *ptr, void *val)
+   {
+      __iso_volatile_store64(static_cast<__int64 *>(ptr), *static_cast<__int64 *>(val));
+   }
+   static void Add(void *ptr, const void *val);
+   static bool CompareExchange(void *ptr, void *expected, const void *desired)
+   {
+      // MSVC functions have the arguments reversed...
+      const __int64 expectedVal = *static_cast<__int64 *>(expected);
+      const __int64 desiredVal = *static_cast<const __int64 *>(desired);
+      const __int64 previous = _InterlockedCompareExchange64(static_cast<__int64 *>(ptr), desiredVal, expectedVal);
+      if (previous == expectedVal) {
+         return true;
+      }
+      *static_cast<__int64 *>(expected) = previous;
+      return false;
+   }
+};
+} // namespace MSVC
+#endif
+
+template <typename T>
+std::enable_if_t<std::is_arithmetic_v<T>> AtomicLoad(const T *ptr, T *ret)
+{
+#ifndef _MSC_VER
+   __atomic_load(ptr, ret, __ATOMIC_RELAXED);
+#else
+   MSVC::AtomicOps<sizeof(T)>::Load(ptr, ret);
+#endif
+}
+
+template <typename T>
+auto AtomicLoad(const T *ptr, T *ret) -> decltype(ptr->AtomicLoad(ret))
+{
+   return ptr->AtomicLoad(ret);
+}
+
+template <typename T>
+std::enable_if_t<std::is_arithmetic_v<T>> AtomicLoadAcquire(const T *ptr, T *ret)
+{
+#ifndef _MSC_VER
+   __atomic_load(ptr, ret, __ATOMIC_ACQUIRE);
+#else
+   MSVC::AtomicOps<sizeof(T)>::Load(ptr, ret);
+   // Cannot specify the memory order directly, use a fence.
+   std::atomic_thread_fence(std::memory_order_acquire);
+#endif
+}
+
+template <typename T>
+std::enable_if_t<std::is_arithmetic_v<T>> AtomicStoreRelease(T *ptr, T *val)
+{
+#ifndef _MSC_VER
+   __atomic_store(ptr, val, __ATOMIC_RELEASE);
+#else
+   // Cannot specify the memory order directly, use a fence.
+   std::atomic_thread_fence(std::memory_order_release);
+   MSVC::AtomicOps<sizeof(T)>::Store(ptr, val);
+#endif
+}
+
+template <typename T>
+std::enable_if_t<std::is_arithmetic_v<T>, bool> AtomicCompareExchange(T *ptr, T *expected, T *desired)
+{
+#ifndef _MSC_VER
+   return __atomic_compare_exchange(ptr, expected, desired, /*weak=*/false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
+#else
+   return MSVC::AtomicOps<sizeof(T)>::CompareExchange(ptr, expected, desired);
+#endif
+}
+
+template <typename T>
+std::enable_if_t<std::is_arithmetic_v<T>, bool> AtomicCompareExchangeAcquire(T *ptr, T *expected, T *desired)
+{
+#ifndef _MSC_VER
+   return __atomic_compare_exchange(ptr, expected, desired, /*weak=*/false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+#else
+   bool success = MSVC::AtomicOps<sizeof(T)>::CompareExchange(ptr, expected, desired);
+   // Cannot specify the memory order directly, use an unconditional fence to avoid branching code.
+   std::atomic_thread_fence(std::memory_order_acquire);
+   return success;
+#endif
+}
+
+template <typename T>
+std::enable_if_t<std::is_arithmetic_v<T>, bool> AtomicCompareExchangeRelease(T *ptr, T *expected, T *desired)
+{
+#ifndef _MSC_VER
+   return __atomic_compare_exchange(ptr, expected, desired, /*weak=*/false, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+#else
+   // Cannot specify the memory order directly, use an unconditional fence to avoid branching code.
+   std::atomic_thread_fence(std::memory_order_release);
+   return MSVC::AtomicOps<sizeof(T)>::CompareExchange(ptr, expected, desired);
+#endif
+}
+
+template <typename T>
+std::enable_if_t<std::is_arithmetic_v<T>> AtomicAddCompareExchangeLoop(T *ptr, T val)
+{
+   T expected;
+   AtomicLoad(ptr, &expected);
+   T desired = expected + val;
+   while (!AtomicCompareExchange(ptr, &expected, &desired)) {
+      // expected holds the new value; try again.
+      desired = expected + val;
+   }
+}
+
+template <typename T>
+std::enable_if_t<std::is_arithmetic_v<T>> AtomicAddCompareExchangeReleaseLoop(T *ptr, T val)
+{
+   T expected;
+   AtomicLoad(ptr, &expected);
+   T desired = expected + val;
+   while (!AtomicCompareExchangeRelease(ptr, &expected, &desired)) {
+      // expected holds the new value; try again.
+      desired = expected + val;
+   }
+}
+
+#ifdef _MSC_VER
+namespace MSVC {
+inline void AtomicOps<8>::Add(void *ptr, const void *val)
+{
+#if _WIN64
+   _InterlockedExchangeAdd64(static_cast<__int64 *>(ptr), *static_cast<const __int64 *>(val));
+#else
+   AtomicAddCompareExchangeLoop(static_cast<__int64 *>(ptr), *static_cast<const __int64 *>(val));
+#endif
+}
+} // namespace MSVC
+#endif
+
+template <typename T>
+std::enable_if_t<std::is_integral_v<T>> AtomicAdd(T *ptr, T val)
+{
+#ifndef _MSC_VER
+   __atomic_fetch_add(ptr, val, __ATOMIC_RELAXED);
+#else
+   MSVC::AtomicOps<sizeof(T)>::Add(ptr, &val);
+#endif
+}
+
+template <typename T>
+std::enable_if_t<std::is_floating_point_v<T>> AtomicAdd(T *ptr, T val)
+{
+   AtomicAddCompareExchangeLoop(ptr, val);
+}
+
+template <typename T>
+std::enable_if_t<std::is_integral_v<T>> AtomicAddRelease(T *ptr, T val)
+{
+#ifndef _MSC_VER
+   __atomic_fetch_add(ptr, val, __ATOMIC_RELEASE);
+#else
+   // Cannot specify the memory order directly, use a fence.
+   std::atomic_thread_fence(std::memory_order_release);
+   MSVC::AtomicOps<sizeof(T)>::Add(ptr, &val);
+#endif
+}
+
+template <typename T>
+std::enable_if_t<std::is_floating_point_v<T>> AtomicAddRelease(T *ptr, T val)
+{
+   AtomicAddCompareExchangeReleaseLoop(ptr, val);
+}
+
+// For adding a double-precision weight to a single-precision bin content type, cast the argument once before the
+// compare-exchange loop.
+static inline void AtomicAddRelease(float *ptr, double val)
+{
+   AtomicAddRelease(ptr, static_cast<float>(val));
+}
+
+template <typename T>
+std::enable_if_t<std::is_arithmetic_v<T>> AtomicIncRelease(T *ptr)
+{
+   AtomicAddRelease(ptr, static_cast<T>(1));
+}
+
+template <typename T, typename U>
+auto AtomicAdd(T *ptr, const U &add) -> decltype(ptr->AtomicAdd(add))
+{
+   return ptr->AtomicAdd(add);
+}
+
+template <typename T, typename U>
+auto AtomicAddRelease(T *ptr, const U &add) -> decltype(ptr->AtomicAddRelease(add))
+{
+   return ptr->AtomicAddRelease(add);
+}
+
+template <typename T>
+auto AtomicIncRelease(T *ptr) -> decltype(ptr->AtomicIncRelease())
+{
+   return ptr->AtomicIncRelease();
+}
+
+} // namespace Internal
 } // namespace Experimental
 } // namespace ROOT
 
-#endif //ROOT7_THistUtils_h
+#endif

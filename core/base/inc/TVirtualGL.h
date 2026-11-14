@@ -30,7 +30,6 @@
 
 #include "TNamed.h"
 #include "GuiTypes.h"
-#include "GLConstants.h"
 
 class TVirtualViewer3D;
 class TPoints3DABC;
@@ -70,6 +69,8 @@ public:
 class TGLManager : public TNamed {
 public:
    TGLManager();
+   TGLManager(const TGLManager &) = delete;
+   TGLManager &operator = (const TGLManager &) = delete;
 
    //index returned can be used as a result of gVirtualX->InitWindow
    virtual Int_t    InitGLWindow(Window_t winID) = 0;
@@ -115,11 +116,7 @@ public:
 
    static TGLManager *&Instance();
 
-private:
-   TGLManager(const TGLManager &);
-   TGLManager &operator = (const TGLManager &);
-
-   ClassDef(TGLManager, 0)// Interface for OpenGL manager
+   ClassDefOverride(TGLManager, 0)// Interface for OpenGL manager
 };
 
 namespace Rgl {
@@ -158,9 +155,7 @@ private:
    ClassDef(TGLPaintDevice, 0) // Base class for GL widgets and GL off-screen rendering
 };
 
-#ifndef __CINT__
 #define gGLManager (TGLManager::Instance())
 R__EXTERN TGLManager *(*gPtr2GLManager)();
-#endif
 
 #endif

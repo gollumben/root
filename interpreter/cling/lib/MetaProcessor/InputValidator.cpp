@@ -8,7 +8,6 @@
 //------------------------------------------------------------------------------
 
 #include "cling/MetaProcessor/InputValidator.h"
-
 #include "cling/MetaProcessor/MetaLexer.h"
 
 #include <algorithm>
@@ -83,17 +82,19 @@ namespace cling {
       case tok::hash:
         Lex.SkipWhitespace();
         Lex.LexAnyString(Tok);
-        const llvm::StringRef PPtk = Tok.getIdent();
-        if (PPtk.startswith("if")) {
-          m_ParenStack.push_back(tok::hash);
-        } else if (PPtk.startswith("endif") &&
-                   (PPtk.size() == 5 || PPtk[5]=='/' || isspace(PPtk[5]))) {
+        if (Tok.isNot(tok::eof)) {
+          const llvm::StringRef PPtk = Tok.getIdent();
+          if (PPtk.starts_with("if")) {
+            m_ParenStack.push_back(tok::hash);
+          } else if (PPtk.starts_with("endif") &&
+                     (PPtk.size() == 5 || PPtk[5] == '/' || isspace(PPtk[5]))) {
             if (m_ParenStack.empty() || m_ParenStack.back() != tok::hash)
               Res = kMismatch;
             else
               m_ParenStack.pop_back();
+          }
+          break;
         }
-        break;
       }
     } while (Tok.isNot(tok::eof) && Res != kMismatch);
 
@@ -105,7 +106,9 @@ namespace cling {
     if (!m_Input.empty()) {
       m_Input.append("\n");
     }
-    m_Input.append(line);
+    m_Input.append(line.str());
+    m_LastResult = Res;
+
     return Res;
   }
 
@@ -117,5 +120,6 @@ namespace cling {
       std::string().swap(m_Input);
 
     std::deque<int>().swap(m_ParenStack);
+    m_LastResult = kComplete;
   }
 } // end namespace cling

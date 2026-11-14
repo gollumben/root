@@ -26,6 +26,7 @@
 
 #include "Math/GenVector/RotationZfwd.h"
 
+#include "TMath.h"
 #include <cmath>
 
 namespace ROOT {
@@ -35,9 +36,11 @@ namespace Math {
 //__________________________________________________________________________________________
    /**
       Rotation class representing a 3D rotation about the Z axis by the angle of rotation.
-      For efficiency reason, in addition to the the angle, the sine and cosine of the angle are held
+      For efficiency reason, in addition to the angle, the sine and cosine of the angle are held
 
       @ingroup GenVector
+
+      @see GenVector
    */
 
 class RotationZ {
@@ -64,15 +67,15 @@ public:
       Rectify();
    }
 
-   // The compiler-generated copy ctor, copy assignment, and dtor are OK.
+   // The compiler-generated copy ctor, copy assignment, and destructor are OK.
 
    /**
       Rectify makes sure the angle is in (-pi,pi]
    */
    void Rectify()  {
-      if ( std::fabs(fAngle) >= M_PI ) {
-         double x = fAngle / (2.0 * M_PI);
-         fAngle =  (2.0 * M_PI) * ( x + std::floor(.5-x) );
+      if (std::fabs(fAngle) >= TMath::Pi()) {
+         double x = fAngle / TMath::TwoPi();
+         fAngle = TMath::TwoPi() * (x + std::floor(.5 - x));
          fSin = std::sin(fAngle);
          fCos = std::cos(fAngle);
       }
@@ -193,8 +196,8 @@ public:
    */
    RotationZ operator * (const RotationZ & r) const {
       RotationZ ans;
-      double x   = (fAngle + r.fAngle) / (2.0 * M_PI);
-      ans.fAngle = (2.0 * M_PI) * ( x + std::floor(.5-x) );
+      double x = (fAngle + r.fAngle) / TMath::TwoPi();
+      ans.fAngle = TMath::TwoPi() * (x + std::floor(.5 - x));
       ans.fSin   = fSin*r.fCos + fCos*r.fSin;
       ans.fCos   = fCos*r.fCos - fSin*r.fSin;
       return ans;
@@ -220,7 +223,7 @@ private:
 
    Scalar fAngle;   // rotation angle
    Scalar fSin;     // sine of the rotation angle
-   Scalar fCos;     // cosine of the rotaiton angle
+   Scalar fCos;     // cosine of the rotation angle
 
 };  // RotationZ
 

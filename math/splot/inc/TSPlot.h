@@ -20,10 +20,10 @@ class TTree;
 
 class TSPlot: public TObject {
 protected:
-   TMatrixD fXvar;           //!
-   TMatrixD fYvar;           //!
-   TMatrixD fYpdf;           //!
-   TMatrixD fPdfTot;         //!
+   TMatrixD fXvar;           ///<!
+   TMatrixD fYvar;           ///<!
+   TMatrixD fYpdf;           ///<!
+   TMatrixD fPdfTot;         ///<!
    TMatrixD fMinmax;         //mins and maxs of variables for histogramming
    TMatrixD fSWeights;       //computed sWeights
 
@@ -32,10 +32,10 @@ protected:
    TObjArray fYpdfHists;     //histograms of pdfs
    TObjArray fSWeightsHists; //histograms of weighted variables
 
-   TTree    *fTree;          //!
-   TString* fTreename;       //The name of the data tree
-   TString* fVarexp;         //Variables used for splot
-   TString* fSelection;      //Selection on the tree
+   TTree    *fTree = nullptr;     ///<!
+   TString* fTreename = nullptr;  //The name of the data tree
+   TString* fVarexp = nullptr;    //Variables used for splot
+   TString* fSelection = nullptr; //Selection on the tree
 
 
    Int_t    fNx;             //Number of control variables
@@ -50,10 +50,10 @@ protected:
 public:
    TSPlot();
    TSPlot(Int_t nx, Int_t ny, Int_t ne, Int_t ns, TTree* tree);
-   virtual ~TSPlot();
+   ~TSPlot() override;
 
-   void       Browse(TBrowser *b);
-   Bool_t     IsFolder() const { return kTRUE;}
+   void       Browse(TBrowser *b) override;
+   Bool_t     IsFolder() const override { return kTRUE;}
 
    void       FillXvarHists(Int_t nbins = 100);
    void       FillYvarHists(Int_t nbins = 100);
@@ -87,7 +87,7 @@ public:
    void       SetTree(TTree *tree);
    void       SetTreeSelection(const char* varexp="", const char *selection="", Long64_t firstentry=0);
 
-   ClassDef(TSPlot, 1)  //class to disentangle signal from background
+   ClassDefOverride(TSPlot, 1)  //class to disentangle signal from background
 };
 
 #endif

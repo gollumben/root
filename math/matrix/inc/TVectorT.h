@@ -24,18 +24,20 @@
 #include "TMatrixTSym.h"
 #include "TMatrixTSparse.h"
 
+#include <ROOT/RSpan.hxx>
+
 template<class Element> class TVectorT : public TObject {
 
 protected:
-   Int_t    fNrows{0};                // number of rows
-   Int_t    fRowLwb{0};               // lower bound of the row index
-   Element *fElements{nullptr};             //[fNrows] elements themselves
+   Int_t    fNrows{0};             // number of rows
+   Int_t    fRowLwb{0};            // lower bound of the row index
+   Element *fElements{nullptr};    //[fNrows] elements themselves
 
-   enum {kSizeMax = 5};             // size data container on stack, see New_m(),Delete_m()
-   enum {kWorkMax = 100};           // size of work array's in several routines
+   enum {kSizeMax = 5};            // size data container on stack, see New_m(),Delete_m()
+   enum {kWorkMax = 100};          // size of work array's in several routines
 
-   Element  fDataStack[kSizeMax];  //! data container
-   Bool_t   fIsOwner{kTRUE};              //!default kTRUE, when Use array kFALSE
+   Element  fDataStack[kSizeMax];  ///<! data container
+   Bool_t   fIsOwner{kTRUE};       ///<!default kTRUE, when Use array kFALSE
 
    Element* New_m   (Int_t size);
    void     Delete_m(Int_t size,Element*&);
@@ -50,7 +52,7 @@ protected:
 
 public:
 
-   TVectorT() : fNrows(0), fRowLwb(0), fElements(0), fDataStack (), fIsOwner(kTRUE) { }
+   TVectorT() : fNrows(0), fRowLwb(0), fElements(nullptr), fDataStack (), fIsOwner(kTRUE) { }
    explicit TVectorT(Int_t n);
    TVectorT(Int_t lwb,Int_t upb);
    TVectorT(Int_t n,const Element *elements);
@@ -65,10 +67,8 @@ public:
       Allocate(another.GetUpb()-another.GetLwb()+1,another.GetLwb());
       *this = another;
    }
-#ifndef __CINT__
    TVectorT(Int_t lwb,Int_t upb,Double_t iv1, ...);
-#endif
-   virtual ~TVectorT() { TVectorT::Clear(); }
+   ~TVectorT() override { TVectorT::Clear(); }
 
    inline          Int_t     GetLwb       () const { return fRowLwb; }
    inline          Int_t     GetUpb       () const { return fNrows+fRowLwb-1; }
@@ -77,6 +77,26 @@ public:
 
    inline          Element  *GetMatrixArray  ()       { return fElements; }
    inline const    Element  *GetMatrixArray  () const { return fElements; }
+
+   // For compatibility with STL classes
+   inline          std::size_t size() const { return fNrows; }
+
+   inline          Element  *data()       { return fElements; }
+   inline const    Element  *data() const { return fElements; }
+
+   // Implicit conversion of TVectorT to std::span, both non-const and const
+   // version. Can be removed once the minimum C++ standard in C++20, because
+   // then it's enough to implement the contiguous_range and sized_range
+   // concepts. This should alredy be the case since data() and size() are
+   // available.
+   inline operator std::span<Element>()
+   {
+      return std::span<Element>{data(), size()};
+   }
+   inline operator std::span<const Element>() const
+   {
+      return std::span<const Element>{data(), size()};
+   }
 
    inline void     Invalidate ()       { SetBit(kStatus); }
    inline void     MakeValid  ()       { ResetBit(kStatus); }
@@ -171,16 +191,20 @@ public:
 
    void Add(const TVectorT<Element> &v);
    void Add(const TVectorT<Element> &v1, const TVectorT<Element> &v2);
-   void Clear(Option_t * /*option*/ ="") { if (fIsOwner) Delete_m(fNrows,fElements);
-                                           else fElements = 0;
-                                           fNrows = 0; }
-   void Draw (Option_t *option=""); // *MENU*
-   void Print(Option_t *option="") const;  // *MENU*
+   void Clear(Option_t * /*option*/ = "") override
+   {
+      if (fIsOwner)
+         Delete_m(fNrows, fElements);
+      else
+         fElements = nullptr;
+      fNrows = 0;
+   }
+   void Draw(Option_t *option = "") override;       // *MENU*
+   void Print(Option_t *option = "") const override;  // *MENU*
 
-   ClassDef(TVectorT,4)  // Template of Vector class
+   ClassDefOverride(TVectorT,4)  // Template of Vector class
 };
 
-#ifndef __CINT__
 // When building with -fmodules, it instantiates all pending instantiations,
 // instead of delaying them until the end of the translation unit.
 // We 'got away with' probably because the use and the definition of the
@@ -189,7 +213,6 @@ public:
 // In case we are building with -fmodules, we need to forward declare the
 // specialization in order to compile the dictionary G__Matrix.cxx.
 template <> TClass *TVectorT<double>::Class();
-#endif // __CINT__
 
 template<class Element> inline       TVectorT<Element> &TVectorT<Element>::Use     (Int_t n,Element *data) { return Use(0,n-1,data); }
 template<class Element> inline const TVectorT<Element> &TVectorT<Element>::Use     (Int_t n,const Element *data) const { return Use(0,n-1,data); }

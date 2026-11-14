@@ -32,7 +32,6 @@ For quad modes the deltas are expected to be positive.
 For line modes negative deltas are ok.
 */
 
-ClassImp(TEveQuadSet);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -116,7 +115,7 @@ void TEveQuadSet::AddQuad(Float_t verts[12])
       throw(eH + "expect free quad-type.");
 
    QFreeQuad_t* fq = (QFreeQuad_t*) NewDigit();
-   if (verts != 0)
+   if (verts != nullptr)
      memcpy(fq->fVertices, verts, sizeof(fq->fVertices));
 }
 
@@ -248,7 +247,7 @@ void TEveQuadSet::ComputeBBox()
 {
    static const TEveException eH("TEveQuadSet::ComputeBBox ");
 
-   if (fFrame != 0)
+   if (fFrame != nullptr)
    {
       BBoxInit();
       Int_t    n    = fFrame->GetFrameSize() / 3;

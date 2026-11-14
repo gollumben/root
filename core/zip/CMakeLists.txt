@@ -4,27 +4,26 @@
 # For the licensing terms see $ROOTSYS/LICENSE.
 # For the list of contributors see $ROOTSYS/README/CREDITS.
 
-find_package(ZLIB REQUIRED)
-
-ROOT_OBJECT_LIBRARY(Zip
-  src/Bits.c
-  src/ZDeflate.c
-  src/ZTrees.c
-  src/ZInflate.c
+target_sources(Core
+PRIVATE
   src/Compression.cxx
   src/RZip.cxx
+PRIVATE 
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/
+  FILES
+    inc/Compression.h
+    inc/RZip.h
 )
 
-target_include_directories(Zip PRIVATE
-   ${ZLIB_INCLUDE_DIR}
-   ${CMAKE_SOURCE_DIR}/core/lzma/inc
-   ${CMAKE_SOURCE_DIR}/core/lz4/inc
-   ${CMAKE_SOURCE_DIR}/core/zstd/inc
-   ${CMAKE_SOURCE_DIR}/core/foundation/inc
-   ${CMAKE_SOURCE_DIR}/core/clib/inc
-   ${CMAKE_SOURCE_DIR}/core/meta/inc
-   ${CMAKE_SOURCE_DIR}/core/thread/inc
-   ${CMAKE_BINARY_DIR}/ginclude
+target_link_libraries(Core PRIVATE ZLIB::ZLIB)
+target_include_directories(Core PRIVATE ../../builtins/zip)
+
+target_include_directories(Core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>
 )
 
 ROOT_INSTALL_HEADERS()
+
+ROOT_ADD_TEST_SUBDIRECTORY(test)

@@ -11,7 +11,7 @@
 
 /**
 \class TKeyMapFile
-\ingroup IO
+\ingroup io_files
  Utility class for browsing TMapFile objects.
 
  When the browser is invoked for a TMapFile, a TKeyMapFile object
@@ -26,7 +26,6 @@
 #include "TMapFile.h"
 #include "TBrowser.h"
 
-ClassImp(TKeyMapFile);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.

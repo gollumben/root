@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate Data analysis       *
  * Package: TMVA                                                                  *
  * Class  : TMVA::MethodHMatrix                                                   *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation (see header file for description)                          *
@@ -23,7 +23,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #include "TMVA/MethodHMatrix.h"
@@ -46,7 +46,6 @@
 
 REGISTER_METHOD(HMatrix)
 
-ClassImp(TMVA::MethodHMatrix);
 
 /*! \class TMVA::MethodHMatrix
 \ingroup TMVA
@@ -195,7 +194,6 @@ void TMVA::MethodHMatrix::Train( void )
    // invert matrix
    fInvHMatrixS->Invert();
    fInvHMatrixB->Invert();
-   ExitFromTraining();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

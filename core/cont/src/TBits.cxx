@@ -25,7 +25,6 @@ occupied by the upper bits that are 0.
 #include <iostream>
 #include <cstring>
 
-ClassImp(TBits);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TBits constructor.  All bits set to 0
@@ -64,7 +63,7 @@ TBits& TBits::operator=(const TBits& rhs)
          fAllBits = new UChar_t[fNbytes];
          memcpy(fAllBits,rhs.fAllBits,fNbytes);
       } else {
-         fAllBits = 0;
+         fAllBits = nullptr;
       }
    }
    return *this;
@@ -84,7 +83,7 @@ TBits::~TBits()
 void TBits::Clear(Option_t * /*option*/)
 {
    delete [] fAllBits;
-   fAllBits = 0;
+   fAllBits = nullptr;
    fNbits   = 0;
    fNbytes  = 0;
 }

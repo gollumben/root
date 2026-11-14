@@ -17,6 +17,7 @@
 
 #include <vector>
 #include <memory>
+#include <cmath>
 
 #ifdef G__DICTIONARY
 typedef ROOT::Minuit2::MinimumState MinimumState;
@@ -53,8 +54,8 @@ public:
    }
 
    /// Constructor at the end of a minimization from seed and vector of states
-   FunctionMinimum(const MinimumSeed &seed, const std::vector<MinimumState> &states, double up, Status status = MnValid)
-      : fPtr{new Data{seed, states, up, status == MnAboveMaxEdm, status == MnReachedCallLimit, {}}}
+   FunctionMinimum(const MinimumSeed &seed, std::span<const MinimumState> states, double up, Status status = MnValid)
+      : fPtr{new Data{seed, {states.begin(), states.end()}, up, status == MnAboveMaxEdm, status == MnReachedCallLimit, {}}}
    {
    }
 
@@ -66,6 +67,7 @@ public:
       fPtr->fUserState = MnUserParameterState(State(), Up(), Seed().Trafo());
       // reset maxedm flag. If new state has edm over max other method must be used
       fPtr->fAboveMaxEdm = status == MnAboveMaxEdm;
+      fPtr->fReachedCallLimit = status == MnReachedCallLimit;
    }
 
    const MinimumSeed &Seed() const { return fPtr->fSeed; }
@@ -99,13 +101,13 @@ public:
    bool HasMadePosDefCovar() const { return State().Error().IsMadePosDef(); }
    bool HesseFailed() const { return State().Error().HesseFailed(); }
    bool HasCovariance() const { return State().Error().IsAvailable(); }
-   bool IsAboveMaxEdm() const { return fPtr->fAboveMaxEdm; }
+   bool IsAboveMaxEdm() const { return fPtr->fAboveMaxEdm || std::isnan(Edm()); }
    bool HasReachedCallLimit() const { return fPtr->fReachedCallLimit; }
 
    void SetErrorDef(double up)
    {
       fPtr->fErrorDef = up;
-      // update user state for new valeu of up (scaling of errors)
+      // update user state for new value of up (scaling of errors)
       fPtr->fUserState = MnUserParameterState(State(), up, Seed().Trafo());
    }
 

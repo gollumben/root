@@ -15,19 +15,19 @@
 #include <vector>
 
 namespace ROOT {
-namespace Experimental {
 namespace Browsable {
 
 using RElementPath_t = std::vector<std::string>;
 
 class RLevelIter;
 
+class RItem;
+
 /** \class RElement
 \ingroup rbrowser
 \brief Basic element of browsable hierarchy. Provides access to data, creates iterator if any
 \author Sergey Linev <S.Linev@gsi.de>
 \date 2019-10-14
-\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 */
 
 class RElement {
@@ -54,6 +54,7 @@ public:
       kActDraw6,   ///< can be drawn inside ROOT6 canvas
       kActDraw7,   ///< can be drawn inside ROOT7 canvas
       kActCanvas,  ///< indicate that it is canvas and should be drawn directly
+      kActTree,    ///< can be shown in tree viewer
       kActGeom     ///< can be shown in geometry viewer
    };
 
@@ -71,13 +72,22 @@ public:
    /** Create iterator for childs elements if any */
    virtual std::unique_ptr<RLevelIter> GetChildsIter();
 
-   virtual int GetNumChilds();
-
    /** Returns element content, depends from kind. Can be "text" or "image64" or "json" */
    virtual std::string GetContent(const std::string & = "text");
 
    /** Access object */
    virtual std::unique_ptr<RHolder> GetObject() { return nullptr; }
+
+   /** Check if element contains provided pointer */
+   virtual bool IsObject(void *) { return false; }
+
+   /** Check if element can have childs */
+   virtual bool IsFolder() const { return false; }
+
+   virtual int GetNumChilds();
+
+   /** Check if element still contains valid content */
+   virtual bool CheckValid() { return true; }
 
    /** Get default action */
    virtual EActionKind GetDefaultAction() const { return kActNone; }
@@ -88,6 +98,11 @@ public:
    /** Should item representing element be expand by default */
    virtual bool IsExpandByDefault() const { return false; }
 
+   /** Select element as active */
+   virtual bool cd() { return false; }
+
+   virtual std::unique_ptr<RItem> CreateItem() const;
+
    static std::shared_ptr<RElement> GetSubElement(std::shared_ptr<RElement> &elem, const RElementPath_t &path);
 
    static RElementPath_t ParsePath(const std::string &str);
@@ -97,10 +112,13 @@ public:
    static std::string GetPathAsString(const RElementPath_t &path);
 
    static int ExtractItemIndex(std::string &name);
+
+   static bool IsLastKeyCycle();
+
+   static void SetLastKeyCycle(bool on = true);
 };
 
 } // namespace Browsable
-} // namespace Experimental
 } // namespace ROOT
 
 #endif

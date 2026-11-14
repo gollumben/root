@@ -18,9 +18,10 @@
 #include "cling/Utils/Output.h"
 #include "cling/Utils/Paths.h"
 
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Path.h"
+
+#include <optional>
 
 namespace cling {
 
@@ -133,7 +134,7 @@ namespace cling {
   // FilePath := AnyString
   // AnyString := .*^('\t' Comment)
   bool MetaParser::isLCommand(MetaSema::ActionResult& actionResult) {
-    if (getCurTok().is(tok::ident) && getCurTok().getIdent().equals("L")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "L") {
       consumeAnyStringToken(tok::comment);
       llvm::StringRef filePath;
       if (getCurTok().is(tok::raw_ident)) {
@@ -156,14 +157,14 @@ namespace cling {
   // AnyString := .*^('\t' Comment)
   bool MetaParser::isTCommand(MetaSema::ActionResult& actionResult) {
     bool result = false;
-    if (getCurTok().is(tok::ident) && getCurTok().getIdent().equals("T")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "T") {
       consumeAnyStringToken();
       if (getCurTok().is(tok::raw_ident)) {
-        std::string inputFile = getCurTok().getIdent();
+        std::string inputFile = getCurTok().getIdent().str();
         consumeAnyStringToken(tok::eof);
         if (getCurTok().is(tok::raw_ident)) {
           result = true;
-          std::string outputFile = getCurTok().getIdent();
+          std::string outputFile = getCurTok().getIdent().str();
           actionResult = m_Actions.actOnTCommand(inputFile, outputFile);
         }
       }
@@ -235,7 +236,7 @@ namespace cling {
       if (!lookAhead(1).is(tok::eof) && !(stream & MetaProcessor::kSTDSTRM)) {
         consumeAnyStringToken(tok::eof);
         if (getCurTok().is(tok::raw_ident)) {
-          EnvExpand = getCurTok().getIdent();
+          EnvExpand = getCurTok().getIdent().str();
           // Quoted path, no expansion and strip quotes
           if (EnvExpand.size() > 3 && EnvExpand.front() == '"' &&
               EnvExpand.back() == '"') {
@@ -270,8 +271,8 @@ namespace cling {
     if (resultValue)
       *resultValue = Value();
     const Token& Tok = getCurTok();
-    if (Tok.is(tok::ident) && (Tok.getIdent().equals("x")
-                               || Tok.getIdent().equals("X"))) {
+    if (Tok.is(tok::ident) &&
+        (Tok.getIdent() == "x" || Tok.getIdent() == "X")) {
       consumeToken();
       skipWhitespace();
 
@@ -279,6 +280,11 @@ namespace cling {
       int forward = 0;
       std::string args;
       llvm::StringRef file(getCurTok().getBufStart());
+
+      if (file.empty()) {
+        return false; // FIXME: Issue proper diagnostics
+      }
+
       while (!lookAhead(forward).is(tok::eof))
 	++forward;
 
@@ -329,7 +335,7 @@ namespace cling {
 
   bool MetaParser::isqCommand() {
     bool result = false;
-    if (getCurTok().is(tok::ident) && getCurTok().getIdent().equals("q")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "q") {
       result = true;
       m_Actions.actOnqCommand();
     }
@@ -337,7 +343,7 @@ namespace cling {
   }
 
   bool MetaParser::isUCommand(MetaSema::ActionResult& actionResult) {
-    if (getCurTok().is(tok::ident) && getCurTok().getIdent().equals("U")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "U") {
       consumeAnyStringToken(tok::eof);
       llvm::StringRef path;
       if (getCurTok().is(tok::raw_ident)) {
@@ -350,9 +356,8 @@ namespace cling {
   }
 
   bool MetaParser::isICommand() {
-    if (getCurTok().is(tok::ident) &&
-        (   getCurTok().getIdent().equals("I")
-         || getCurTok().getIdent().equals("include"))) {
+    if (getCurTok().is(tok::ident) && (getCurTok().getIdent() == "I" ||
+                                       getCurTok().getIdent() == "include")) {
       consumeAnyStringToken(tok::eof);
       llvm::StringRef path;
       if (getCurTok().is(tok::raw_ident))
@@ -367,7 +372,7 @@ namespace cling {
     const Token& currTok = getCurTok();
     if (currTok.is(tok::ident)) {
       llvm::StringRef ident = currTok.getIdent();
-      if (ident.startswith("O")) {
+      if (ident.starts_with("O")) {
         if (ident.size() > 1) {
           int level = 0;
           if (!ident.substr(1).getAsInteger(10, level) && level >= 0) {
@@ -401,8 +406,8 @@ namespace cling {
   }
 
   bool MetaParser::isAtCommand() {
-    if (getCurTok().is(tok::at) // && getCurTok().getIdent().equals("@")
-        ) {
+    if (getCurTok().is(tok::at) // && getCurTok().getIdent() == "@"
+    ) {
       consumeToken();
       skipWhitespace();
       m_Actions.actOnAtCommand();
@@ -412,8 +417,7 @@ namespace cling {
   }
 
   bool MetaParser::israwInputCommand() {
-    if (getCurTok().is(tok::ident) &&
-        getCurTok().getIdent().equals("rawInput")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "rawInput") {
       MetaSema::SwitchMode mode = MetaSema::kToggle;
       consumeToken();
       skipWhitespace();
@@ -426,9 +430,8 @@ namespace cling {
   }
 
   bool MetaParser::isdebugCommand() {
-    if (getCurTok().is(tok::ident) &&
-        getCurTok().getIdent().equals("debug")) {
-      llvm::Optional<int> mode;
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "debug") {
+      std::optional<int> mode;
       consumeToken();
       skipWhitespace();
       if (getCurTok().is(tok::constant))
@@ -440,8 +443,7 @@ namespace cling {
   }
 
   bool MetaParser::isprintDebugCommand() {
-    if (getCurTok().is(tok::ident) &&
-        getCurTok().getIdent().equals("printDebug")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "printDebug") {
       MetaSema::SwitchMode mode = MetaSema::kToggle;
       consumeToken();
       skipWhitespace();
@@ -454,14 +456,13 @@ namespace cling {
   }
 
   bool MetaParser::isstoreStateCommand() {
-     if (getCurTok().is(tok::ident) &&
-        getCurTok().getIdent().equals("storeState")) {
-       //MetaSema::SwitchMode mode = MetaSema::kToggle;
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "storeState") {
+      // MetaSema::SwitchMode mode = MetaSema::kToggle;
       consumeToken();
       skipWhitespace();
       if (!getCurTok().is(tok::stringlit))
         return false; // FIXME: Issue proper diagnostics
-      std::string ident = getCurTok().getIdentNoQuotes();
+      std::string ident = getCurTok().getIdentNoQuotes().str();
       consumeToken();
       m_Actions.actOnstoreStateCommand(ident);
       return true;
@@ -471,13 +472,13 @@ namespace cling {
 
   bool MetaParser::iscompareStateCommand() {
     if (getCurTok().is(tok::ident) &&
-        getCurTok().getIdent().equals("compareState")) {
+        getCurTok().getIdent() == "compareState") {
       //MetaSema::SwitchMode mode = MetaSema::kToggle;
       consumeToken();
       skipWhitespace();
       if (!getCurTok().is(tok::stringlit))
         return false; // FIXME: Issue proper diagnostics
-      std::string ident = getCurTok().getIdentNoQuotes();
+      std::string ident = getCurTok().getIdentNoQuotes().str();
       consumeToken();
       m_Actions.actOncompareStateCommand(ident);
       return true;
@@ -486,8 +487,7 @@ namespace cling {
   }
 
   bool MetaParser::isstatsCommand() {
-    if (getCurTok().is(tok::ident) &&
-        getCurTok().getIdent().equals("stats")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "stats") {
       consumeToken();
       skipWhitespace();
       if (!getCurTok().is(tok::ident))
@@ -505,8 +505,7 @@ namespace cling {
 
   // dumps/creates a trace of the requested representation.
   bool MetaParser::istraceCommand() {
-    if (getCurTok().is(tok::ident) &&
-        getCurTok().getIdent().equals("trace")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "trace") {
       consumeToken();
       skipWhitespace();
       if (!getCurTok().is(tok::ident))
@@ -514,9 +513,11 @@ namespace cling {
       llvm::StringRef ident = getCurTok().getIdent();
       consumeToken();
       skipWhitespace();
-      m_Actions.actOnstatsCommand(ident.equals("ast")
-        ? llvm::StringRef("asttree") : ident,
-        getCurTok().is(tok::ident) ? getCurTok().getIdent() : llvm::StringRef());
+      m_Actions.actOnstatsCommand(ident == "ast" ? llvm::StringRef("asttree")
+                                                 : ident,
+                                  getCurTok().is(tok::ident)
+                                      ? getCurTok().getIdent()
+                                      : llvm::StringRef());
       consumeToken();
       return true;
     }
@@ -524,8 +525,7 @@ namespace cling {
   }
 
   bool MetaParser::isundoCommand() {
-    if (getCurTok().is(tok::ident) &&
-        getCurTok().getIdent().equals("undo")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "undo") {
       consumeToken();
       skipWhitespace();
       const Token& next = getCurTok();
@@ -540,7 +540,7 @@ namespace cling {
 
   bool MetaParser::isdynamicExtensionsCommand() {
     if (getCurTok().is(tok::ident) &&
-        getCurTok().getIdent().equals("dynamicExtensions")) {
+        getCurTok().getIdent() == "dynamicExtensions") {
       MetaSema::SwitchMode mode = MetaSema::kToggle;
       consumeToken();
       skipWhitespace();
@@ -555,7 +555,7 @@ namespace cling {
   bool MetaParser::ishelpCommand() {
     const Token& Tok = getCurTok();
     if (Tok.is(tok::quest_mark) ||
-        (Tok.is(tok::ident) && Tok.getIdent().equals("help"))) {
+        (Tok.is(tok::ident) && Tok.getIdent() == "help")) {
       m_Actions.actOnhelpCommand();
       return true;
     }
@@ -563,7 +563,7 @@ namespace cling {
   }
 
   bool MetaParser::isfileExCommand() {
-    if (getCurTok().is(tok::ident) && getCurTok().getIdent().equals("fileEx")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "fileEx") {
       m_Actions.actOnfileExCommand();
       return true;
     }
@@ -571,7 +571,7 @@ namespace cling {
   }
 
   bool MetaParser::isfilesCommand() {
-    if (getCurTok().is(tok::ident) && getCurTok().getIdent().equals("files")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "files") {
       m_Actions.actOnfilesCommand();
       return true;
     }
@@ -581,17 +581,14 @@ namespace cling {
   bool MetaParser::isClassCommand() {
     const Token& Tok = getCurTok();
     if (Tok.is(tok::ident)) {
-      if (Tok.getIdent().equals("class")) {
+      if (Tok.getIdent() == "class" || Tok.getIdent() == "Class") {
+        const bool verbose = Tok.getIdent() == "Class";
         consumeAnyStringToken(tok::eof);
         const Token& NextTok = getCurTok();
         llvm::StringRef className;
         if (NextTok.is(tok::raw_ident))
           className = NextTok.getIdent();
-        m_Actions.actOnclassCommand(className);
-        return true;
-      }
-      else if (Tok.getIdent().equals("Class")) {
-        m_Actions.actOnClassCommand();
+        m_Actions.actOnClassCommand(className, verbose);
         return true;
       }
     }
@@ -601,7 +598,7 @@ namespace cling {
   bool MetaParser::isNamespaceCommand() {
     const Token& Tok = getCurTok();
     if (Tok.is(tok::ident)) {
-      if (Tok.getIdent().equals("namespace")) {
+      if (Tok.getIdent() == "namespace") {
         consumeAnyStringToken(tok::eof);
         if (getCurTok().is(tok::raw_ident))
           return false;
@@ -613,7 +610,7 @@ namespace cling {
   }
 
   bool MetaParser::isgCommand() {
-    if (getCurTok().is(tok::ident) && getCurTok().getIdent().equals("g")) {
+    if (getCurTok().is(tok::ident) && getCurTok().getIdent() == "g") {
       consumeToken();
       skipWhitespace();
       llvm::StringRef varName;
@@ -628,7 +625,7 @@ namespace cling {
   bool MetaParser::isTypedefCommand() {
     const Token& Tok = getCurTok();
     if (Tok.is(tok::ident)) {
-      if (Tok.getIdent().equals("typedef")) {
+      if (Tok.getIdent() == "typedef") {
         consumeAnyStringToken(tok::eof);
         const Token& NextTok = getCurTok();
         llvm::StringRef typedefName;

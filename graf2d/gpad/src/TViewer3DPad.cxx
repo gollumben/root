@@ -24,7 +24,6 @@ Provides 3D viewer interface (TVirtualViewer3D) support on a pad.
 Will be merged with TView / TView3D eventually.
 */
 
-ClassImp(TViewer3DPad);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Indicates if we prefer positions in local frame. Always false - pad
@@ -45,7 +44,7 @@ void TViewer3DPad::BeginScene()
    // Create a 3D view if none exists
    TView *view = fPad.GetView();
    if (!view) {
-      view = TView::CreateView(1,0,0); // Cartesian view by default
+      view = TView::CreateView(1, nullptr, nullptr); // Cartesian view by default
       if (!view) {
          assert(kFALSE);
          return;

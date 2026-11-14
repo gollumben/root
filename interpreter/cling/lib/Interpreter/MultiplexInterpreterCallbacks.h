@@ -21,7 +21,7 @@ namespace cling {
 
   public:
     MultiplexInterpreterCallbacks(Interpreter* interp)
-      : InterpreterCallbacks(interp, true, true, true) {}
+      : InterpreterCallbacks(interp, true, true) {}
 
     void addCallback(std::unique_ptr<InterpreterCallbacks> newCb) {
       m_Callbacks.push_back(std::move(newCb));
@@ -31,15 +31,16 @@ namespace cling {
                             const clang::Token& IncludeTok,
                             llvm::StringRef FileName, bool IsAngled,
                             clang::CharSourceRange FilenameRange,
-                            const clang::FileEntry* File,
+                            clang::OptionalFileEntryRef File,
                             llvm::StringRef SearchPath,
                             llvm::StringRef RelativePath,
                             const clang::Module* Imported,
+                            bool ModuleImported,
                           clang::SrcMgr::CharacteristicKind FileType) override {
       for (auto&& cb : m_Callbacks)
         cb->InclusionDirective(HashLoc, IncludeTok, FileName, IsAngled,
                                FilenameRange, File, SearchPath, RelativePath,
-                               Imported, FileType);
+                               Imported, ModuleImported, FileType);
     }
 
     void EnteredSubmodule(clang::Module* M, clang::SourceLocation ImportLoc,
@@ -48,11 +49,10 @@ namespace cling {
         cb->EnteredSubmodule(M, ImportLoc, ForPragma);
     }
 
-    bool FileNotFound(llvm::StringRef FileName,
-                      llvm::SmallVectorImpl<char>& RecoveryPath) override {
+    bool FileNotFound(llvm::StringRef FileName) override {
       bool result = false;
       for (auto&& cb : m_Callbacks)
-        result = cb->FileNotFound(FileName, RecoveryPath) || result;
+        result = cb->FileNotFound(FileName) || result;
       return result;
     }
 
@@ -120,18 +120,6 @@ namespace cling {
      void DefinitionShadowed(const clang::NamedDecl* D) override {
        for (auto&& cb : m_Callbacks) {
          cb->DefinitionShadowed(D);
-       }
-     }
-
-     void DeclDeserialized(const clang::Decl* D) override {
-       for (auto&& cb : m_Callbacks) {
-         cb->DeclDeserialized(D);
-       }
-     }
-
-     void TypeDeserialized(const clang::Type* Ty) override {
-       for (auto&& cb : m_Callbacks) {
-         cb->TypeDeserialized(Ty);
        }
      }
 

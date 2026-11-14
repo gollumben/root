@@ -63,7 +63,7 @@ public:
                Double_t phi1, Double_t phi2, const TGLVector3 &l = gLowNormalDefault,
                const TGLVector3 &h = gHighNormalDefault);
 
-   void Draw() const;
+   void Draw() const override;
 };
 
 //four quad strips:
@@ -79,7 +79,7 @@ public:
    TubeMesh(UInt_t LOD, Double_t r1, Double_t r2, Double_t r3, Double_t r4, Double_t dz,
             const TGLVector3 &l = gLowNormalDefault, const TGLVector3 &h = gHighNormalDefault);
 
-   void Draw() const;
+   void Draw() const override;
 };
 
 //One quad mesh and 2 triangle funs
@@ -93,7 +93,7 @@ public:
    TCylinderMesh(UInt_t LOD, Double_t r1, Double_t r2, Double_t dz,
                  const TGLVector3 &l = gLowNormalDefault, const TGLVector3 &h = gHighNormalDefault);
 
-   void Draw() const;
+   void Draw() const override;
 };
 
 //One quad mesh and 2 triangle fans
@@ -107,7 +107,7 @@ private:
 public:
    TCylinderSegMesh(UInt_t LOD, Double_t r1, Double_t r2, Double_t dz, Double_t phi1, Double_t phi2,
                     const TGLVector3 &l = gLowNormalDefault, const TGLVector3 &h = gHighNormalDefault);
-   void Draw() const;
+   void Draw() const override;
 };
 
 TGLMesh::TGLMesh(UInt_t LOD, Double_t r1, Double_t r2, Double_t r3, Double_t r4, Double_t dz,
@@ -512,7 +512,6 @@ Implements a native ROOT-GL cylinder that can be rendered at
 different levels of detail.
 */
 
-ClassImp(TGLCylinder);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy out relevant parts of buffer - we create and delete mesh
@@ -654,6 +653,6 @@ void TGLCylinder::DirectDraw(TGLRnrCtx & rnrCtx) const
    // Delete mesh parts
    for (UInt_t i = 0; i < meshParts.size(); ++i) {
       delete meshParts[i];
-      meshParts[i] = 0;//not to have invalid pointer for pseudo-destructor call :)
+      meshParts[i] = nullptr;//not to have invalid pointer for pseudo-destructor call :)
    }
 }

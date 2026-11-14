@@ -53,16 +53,13 @@ the table of contents.
 #pragma optimize("",off)
 #endif
 
-#include <cstdlib>
-#include <cstring>
-#include <cctype>
-#include <fstream>
-
 #include "TROOT.h"
 #include "TDatime.h"
 #include "TColor.h"
 #include "TVirtualPad.h"
+#include "TPoint.h"
 #include "TPoints.h"
+#include "TImage.h"
 #include "TPDF.h"
 #include "TStyle.h"
 #include "TMath.h"
@@ -71,7 +68,12 @@ the table of contents.
 #include "zlib.h"
 #include "TObjString.h"
 #include "TObjArray.h"
-#include "snprintf.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cctype>
+#include <fstream>
 
 // To scale fonts to the same size as the old TT version
 const Float_t kScale = 0.93376068;
@@ -89,42 +91,24 @@ const Int_t kObjPatternResourses = 23; // Pattern Resources object
 const Int_t kObjPatternList      = 24; // Pattern list object
 const Int_t kObjTransList        = 25; // List of transparencies
 const Int_t kObjPattern          = 26; // First pattern object (25 in total)
-const Int_t kObjFirstPage        = 51; // First page object
+const Int_t kObjImageList = 51;        // Image XObject name dictionary
+const Int_t kObjFirstPage = 52;        // First page object
 
 // Number of fonts
 const Int_t kNumberOfFonts = 15;
 
 Int_t TPDF::fgLineJoin = 0;
-Int_t TPDF::fgLineCap  = 0;
+Int_t TPDF::fgLineCap = 0;
 
-ClassImp(TPDF);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default PDF constructor
 
 TPDF::TPDF() : TVirtualPS()
 {
-   fStream          = 0;
-   fCompress        = kFALSE;
-   fPageNotEmpty    = kFALSE;
-   gVirtualPS       = this;
-   fRed             = 0.;
-   fGreen           = 0.;
-   fBlue            = 0.;
-   fAlpha           = 1.;
-   fXsize           = 0.;
-   fYsize           = 0.;
-   fType            = 0;
-   fPageFormat      = 0;
-   fPageOrientation = 0;
-   fStartStream     = 0;
-   fLineScale       = 0.;
-   fObjPosSize      = 0;
-   fObjPos          = 0;
-   fNbObj           = 0;
-   fNbPage          = 0;
-   fRange           = kFALSE;
+   fCurrentPage = kObjFirstPage;
    SetTitle("PDF");
+   gVirtualPS = this;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -138,24 +122,7 @@ TPDF::TPDF() : TVirtualPS()
 
 TPDF::TPDF(const char *fname, Int_t wtype) : TVirtualPS(fname, wtype)
 {
-   fStream          = 0;
-   fCompress        = kFALSE;
-   fPageNotEmpty    = kFALSE;
-   fRed             = 0.;
-   fGreen           = 0.;
-   fBlue            = 0.;
-   fAlpha           = 1.;
-   fXsize           = 0.;
-   fYsize           = 0.;
-   fType            = 0;
-   fPageFormat      = 0;
-   fPageOrientation = 0;
-   fStartStream     = 0;
-   fLineScale       = 0.;
-   fObjPosSize      = 0;
-   fNbObj           = 0;
-   fNbPage          = 0;
-   fRange           = kFALSE;
+   fCurrentPage = kObjFirstPage;
    SetTitle("PDF");
    Open(fname, wtype);
 }
@@ -166,56 +133,199 @@ TPDF::TPDF(const char *fname, Int_t wtype) : TVirtualPS(fname, wtype)
 TPDF::~TPDF()
 {
    Close();
-
-   if (fObjPos) delete [] fObjPos;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Begin the Cell Array painting
+/// Begin the Cell Array painting.
+///
+/// The W x H cells fill a rectangle whose top-left corner is at world
+/// coordinates (x1, y1); (x2 - x1) is the per-cell width and (y2 - y1) is
+/// the per-cell vertical step (the image extends downward from y1 by
+/// H * (y2 - y1)). The pixel data is collected via CellArrayFill in
+/// top-to-bottom, left-to-right order and emitted as a PDF image XObject
+/// in CellArrayEnd.
 
-void TPDF::CellArrayBegin(Int_t, Int_t, Double_t, Double_t, Double_t,
-                          Double_t)
+void TPDF::CellArrayBegin(Int_t W, Int_t H, Double_t x1, Double_t x2, Double_t y1, Double_t y2)
 {
-   Warning("TPDF::CellArrayBegin", "not yet implemented");
+   if (W <= 0 || H <= 0) {
+      fCellArrayW = 0;
+      fCellArrayH = 0;
+      fCellArrayRGB.clear();
+      return;
+   }
+
+   fCellArrayW = W;
+   fCellArrayH = H;
+
+   Double_t xLeft = XtoPDF(x1);
+   Double_t xRight = XtoPDF(x1 + (x2 - x1) * W);
+   Double_t yTop = YtoPDF(y1);
+   Double_t yBot = YtoPDF(y1 - (y2 - y1) * H);
+
+   fCellArrayXpdf = xLeft;
+   fCellArrayYpdfBot = yBot;
+   fCellArrayWpdf = xRight - xLeft;
+   fCellArrayHpdf = yTop - yBot;
+
+   fCellArrayRGB.clear();
+   fCellArrayRGB.reserve(3 * std::size_t(W) * std::size_t(H));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Paint the Cell Array
+/// Paint the Cell Array: append one RGB pixel to the in-flight buffer.
 
-void TPDF::CellArrayFill(Int_t, Int_t, Int_t)
+void TPDF::CellArrayFill(Int_t r, Int_t g, Int_t b)
 {
-   Warning("TPDF::CellArrayFill", "not yet implemented");
+   if (fCellArrayW <= 0 || fCellArrayH <= 0)
+      return;
+   auto clamp = [](Int_t v) -> unsigned char {
+      if (v < 0)
+         return 0;
+      if (v > 255)
+         return 255;
+      return static_cast<unsigned char>(v);
+   };
+   fCellArrayRGB.push_back(clamp(r));
+   fCellArrayRGB.push_back(clamp(g));
+   fCellArrayRGB.push_back(clamp(b));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// End the Cell Array painting
+/// End the Cell Array painting.
+///
+/// The RGB buffer accumulated by CellArrayFill is Flate-compressed and stored
+/// as a PDF image XObject (actually emitted later, in Close). The page content
+/// stream only receives the placement matrix and a "/ImN Do" operator that
+/// paints that XObject. This is both smaller and structurally cleaner than an
+/// inline image: the pixel data is compressed once, kept out of the page
+/// content stream, and could be reused across pages.
 
 void TPDF::CellArrayEnd()
 {
-   Warning("TPDF::CellArrayEnd", "not yet implemented");
+   if (fCellArrayW <= 0 || fCellArrayH <= 0 || fCellArrayRGB.empty()) {
+      fCellArrayW = 0;
+      fCellArrayH = 0;
+      fCellArrayRGB.clear();
+      return;
+   }
+
+   const std::size_t expected = 3 * std::size_t(fCellArrayW) * std::size_t(fCellArrayH);
+   if (fCellArrayRGB.size() < expected) {
+      // Pad with black if the caller delivered fewer pixels than declared.
+      fCellArrayRGB.resize(expected, 0);
+   } else if (fCellArrayRGB.size() > expected) {
+      fCellArrayRGB.resize(expected);
+   }
+
+   // Flate-compress the pixels now, so only the compressed form is buffered
+   // until Close. compress2 emits a zlib stream, exactly what the PDF
+   // /FlateDecode filter consumes.
+   PDFImage img;
+   img.fW = fCellArrayW;
+   img.fH = fCellArrayH;
+   uLongf bound = compressBound(static_cast<uLong>(fCellArrayRGB.size()));
+   img.fData.resize(bound);
+   uLongf destLen = bound;
+   int zerr = compress2(img.fData.data(), &destLen, fCellArrayRGB.data(), static_cast<uLong>(fCellArrayRGB.size()),
+                        Z_DEFAULT_COMPRESSION);
+   if (zerr == Z_OK) {
+      img.fData.resize(destLen);
+      img.fFlate = kTRUE;
+   } else {
+      // Fall back to storing the raw samples uncompressed.
+      img.fData = fCellArrayRGB;
+      img.fFlate = kFALSE;
+   }
+   fImageObjects.push_back(std::move(img));
+   const Int_t imageId = static_cast<Int_t>(fImageObjects.size()); // 1-based /ImN
+
+   // Paint the image XObject. Its unit square (0,0)-(1,1) is mapped onto the
+   // image rectangle by this cm matrix. Operator separators must be real
+   // newlines: '@' is only translated when fCompress is false, and a page
+   // content stream is written with fCompress true.
+   PrintStr("\nq ");
+   WriteReal(fCellArrayWpdf);
+   WriteReal(0.);
+   WriteReal(0.);
+   WriteReal(fCellArrayHpdf);
+   WriteReal(fCellArrayXpdf);
+   WriteReal(fCellArrayYpdfBot);
+   PrintStr(" cm /Im");
+   WriteInteger(imageId, kFALSE);
+   PrintStr(" Do Q\n");
+
+   fCellArrayW = 0;
+   fCellArrayH = 0;
+   fCellArrayRGB.clear();
+   fCellArrayRGB.shrink_to_fit();
 }
+
+////////////////////////////////////////////////////////////////////////////////
+/// Draw image in the PDF
+
+void TPDF::DrawImage(TImage *img, Int_t x, Int_t y, Int_t)
+{
+   Int_t width = img->GetWidth();
+   Int_t height = img->GetHeight();
+
+   auto x1 = gPad->AbsPixeltoX(x);
+   auto x2 = gPad->AbsPixeltoX(x + width);
+   auto y1 = gPad->AbsPixeltoY(y);
+   auto y2 = gPad->AbsPixeltoY(y + height);
+
+   fCellArrayW = width;
+   fCellArrayH = height;
+
+   Double_t xLeft = XtoPDF(x1);
+   Double_t xRight = XtoPDF(x2);
+   Double_t yTop = YtoPDF(y1);
+   Double_t yBot = YtoPDF(y2);
+
+   fCellArrayXpdf = xLeft;
+   fCellArrayYpdfBot = yBot;
+   fCellArrayWpdf = xRight - xLeft;
+   fCellArrayHpdf = yTop - yBot;
+
+   auto argb = img->GetArgbArray();
+   if (!argb) {
+      Error("DrawImage", "Fail to access to ARGB values");
+      return;
+   }
+
+   fCellArrayRGB.resize(3 * width * height);
+   for (Int_t i = 0; i < width * height; ++i) {
+      UInt_t p = argb[i];
+      fCellArrayRGB[i*3] = static_cast<unsigned char>((p >> 16) & 0xFF);
+      fCellArrayRGB[i*3 + 1] = static_cast<unsigned char>((p >> 8) & 0xFF);
+      fCellArrayRGB[i*3 + 2] = static_cast<unsigned char>(p & 0xFF);
+   }
+
+   // use old method, move here once old API is deprecated
+   CellArrayEnd();
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Close a PDF file
 
 void TPDF::Close(Option_t *)
 {
-   Int_t i;
+   if (!gVirtualPS || !fStream)
+      return;
 
-   if (!gVirtualPS) return;
-   if (!fStream) return;
-   if (gPad) gPad->Update();
+   if (gPad)
+      gPad->Update();
 
    // Close the currently opened page
    WriteCompressedBuffer();
    PrintStr("endstream@");
    Int_t streamLength = fNByte-fStartStream-10;
-   PrintStr("endobj@");
-   NewObject(4*(fNbPage-1)+kObjFirstPage+2);
-   WriteInteger(streamLength, 0);
+   EndObject();
+   NewObject(fCurrentPage + 2);
+   WriteInteger(streamLength, false);
    PrintStr("@");
-   PrintStr("endobj@");
-   NewObject(4*(fNbPage-1)+kObjFirstPage+3);
+   EndObject();
+   NewObject(fCurrentPage + 3);
    PrintStr("<<@");
    if (!strstr(GetTitle(),"PDF")) {
       PrintStr("/Title (");
@@ -227,7 +337,7 @@ void TPDF::Close(Option_t *)
       PrintStr(")@");
    }
    PrintStr("/Dest [");
-   WriteInteger(4*(fNbPage-1)+kObjFirstPage);
+   WriteInteger(fCurrentPage);
    PrintStr(" 0 R /XYZ null null 0]@");
    PrintStr("/Parent");
    WriteInteger(kObjContents);
@@ -235,12 +345,14 @@ void TPDF::Close(Option_t *)
    PrintStr("@");
    if (fNbPage > 1) {
       PrintStr("/Prev");
-      WriteInteger(4*(fNbPage-2)+kObjFirstPage+3);
+      WriteInteger(fPageObjects[fNbPage - 2] + 3);
       PrintStr(" 0 R");
       PrintStr("@");
    }
    PrintStr(">>@");
-
+   EndObject();
+   WriteUrlObjects();
+   PrintStr("@");
    NewObject(kObjOutlines);
    PrintStr("<<@");
    PrintStr("/Type /Outlines@");
@@ -256,7 +368,7 @@ void TPDF::Close(Option_t *)
    PrintStr(" 0 R");
    PrintStr("@");
    PrintStr(">>@");
-   PrintStr("endobj@");
+   EndObject();
 
    NewObject(kObjContents);
    PrintStr("<<@");
@@ -276,10 +388,11 @@ void TPDF::Close(Option_t *)
    PrintStr(" 0 R");
    PrintStr("@");
    PrintStr("/Last");
-   WriteInteger(4*(fNbPage-1)+kObjFirstPage+3);
+   WriteInteger(fPageObjects[fNbPage - 1] + 3);
    PrintStr(" 0 R");
    PrintStr("@");
    PrintStr(">>@");
+   EndObject();
 
    // List of all the pages
    NewObject(kObjPages);
@@ -289,36 +402,102 @@ void TPDF::Close(Option_t *)
    WriteInteger(fNbPage);
    PrintStr("@");
    PrintStr("/Kids [");
-   for (i=1; i<=fNbPage; i++) {
-      WriteInteger(4*(i-1)+kObjFirstPage);
+   for (std::size_t i = 0; i < fPageObjects.size(); i++) {
+      WriteInteger(fPageObjects[i]);
       PrintStr(" 0 R");
    }
    PrintStr(" ]");
    PrintStr("@");
    PrintStr(">>@");
-   PrintStr("endobj@");
+   EndObject();
 
+   if (!fPageObjects.empty())
+      fPageObjects.clear();
+   if (!fUrls.empty())
+      fUrls.clear();
+   if (!fRectX1.empty())
+      fRectX1.clear();
+   if (!fRectY1.empty())
+      fRectY1.clear();
+   if (!fRectX2.empty())
+      fRectX2.clear();
+   if (!fRectY2.empty())
+      fRectY2.clear();
+
+   // List of transparencies
    NewObject(kObjTransList);
    PrintStr("<<@");
-   for (i=0; i<(int)fAlphas.size(); i++) {
+   for (std::size_t i = 0; i < fAlphas.size(); i++) {
       PrintStr(
-      Form("/ca%3.2f << /Type /ExtGState /ca %3.2f >> /CA%3.2f << /Type /ExtGState /CA %3.2f >>@",
+      TString::Format("/ca%3.2f << /Type /ExtGState /ca %3.2f >> /CA%3.2f << /Type /ExtGState /CA %3.2f >>@",
       fAlphas[i],fAlphas[i],fAlphas[i],fAlphas[i]));
    }
    PrintStr(">>@");
-   PrintStr("endobj@");
-   if (fAlphas.size()) fAlphas.clear();
+   EndObject();
+   if (!fAlphas.empty())
+      fAlphas.clear();
+
+   // Image XObjects. They are emitted here, once every page's content stream
+   // has been closed, because a PDF object cannot be opened while another one
+   // (the page content stream) is still open. Each page's /Resources refers to
+   // kObjImageList, the name dictionary written just after the images.
+   std::vector<Int_t> imageObjNum;
+   imageObjNum.reserve(fImageObjects.size());
+   for (const auto &img : fImageObjects) {
+      Int_t n = static_cast<Int_t>(fObjPos.size()) + 1;
+      imageObjNum.push_back(n);
+      NewObject(n);
+      PrintStr("<<@");
+      PrintStr("/Type /XObject@");
+      PrintStr("/Subtype /Image@");
+      PrintStr("/Width");
+      WriteInteger(img.fW);
+      PrintStr("@");
+      PrintStr("/Height");
+      WriteInteger(img.fH);
+      PrintStr("@");
+      PrintStr("/ColorSpace /DeviceRGB@");
+      PrintStr("/BitsPerComponent 8@");
+      if (img.fFlate)
+         PrintStr("/Filter /FlateDecode@");
+      PrintStr("/Length");
+      WriteInteger(static_cast<Int_t>(img.fData.size()));
+      PrintStr("@");
+      PrintStr(">>@");
+      PrintStr("stream@");
+      if (!img.fData.empty()) {
+         fStream->write(reinterpret_cast<const char *>(img.fData.data()), img.fData.size());
+         fNByte += img.fData.size();
+      }
+      PrintStr("@endstream@");
+      EndObject();
+   }
+
+   // Name dictionary mapping /ImN to the XObjects above. Always written, even
+   // when empty, because kObjImageList is referenced by every page's
+   // /Resources and so must exist in the cross-reference table.
+   NewObject(kObjImageList);
+   PrintStr("<<@");
+   for (std::size_t i = 0; i < imageObjNum.size(); ++i) {
+      PrintStr(" /Im");
+      WriteInteger(static_cast<Int_t>(i) + 1, kFALSE);
+      WriteInteger(imageObjNum[i]);
+      PrintStr(" 0 R");
+   }
+   PrintStr("@>>@");
+   EndObject();
+   fImageObjects.clear();
 
    // Cross-Reference Table
    Int_t refInd = fNByte;
    PrintStr("xref@");
    PrintStr("0");
-   WriteInteger(fNbObj+1);
+   WriteInteger(fObjPos.size() + 1);
    PrintStr("@");
    PrintStr("0000000000 65535 f @");
    char str[21];
-   for (i=0; i<fNbObj; i++) {
-      snprintf(str,21,"%10.10d 00000 n @",fObjPos[i]);
+   for (std::size_t i = 0; i < fObjPos.size(); ++i) {
+      snprintf(str,21,"%10.10d 00000 n @", fObjPos[i]);
       PrintStr(str);
    }
 
@@ -326,7 +505,7 @@ void TPDF::Close(Option_t *)
    PrintStr("trailer@");
    PrintStr("<<@");
    PrintStr("/Size");
-   WriteInteger(fNbObj+1);
+   WriteInteger(fObjPos.size() + 1);
    PrintStr("@");
    PrintStr("/Root");
    WriteInteger(kObjRoot);
@@ -337,14 +516,14 @@ void TPDF::Close(Option_t *)
    PrintStr(" 0 R@");
    PrintStr(">>@");
    PrintStr("startxref@");
-   WriteInteger(refInd, 0);
+   WriteInteger(refInd, false);
    PrintStr("@");
    PrintStr("%%EOF@");
 
    // Close file stream
-   if (fStream) { fStream->close(); delete fStream; fStream = 0;}
+   CloseStream();
 
-   gVirtualPS = 0;
+   gVirtualPS = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -577,320 +756,100 @@ void TPDF::DrawPolyLineNDC(Int_t nn, TPoints *xy)
    SetLineWidth(linewidthsav);
 }
 
+template<typename T>
+void TPDF::PrintPolyMarkerShape(Int_t n, T *xw, T* yw)
+{
+   Style_t linestylesav = GetLineStyle();
+   Width_t linewidthsav = GetLineWidth();
+
+   SetLineStyle(1);
+   SetLineWidth(TMath::Max(1, Int_t(GetMarkerLineWidth(GetMarkerStyle()))));
+   SetColor(Int_t(GetMarkerColor()));
+
+   // use extra scaling to avoid rounding effects for complex shapes
+   const Float_t sf = GetMarkerStyle() > 10 ? 0.01 : 1;
+
+   Float_t s2x = 1. / Float_t(gPad->GetWw() * gPad->GetAbsWNDC());
+   // Rescale size of marker on SVG coordinates
+   Float_t scale = UtoPDF(s2x) - UtoPDF(0);
+
+   Int_t markerSize = 0;
+   std::vector<TPoint> points;
+   auto shape = GetMarkerShape(markerSize, points, scale / sf);
+   if ((shape == kShapeDot) && (markerSize > 1))
+      shape = kShapeFilledCircle;
+
+   for (Int_t k = 0; k < n; k++) {
+      Double_t ix = XtoPDF(xw[k]);
+      Double_t iy = YtoPDF(yw[k]);
+      switch(shape) {
+         case kShapeDot:
+            MoveTo(ix-1, iy);
+            LineTo(ix  , iy);
+            PrintFast(2," S");
+            break;
+         case kShapeCircle:
+         case kShapeFilledCircle: {
+            Double_t m2 = sf * markerSize * 0.5;
+            Double_t m4 = m2 * 1.333333333333;
+
+            MoveTo(ix-m2, iy);
+            WriteReal(ix-m2); WriteReal(iy+m4);
+            WriteReal(ix+m2); WriteReal(iy+m4);
+            WriteReal(ix+m2); WriteReal(iy)   ; PrintFast(2," c");
+            WriteReal(ix+m2); WriteReal(iy-m4);
+            WriteReal(ix-m2); WriteReal(iy-m4);
+            WriteReal(ix-m2); WriteReal(iy)   ; PrintFast(4," c h");
+            if (shape == kShapeCircle)
+               PrintFast(2," S");
+            else
+               PrintFast(2," f");
+            break;
+         }
+         case kShapePolyLine:
+         case kShapeFilledArea:
+            MoveTo(ix + sf*points[0].fX, iy - sf*points[0].fY);
+
+            for (std::size_t i = 1; i < points.size(); i++)
+               LineTo(ix + sf*points[i].fX, iy - sf*points[i].fY);
+
+            if (shape == kShapePolyLine) {
+               if (points.front() == points.back())
+                  PrintFast(2," h");
+               PrintFast(2," S");
+            } else {
+               // close line and fill
+               PrintFast(4," h f");
+            }
+            break;
+         case kShapeSegments:
+            for (std::size_t i = 0; i + 1 < points.size(); i += 2) {
+               MoveTo(ix + sf*points[i].fX, iy - sf*points[i].fY);
+               LineTo(ix + sf*points[i+1].fX, iy - sf*points[i+1].fY);
+            }
+            PrintFast(2," S");
+            break;
+         case kShapeTriangles:
+            for (std::size_t i = 0; i + 2 < points.size(); i += 3) {
+               MoveTo(ix + sf*points[i].fX, iy - sf*points[i].fY);
+               LineTo(ix + sf*points[i+1].fX, iy - sf*points[i+1].fY);
+               LineTo(ix + sf*points[i+2].fX, iy - sf*points[i+2].fY);
+               PrintFast(4," h f");
+            }
+            break;
+      }
+   }
+   SetLineStyle(linestylesav);
+   SetLineWidth(linewidthsav);
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Draw markers at the n WC points xw, yw
 
 void TPDF::DrawPolyMarker(Int_t n, Float_t *xw, Float_t *yw)
 {
-   fMarkerStyle = TMath::Abs(fMarkerStyle);
-   Style_t linestylesav = fLineStyle;
-   Width_t linewidthsav = fLineWidth;
-   SetLineStyle(1);
-   SetLineWidth(TMath::Max(1, Int_t(TAttMarker::GetMarkerLineWidth(fMarkerStyle))));
-   SetColor(Int_t(fMarkerColor));
-   Int_t ms = TAttMarker::GetMarkerStyleBase(fMarkerStyle);
-
-   if (ms == 4)
-      ms = 24;
-   else if (ms >= 6 && ms <= 8)
-      ms = 20;
-   else if (ms >= 9 && ms <= 19)
-      ms = 1;
-
-   // Define the marker size
-   Float_t msize  = fMarkerSize - TMath::Floor(TAttMarker::GetMarkerLineWidth(fMarkerStyle)/2.)/4.*fLineScale;
-   if (fMarkerStyle == 1 || (fMarkerStyle >= 9 && fMarkerStyle <= 19)) {
-     msize = 1.;
-   } else if (fMarkerStyle == 6) {
-     msize = 1.;
-   } else if (fMarkerStyle == 7) {
-     msize = 1.5;
-   } else {
-      const Int_t kBASEMARKER = 8;
-      Float_t sbase = msize*kBASEMARKER;
-      Float_t s2x = sbase / Float_t(gPad->GetWw() * gPad->GetAbsWNDC());
-      msize = this->UtoPDF(s2x) - this->UtoPDF(0);
-   }
-
-   Double_t m  = msize;
-   Double_t m2 = m/2;
-   Double_t m3 = m/3;
-   Double_t m4 = m2*1.333333333333;
-   Double_t m6 = m/6;
-   Double_t m0 = m/10.;
-   Double_t m8 = m/4;
-   Double_t m9 = m/8;
-
-   // Draw the marker according to the type
-   Double_t ix,iy;
-   for (Int_t i=0;i<n;i++) {
-      ix = XtoPDF(xw[i]);
-      iy = YtoPDF(yw[i]);
-      // Dot (.)
-      if (ms == 1) {
-         MoveTo(ix-1, iy);
-         LineTo(ix  , iy);
-      // Plus (+)
-      } else if (ms == 2) {
-         MoveTo(ix-m2, iy);
-         LineTo(ix+m2, iy);
-         MoveTo(ix   , iy-m2);
-         LineTo(ix   , iy+m2);
-      // X shape (X)
-      } else if (ms == 5) {
-         MoveTo(ix-m2*0.707, iy-m2*0.707);
-         LineTo(ix+m2*0.707, iy+m2*0.707);
-         MoveTo(ix-m2*0.707, iy+m2*0.707);
-         LineTo(ix+m2*0.707, iy-m2*0.707);
-      // Asterisk shape (*)
-      } else if (ms == 3 || ms == 31) {
-         MoveTo(ix-m2, iy);
-         LineTo(ix+m2, iy);
-         MoveTo(ix   , iy-m2);
-         LineTo(ix   , iy+m2);
-         MoveTo(ix-m2*0.707, iy-m2*0.707);
-         LineTo(ix+m2*0.707, iy+m2*0.707);
-         MoveTo(ix-m2*0.707, iy+m2*0.707);
-         LineTo(ix+m2*0.707, iy-m2*0.707);
-      // Circle
-      } else if (ms == 24 || ms == 20) {
-         MoveTo(ix-m2, iy);
-         WriteReal(ix-m2); WriteReal(iy+m4);
-         WriteReal(ix+m2); WriteReal(iy+m4);
-         WriteReal(ix+m2); WriteReal(iy)   ; PrintFast(2," c");
-         WriteReal(ix+m2); WriteReal(iy-m4);
-         WriteReal(ix-m2); WriteReal(iy-m4);
-         WriteReal(ix-m2); WriteReal(iy)   ; PrintFast(4," c h");
-      // Square
-      } else if (ms == 25 || ms == 21) {
-         WriteReal(ix-m2); WriteReal(iy-m2);
-         WriteReal(m)    ; WriteReal(m)    ; PrintFast(3," re");
-      // Down triangle
-      } else if (ms == 23 || ms == 32) {
-         MoveTo(ix   , iy-m2);
-         LineTo(ix+m2, iy+m2);
-         LineTo(ix-m2, iy+m2);
-         PrintFast(2," h");
-      // Up triangle
-      } else if (ms == 26 || ms == 22) {
-         MoveTo(ix-m2, iy-m2);
-         LineTo(ix+m2, iy-m2);
-         LineTo(ix   , iy+m2);
-         PrintFast(2," h");
-      } else if (ms == 27 || ms == 33) {
-         MoveTo(ix   , iy-m2);
-         LineTo(ix+m3, iy);
-         LineTo(ix   , iy+m2);
-         LineTo(ix-m3, iy)   ;
-         PrintFast(2," h");
-      } else if (ms == 28 || ms == 34) {
-         MoveTo(ix-m6, iy-m6);
-         LineTo(ix-m6, iy-m2);
-         LineTo(ix+m6, iy-m2);
-         LineTo(ix+m6, iy-m6);
-         LineTo(ix+m2, iy-m6);
-         LineTo(ix+m2, iy+m6);
-         LineTo(ix+m6, iy+m6);
-         LineTo(ix+m6, iy+m2);
-         LineTo(ix-m6, iy+m2);
-         LineTo(ix-m6, iy+m6);
-         LineTo(ix-m2, iy+m6);
-         LineTo(ix-m2, iy-m6);
-         PrintFast(2," h");
-      } else if (ms == 29 || ms == 30) {
-         MoveTo(ix           , iy+m2);
-         LineTo(ix+0.112255*m, iy+0.15451*m);
-         LineTo(ix+0.47552*m , iy+0.15451*m);
-         LineTo(ix+0.181635*m, iy-0.05902*m);
-         LineTo(ix+0.29389*m , iy-0.40451*m);
-         LineTo(ix           , iy-0.19098*m);
-         LineTo(ix-0.29389*m , iy-0.40451*m);
-         LineTo(ix-0.181635*m, iy-0.05902*m);
-         LineTo(ix-0.47552*m , iy+0.15451*m);
-         LineTo(ix-0.112255*m, iy+0.15451*m);
-         PrintFast(2," h");
-      } else if (ms == 35 ) {
-      // diamond with cross
-         MoveTo(ix-m2, iy   );
-         LineTo(ix   , iy-m2);
-         LineTo(ix+m2, iy   );
-         LineTo(ix   , iy+m2);
-         LineTo(ix-m2, iy   );
-         LineTo(ix+m2, iy   );
-         LineTo(ix   , iy+m2);
-         LineTo(ix   , iy-m2);
-         PrintFast(2," h");
-      } else if (ms == 36 ) {
-      // square with diagonal cross
-         MoveTo(ix-m2, iy-m2);
-         LineTo(ix+m2, iy-m2);
-         LineTo(ix+m2, iy+m2);
-         LineTo(ix-m2, iy+m2);
-         LineTo(ix-m2, iy-m2);
-         LineTo(ix+m2, iy+m2);
-         LineTo(ix-m2, iy+m2);
-         LineTo(ix+m2, iy-m2);
-         PrintFast(2," h");
-      } else if (ms == 37 || ms == 39 ) {
-      // square with cross
-         MoveTo(ix   , iy   );
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m2, iy   );
-         LineTo(ix   , iy   );
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix   , iy   );
-         LineTo(ix+m2, iy   );
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix   , iy   );
-         PrintFast(2," h");
-      } else if (ms == 38 ) {
-      // + shaped marker with octagon
-         MoveTo(ix-m2, iy   );
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m2, iy   );
-         LineTo(ix+m2, iy   );
-         LineTo(ix   , iy   );
-         LineTo(ix   , iy-m2);
-         LineTo(ix   , iy+m2);
-         LineTo(ix   , iy);
-         PrintFast(2," h");
-      } else if (ms == 40 || ms == 41 ) {
-       // four triangles X
-         MoveTo(ix   , iy   );
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix   , iy   );
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix   , iy   );
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix   , iy   );
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix   , iy   );
-         PrintFast(2," h");
-      } else if (ms == 42 || ms == 43 ) {
-      // double diamonds
-         MoveTo(ix   , iy+m2);
-         LineTo(ix-m9, iy+m9);
-         LineTo(ix-m2, iy   );
-         LineTo(ix-m9, iy-m9);
-         LineTo(ix   , iy-m2);
-         LineTo(ix+m9, iy-m9);
-         LineTo(ix+m2, iy   );
-         LineTo(ix+m9, iy+m9);
-         LineTo(ix   , iy+m2);
-         PrintFast(2," h");
-      } else if (ms == 44 ) {
-      // open four triangles plus
-         MoveTo(ix   , iy   );
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix   , iy   );
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix   , iy   );
-         PrintFast(2," h");
-      } else if (ms == 45 ) {
-      // filled four triangles plus
-         MoveTo(ix+m0, iy+m0);
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m0, iy+m0);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix-m0, iy-m0);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix+m0, iy-m0);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m0, iy+m0);
-         PrintFast(2," h");
-      } else if (ms == 46 || ms == 47 ) {
-      // four triangles X
-         MoveTo(ix   , iy+m8);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m8, iy   );
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix   , iy-m8);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m8, iy   );
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix   , iy+m8);
-         PrintFast(2," h");
-      } else if (ms == 48 ) {
-      // four filled squares X
-         MoveTo(ix   , iy+m8*1.01);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m8, iy   );
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix   , iy-m8);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m8, iy   );
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix   , iy+m8*0.99);
-         LineTo(ix+m8*0.99, iy   );
-         LineTo(ix   , iy-m8*0.99);
-         LineTo(ix-m8*0.99, iy   );
-         LineTo(ix   , iy+m8*0.99);
-         PrintFast(2," h");
-      } else if (ms == 49 ) {
-      // four filled squares plus
-         MoveTo(ix-m6, iy-m6*1.01);
-         LineTo(ix-m6, iy-m2);
-         LineTo(ix+m6, iy-m2);
-         LineTo(ix+m6, iy-m6);
-         LineTo(ix+m2, iy-m6);
-         LineTo(ix+m2, iy+m6);
-         LineTo(ix+m6, iy+m6);
-         LineTo(ix+m6, iy+m2);
-         LineTo(ix-m6, iy+m2);
-         LineTo(ix-m6, iy+m6);
-         LineTo(ix-m2, iy+m6);
-         LineTo(ix-m2, iy-m6);
-         LineTo(ix-m6, iy-m6*0.99);
-         LineTo(ix-m6, iy+m6);
-         LineTo(ix+m6, iy+m6);
-         LineTo(ix+m6, iy-m6);
-         PrintFast(2," h");
-      } else {
-         MoveTo(ix-m6, iy-m6);
-         LineTo(ix-m6, iy-m2);
-      }
-
-      if ((ms > 19 && ms < 24) || ms == 29 || ms == 33 || ms == 34 ||
-          ms == 39 || ms == 41 || ms == 43 || ms == 45 ||
-          ms == 47 || ms == 48 || ms == 49) {
-         PrintFast(2," f");
-      } else {
-         PrintFast(2," S");
-      }
-   }
-
-   SetLineStyle(linestylesav);
-   SetLineWidth(linewidthsav);
+   PrintPolyMarkerShape<Float_t>(n, xw, yw);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -898,303 +857,7 @@ void TPDF::DrawPolyMarker(Int_t n, Float_t *xw, Float_t *yw)
 
 void TPDF::DrawPolyMarker(Int_t n, Double_t *xw, Double_t *yw)
 {
-   fMarkerStyle = TMath::Abs(fMarkerStyle);
-   Style_t linestylesav = fLineStyle;
-   Width_t linewidthsav = fLineWidth;
-   SetLineStyle(1);
-   SetLineWidth(TMath::Max(1, Int_t(TAttMarker::GetMarkerLineWidth(fMarkerStyle))));
-   SetColor(Int_t(fMarkerColor));
-   Int_t ms = TAttMarker::GetMarkerStyleBase(fMarkerStyle);
-
-   if (ms == 4)
-      ms = 24;
-   else if (ms >= 6 && ms <= 8)
-      ms = 20;
-   else if (ms >= 9 && ms <= 19)
-      ms = 1;
-
-   // Define the marker size
-   Float_t msize  = fMarkerSize - TMath::Floor(TAttMarker::GetMarkerLineWidth(fMarkerStyle)/2.)/4.*fLineScale;
-   if (fMarkerStyle == 1 || (fMarkerStyle >= 9 && fMarkerStyle <= 19)) {
-     msize = 1.;
-   } else if (fMarkerStyle == 6) {
-     msize = 1.5;
-   } else if (fMarkerStyle == 7) {
-     msize = 3.;
-   } else {
-      const Int_t kBASEMARKER = 8;
-      Float_t sbase = msize*kBASEMARKER;
-      Float_t s2x = sbase / Float_t(gPad->GetWw() * gPad->GetAbsWNDC());
-      msize = this->UtoPDF(s2x) - this->UtoPDF(0);
-   }
-
-   Double_t m  = msize;
-   Double_t m2 = m/2;
-   Double_t m3 = m/3;
-   Double_t m4 = m2*1.333333333333;
-   Double_t m6 = m/6;
-   Double_t m8 = m/4;
-   Double_t m9 = m/8;
-
-   // Draw the marker according to the type
-   Double_t ix,iy;
-   for (Int_t i=0;i<n;i++) {
-      ix = XtoPDF(xw[i]);
-      iy = YtoPDF(yw[i]);
-      // Dot (.)
-      if (ms == 1) {
-         MoveTo(ix-1, iy);
-         LineTo(ix  , iy);
-      // Plus (+)
-      } else if (ms == 2) {
-         MoveTo(ix-m2, iy);
-         LineTo(ix+m2, iy);
-         MoveTo(ix   , iy-m2);
-         LineTo(ix   , iy+m2);
-      // X shape (X)
-      } else if (ms == 5) {
-         MoveTo(ix-m2*0.707, iy-m2*0.707);
-         LineTo(ix+m2*0.707, iy+m2*0.707);
-         MoveTo(ix-m2*0.707, iy+m2*0.707);
-         LineTo(ix+m2*0.707, iy-m2*0.707);
-      // Asterisk shape (*)
-      } else if (ms == 3 || ms == 31) {
-         MoveTo(ix-m2, iy);
-         LineTo(ix+m2, iy);
-         MoveTo(ix   , iy-m2);
-         LineTo(ix   , iy+m2);
-         MoveTo(ix-m2*0.707, iy-m2*0.707);
-         LineTo(ix+m2*0.707, iy+m2*0.707);
-         MoveTo(ix-m2*0.707, iy+m2*0.707);
-         LineTo(ix+m2*0.707, iy-m2*0.707);
-      // Circle
-      } else if (ms == 24 || ms == 20) {
-         MoveTo(ix-m2, iy);
-         WriteReal(ix-m2); WriteReal(iy+m4);
-         WriteReal(ix+m2); WriteReal(iy+m4);
-         WriteReal(ix+m2); WriteReal(iy)   ; PrintFast(2," c");
-         WriteReal(ix+m2); WriteReal(iy-m4);
-         WriteReal(ix-m2); WriteReal(iy-m4);
-         WriteReal(ix-m2); WriteReal(iy)   ; PrintFast(4," c h");
-      // Square
-      } else if (ms == 25 || ms == 21) {
-         WriteReal(ix-m2); WriteReal(iy-m2);
-         WriteReal(m)    ; WriteReal(m)    ; PrintFast(3," re");
-      // Down triangle
-      } else if (ms == 23 || ms == 32) {
-         MoveTo(ix   , iy-m2);
-         LineTo(ix+m2, iy+m2);
-         LineTo(ix-m2, iy+m2);
-         PrintFast(2," h");
-      // Up triangle
-      } else if (ms == 26 || ms == 22) {
-         MoveTo(ix-m2, iy-m2);
-         LineTo(ix+m2, iy-m2);
-         LineTo(ix   , iy+m2);
-         PrintFast(2," h");
-      } else if (ms == 27 || ms == 33) {
-         MoveTo(ix   , iy-m2);
-         LineTo(ix+m3, iy);
-         LineTo(ix   , iy+m2);
-         LineTo(ix-m3, iy)   ;
-         PrintFast(2," h");
-      } else if (ms == 28 || ms == 34) {
-         MoveTo(ix-m6, iy-m6);
-         LineTo(ix-m6, iy-m2);
-         LineTo(ix+m6, iy-m2);
-         LineTo(ix+m6, iy-m6);
-         LineTo(ix+m2, iy-m6);
-         LineTo(ix+m2, iy+m6);
-         LineTo(ix+m6, iy+m6);
-         LineTo(ix+m6, iy+m2);
-         LineTo(ix-m6, iy+m2);
-         LineTo(ix-m6, iy+m6);
-         LineTo(ix-m2, iy+m6);
-         LineTo(ix-m2, iy-m6);
-         PrintFast(2," h");
-      } else if (ms == 29 || ms == 30) {
-         MoveTo(ix           , iy-m2);
-         LineTo(ix-0.112255*m, iy-0.15451*m);
-         LineTo(ix-0.47552*m , iy-0.15451*m);
-         LineTo(ix-0.181635*m, iy+0.05902*m);
-         LineTo(ix-0.29389*m , iy+0.40451*m);
-         LineTo(ix           , iy+0.19098*m);
-         LineTo(ix+0.29389*m , iy+0.40451*m);
-         LineTo(ix+0.181635*m, iy+0.05902*m);
-         LineTo(ix+0.47552*m , iy-0.15451*m);
-         LineTo(ix+0.112255*m, iy-0.15451*m);
-         PrintFast(2," h");
-      } else if (ms == 35 ) {
-         MoveTo(ix-m2, iy   );
-         LineTo(ix   , iy-m2);
-         LineTo(ix+m2, iy   );
-         LineTo(ix   , iy+m2);
-         LineTo(ix-m2, iy   );
-         LineTo(ix+m2, iy   );
-         LineTo(ix   , iy+m2);
-         LineTo(ix   , iy-m2);
-         PrintFast(2," h");
-      } else if (ms == 36 ) {
-         MoveTo(ix-m2, iy-m2);
-         LineTo(ix+m2, iy-m2);
-         LineTo(ix+m2, iy+m2);
-         LineTo(ix-m2, iy+m2);
-         LineTo(ix-m2, iy-m2);
-         LineTo(ix+m2, iy+m2);
-         LineTo(ix-m2, iy+m2);
-         LineTo(ix+m2, iy-m2);
-         PrintFast(2," h");
-      } else if (ms == 37 || ms == 39 ) {
-         MoveTo(ix   , iy   );
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m2, iy   );
-         LineTo(ix   , iy   );
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix   , iy   );
-         LineTo(ix+m2, iy   );
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix   , iy   );
-         PrintFast(2," h");
-      } else if (ms == 38 ) {
-         MoveTo(ix-m2, iy   );
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m2, iy   );
-         LineTo(ix+m2, iy   );
-         LineTo(ix   , iy   );
-         LineTo(ix   , iy-m2);
-         LineTo(ix   , iy+m2);
-         LineTo(ix   , iy   );
-         PrintFast(2," h");
-      } else if (ms == 40 || ms == 41 ) {
-         MoveTo(ix   , iy   );
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix   , iy   );
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix   , iy   );
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix   , iy   );
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix   , iy   );
-         PrintFast(2," h");
-      } else if (ms == 42 || ms == 43 ) {
-         MoveTo(ix   , iy+m2);
-         LineTo(ix-m9, iy+m9);
-         LineTo(ix-m2, iy   );
-         LineTo(ix-m9, iy-m9);
-         LineTo(ix   , iy-m2);
-         LineTo(ix+m9, iy-m9);
-         LineTo(ix+m2, iy   );
-         LineTo(ix+m9, iy+m9);
-         LineTo(ix   , iy+m2);
-         PrintFast(2," h");
-      } else if (ms == 44 ) {
-         MoveTo(ix   , iy   );
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix   , iy   );
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix   , iy   );
-         PrintFast(2," h");
-      } else if (ms == 45 ) {
-         MoveTo(ix+m6/2., iy+m6/2.);
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m6/2., iy+m6/2.);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix-m6/2., iy-m6/2.);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix+m6/2., iy-m6/2.);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m6/2., iy+m6/2.);
-         PrintFast(2," h");
-      } else if (ms == 46 || ms == 47 ) {
-         MoveTo(ix   , iy+m8);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m8, iy   );
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix   , iy-m8);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m8, iy   );
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix   , iy+m8);
-         PrintFast(2," h");
-      } else if (ms == 48 ) {
-         MoveTo(ix   , iy+m8*1.005);
-         LineTo(ix-m8, iy+m2);
-         LineTo(ix-m2, iy+m8);
-         LineTo(ix-m8, iy   );
-         LineTo(ix-m2, iy-m8);
-         LineTo(ix-m8, iy-m2);
-         LineTo(ix   , iy-m8);
-         LineTo(ix+m8, iy-m2);
-         LineTo(ix+m2, iy-m8);
-         LineTo(ix+m8, iy   );
-         LineTo(ix+m2, iy+m8);
-         LineTo(ix+m8, iy+m2);
-         LineTo(ix   , iy+m8*0.995);
-         LineTo(ix+m8*0.995, iy   );
-         LineTo(ix   , iy-m8*0.995);
-         LineTo(ix-m8*0.995, iy   );
-         LineTo(ix   , iy+m8*0.995);
-         PrintFast(2," h");
-      } else if (ms == 49 ) {
-         MoveTo(ix-m6, iy-m6*1.01);
-         LineTo(ix-m6, iy-m2);
-         LineTo(ix+m6, iy-m2);
-         LineTo(ix+m6, iy-m6);
-         LineTo(ix+m2, iy-m6);
-         LineTo(ix+m2, iy+m6);
-         LineTo(ix+m6, iy+m6);
-         LineTo(ix+m6, iy+m2);
-         LineTo(ix-m6, iy+m2);
-         LineTo(ix-m6, iy+m6);
-         LineTo(ix-m2, iy+m6);
-         LineTo(ix-m2, iy-m6);
-         LineTo(ix-m6, iy-m6*0.99);
-         LineTo(ix-m6, iy+m6);
-         LineTo(ix+m6, iy+m6);
-         LineTo(ix+m6, iy-m6);
-         MoveTo(ix-m6, iy-m6*1.01);
-         PrintFast(2," h");
-      } else {
-         MoveTo(ix-1, iy);
-         LineTo(ix  , iy);
-      }
-      if ((ms > 19 && ms < 24) || ms == 29 || ms == 33 || ms == 34 ||
-          ms == 39 || ms == 41 || ms == 43 || ms == 45 ||
-          ms == 47 || ms == 48 || ms == 49) {
-         PrintFast(2," f");
-      } else {
-         PrintFast(2," S");
-      }
-   }
-
-   SetLineStyle(linestylesav);
-   SetLineWidth(linewidthsav);
+   PrintPolyMarkerShape<Double_t>(n, xw, yw);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1372,6 +1035,18 @@ void TPDF::DrawPS(Int_t nn, Double_t *xw, Double_t *yw)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Close the current opened object
+
+void TPDF::EndObject()
+{
+   if (!fObjectIsOpen)
+      Warning("EndObject", "No Object currently opened.");
+   fObjectIsOpen = kFALSE;
+
+   PrintStr("endobj@");
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Font encoding
 
 void TPDF::FontEncode()
@@ -1389,7 +1064,7 @@ void TPDF::FontEncode()
       PrintStr("/Type /Font@");
       PrintStr("/Subtype /Type1@");
       PrintStr("/Name /F");
-      WriteInteger(i+1,0);
+      WriteInteger(i+1,false);
       PrintStr("@");
       PrintStr("/BaseFont ");
       PrintStr(sdtfonts[i]);
@@ -1399,7 +1074,7 @@ void TPDF::FontEncode()
          PrintStr("@");
       }
       PrintStr(">>@");
-      PrintStr("endobj@");
+      EndObject();
    }
 }
 
@@ -1428,20 +1103,16 @@ void TPDF::MoveTo(Double_t x, Double_t y)
 
 void TPDF::NewObject(Int_t n)
 {
-   if (!fObjPos || n >= fObjPosSize) {
-      Int_t newN = TMath::Max(2*fObjPosSize,n+1);
-      Int_t *saveo = new Int_t [newN];
-      if (fObjPos && fObjPosSize) {
-         memcpy(saveo,fObjPos,fObjPosSize*sizeof(Int_t));
-         memset(&saveo[fObjPosSize],0,(newN-fObjPosSize)*sizeof(Int_t));
-         delete [] fObjPos;
-      }
-      fObjPos     = saveo;
-      fObjPosSize = newN;
-   }
-   fObjPos[n-1] = fNByte;
-   fNbObj       = TMath::Max(fNbObj,n);
-   WriteInteger(n, 0);
+   if (fObjectIsOpen)
+      Warning("NewObject", "An Object is already open.");
+   fObjectIsOpen = kTRUE;
+   if (n > (Int_t) fObjPos.size())
+      fObjPos.resize(n, 0); // filling new elements with 0
+   if (n > 0)
+      fObjPos[n-1] = fNByte;
+   else
+      Error("NewObject", "Wrong id %d is specified.", n);
+   WriteInteger(n, false);
    PrintStr(" 0 obj");
    PrintStr("@");
 }
@@ -1463,18 +1134,24 @@ void TPDF::NewPage()
    }
 
    fNbPage++;
+   fA = 1.;
+   fB = 0.;
+   fC = 0.;
+   fD = 1.;
+   fE = 0.;
+   fF = 0.;
 
    if (fNbPage>1) {
       // Close the currently opened page
       WriteCompressedBuffer();
       PrintStr("endstream@");
       Int_t streamLength = fNByte-fStartStream-10;
-      PrintStr("endobj@");
-      NewObject(4*(fNbPage-2)+kObjFirstPage+2);
-      WriteInteger(streamLength, 0);
+      EndObject();
+      NewObject(fCurrentPage + 2);
+      WriteInteger(streamLength, false);
       PrintStr("@");
-      PrintStr("endobj@");
-      NewObject(4*(fNbPage-2)+kObjFirstPage+3);
+      EndObject();
+      NewObject(fCurrentPage + 3);
       PrintStr("<<@");
       if (!strstr(GetTitle(),"PDF")) {
          PrintStr("/Title (");
@@ -1486,27 +1163,33 @@ void TPDF::NewPage()
          PrintStr(")@");
       }
       PrintStr("/Dest [");
-      WriteInteger(4*(fNbPage-2)+kObjFirstPage);
+      WriteInteger(fCurrentPage);
       PrintStr(" 0 R /XYZ null null 0]@");
       PrintStr("/Parent");
       WriteInteger(kObjContents);
       PrintStr(" 0 R");
       PrintStr("@");
       PrintStr("/Next");
-      WriteInteger(4*(fNbPage-1)+kObjFirstPage+3);
+      WriteInteger(fCurrentPage + 7 + fNbUrl);
       PrintStr(" 0 R");
       PrintStr("@");
       if (fNbPage>2) {
          PrintStr("/Prev");
-         WriteInteger(4*(fNbPage-3)+kObjFirstPage+3);
+         WriteInteger(fPageObjects[fNbPage - 3] + 3);
          PrintStr(" 0 R");
          PrintStr("@");
       }
       PrintStr(">>@");
+      EndObject();
+      WriteUrlObjects();
+      fCurrentPage = fCurrentPage + fNbUrl + 4; // object number of the next page
+      fNbUrl = 1;
    }
 
    // Start a new page
-   NewObject(4*(fNbPage-1)+kObjFirstPage);
+   PrintStr("@");
+   NewObject(fCurrentPage);
+   fPageObjects.push_back(fCurrentPage);
    PrintStr("<<@");
    PrintStr("/Type /Page@");
    PrintStr("@");
@@ -1579,15 +1262,21 @@ void TPDF::NewPage()
    PrintStr("@");
 
    PrintStr("/Contents");
-   WriteInteger(4*(fNbPage-1)+kObjFirstPage+1);
+   WriteInteger(fCurrentPage + 1);
    PrintStr(" 0 R@");
-   PrintStr(">>@");
-   PrintStr("endobj@");
 
-   NewObject(4*(fNbPage-1)+kObjFirstPage+1);
+   PrintStr("/Annots");
+   WriteInteger(fCurrentPage + 4);
+   PrintStr(" 0 R");
+   PrintStr("@");
+
+   PrintStr(">>@");
+   EndObject();
+
+   NewObject(fCurrentPage + 1);
    PrintStr("<<@");
    PrintStr("/Length");
-   WriteInteger(4*(fNbPage-1)+kObjFirstPage+2);
+   WriteInteger(fCurrentPage + 2);
    PrintStr(" 0 R@");
    PrintStr("/Filter [/FlateDecode]@");
    PrintStr(">>@");
@@ -1604,15 +1293,14 @@ void TPDF::NewPage()
    fBlue  = -1;
    fAlpha = -1.;
 
-   PrintStr("1 0 0 1");
    if (fPageOrientation == 2) {
       ymargin = CMtoPDF(height)-CMtoPDF(fXsize*xup)-xmargin;
       xmargin = xmargin+CMtoPDF(fYsize*yup);
    }
-   WriteReal(xmargin);
-   WriteReal(ymargin);
-   PrintStr(" cm");
-   if (fPageOrientation == 2) PrintStr(" 0 1 -1 0 0 0 cm");
+
+   WriteCM(1, 0, 0, 1, xmargin, ymargin);
+   if (fPageOrientation == 2)
+      WriteCM(0, 1, -1, 0, 0, 0);
    if (fgLineJoin) {
       WriteInteger(fgLineJoin);
       PrintFast(2," j");
@@ -1628,7 +1316,7 @@ void TPDF::NewPage()
 
 void TPDF::Off()
 {
-   gVirtualPS = 0;
+   gVirtualPS = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1652,8 +1340,6 @@ void TPDF::On()
 
 void TPDF::Open(const char *fname, Int_t wtype)
 {
-   Int_t i;
-
    if (fStream) {
       Warning("Open", "PDF file already open");
       return;
@@ -1685,20 +1371,14 @@ void TPDF::Open(const char *fname, Int_t wtype)
    }
 
    // Open OS file
-   fStream = new std::ofstream();
-#ifdef R__WIN32
-      fStream->open(fname, std::ofstream::out | std::ofstream::binary);
-#else
-      fStream->open(fname, std::ofstream::out);
-#endif
-   if (fStream == 0 || !fStream->good()) {
-      printf("ERROR in TPDF::Open: Cannot open file:%s\n",fname);
-      if (fStream == 0) return;
+   if (!OpenStream(fname, kTRUE)) {
+      Error("Open", "Cannot open file: %s", fname);
+      return;
    }
 
    gVirtualPS = this;
 
-   for (i=0; i<fSizBuffer; i++) fBuffer[i] = ' ';
+   ClearBuffer();
 
    // The page orientation is last digit of PDF workstation type
    //  orientation = 1 for portrait
@@ -1722,10 +1402,9 @@ void TPDF::Open(const char *fname, Int_t wtype)
    // Set a default range
    Range(fXsize, fYsize);
 
-   fObjPos = 0;
-   fObjPosSize = 0;
-   fNbObj = 0;
+   fObjPos.clear();
    fNbPage = 0;
+   fUrl = kFALSE;
 
    PrintStr("%PDF-1.4@");
    PrintStr("%\342\343\317\323");
@@ -1742,7 +1421,7 @@ void TPDF::Open(const char *fname, Int_t wtype)
    PrintStr(" 0 R@");
    PrintStr("/PageMode /UseOutlines@");
    PrintStr(">>@");
-   PrintStr("endobj@");
+   EndObject();
 
    NewObject(kObjInfo);
    PrintStr("<<@");
@@ -1775,7 +1454,7 @@ void TPDF::Open(const char *fname, Int_t wtype)
    PrintStr("@");
    PrintStr("/Keywords (ROOT)@");
    PrintStr(">>@");
-   PrintStr("endobj@");
+   EndObject();
 
    NewObject(kObjPageResources);
    PrintStr("<<@");
@@ -1783,9 +1462,9 @@ void TPDF::Open(const char *fname, Int_t wtype)
 
    PrintStr("/Font@");
    PrintStr("<<@");
-   for (i=0; i<kNumberOfFonts; i++) {
+   for (Int_t i=0; i<kNumberOfFonts; i++) {
       PrintStr(" /F");
-      WriteInteger(i+1,0);
+      WriteInteger(i+1,false);
       WriteInteger(kObjFont+i);
       PrintStr(" 0 R");
    }
@@ -1795,7 +1474,7 @@ void TPDF::Open(const char *fname, Int_t wtype)
    PrintStr("/ExtGState");
    WriteInteger(kObjTransList);
    PrintStr(" 0 R @");
-   if (fAlphas.size()) fAlphas.clear();
+   if (!fAlphas.empty()) fAlphas.clear();
 
    PrintStr("/ColorSpace << /Cs8");
    WriteInteger(kObjColorSpace);
@@ -1805,14 +1484,32 @@ void TPDF::Open(const char *fname, Int_t wtype)
    WriteInteger(kObjPatternList);
    PrintStr(" 0 R");
    PrintStr("@");
+   PrintStr("/XObject");
+   WriteInteger(kObjImageList);
+   PrintStr(" 0 R");
+   PrintStr("@");
    PrintStr(">>@");
-   PrintStr("endobj@");
+   EndObject();
 
    FontEncode();
    PatternEncode();
 
    NewPage();
    fPageNotEmpty = kFALSE;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Ensure that required space in the buffer is available
+
+void TPDF::EnsureBufferSize(Int_t required_size)
+{
+   if (required_size >= fSizBuffer) {
+      // increase buffer size by integer factor, normally 2
+      Int_t mult = (required_size + 1) / fSizBuffer + 1;
+      fBuffer = TStorage::ReAllocChar(fBuffer, mult*fSizBuffer, fSizBuffer);
+      fSizBuffer = mult*fSizBuffer;
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1825,16 +1522,12 @@ void TPDF::PrintStr(const char *str)
    fPageNotEmpty = kTRUE;
 
    if (fCompress) {
-      if (fLenBuffer+len >= fSizBuffer) {
-         fBuffer  = TStorage::ReAllocChar(fBuffer, 2*fSizBuffer, fSizBuffer);
-         fSizBuffer = 2*fSizBuffer;
-      }
+      EnsureBufferSize(fLenBuffer + len);
       strcpy(fBuffer + fLenBuffer, str);
       fLenBuffer += len;
-      return;
+   } else {
+      TVirtualPS::PrintStr(str);
    }
-
-   TVirtualPS::PrintStr(str);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1844,16 +1537,12 @@ void TPDF::PrintFast(Int_t len, const char *str)
 {
    fPageNotEmpty = kTRUE;
    if (fCompress) {
-      if (fLenBuffer+len >= fSizBuffer) {
-         fBuffer  = TStorage::ReAllocChar(fBuffer, 2*fSizBuffer, fSizBuffer);
-         fSizBuffer = 2*fSizBuffer;
-      }
+      EnsureBufferSize(fLenBuffer + len);
       strcpy(fBuffer + fLenBuffer, str);
       fLenBuffer += len;
-      return;
+   } else {
+      TVirtualPS::PrintFast(len, str);
    }
-
-   TVirtualPS::PrintFast(len, str);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1883,7 +1572,7 @@ void TPDF::SetAlpha(Float_t a)
       }
    }
    if (!known) fAlphas.push_back(fAlpha);
-   PrintStr(Form(" /ca%3.2f gs /CA%3.2f gs",fAlpha,fAlpha));
+   PrintStr(TString::Format(" /ca%3.2f gs /CA%3.2f gs",fAlpha,fAlpha));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1999,6 +1688,21 @@ void TPDF::SetFillPatterns(Int_t ipat, Int_t color)
       WriteReal(colRed);
       WriteReal(colGreen);
       WriteReal(colBlue);
+   }
+
+   if (fPageOrientation == 2) {
+      switch (ipat) {
+         case 4:  ipat = 5;  break;
+         case 5:  ipat = 4;  break;
+         case 6:  ipat = 7;  break;
+         case 7:  ipat = 6;  break;
+         case 17: ipat = 18; break;
+         case 18: ipat = 17; break;
+         case 20: ipat = 16; break;
+         case 16: ipat = 20; break;
+         case 21: ipat = 22; break;
+         case 22: ipat = 21; break;
+      }
    }
    snprintf(cpat,10," /P%2.2d scn", ipat);
    PrintStr(cpat);
@@ -2200,30 +1904,44 @@ void TPDF::Text(Double_t xx, Double_t yy, const char *chars)
    }
 
    // Text angle
+   Double_t a, b, c, d, e, f;
    if (fTextAngle == 0) {
-      PrintStr(" 1 0 0 1");
-      WriteReal(XtoPDF(x));
-      WriteReal(YtoPDF(y));
+      a = 1;
+      b = 0;
+      c = 0;
+      d = 1;
+      e = XtoPDF(x);
+      f = YtoPDF(y);
    } else if (fTextAngle == 90) {
-      PrintStr(" 0 1 -1 0");
-      WriteReal(XtoPDF(x));
-      WriteReal(YtoPDF(y));
+      a = 0;
+      b = 1;
+      c = -1;
+      d = 0;
+      e = XtoPDF(x);
+      f = YtoPDF(y);
    } else if (fTextAngle == 270) {
-      PrintStr(" 0 -1 1 0");
-      WriteReal(XtoPDF(x));
-      WriteReal(YtoPDF(y));
+      a = 0;
+      b = -1;
+      c = 1;
+      d = 0;
+      e = XtoPDF(x);
+      f = YtoPDF(y);
    } else {
-      WriteReal(TMath::Cos(kDEGRAD*fTextAngle));
-      WriteReal(TMath::Sin(kDEGRAD*fTextAngle));
-      WriteReal(-TMath::Sin(kDEGRAD*fTextAngle));
-      WriteReal(TMath::Cos(kDEGRAD*fTextAngle));
-      WriteReal(XtoPDF(x));
-      WriteReal(YtoPDF(y));
+      a = TMath::Cos(kDEGRAD * fTextAngle);
+      b = TMath::Sin(kDEGRAD * fTextAngle);
+      c = -TMath::Sin(kDEGRAD * fTextAngle);
+      d = TMath::Cos(kDEGRAD * fTextAngle);
+      e = XtoPDF(x);
+      f = YtoPDF(y);
    }
-   PrintStr(" cm");
+   WriteCM(a, b, c, d, e, f, kFALSE);
 
    // Symbol Italic tan(15) = .26794
-   if (font == 15) PrintStr(" 1 0 0.26794 1 0 0 cm");
+   if (font == 15)
+      WriteCM(1, 0, 0.26794, 1, 0, 0, kFALSE);
+
+   if (fUrl)
+      ComputeRect(chars, fontsize, a, b, c, d, e, f);
 
    PrintStr(" BT");
 
@@ -2254,7 +1972,7 @@ void TPDF::Text(Double_t xx, Double_t yy, const char *chars)
    Bool_t kerning;
    if (wa0-wa1 != 0) kerning = kTRUE;
    else              kerning = kFALSE;
-   Int_t *charDeltas = 0;
+   Int_t *charDeltas = nullptr;
    if (kerning) {
         charDeltas = new Int_t[len];
         for (Int_t i = 0;i < len;i++) {
@@ -2271,7 +1989,7 @@ void TPDF::Text(Double_t xx, Double_t yy, const char *chars)
             tmp[0] = chars[i-1];
             UInt_t width=0;
             t.GetTextAdvance(width, &tmp[0], kFALSE);
-            Double_t wwl = gPad->AbsPixeltoX(width - charDeltas[i]) - gPad->AbsPixeltoX(0);
+            Double_t wwl = gPad->AbsPixeltoX((Int_t)width - charDeltas[i]) - gPad->AbsPixeltoX(0);
             wwl -= 0.5*(gPad->AbsPixeltoX(1) - gPad->AbsPixeltoX(0)); // half a pixel ~ rounding error
             charDeltas[i] = (Int_t)((1000.0/Float_t(fontsize))*(XtoPDF(wwl) - XtoPDF(0))/scale);
         }
@@ -2315,6 +2033,19 @@ void TPDF::Text(Double_t xx, Double_t yy, const char *chars)
 
 void TPDF::Text(Double_t, Double_t, const wchar_t *)
 {
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Draw text with URL. Same as Text.
+///
+
+void TPDF::TextUrl(Double_t x, Double_t y, const char *chars, const char *url)
+{
+   fUrl = kTRUE;
+   Text(x, y, chars);
+   fNbUrl++;
+   fUrls.push_back(url);
+   fUrl = kFALSE;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2386,9 +2117,9 @@ void TPDF::WriteCompressedBuffer()
    stream.avail_in  = (uInt)fLenBuffer;
    stream.next_out  = (Bytef*)out;
    stream.avail_out = (uInt)2*fLenBuffer;
-   stream.zalloc    = (alloc_func)0;
-   stream.zfree     = (free_func)0;
-   stream.opaque    = (voidpf)0;
+   stream.zalloc    = (alloc_func)nullptr;
+   stream.zfree     = (free_func)nullptr;
+   stream.opaque    = (voidpf)nullptr;
 
    err = deflateInit(&stream, Z_DEFAULT_COMPRESSION);
    if (err != Z_OK) {
@@ -2452,10 +2183,10 @@ void TPDF::PatternEncode()
    } else {
       PrintStr("[/Pattern /DeviceRGB]@");
    }
-   PrintStr("endobj@");
+   EndObject();
    NewObject(kObjPatternResourses);
    PrintStr("<</ProcSet[/PDF]>>@");
-   PrintStr("endobj@");
+   EndObject();
 
    NewObject(kObjPatternList);
    PrintStr("<<@");
@@ -2535,7 +2266,7 @@ void TPDF::PatternEncode()
    WriteInteger(patternNb++);
    PrintStr(" 0 R@");
    PrintStr(">>@");
-   PrintStr("endobj@");
+   EndObject();
 
    patternNb = kObjPattern;
 
@@ -2549,7 +2280,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301P\241\034(\254\340\253\020m\250\020k\240\220\302e\244`\242\220\313ei\t\244r\200\272\215A\034\v \225\003\2241\202\310\030\201e\f!2\206@N0W \027@\200\001\0|c\024\357\n", 93);
    fNByte += 93;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P02
    NewObject(patternNb++);
@@ -2561,7 +2292,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211$\2121\n\2000\024C\367\234\"G\370\277\025\321+\b\016\342\340P\334tP\252\240\213\3277\332!\204\274\227\v\316\2150\032\335J\356\025\023O\241Np\247\363\021f\317\344\214\234\215\v\002+\036h\033U\326/~\243Ve\231PL\370\215\027\343\032#\006\274\002\f\0\242`\025:\n", 94);
    fNByte += 94;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P03
    NewObject(patternNb++);
@@ -2573,7 +2304,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211$\2121\n\2000\024C\367\234\"G\370\261(\366\n\202\20388\210\233\016J\025t\361\372\376\332!\204\274\227\033\342N\030\215\262\222g\303\304\313Q\347\360\240\370:f\317Y\f\\\214+**\360Dls'\177\306\274\032\257\344\256.\252\376\215\212\221\217\021\003>\001\006\0\317\243\025\254\n", 95);
    fNByte += 95;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P04
    NewObject(patternNb++);
@@ -2585,7 +2316,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020\035k\240\220\002V\231\313\005S\233\303\025\314\025\310\005\020`\0\344\270\r\274\n", 65);
    fNByte += 65;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P05
    NewObject(patternNb++);
@@ -2597,7 +2328,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020\035k\240\220\302\005Q\223\313\005\"\r\024r\270\202\271\002\271\0\002\f\0\344\320\r\274\n", 68);
    fNByte += 68;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P06
    NewObject(patternNb++);
@@ -2609,7 +2340,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020\035k\240\220\302e\nR\232\v\242@js\270\202\271\002\271\0\002\f\0\345X\r\305\n", 68);
    fNByte += 68;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P07
    NewObject(patternNb++);
@@ -2621,7 +2352,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020\035k\240\220\002\02465P\310\345\002)\0042r\270\202\271\002\271\0\002\f\0\345=\r\305\n", 70);
    fNByte += 70;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P08
    NewObject(patternNb++);
@@ -2633,7 +2364,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211D\217\261\016\3020\fDw\177\305\315L6Q\225|\003\022C\305\300Puk+\201\032$\272\360\373\330\265\323\016\271\330\367\234\344\"x\201\030\214\252\232\030+%\353VZ.jd\367\205\003x\241({]\311\324]\323|\342\006\033J\201:\306\325\230Jg\226J\261\275D\257#\337=\220\260\354k\233\351\211\217Z75\337\020\374\324\306\035\303\310\230\342x=\303\371\275\307o\332s\331\223\224\240G\330\a\365\364\027`\0\nX1}\n",141);
    fNByte += 141;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P09
    NewObject(patternNb++);
@@ -2645,7 +2376,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020\035k\240\220\002\02465P\310\005RFFz&\020\002,d\240\220\314en\256g\0065\b,\001b\230\202$\240\232\214@\362\246`\2169H\336\024\2426\231\v&\200,\n\326\030\314\025\310\005\020`\0\f@\036\227\n", 110);
    fNByte += 110;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P10
    NewObject(patternNb++);
@@ -2657,7 +2388,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020\035k\240\220\002\02465P\310\345\002)\0042r\200\332\r\241\\C \017dN.\027L\312\0\302\205\2535\205j6\205X\224\303\025\314\025\310\005\020`\0\2127\031\t\n", 95);
    fNByte += 95;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P11
    NewObject(patternNb++);
@@ -2669,7 +2400,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211\\\2171\016\3020\fEw\237\342\037\301ip\223^\001\211\001u`@l0\200(\022,\\\037;v\204\332\241\211\336\373\337V\363\246\204;\210\301H\354\337\347F'\274T\355U>\220\360U\215\003\316\027\306\2655\027=\a\306\223\304I\002m\332\330\356&\030\325\333fZ\275F\337\205\235\265O\270\032\004\331\214\336\305\270\004\227`\357i\256\223\342;]\344\255(!\372\356\205j\030\377K\335\220\344\377\210\274\306\022\330\337T{\214,\212;\301\3508\006\346\206\021O=\216|\212|\246#\375\004\030\0\216FF\207\n", 166);
    fNByte += 166;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P12
    NewObject(patternNb++);
@@ -2681,7 +2412,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211<P;n\3030\f\335y\n\236 \220DK\242\256P\240C\321\241C\221\311\311\220\242\016\220.\275~D\221/\203I\342}\370(?(\363\215)q\342\234\374\373\273\322\027\337'\3646\301\037\316\374?a~\347\357s\342\313\2045\361A9\237\322fc\231\200\236F\263\301\334;\211\017\207\rN\311\252S\\\227{\247\006w\207\244\303\255p+(\205\333\360e/v\356a\315\317\360\272\320b|w\276\203o\340k\b\004\027\v$b\226\235,\242\254t(\024\nu\305Vm\313\021\375\327\272\257\227fuf\226ju\356\222x\030\024\313\261S\215\377\341\274,\203\254\253Z\\\262A\262\205eD\350\210\320\201\225\212\320\036\241\355\025\372JE,\2266\344\366\310U\344\016HFx>\351\203\236\002\f\0d}e\216\n", 228);
    fNByte += 228;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P13
    NewObject(patternNb++);
@@ -2693,7 +2424,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020\035k\240\220\002V\231\313\005S\233\303\005\241!\" ~0W \027@\200\001\0\331\227\020\253\n", 71);
    fNByte += 71;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P14
    NewObject(patternNb++);
@@ -2705,7 +2436,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\2114\214=\n\2000\f\205\367\234\342\035!-\241\364\f\202\20388\210\233\016J+\350\342\365M\3723\224\327\367}I\036r8A\f\206\343\372\336\203\026\334\212\006\205\027\004\237b\214X7\306\256\33032\331\240~\022y[\315\026\206\222\372\330}\264\036\253\217\335\353\240\030\b%\223\245o=X\227\346\245\355K\341\345@\3613M\364\v0\0\207o\"\261\n", 116);
    fNByte += 116;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P15
    NewObject(patternNb++);
@@ -2717,7 +2448,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211<\2211\016\3020\fEw\237\302'@\211c\267w@b@\f\f\210\2510\200(\022,\\\037\347\307\256Z\325\221\375\337\377\225\363\241\312\017\246\302\205'\274\337;\235\371\355\215\275\267\236\\\371\307\265\360\201/\327\3027o\233\361J\262\233\247~\362g\336\211zur!A]{\035}\031S\343\006p\241\226dKI\v\326\202\265\3153\331)X)\335fE\205M\235\373\327\r*\374\026\252\022\216u\223\200\361I\211\177\031\022\001#``\342GI\211\004c\221gi\246\231\247\221\247\231\247\233$XM3\315<\215<\315<K\211e\036#\215a4\366\344\035lm\214Z\314b\211Xj\337K\\\201$\332\325\v\365\2659\204\362\242\274'\v\221\r\321\211\216\364\027`\0\212'_\215\n", 220);
    fNByte += 220;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P16
    NewObject(patternNb++);
@@ -2729,7 +2460,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020\035k\240\220\302ej\240\0D\271 \332\314X\317B\301\330\002H\230\233*\030\231\202\310d.CC=#\020\v*\rV\235\214\254\v\210r@\264\261\031P\241\031H5D\253\021H\267\005\3104 \v\344\016\260\002\020\003lB0W \027@\200\001\0hU \305\n", 125);
    fNByte += 125;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P17
    NewObject(patternNb++);
@@ -2741,7 +2472,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020md\242\020k\240\220\002V\234\313\005S\236\303\025\314\025\310\005\020`\0\r\351\016B\n", 68);
    fNByte += 68;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P18
    NewObject(patternNb++);
@@ -2753,7 +2484,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211*\3442T\310T\3402P0P04\200\340\242T\256p\205<\240\220\027P0K\301D\241\034(\254\340\253\020md\242\020k\240\220\302\005Q\226\313\005\"\r\024r\270\202\271\002\271\0\002\f\0\016\001\016B\n", 71);
    fNByte += 71;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P19
    NewObject(patternNb++);
@@ -2765,7 +2496,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211L\216;\016\302@\fD{\237bN\020\331+6a\257\200D\201((P\252@\001R\220\240\341\372\370\263\216(\326\266f\336\330\373&\301\003\304`\b\307\373\334\351\202\227J\a\025\237\020|U\306\021\327\231q\243\306\250\214\325\372T\006\336\367\032\262\326\205\3124\264b\243$\"n.\244=\314\250!\2139\033\327\022i=\323\317\2518\332T}\347.\202\346W\373\372j\315\221\344\266\213=\237\241\344\034\361\264!\236w\344\177\271o8\323\211~\002\f\0\366\3026\233\n", 151);
    fNByte += 151;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P20
    NewObject(patternNb++);
@@ -2777,7 +2508,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211<L;\016\2030\f\335}\212w\002\344$M\2323 1 \006\006\304\224vhU\220`\341\372<\aT\311\366\263\336o\023\207\017D\241pz\355\376\226\021+\251\226\344\027\017\034\244\321a\232\025/\211\n\316r\343ORh\262}\317\210\344\032o\310)\302\2233\245\252[m\274\332\313\277!$\332\371\371\210`N\242\267$\217\263\246\252W\257\245\006\351\345\024`\0o\347 \305\n", 124);
    fNByte += 124;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P21
    NewObject(patternNb++);
@@ -2789,7 +2520,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211D\2151\n\2000\fE\367\234\342\037!)\224\336Ap\020\a\aq\323A\251\202.^\337$-\025\022^\372\033^n\022\354 \006CX\274\237\215&\\\032u\032\036\020\274\032\243\307\2740V]\027\234\024\242\"\033\2642En\324\312\224bc\262\\\230\377\301\332WM\224\212(U\221\375\265\301\025\016?\350\317P\215\221\033\213o\244\201>\001\006\0\031I'f\n", 119);
    fNByte += 119;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P22
    NewObject(patternNb++);
@@ -2801,7 +2532,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211<\215=\n\204P\f\204\373\234b\216\220<\b\357\016\302\026ba!vZ(\273\v\332x}\223\274\237\"|\223a\230\271Hp\200\030\fa\211\273w\232\3617k0\363\204\3401\033\037,+c#\3170~\2244\304\327EV\243r\247\272oOcr\337\323]H\t\226\252\334\252r\255\362\257\213(\t\304\250\326\315T\267\032\275q\242\221^\001\006\0\272\367(&\n", 120);
    fNByte += 120;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P23
    NewObject(patternNb++);
@@ -2813,7 +2544,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211<\220\273\n\0021\020E\373\371\212[[M\326\331\354\344\027\004\v\261\260\020;\025\224D\320\306\337w\036\254p\363\230\223\341$\344M\005\017\020\203Q8\307\347F'\274\f\355\f>Q\3605\214=\316\005\v.\214kt\217\230;)\324\366\245Fa\213e\320v\212r\022X\006\211Fi\3242\250J\224\302\020\367h\212\254I\\\325R\225o\03143\346U\235@a\t[\202Za\tA\202E`\351~O\002\235`\351~S\202\306h.m\253\264)\232K\217t\310\017q\354\a\353\247\364\377C\356\033\372\t0\0\bm:\375\n", 171);
    fNByte += 171;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P24
    NewObject(patternNb++);
@@ -2825,7 +2556,7 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\211DQ9N\004A\f\314\373\025\216\211\326\343v\037_@\"@\004\004\210\f\220@\003\022$|\177\335\345j\220v\345\251\303\343*\215\312\273\024\275\\d\375?\361dM\3162\306\337\214\337Y\336n\240m\217\036\301y\343\\<,i\250\0038F\035)\347l\322\026o\377\023\353|[\254\177\343\005;\315\317ky\224\257\240n\203\374\020\225\337\240\345N\236T\272<_\344\245\304^\3238\030\tc\236E\233xO\034\363\204>\251\317\324\233\023{\352\235\376\336S\357Fl\251\017\372\207\247>xoh&_\366Ud\331\253\314D\023\332\241\211\016\205\246\235\326\236*\275\307\204z8!s\031\335\306\\\306C\306\\\225\376\312\\\225\307\252\246\356\364\273Q\347\271:\371\341l\177\311e\210\3571\211\251#\374\302H\037:\342c\241\323\2617\320 \034\250\0\302\323a{\005%\302a\373(Zx\313\026\213@\215p\324}\026=\274e\217E8s\326}\026M\036\312}\271\n0\0\215\263\207\016\n", 282);
    fNByte += 282;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
 
    // P25
    NewObject(patternNb++);
@@ -2837,5 +2568,171 @@ void TPDF::PatternEncode()
    fStream->write("\r\nH\2112T\310T\3402P0P\310\34526P\0\242\034.s\004m\016\242\r\r\f\024@\030\302\002\321iZP\305`M\346\310\212\201R\0\001\006\0\206\322\017\200\n", 56);
    fNByte += 56;
    PrintStr("endstream@");
-   PrintStr("endobj@");
+   EndObject();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Write and Accumulate (if `acc` is true) the Current Transformation Matrix (CTM)
+///
+/// The Current Transformation Matrix (CTM, not CMT) is defined by the six parameters
+/// `a` `b` `c` `d` `e` `f` passed to the PDF `cm` operator (see the PDF Reference Guide
+/// page 156 [1] for details).
+///
+/// To correctly define the \Rect fields of the Annots created for each #url, one must keep
+/// track of the current CTM and apply it to the last transformation matrix used for the
+/// text (for example rotations).
+///
+/// [1] https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.4.pdf
+
+void TPDF::WriteCM(Double_t a, Double_t b, Double_t c, Double_t d, Double_t e, Double_t f, Bool_t acc)
+{
+   WriteReal(a);
+   WriteReal(b);
+   WriteReal(c);
+   WriteReal(d);
+   WriteReal(e);
+   WriteReal(f);
+   PrintStr(" cm");
+
+   // accumulate in CTM ---
+   if (acc) {
+      Double_t na, nb, nc, nd, ne, nf;
+      na = fA * a + fC * b;
+      nb = fB * a + fD * b;
+      nc = fA * c + fC * d;
+      nd = fB * c + fD * d;
+      ne = fA * e + fC * f + fE;
+      nf = fB * e + fD * f + fF;
+      fA = na;
+      fB = nb;
+      fC = nc;
+      fD = nd;
+      fE = ne;
+      fF = nf;
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Write the annotation objects containing the URLs
+
+void TPDF::WriteUrlObjects()
+{
+   int i;
+   NewObject(fCurrentPage + 4);
+   PrintStr("@");
+   PrintStr("[");
+   for (i = 0; i < fNbUrl - 1; i++) {
+      WriteInteger(fCurrentPage + 5 + i);
+      PrintStr(" 0 R");
+   }
+   PrintStr(" ]@");
+   EndObject();
+   for (i = 0; i < fNbUrl - 1; i++) {
+      NewObject(fCurrentPage + 5 + i);
+      PrintStr("<<@");
+      PrintStr("/Type /Annot@");
+      PrintStr("/Subtype /Link@");
+      PrintStr("/Rect [");
+      WriteReal(fRectX1[i], kFALSE);
+      WriteReal(fRectY1[i]);
+      WriteReal(fRectX2[i]);
+      WriteReal(fRectY2[i]);
+      PrintStr("]@");
+      PrintStr("/Border [0 0 0]@");
+      PrintStr("/A << /S /URI /URI (");
+      PrintStr(fUrls[i].c_str());
+      PrintStr(") >>@");
+      PrintStr(">>@");
+      EndObject();
+   }
+   if (!fUrls.empty())
+      fUrls.clear();
+   if (!fRectX1.empty())
+      fRectX1.clear();
+   if (!fRectY1.empty())
+      fRectY1.clear();
+   if (!fRectX2.empty())
+      fRectX2.clear();
+   if (!fRectY2.empty())
+      fRectY2.clear();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Compute the Rect for url
+
+void TPDF::ComputeRect(const char* chars, Double_t fontsize,
+                       Double_t a, Double_t b, Double_t c, Double_t d, Double_t e, Double_t f)
+{
+   double W = 0.52 * fontsize * strlen(chars);
+   double ascent = 0.72 * fontsize;
+   double descent = 0.22 * fontsize;
+
+   int ax = fTextAlign / 10;
+   int ay = fTextAlign % 10;
+   double xShift = 0;
+   double yShift = 0;
+   if (ax == 2)
+      xShift = -W / 2.0;
+   if (ax == 3)
+      xShift = -W;
+   if (ay == 2)
+      yShift = -(ascent - descent) / 2.0;
+   if (ay == 3)
+      yShift = -ascent;
+   double x1 = xShift;
+   double x2 = xShift + W;
+   double y1 = -descent + yShift;
+   double y2 = ascent + yShift;
+
+   Double_t A, B, C, D, E, F;
+   A = fA * a + fC * b;
+   B = fB * a + fD * b;
+   C = fA * c + fC * d;
+   D = fB * c + fD * d;
+   E = fA * e + fC * f + fE;
+   F = fB * e + fD * f + fF;
+
+   double bx1 = A * x1 + C * y1 + E;
+   double by1 = B * x1 + D * y1 + F;
+   double bx2 = A * x2 + C * y1 + E;
+   double by2 = B * x2 + D * y1 + F;
+   double bx3 = A * x2 + C * y2 + E;
+   double by3 = B * x2 + D * y2 + F;
+   double bx4 = A * x1 + C * y2 + E;
+   double by4 = B * x1 + D * y2 + F;
+
+   double xmin = bx1;
+   double xmax = bx1;
+   double ymin = by1;
+   double ymax = by1;
+
+   if (bx2 < xmin)
+      xmin = bx2;
+   if (bx3 < xmin)
+      xmin = bx3;
+   if (bx4 < xmin)
+      xmin = bx4;
+   if (bx2 > xmax)
+      xmax = bx2;
+   if (bx3 > xmax)
+      xmax = bx3;
+   if (bx4 > xmax)
+      xmax = bx4;
+   if (by2 < ymin)
+      ymin = by2;
+   if (by3 < ymin)
+      ymin = by3;
+   if (by4 < ymin)
+      ymin = by4;
+   if (by2 > ymax)
+      ymax = by2;
+   if (by3 > ymax)
+      ymax = by3;
+   if (by4 > ymax)
+      ymax = by4;
+
+   fRectX1.push_back(xmin);
+   fRectY1.push_back(ymin);
+   fRectX2.push_back(xmax);
+   fRectY2.push_back(ymax);
 }

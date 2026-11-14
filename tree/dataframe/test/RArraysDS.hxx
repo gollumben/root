@@ -31,8 +31,8 @@ public:
    RArraysDSVarSizeReader(std::vector<int> &v) : fPtr(&v) {}
 };
 
-/// A RDataSource to test the #var feature
-class RArraysDS : public ROOT::RDF::RDataSource {
+/// A RDataSource to test the `#var` feature
+class RArraysDS final : public ROOT::RDF::RDataSource {
    std::vector<int> fVar = {42};
    std::vector<std::string> fColumnNames = {"R_rdf_sizeof_var", "var"};
    std::vector<std::pair<ULong64_t, ULong64_t>> fRanges = {{0ull, 1ull}};
@@ -40,7 +40,13 @@ class RArraysDS : public ROOT::RDF::RDataSource {
    bool IsSizeColumn(std::string_view colName) const { return colName.substr(0, 13) == "R_rdf_sizeof_"; }
 
 public:
-   void SetNSlots(unsigned int) final { }
+   RArraysDS() = default;
+   // Rule of five
+   RArraysDS(const RArraysDS &) = delete;
+   RArraysDS &operator=(const RArraysDS &) = delete;
+   RArraysDS(RArraysDS &&) = delete;
+   RArraysDS &operator=(RArraysDS &&) = delete;
+   ~RArraysDS() final = default;
 
    const std::vector<std::string> &GetColumnNames() const final { return fColumnNames; }
 
@@ -61,7 +67,7 @@ public:
 
    bool SetEntry(unsigned int, ULong64_t) final { return true; }
 
-   void Initialise() final { fRanges = {{0ull, 1ull}}; }
+   void Initialize() final { fRanges = {{0ull, 1ull}}; }
 
    std::string GetLabel() final { return "ArraysDS"; }
 

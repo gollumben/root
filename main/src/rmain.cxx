@@ -19,7 +19,9 @@
 
 #include "TRint.h"
 #include "RConfigure.h"
-#include "snprintf.h"
+
+#include <cstdio>
+#include <cstdlib>
 #ifdef _MSC_VER
 #include <process.h>
 #define execv _execv
@@ -41,9 +43,9 @@ void handle_notebook_option(int argc, char **argv)
    if (notebook > 0) {
       // Build command
 #ifdef ROOTBINDIR
-      if (getenv("ROOTIGNOREPREFIX"))
+      if (std::getenv("ROOTIGNOREPREFIX"))
 #endif
-         snprintf(arg0, sizeof(arg0), "%s/bin/%s", getenv("ROOTSYS"), ROOTNBBINARY);
+         snprintf(arg0, sizeof(arg0), "%s/bin/%s", std::getenv("ROOTSYS"), ROOTNBBINARY);
 #ifdef ROOTBINDIR
       else
          snprintf(arg0, sizeof(arg0), "%s/%s", ROOTBINDIR, ROOTNBBINARY);
@@ -77,7 +79,8 @@ int main(int argc, char **argv)
 {
    handle_notebook_option(argc, argv);
 
-   TRint *theApp = new TRint("Rint", &argc, argv);
+   TRint *theApp = new TRint("Rint", &argc, argv, /*options*/ nullptr, /*numOptions*/ 0, /*noLogo*/ kFALSE,
+                             /*exitOnUnknownArgs*/ kTRUE);
 
    // and enter the event loop...
    theApp->Run();

@@ -33,14 +33,12 @@ Allows to read PS/EPS/PDF files via GhostScript
 #ifndef WIN32
 #   include <afterbase.h>
 #else
-#   include <win32/config.h>
-#   include <win32/afterbase.h>
 #   define X_DISPLAY_MISSING 1
+#   include <afterbase.h>
 #endif
 #   include <import.h>
 
 
-ClassImp(TASPluginGS);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// ctor
@@ -48,14 +46,14 @@ ClassImp(TASPluginGS);
 TASPluginGS::TASPluginGS(const char *ext) : TASImagePlugin(ext)
 {
 #ifndef WIN32
-   fInterpreter = gSystem->Which(gSystem->Getenv("PATH"), "gs", kExecutePermission);
+   fGsExe = "gs";
+   gSystem->FindFile(gSystem->Getenv("PATH"), fGsExe, kExecutePermission);
 #else
-   fInterpreter = gSystem->Which(gSystem->Getenv("PATH"), "gswin32c.exe", kExecutePermission);
-   if (fInterpreter) {
-      // which returned path may include blanks, like "Program Files" which popen does not like
-      delete [] fInterpreter;
-      fInterpreter = StrDup("gswin32c.exe");
-   }
+   fGsExe = "gswin32c.exe";
+   // FindFile returned path may include blanks, like "Program Files" which popen does not like
+   // Therefore if executable found in defined paths, just use it name as is
+   if (gSystem->FindFile(gSystem->Getenv("PATH"), fGsExe, kExecutePermission))
+      fGsExe = "gswin32c.exe";
 #endif
 }
 
@@ -64,8 +62,7 @@ TASPluginGS::TASPluginGS(const char *ext) : TASImagePlugin(ext)
 
 TASPluginGS::~TASPluginGS()
 {
-   delete [] fInterpreter;
-   fInterpreter = 0;
+   ROOT::CallRecursiveRemoveIfNeeded(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -73,43 +70,47 @@ TASPluginGS::~TASPluginGS()
 
 ASImage *TASPluginGS::File2ASImage(const char *filename)
 {
-   if (!fInterpreter) {
+   if (fGsExe.IsNull()) {
       Warning("File2ASImage", "GhostScript is not available");
-      return 0;
+      return nullptr;
    }
 
    if (gSystem->AccessPathName(filename)) {
       Warning("File2ASImage", "input file %s is not accessible", filename);
-      return 0;
+      return nullptr;
    }
 
-   TString ext = (strrchr(filename, '.') + 1);
-   ext.Strip();
-   ext.ToLower();
+   const char *ppos = strrchr(filename, '.');
 
-   UInt_t width = 0;
-   UInt_t height = 0;
-   Bool_t eps = kFALSE;
+   TString ext;
+   if (ppos) {
+      ext = ppos + 1;
+      ext.Strip();
+      ext.ToLower();
+   }
 
-   if (ext == "eps") {
-      eps = kTRUE;
+   UInt_t width = 0, height = 0;
+   Bool_t eps = ext == "eps";
+
+   if (eps) {
       FILE *fd = fopen(filename, "r");
       if (!fd) {
          Warning("File2ASImage", "input file %s is not readable", filename);
-         return 0;
+         return nullptr;
       }
 
       do {
          char buf[128];
          TString line = fgets(buf, 128, fd);
-         if (line.IsNull() || !line.BeginsWith("%")) break;
+         if (line.IsNull() || !line.BeginsWith("%"))
+            break;
 
          if (line.BeginsWith("%%BoundingBox:")) {
             int lx, ly, ux, uy;
             line = line(14, line.Length());
             sscanf(line.Data(), "%d %d %d %d", &lx, &ly, &ux, &uy);
-            width = TMath::Abs(ux - lx);
-            height = TMath::Abs(uy - ly);
+            width = std::abs(ux - lx);
+            height = std::abs(uy - ly);
             break;
          }
       } while (!feof(fd));
@@ -118,20 +119,18 @@ ASImage *TASPluginGS::File2ASImage(const char *filename)
    }
 
    // command line to execute
-   TString cmd = fInterpreter;
-   if (eps) {
-      cmd += Form(" -g%dx%d", width, height);
-   }
+   TString cmd = fGsExe;
+   if (eps)
+      cmd += TString::Format(" -g%dx%d", width, height);
    cmd += " -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=png16m -dGraphicsAlphaBits=4 -sOutputFile=- ";
    cmd += filename;
    FILE *in = gSystem->OpenPipe(cmd.Data(), popen_flags);
 
-   if (!in) {
-      return 0;
-   }
+   if (!in)
+      return nullptr;
 
    const UInt_t kBuffLength = 32768;
-   static char buf[kBuffLength];
+   char buf[kBuffLength];
    TString raw;
 
    do {
@@ -147,10 +146,10 @@ ASImage *TASPluginGS::File2ASImage(const char *filename)
    params.height = height;
    params.filter = SCL_DO_ALL;
    params.gamma = 0;
-   params.gamma_table = 0;
+   params.gamma_table = nullptr;
    params.compression = 0;
    params.format = ASA_ASImage;
-   params.search_path = 0;
+   params.search_path = nullptr;
    params.subimage = 0;
 
    ASImage *ret = PNGBuff2ASimage((CARD8 *)raw.Data(), &params);

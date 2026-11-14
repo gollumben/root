@@ -32,6 +32,8 @@ namespace Math {
       For efficiency, gamma is held as well.
 
       @ingroup GenVector
+
+      @see GenVector
    */
 
 class BoostY {

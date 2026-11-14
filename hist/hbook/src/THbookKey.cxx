@@ -12,9 +12,9 @@
 #include "THbookKey.h"
 #include "THbookTree.h"
 #include "TBrowser.h"
-#include "snprintf.h"
 
-ClassImp(THbookKey);
+#include <cstdio>
+
 
 /** \class THbookKey
     \ingroup Hist
@@ -57,7 +57,7 @@ void THbookKey::Browse(TBrowser *b)
       if (obj->InheritsFrom(TCollection::Class()))
          obj->Delete();   // delete also collection elements
       delete obj;
-      obj = 0;
+      obj = nullptr;
    }
 
    if (!obj)

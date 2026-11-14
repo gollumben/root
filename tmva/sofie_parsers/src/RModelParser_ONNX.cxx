@@ -1,628 +1,968 @@
+#include "Byteswap.h"
 #include "TMVA/RModelParser_ONNX.hxx"
-#include "onnx_proto3.pb.h"
+// The operator base class is a private header: RModelParser_ONNX.hxx only
+// forward-declares it, but this translation unit manages ROperator instances
+// through std::unique_ptr and needs the complete type.
+#include "TMVA/ROperator.hxx"
+#include "onnx.hxx"
 
+#include <algorithm>
+#include <stdexcept>
 #include <string>
+#include <cstring>
 #include <memory>
+#include <cassert>
+#include <iostream>
+#include <unordered_map>
+#include <functional>
+#include "TMVA/SOFIE_common.hxx"
 
-namespace TMVA{
-namespace Experimental{
-namespace SOFIE{
+namespace TMVA {
+namespace Experimental {
+namespace SOFIE {
 
-namespace INTERNAL{
+// Declaration of operators
+// Unary operators
+void RegisterBasicUnaryParsers(RModelParser_ONNX &parser);
+// Binary operators
+void RegisterBasicBinaryParsers(RModelParser_ONNX &parser);
+// Nary operators
+void RegisterBasicNaryParsers(RModelParser_ONNX &parser);
+//Comparision Operators
+void RegisterComparisionParsers(RModelParser_ONNX &parser);
+//Is Operators
+void RegisterBasicIsParsers(RModelParser_ONNX &parser);
+extern ParserFuncSignature ParseNot;
+// Reduce operators
+void RegisterReduceParsers(RModelParser_ONNX &parser);
+// Others
+extern ParserFuncSignature ParseBatchNormalization;
+extern ParserFuncSignature ParseConstant;
+extern ParserFuncSignature ParseTranspose;
+extern ParserFuncSignature ParseRelu;
+extern ParserFuncSignature ParseTanh;
+extern ParserFuncSignature ParseConv;
+extern ParserFuncSignature ParseConvTranspose;
+extern ParserFuncSignature ParseLeakyRelu;
+extern ParserFuncSignature ParseGelu;
+extern ParserFuncSignature ParseSelu;
+extern ParserFuncSignature ParseSigmoid;
+extern ParserFuncSignature ParseSwish;
+extern ParserFuncSignature ParseGemm;
+extern ParserFuncSignature ParseRNN;
+extern ParserFuncSignature ParseLSTM;
+extern ParserFuncSignature ParsePool;
+extern ParserFuncSignature ParseReshape;
+extern ParserFuncSignature ParseSlice;
+extern ParserFuncSignature ParseGRU;
+extern ParserFuncSignature ParseIdentity;
+extern ParserFuncSignature ParseSoftmax;
+extern ParserFuncSignature ParseConcat;
+extern ParserFuncSignature ParseCast;
+extern ParserFuncSignature ParseExpand;
+extern ParserFuncSignature ParseShape;
+extern ParserFuncSignature ParseMatMul;
+extern ParserFuncSignature ParseLayerNormalization;
+extern ParserFuncSignature ParseInstanceNormalization;
+extern ParserFuncSignature ParseGather;
+extern ParserFuncSignature ParseGatherND;
+extern ParserFuncSignature ParseErf;
+extern ParserFuncSignature ParseElu;
+extern ParserFuncSignature ParseHardSigmoid;
+extern ParserFuncSignature ParseHardSwish;
+extern ParserFuncSignature ParseEyeLike;
+extern ParserFuncSignature ParseRange;
+extern ParserFuncSignature ParseTopK;
+extern ParserFuncSignature ParseTile;
+extern ParserFuncSignature ParseSplit;
+extern ParserFuncSignature ParseIf;
+extern ParserFuncSignature ParsePad;
+extern ParserFuncSignature ParseWhere;
+extern ParserFuncSignature ParseEinsum;
+extern ParserFuncSignature ParseRandom;
+extern ParserFuncSignature ParseScatterElements;
+extern ParserFuncSignature ParseScatterND;
+extern ParserFuncSignature ParseNonZero;
+extern ParserFuncSignature ParseClip;
+extern ParserFuncSignature ParseArgMax;
+extern ParserFuncSignature ParsePRelu;
+// Declaration of fused operators
+extern ParserFuseFuncSignature ParseFuseConvAdd;
+extern ParserFuseFuncSignature ParseFuseGemmRelu;
+extern ParserFuseFuncSignature ParseFuseBatchnormRelu;
+extern ParserFuseFuncSignature ParseFuseConvTransposeAdd;
+extern ParserFuseFuncSignature ParseFuseMatMulAdd;
 
-std::unique_ptr<ROperator> make_ROperator(size_t idx, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type){
-   const auto& nodeproto = graphproto.node(idx);
-   auto find = mapOptypeOperator.find(nodeproto.op_type());
-   if (find == mapOptypeOperator.end()){
-      throw std::runtime_error("TMVA::SOFIE - Operator type " + nodeproto.op_type() + " is not yet supported");
-   }else{
-      return (find->second)(nodeproto, graphproto, tensor_type);
+// Definition of  RModelParser_ONNX::OperatorsMap
+struct RModelParser_ONNX::OperatorsMapImpl {
+   // Registered operators
+   std::unordered_map<std::string, ParserFuncSignature> fOperatorsMap;
+};
+
+// helper function to get initialized tensor data
+template<typename T>
+struct ExtractDataFromTP {
+};
+// trait function to extract data from TensorProto
+template<>
+struct ExtractDataFromTP<float> {
+   static void Copy(onnx::TensorProto * tensor, void * data, int length) {
+      if (tensor->float_data_size() != length)
+         throw std::runtime_error("TMVA::SOFIE - Failed to read float initialized tensor - actual size is " + std::to_string(tensor->float_data_size()));
+      const auto &src = tensor->float_data();
+      std::copy(src.begin(), src.end(), static_cast<float *>(data));
+   }
+};
+template<>
+struct ExtractDataFromTP<double> {
+   static void Copy(onnx::TensorProto * tensor, void * data, int length) {
+      if (tensor->double_data_size() != length)
+         throw std::runtime_error("TMVA::SOFIE - Failed to read double initialized tensor - actual size is " + std::to_string(tensor->double_data_size()));
+      const auto &src = tensor->double_data();
+      std::copy(src.begin(), src.end(), static_cast<double *>(data));
+   }
+};
+template<>
+struct ExtractDataFromTP<int32_t> {
+   static void Copy(onnx::TensorProto * tensor, void * data, int length) {
+      if (tensor->int32_data_size() != length)
+         throw std::runtime_error("TMVA::SOFIE - Failed to read int32 initialized tensor - actual size is " + std::to_string(tensor->int32_data_size()));
+      const auto &src = tensor->int32_data();
+      std::copy(src.begin(), src.end(), static_cast<int32_t *>(data));
+   }
+};
+template<>
+struct ExtractDataFromTP<int64_t> {
+   static void Copy(onnx::TensorProto * tensor, void * data, int length) {
+      if (tensor->int64_data_size() != length)
+         throw std::runtime_error("TMVA::SOFIE - Failed to read int64 initialized tensor - actual size is " + std::to_string(tensor->int64_data_size()));
+      const auto &src = tensor->int64_data();
+      std::copy(src.begin(), src.end(), static_cast<int64_t *>(data));
+   }
+};
+
+#ifndef R__BYTESWAP
+namespace {
+
+// Copy nbytes from source to dest, byte-swapping each N-byte element. The
+// temporary avoids misaligned loads from the protobuf string buffer and makes
+// in-place swapping (dest == source) valid.
+template <std::size_t N>
+void CopyBswap(void *dest, const void *source, std::size_t nbytes)
+{
+   using value_type = typename RByteSwap<N>::value_type;
+   auto dst = static_cast<unsigned char *>(dest);
+   auto src = static_cast<const unsigned char *>(source);
+   for (std::size_t k = 0; k < nbytes; k += N) {
+      value_type v;
+      std::memcpy(&v, src + k, N);
+      v = RByteSwap<N>::bswap(v);
+      std::memcpy(dst + k, &v, N);
    }
 }
 
-std::unique_ptr<ROperator> make_ROperator_Transpose(const onnx::NodeProto& nodeproto, const onnx::GraphProto& /*graphproto*/, std::unordered_map<std::string, ETensorType>& tensor_type){
-
-   ETensorType input_type;
-
-   auto input_name =  nodeproto.input(0);
-   auto it = tensor_type.find(input_name);
-   if (it != tensor_type.end()){
-      input_type = it->second;
-   }else{
-      throw std::runtime_error("TMVA::SOFIE ONNX Parser tranpose op has input tensor" + input_name + " but its type is not yet registered");
-   }
-
-   std::unique_ptr<ROperator> op;
-   std::vector<int_t> attr_perm;
-
-   if (nodeproto.attribute_size() == 1){
-      attr_perm.assign(nodeproto.attribute(0).ints().begin(), nodeproto.attribute(0).ints().end());
-   }
-
-   switch(input_type){
-   case ETensorType::FLOAT:
-      if (!attr_perm.empty()){
-         op.reset(new ROperator_Transpose<float>(attr_perm, nodeproto.input(0), nodeproto.output(0)));
-      }else{
-         op.reset(new ROperator_Transpose<float> (nodeproto.input(0), nodeproto.output(0)));
-      }
+// Copy a buffer of little-endian tensor elements to host (big-endian) byte order
+void CopyLEToHost(void *dest, const void *source, std::size_t nbytes, ETensorType tensor_type)
+{
+   switch (GetTypeSize(tensor_type)) {
+   case 1:
+      if (dest != source)
+         std::memcpy(dest, source, nbytes);
       break;
+   case 2: CopyBswap<2>(dest, source, nbytes); break;
+   case 4: CopyBswap<4>(dest, source, nbytes); break;
+   case 8: CopyBswap<8>(dest, source, nbytes); break;
    default:
-      throw std::runtime_error("TMVA::SOFIE - Unsupported - Operator Transpose does not yet support input type " + std::to_string(static_cast<int>(input_type)));
+      throw std::runtime_error("Data type " + ConvertTypeToString(tensor_type) + " in tensor is not supported!\n");
    }
-
-   ETensorType output_type = (op->TypeInference({input_type}))[0];
-   auto it2 = tensor_type.find(nodeproto.output(0));
-   if (it2 == tensor_type.end()){
-      tensor_type[nodeproto.output(0)] = output_type;
-   }
-
-   return op;
 }
 
-std::unique_ptr<ROperator> make_ROperator_Relu(const onnx::NodeProto& nodeproto, const onnx::GraphProto& /*graphproto */, std::unordered_map<std::string, ETensorType>& tensor_type){
+} // anonymous namespace
+#endif
 
-   ETensorType input_type;
+std::shared_ptr<void> RModelParser_ONNX::GetInitializedTensorData(onnx::TensorProto *tensorproto, size_t tensor_size, ETensorType tensor_type)
+{
 
-   auto input_name =  nodeproto.input(0);
-   auto it = tensor_type.find(input_name);
-   if (it != tensor_type.end()){
-      input_type = it->second;
-   }else{
-      throw std::runtime_error("TMVA::SOFIE ONNX Parser relu op has input tensor" + input_name + " but its type is not yet registered");
-   }
+   std::shared_ptr<void> data(malloc(tensor_size), free);
 
-   std::unique_ptr<ROperator> op;
+   // check if initialized tensors are stored internally
+   if (tensorproto->data_location() != onnx::TensorProto::EXTERNAL) {
+      if (tensorproto->raw_data().size() > 0) {
+         if (tensorproto->raw_data().size() != tensor_size)
+            throw std::runtime_error("TMVA::SOFIE - Failed to read raw data of initialized tensor - actual raw size is " +
+                                 std::to_string(tensorproto->raw_data().size()));
 
-
-   switch(input_type){
-   case ETensorType::FLOAT:
-      op.reset(new ROperator_Relu<float>(nodeproto.input(0), nodeproto.output(0)));
-      break;
-   default:
-      throw std::runtime_error("TMVA::SOFIE - Unsupported - Operator Relu does not yet support input type " + std::to_string(static_cast<int>(input_type)));
-   }
-
-   ETensorType output_type = (op->TypeInference({input_type}))[0];
-   auto it2 = tensor_type.find(nodeproto.output(0));
-   if (it2 == tensor_type.end()){
-      tensor_type[nodeproto.output(0)] = output_type;
-   }
-
-   return op;
-}
-
-std::unique_ptr<ROperator> make_ROperator_Selu(const onnx::NodeProto& nodeproto, const onnx::GraphProto& /*graphproto */, std::unordered_map<std::string, ETensorType>& tensor_type){
-
-   ETensorType input_type;
-
-   auto input_name =  nodeproto.input(0);
-   auto it = tensor_type.find(input_name);
-   if (it != tensor_type.end()){
-      input_type = it->second;
-   }else{
-      throw std::runtime_error("TMVA::SOFIE ONNX Parser selu op has input tensor" + input_name + " but its type is not yet registered");
-   }
-
-   std::unique_ptr<ROperator> op;
-
-
-   switch(input_type){
-   case ETensorType::FLOAT:
-      op.reset(new ROperator_Selu<float>(nodeproto.input(0), nodeproto.output(0)));
-      break;
-   default:
-      throw std::runtime_error("TMVA::SOFIE - Unsupported - Operator Selu does not yet support input type " + std::to_string(static_cast<int>(input_type)));
-   }
-
-   ETensorType output_type = (op->TypeInference({input_type}))[0];
-   auto it2 = tensor_type.find(nodeproto.output(0));
-   if (it2 == tensor_type.end()){
-      tensor_type[nodeproto.output(0)] = output_type;
-   }
-
-   return op;
-}
-
-std::unique_ptr<ROperator> make_ROperator_Sigmoid(const onnx::NodeProto& nodeproto, const onnx::GraphProto& /*graphproto */, std::unordered_map<std::string, ETensorType>& tensor_type){
-
-   ETensorType input_type;
-
-   auto input_name =  nodeproto.input(0);
-   auto it = tensor_type.find(input_name);
-   if (it != tensor_type.end()){
-      input_type = it->second;
-   }else{
-      throw std::runtime_error("TMVA::SOFIE ONNX Parser Sigmoid op has input tensor" + input_name + " but its type is not yet registered");
-   }
-
-   std::unique_ptr<ROperator> op;
-
-
-   switch(input_type){
-   case ETensorType::FLOAT:
-      op.reset(new ROperator_Sigmoid<float>(nodeproto.input(0), nodeproto.output(0)));
-      break;
-   default:
-      throw std::runtime_error("TMVA::SOFIE - Unsupported - Operator Sigmoid does not yet support input type " + std::to_string(static_cast<int>(input_type)));
-   }
-
-   ETensorType output_type = (op->TypeInference({input_type}))[0];
-   auto it2 = tensor_type.find(nodeproto.output(0));
-   if (it2 == tensor_type.end()){
-      tensor_type[nodeproto.output(0)] = output_type;
-   }
-
-   return op;
-}
-
-std::unique_ptr<ROperator> make_ROperator_Gemm(const onnx::NodeProto& nodeproto, const onnx::GraphProto& /* graphproto */, std::unordered_map<std::string, ETensorType>& tensor_type){
-
-   ETensorType input_type;
-
-   auto input_name =  nodeproto.input(0);
-   auto it = tensor_type.find(input_name);
-   if (it != tensor_type.end()){
-      input_type = it->second;
-   }else{
-      throw std::runtime_error("TMVA::SOFIE ONNX Parser gemm op has input tensor" + input_name + " but its type is not yet registered");
-   }
-
-   std::unique_ptr<ROperator> op;
-
-   float attr_alpha =1.0;
-   float attr_beta =1.0;
-   int_t attr_transA =0;
-   int_t attr_transB =0;
-
-   for (int i = 0; i < nodeproto.attribute_size(); i++){
-      std::string attribute_name = nodeproto.attribute(i).name();
-      if (attribute_name == "alpha"){
-         attr_alpha = nodeproto.attribute(i).f();
-      }else if(attribute_name == "beta"){
-         attr_beta = nodeproto.attribute(i).f();
-      }else if(attribute_name == "transA"){
-         attr_transA = nodeproto.attribute(i).i();
-         if (attr_transA != 0 && attr_transA != 1) throw std::runtime_error("TMVA::SOFIE Error - Model Loading - attribute transA in Operator Gemm not 0/1");
-      }else if(attribute_name == "transB"){
-         attr_transB = nodeproto.attribute(i).i();
-         if (attr_transB != 0 && attr_transB != 1) throw std::runtime_error("TMVA::SOFIE Error - Model Loading - attribute transB in Operator Gemm not 0/1");
-      }else{
-         std::cout << "TMVA::SOFIE Warning - Model Loading - Attribute " << attribute_name << " in OperatorNode " << nodeproto.name() << " is not defined in ONNX IR and not applied!\n";
-      }
-   }
-
-
-   switch(input_type){
-   case ETensorType::FLOAT:
-      if (nodeproto.input_size() == 2){
-         op.reset(new ROperator_Gemm<float>(attr_alpha, attr_beta, attr_transA, attr_transB, nodeproto.input(0), nodeproto.input(1), nodeproto.output(0)));
-      }else{
-         op.reset(new ROperator_Gemm<float>(attr_alpha, attr_beta, attr_transA, attr_transB, nodeproto.input(0), nodeproto.input(1), nodeproto.input(2), nodeproto.output(0)));
-      }
-      break;
-   default:
-      throw std::runtime_error("TMVA::SOFIE - Unsupported - Operator Relu does not yet support input type " + std::to_string(static_cast<int>(input_type)));
-   }
-
-   ETensorType output_type = (op->TypeInference({input_type, input_type}))[0];
-   auto it2 = tensor_type.find(nodeproto.output(0));
-   if (it2 == tensor_type.end()){
-      tensor_type[nodeproto.output(0)] = output_type;
-   }
-
-   return op;
-}
-
-std::unique_ptr<ROperator> make_ROperator_Conv(const onnx::NodeProto& nodeproto, const onnx::GraphProto& /* graphproto */, std::unordered_map<std::string, ETensorType>& tensor_type) {
-
-   ETensorType input_type;
-
-   auto input_name = nodeproto.input(0);
-   auto it = tensor_type.find(input_name);
-   if (it != tensor_type.end()) {
-      input_type = it->second;
-   } else {
-      throw
-         std::runtime_error("TMVA::SOFIE ONNX Parser Conv op has input tensor " + input_name + " but its type is not yet registered");
-   }
-
-   std::unique_ptr<ROperator> op;
-
-   std::string attr_auto_pad = "NOTSET";
-   std::vector<size_t> attr_dilations;
-   size_t attr_group = 0;
-   std::vector<size_t> attr_kernel_shape;
-   std::vector<size_t> attr_pads;
-   std::vector<size_t> attr_strides;
-
-   for (int_t i = 0; i < nodeproto.attribute_size(); i++) {
-      std::string attribute_name = nodeproto.attribute(i).name();
-      if (attribute_name == "auto_pad") {
-         attr_auto_pad = nodeproto.attribute(i).s();
-      } else if (attribute_name == "dilations") {
-         attr_dilations = std::vector<size_t>({nodeproto.attribute(i).ints().begin(), nodeproto.attribute(i).ints().end()});
-      } else if (attribute_name == "group") {
-         attr_group= nodeproto.attribute(i).i();
-      } else if (attribute_name == "kernel_shape") {
-         attr_kernel_shape = std::vector<size_t>({nodeproto.attribute(i).ints().begin(), nodeproto.attribute(i).ints().end()});
-      } else if (attribute_name == "pads") {
-         attr_pads = std::vector<size_t>({nodeproto.attribute(i).ints().begin(), nodeproto.attribute(i).ints().end()});
-      } else if (attribute_name == "strides") {
-         attr_strides = std::vector<size_t>({nodeproto.attribute(i).ints().begin(), nodeproto.attribute(i).ints().end()});
+#ifdef R__BYTESWAP
+         // R__BYTESWAP is defined for little-endian architectures (most common ones)
+         std::memcpy(data.get(), tensorproto->raw_data().c_str(), tensor_size);
+#else
+         // big-endian architectures - need to swap bytes
+         CopyLEToHost(data.get(), tensorproto->raw_data().c_str(), tensor_size, tensor_type);
+#endif
       } else {
-         std::cout << "TMVA::SOFIE Warning - Model Loading - Attribute " << attribute_name << " in OperatorNode " << nodeproto.name() << " is not defined in ONNX IR and not applied!\n";
+         // case tensor data are stored as specific types and not in raw_data
+         switch (tensor_type) {
+            case ETensorType::FLOAT: {
+               ExtractDataFromTP<float>::Copy(tensorproto, data.get(), tensor_size/ 4);
+               break;
+            }
+            case ETensorType::DOUBLE: {
+               ExtractDataFromTP<double>::Copy(tensorproto, data.get(), tensor_size/ 8);
+               break;
+            }
+            case ETensorType::INT32: {
+               ExtractDataFromTP<int32_t>::Copy(tensorproto, data.get(), tensor_size/ 4);
+               break;
+            }
+            case ETensorType::INT64: {
+               ExtractDataFromTP<int64_t>::Copy(tensorproto, data.get(), tensor_size/ 8);
+               break;
+            }
+            case ETensorType::BOOL: {
+               throw std::runtime_error("TMVA::SOFIE - ExtractData from TP in BOOL not supported");
+               break;
+            }
+            case ETensorType::UINT8: {
+               throw std::runtime_error("TMVA::SOFIE - ExtractData from TP in UINT8 not supported");
+               break;
+            }
+            default:
+               throw std::runtime_error("Data type " + ConvertTypeToString(tensor_type) + " in weight tensor is not supported!\n");
+         }
       }
+
+   }  else {
+      // case of external data
+
+      // read now tensor from file
+      std::string location;
+      size_t offset = 0, buffer_size = 0;
+
+      for (const auto &kv : tensorproto->external_data()) {
+         if (kv.key() == "location")  location = kv.value();
+         else if (kv.key() == "offset") offset = std::stoull(kv.value());
+         else if (kv.key() == "length") buffer_size = std::stoull(kv.value());
+      }
+
+      // an explicitly set data file (SetExternalDataFile) takes precedence;
+      // otherwise use the location stored in the model, which is a path
+      // relative to the model directory, and as a last resort the
+      // conventional <model file>.data
+      std::string dataFileName = fDataFileName;
+      if (dataFileName.empty())
+         dataFileName = location.empty() ? fDefaultDataFileName : fModelDirectory + location;
+      if (dataFileName.empty())
+         throw std::runtime_error("TMVA::SOFIE ONNX : tensor " + tensorproto->name() +
+                                  " has external data but no data file location is available");
+
+      if (fVerbose)
+         std::cout << "Initialized data are stored externally in file " << dataFileName
+                   << " at location " << location << " offset " << offset << " and with length " << buffer_size << std::endl;
+
+      if (buffer_size != tensor_size)
+         throw std::runtime_error("TMVA::SOFIE ONNX : invalid stored data size vs tensor size");
+
+      // open the data file if needed (a previous tensor may have opened a different one)
+      if (fDataFile.is_open() && fOpenedDataFileName != dataFileName)
+         fDataFile.close();
+      if (!fDataFile.is_open()) {
+         fDataFile.open(dataFileName, std::ios::binary);
+         if (!fDataFile.is_open())
+            throw std::runtime_error("TMVA::SOFIE ONNX:  error reading external weight ONNX data file " + dataFileName);
+         fOpenedDataFileName = dataFileName;
+      }
+
+      fDataFile.seekg(offset);
+      fDataFile.read(reinterpret_cast<char *>(data.get()), buffer_size);
+#ifndef R__BYTESWAP
+      // external data is stored little-endian like raw_data - swap in place
+      CopyLEToHost(data.get(), data.get(), buffer_size, tensor_type);
+#endif
    }
 
-   std::string name_b = "";
-   if (nodeproto.input_size() > 2) {
-      name_b = nodeproto.input(2);
-   }
-
-   switch(input_type) {
-      case ETensorType::FLOAT:
-         op.reset(new ROperator_Conv<float>(attr_auto_pad, attr_dilations, attr_group, attr_kernel_shape, attr_pads, attr_strides, nodeproto.input(0), nodeproto.input(1), name_b, nodeproto.output(0)));
-         break;
-      default:
-         throw
-            std::runtime_error("TMVA::SOFIE - Unsupported - Operator Conv does not yet support input type " + std::to_string(static_cast<int>(input_type)));
-   }
-
-   ETensorType output_type = (op->TypeInference({input_type, input_type}))[0];
-   auto it2 = tensor_type.find(nodeproto.output(0));
-   if (it2 == tensor_type.end()) {
-      tensor_type[nodeproto.output(0)] = output_type;
-   }
-
-   return op;
+   return data;
 }
 
-std::unique_ptr<ROperator> make_ROperator_RNN(const onnx::NodeProto& nodeproto, const onnx::GraphProto& /* graphproto */, std::unordered_map<std::string, ETensorType>& tensor_type) {
 
-   ETensorType input_type;
-
-   auto input_name = nodeproto.input(0);
-   auto it = tensor_type.find(input_name);
-   if (it != tensor_type.end()) {
-      input_type = it->second;
-   } else {
-      throw
-         std::runtime_error("TMVA::SOFIE ONNX Parser RNN op has input tensor " + input_name + " but its type is not yet registered");
-   }
-
-   std::unique_ptr<ROperator> op;
-
-   std::vector<float> attr_activation_alpha = {};
-   std::vector<float> attr_activation_beta = {};
-   std::vector<std::string> attr_activations = {};
-   float attr_clip = 0.;
-   std::string attr_direction = "forward";
-   size_t attr_hidden_size = 0;
-   size_t attr_layout = 0;
-
-   for (int_t i = 0; i < nodeproto.attribute_size(); i++) {
-      std::string attribute_name = nodeproto.attribute(i).name();
-      if (attribute_name == "activation_alpha") {
-         attr_activation_alpha = {nodeproto.attribute(i).floats().begin(), nodeproto.attribute(i).floats().end()};
-      } else if (attribute_name == "activation_beta") {
-         attr_activation_beta = {nodeproto.attribute(i).floats().begin(), nodeproto.attribute(i).floats().end()};
-      } else if (attribute_name == "activations") {
-         attr_activations = {nodeproto.attribute(i).strings().begin(), nodeproto.attribute(i).strings().end()};
-      } else if (attribute_name == "clip") {
-         attr_clip = nodeproto.attribute(i).i();
-      } else if (attribute_name == "direction") {
-         attr_direction = nodeproto.attribute(i).s();
-      } else if (attribute_name == "hidden_size") {
-         attr_hidden_size = nodeproto.attribute(i).i();
-      } else if (attribute_name == "layout") {
-         attr_layout = nodeproto.attribute(i).i();
-      } else {
-         std::cout << "TMVA SOFIE Warning - Model Loading - Attribute " << attribute_name << " in OperatorNode " << nodeproto.name() << " is not defined in ONNX IR and not applied!\n";
-      }
-   }
-
-   // Optional inputs and outputs
-   std::string name_b = "";
-   std::string name_sequence_lens = "";
-   std::string name_initial_h = "";
-   std::string name_y = "";
-   std::string name_y_h = "";
-   if (nodeproto.input_size() > 3) {
-      name_b = nodeproto.input(3);
-   }
-   if (nodeproto.input_size() > 4) {
-      name_sequence_lens = nodeproto.input(4);
-   }
-   if (nodeproto.input_size() > 5) {
-      name_initial_h = nodeproto.input(5);
-   }
-   if (nodeproto.output_size() > 0) {
-      name_y = nodeproto.output(0);
-   }
-   if (nodeproto.output_size() > 1) {
-      name_y_h = nodeproto.output(1);
-   }
-
-   switch(input_type) {
-      case ETensorType::FLOAT:
-            op.reset(new ROperator_RNN<float>(attr_activation_alpha, attr_activation_beta, attr_activations,
-               attr_clip, attr_direction, attr_hidden_size, attr_layout,
-               nodeproto.input(0), nodeproto.input(1), nodeproto.input(2),
-               name_b, name_sequence_lens, name_initial_h, name_y, name_y_h));
-         break;
-      default:
-         throw
-            std::runtime_error("TMVA::SOFIE - Unsupported - Operator RNN does not yet support input type " + std::to_string(static_cast<int>(input_type)));
-   }
-
-   auto output_type = op->TypeInference({input_type, input_type});
-   for (size_t i = 0; i < 2; i++) {
-      if (tensor_type.find(nodeproto.output(i)) == tensor_type.end()) {
-         tensor_type[nodeproto.output(i)] = output_type[i];
-      }
-   }
-
-   return op;
+// Constructor of the parser
+RModelParser_ONNX::RModelParser_ONNX() noexcept : fOperatorsMapImpl(std::make_unique<OperatorsMapImpl>()) {
+   // Register operators
+   // Unary operators
+   RegisterBasicUnaryParsers(*this);
+   // Binary operators
+   RegisterBasicBinaryParsers(*this);
+   // Nary operators
+   RegisterBasicNaryParsers(*this);
+   //Comparision Operators
+   RegisterComparisionParsers(*this);
+   // Is If operators
+   RegisterBasicIsParsers(*this);
+   RegisterOperator("Not", ParseNot);
+   // Reduce operators
+   RegisterReduceParsers(*this);
+   // Others
+   RegisterOperator("BatchNormalization", ParseBatchNormalization);
+   RegisterOperator("Constant", ParseConstant);
+   RegisterOperator("ConstantOfShape", ParseConstant);
+   RegisterOperator("Cast", ParseCast);
+   RegisterOperator("Concat", ParseConcat);
+   RegisterOperator("Conv", ParseConv);
+   RegisterOperator("ConvTranspose", ParseConvTranspose);
+   RegisterOperator("Gemm", ParseGemm);
+   RegisterOperator("GRU", ParseGRU);
+   RegisterOperator("Identity", ParseIdentity);
+   RegisterOperator("LeakyRelu", ParseLeakyRelu);
+   RegisterOperator("LSTM", ParseLSTM);
+   RegisterOperator("AveragePool", ParsePool);
+   RegisterOperator("GlobalAveragePool", ParsePool);
+   RegisterOperator("MaxPool", ParsePool);
+   RegisterOperator("Relu", ParseRelu);
+   RegisterOperator("Reshape", ParseReshape);
+   RegisterOperator("Flatten", ParseReshape);
+   RegisterOperator("Squeeze", ParseReshape);
+   RegisterOperator("Unsqueeze", ParseReshape);
+   RegisterOperator("RNN", ParseRNN);
+   RegisterOperator("Gelu", ParseGelu);
+   RegisterOperator("Selu", ParseSelu);
+   RegisterOperator("Shape", ParseShape);
+   RegisterOperator("Sigmoid", ParseSigmoid);
+   RegisterOperator("Swish", ParseSwish);
+   RegisterOperator("Slice", ParseSlice);
+   RegisterOperator("Softmax", ParseSoftmax);
+   RegisterOperator("LogSoftmax", ParseSoftmax);
+   RegisterOperator("Tanh", ParseTanh);
+   RegisterOperator("Transpose", ParseTranspose);
+   RegisterOperator("MatMul", ParseMatMul);
+   RegisterOperator("LayerNormalization", ParseLayerNormalization);
+   RegisterOperator("Expand", ParseExpand);
+   RegisterOperator("Gather", ParseGather);
+   RegisterOperator("GatherND", ParseGatherND);
+   RegisterOperator("Erf", ParseErf);
+   RegisterOperator("Elu", ParseElu);
+   RegisterOperator("HardSigmoid", ParseHardSigmoid);
+   RegisterOperator("HardSwish", ParseHardSwish);
+   RegisterOperator("EyeLike", ParseEyeLike);
+   RegisterOperator("Range", ParseRange);
+   RegisterOperator("TopK", ParseTopK);
+   RegisterOperator("Tile", ParseTile);
+   RegisterOperator("Split", ParseSplit);
+   RegisterOperator("If", ParseIf);
+   RegisterOperator("InstanceNormalization", ParseInstanceNormalization);
+   RegisterOperator("Pad", ParsePad);
+   RegisterOperator("Where", ParseWhere);
+   RegisterOperator("Einsum", ParseEinsum);
+   RegisterOperator("RandomNormal", ParseRandom);
+   RegisterOperator("RandomNormalLike", ParseRandom);
+   RegisterOperator("RandomUniform", ParseRandom);
+   RegisterOperator("RandomUniformLike", ParseRandom);
+   RegisterOperator("ScatterElements", ParseScatterElements);
+   RegisterOperator("ScatterND", ParseScatterND);
+   RegisterOperator("NonZero", ParseNonZero);
+   RegisterOperator("Clip", ParseClip);
+   RegisterOperator("ArgMax", ParseArgMax);
+   RegisterOperator("PRelu", ParsePRelu);
 }
 
-std::unique_ptr<ROperator> make_ROperator_LSTM(const onnx::NodeProto& nodeproto, const onnx::GraphProto& /* graphproto */, std::unordered_map<std::string, ETensorType>& tensor_type) {
+// Destructor of the parser
+RModelParser_ONNX::~RModelParser_ONNX() = default;
 
-   ETensorType input_type;
-
-   auto input_name = nodeproto.input(0);
-   auto it = tensor_type.find(input_name);
-   if (it != tensor_type.end()) {
-      input_type = it->second;
-   } else {
-      throw
-         std::runtime_error("TMVA::SOFIE ONNX Parser LSTM op has input tensor " + input_name + " but its type is not yet registered");
-   }
-
-   std::unique_ptr<ROperator> op;
-
-   std::vector<float> attr_activation_alpha;
-   std::vector<float> attr_activation_beta;
-   std::vector<std::string> attr_activations;
-   float attr_clip = 0.;
-   std::string attr_direction = "forward";
-   size_t attr_hidden_size = 0;
-   size_t attr_input_forget = 0;
-   size_t attr_layout = 0;
-
-   for (int_t i = 0; i < nodeproto.attribute_size(); i++) {
-      std::string attribute_name = nodeproto.attribute(i).name();
-      if (attribute_name == "activation_alpha") {
-         attr_activation_alpha = {nodeproto.attribute(i).floats().begin(), nodeproto.attribute(i).floats().end()};
-      } else if (attribute_name == "activation_beta") {
-         attr_activation_beta = {nodeproto.attribute(i).floats().begin(), nodeproto.attribute(i).floats().end()};
-      } else if (attribute_name == "activations") {
-         attr_activations = {nodeproto.attribute(i).strings().begin(), nodeproto.attribute(i).strings().end()};
-      } else if (attribute_name == "clip") {
-         attr_clip = nodeproto.attribute(i).f();
-      } else if (attribute_name == "direction") {
-         attr_direction = nodeproto.attribute(i).s();
-      } else if (attribute_name == "hidden_size") {
-         attr_hidden_size = nodeproto.attribute(i).i();
-      } else if (attribute_name == "input_forget") {
-         attr_input_forget = nodeproto.attribute(i).i();
-      } else if (attribute_name == "layout") {
-         attr_layout = nodeproto.attribute(i).i();
-      } else {
-         std::cout << "TMVA SOFIE Warning - Model Loading - Attribute " << attribute_name << " in OperatorNode " << nodeproto.name() << " is not defined in ONNX IR and not applied!\n";
-      }
-   }
-
-   // Optional inputs and outputs
-   std::string name_b;
-   std::string name_sequence_lens;
-   std::string name_initial_h;
-   std::string name_initial_c;
-   std::string name_p;
-   std::string name_y;
-   std::string name_y_h;
-   std::string name_y_c;
-   if (nodeproto.input_size() > 3) {
-      name_b = nodeproto.input(3);
-   }
-   if (nodeproto.input_size() > 4) {
-      name_sequence_lens = nodeproto.input(4);
-   }
-   if (nodeproto.input_size() > 5) {
-      name_initial_h = nodeproto.input(5);
-   }
-   if (nodeproto.input_size() > 6) {
-      name_initial_c = nodeproto.input(6);
-   }
-   if (nodeproto.input_size() > 7) {
-      name_p = nodeproto.input(7);
-   }
-   if (nodeproto.output_size() > 0) {
-      name_y = nodeproto.output(0);
-   }
-   if (nodeproto.output_size() > 1) {
-      name_y_h = nodeproto.output(1);
-   }
-   if (nodeproto.output_size() > 2) {
-      name_y_c = nodeproto.output(2);
-   }
-
-   switch(input_type) {
-      case ETensorType::FLOAT:
-         op.reset(new ROperator_LSTM<float>(attr_activation_alpha, attr_activation_beta, attr_activations,
-            attr_clip, attr_direction, attr_hidden_size, attr_input_forget, attr_layout,
-            nodeproto.input(0), nodeproto.input(1), nodeproto.input(2),
-            name_b, name_sequence_lens, name_initial_h, name_initial_c, name_p,
-            name_y, name_y_h, name_y_c));
-         break;
-      default:
-         throw
-            std::runtime_error("TMVA::SOFIE - Unsupported - Operator LSTM does not yet support input type " + std::to_string(static_cast<int>(input_type)));
-   }
-
-   auto output_type = op->TypeInference({input_type, input_type});
-   for (size_t i = 0; i < 2; i++) {
-      if (tensor_type.find(nodeproto.output(i)) == tensor_type.end()) {
-         tensor_type[nodeproto.output(i)] = output_type[i];
-      }
-   }
-
-   return op;
+void RModelParser_ONNX::RegisterOperator(const std::string &name, ParserFuncSignature func)
+{
+   fOperatorsMapImpl->fOperatorsMap[name] = func;
 }
-} //INTERNAL
 
+bool RModelParser_ONNX::IsRegisteredOperator(const std::string &name)
+{
+   return fOperatorsMapImpl->fOperatorsMap.find(name) != fOperatorsMapImpl->fOperatorsMap.end();
+}
 
+std::vector<std::string> RModelParser_ONNX::GetRegisteredOperators()
+{
+   std::vector<std::string> ops;
+   ops.reserve(fOperatorsMapImpl->fOperatorsMap.size());
+   for (auto &it : fOperatorsMapImpl->fOperatorsMap) {
+      ops.emplace_back(it.first);
+   }
+   // return sorted list in alphabetical order
+   std::sort(ops.begin(), ops.end());
+   return ops;
+}
 
-RModel RModelParser_ONNX::Parse(std::string filename){
-   char sep = '/';
-   #ifdef _WIN32
-      sep = '\\';
-   #endif
-   size_t isep = filename.rfind(sep, filename.length());
-   std::string filename_nodir = filename;
-   if (isep != std::string::npos){
-      filename_nodir = (filename.substr(isep+1, filename.length() - isep));
+void RModelParser_ONNX::RegisterTensorType(const std::string &name, ETensorType type)
+{
+   fTensorTypeMap[UTILITY::Clean_name(name)] = type;
+}
+
+bool RModelParser_ONNX::IsRegisteredTensorType(const std::string &name)
+{
+   return fTensorTypeMap.find(UTILITY::Clean_name(name)) != fTensorTypeMap.end();
+}
+
+ETensorType RModelParser_ONNX::GetTensorType(const std::string &name)
+{
+   return fTensorTypeMap[UTILITY::Clean_name(name)];
+}
+
+namespace {
+
+/// Is the Add following a Conv / ConvTranspose really that convolution's bias?
+///
+/// Only if the convolution has no bias yet and the added tensor is a rank-1 initializer, one
+/// value per output channel. Anything else - a residual connection, an operand computed at
+/// run time - is a genuine addition.
+bool IsConvBiasAdd(const onnx::GraphProto &graph, const onnx::NodeProto &convnode, const onnx::NodeProto &addnode)
+{
+   if (convnode.input_size() > 2 || addnode.input_size() != 2)
+      return false;
+   const std::string &added = (addnode.input(0) == convnode.output(0)) ? addnode.input(1) : addnode.input(0);
+   for (int i = 0; i < graph.initializer_size(); i++) {
+      if (graph.initializer(i).name() == added)
+         return graph.initializer(i).dims_size() == 1;
+   }
+   return false;
+}
+
+} // namespace
+
+// Parse an operator
+std::unique_ptr<ROperator>
+RModelParser_ONNX::ParseOperator(const size_t i, const onnx::GraphProto &graphproto, const std::vector<size_t> &nodes, const std::vector<int> & children)
+{
+   if (i >= nodes.size())
+      throw std::runtime_error("TMVA::SOFIE - Error in parsing ordered operators " + std::to_string(i) + " is >=  " + std::to_string(nodes.size()));
+   int idx = nodes[i];
+   const auto &nodeproto = graphproto.node(idx);
+   const std::string op_type = nodeproto.op_type();
+   if (fVerbose)
+      std::cout << "Parsing operator " << op_type << std::endl;
+
+   // perform the fusion of  operators
+   if (fFusedOperators.count(idx) == 1) {
+      int idx1 = fFusedOperators[idx].second;
+      if (fVerbose) {
+         std::cout << "\tFusing operators " << graphproto.node(idx1).name()
+                   << " with  " <<  graphproto.node(idx1).name() << std::endl;
+      }
+      if (fFusedOperators[idx].first == EFusedOp::kMatMulAdd) {
+         return ParseFuseMatMulAdd(*this, graphproto.node(idx1), graphproto.node(idx));
+      } else if (fFusedOperators[idx].first == EFusedOp::kConvAdd) {
+         return ParseFuseConvAdd(*this, graphproto.node(idx1), graphproto.node(idx));
+      } else if (fFusedOperators[idx].first == EFusedOp::kConvTransAdd) {
+         return ParseFuseConvTransposeAdd(*this, graphproto.node(idx1), graphproto.node(idx));
+      } else if (fFusedOperators[idx].first == EFusedOp::kGemmRelu) {
+         return ParseFuseGemmRelu(*this, graphproto.node(idx1), graphproto.node(idx));
+      } else if (fFusedOperators[idx].first == EFusedOp::kBatchnormRelu) {
+         return ParseFuseBatchnormRelu(*this, graphproto.node(idx1), graphproto.node(idx));
+      }
    }
 
+   // try to fuse with following operator in case it is not last one and having only a single child
+   if (children.size() == 1) {
+      int idx2 = children.front();
+      if (op_type == "MatMul") {
+        // Fuse MatMul and Add
+         if (idx2 < graphproto.node_size() && graphproto.node(idx2).op_type() == "Add") {
+            fFusedOperators[idx2] = {EFusedOp::kMatMulAdd, idx};
+            return nullptr;
+         }
+      } else if (nodeproto.op_type() == "Conv" || nodeproto.op_type() == "ConvTranspose") {
+         // Fuse Conv or ConvTranspose without bias and Add, when the Add really is the bias
+         if (idx2 < graphproto.node_size() && graphproto.node(idx2).op_type() == "Add" &&
+             IsConvBiasAdd(graphproto, nodeproto, graphproto.node(idx2))) {
+            if (nodeproto.op_type() == "Conv") {
+               fFusedOperators[idx2] = { EFusedOp::kConvAdd, idx};
+               return nullptr;
+            } else {
+               fFusedOperators[idx2] = { EFusedOp::kConvTransAdd, idx};
+               return nullptr;
+            }
+         }
+      } else if (nodeproto.op_type() == "Gemm") {
+         // Fuse Gemm with activation operators
+         if (idx2 < graphproto.node_size() && graphproto.node(idx2).op_type() == "Relu") {
+            fFusedOperators[idx2] = {EFusedOp::kGemmRelu, idx};
+            return nullptr;
+         }
+      } else if (nodeproto.op_type() == "BatchNormalization") {
+         if (idx2 < graphproto.node_size() && graphproto.node(idx2).op_type() == "Relu") {
+            fFusedOperators[idx2] = {EFusedOp::kBatchnormRelu, idx};
+            return nullptr;
+         }
+      }
+   }
+
+   auto it = fOperatorsMapImpl->fOperatorsMap.find(op_type);
+   if (it == fOperatorsMapImpl->fOperatorsMap.end()) {
+      std::cout << "operator " << op_type << " is not supported" << std::endl;
+      throw std::runtime_error("TMVA::SOFIE Operator type " + op_type + " is not yet supported");
+   }
+   if (fVerbose) {
+      std::cout << "\tCreating operator " << op_type << std::endl;
+   }
+   return it->second(*this, nodeproto);
+}
+
+// Parse a model
+RModel RModelParser_ONNX::Parse(std::string const &filename, bool verbose)
+{
+   fVerbose = verbose;
+
+   fTensorTypeMap.clear();
+
+   auto model = LoadModel(filename);
+   if (!model)
+      throw std::runtime_error("TMVA::SOFIE - Failed to load onnx file " + filename);
+
+   const onnx::GraphProto &graph = model->graph(); // not a memory leak. model freed automatically at the end.
 
 
    std::time_t ttime = std::time(0);
-   std::tm* gmt_time = std::gmtime(&ttime);
-   std::string parsetime (std::asctime(gmt_time));
+   std::tm *gmt_time = std::gmtime(&ttime);
+   std::string parsetime(std::asctime(gmt_time));
 
-
-
-
-   GOOGLE_PROTOBUF_VERIFY_VERSION;
-   //model I/O
-   onnx::ModelProto model;
-   RModel rmodel(filename_nodir, parsetime);
-
-   std::unordered_map<std::string, ETensorType> tensor_type;
-
-   std::fstream input(filename, std::ios::in | std::ios::binary);
-   if (!model.ParseFromIstream(&input)){
-      throw std::runtime_error("TMVA::SOFIE - Failed to parse onnx file");
+   // get name of model (filename without directory name)
+   char sep = '/';
+#ifdef _WIN32
+   sep = '\\';
+#endif
+   size_t isep = filename.rfind(sep, filename.length());
+   std::string filename_nodir = filename;
+   if (isep != std::string::npos) {
+      filename_nodir = (filename.substr(isep + 1, filename.length() - isep));
    }
 
-   const onnx::GraphProto& graph = model.graph(); //not a memory leak. model freed automatically at the end.
-   google::protobuf::ShutdownProtobufLibrary();
+   fModelDirectory = (isep != std::string::npos) ? filename.substr(0, isep + 1) : "";
+   fDefaultDataFileName = filename + ".data";
+
+   RModel rmodel(filename_nodir, parsetime);
+   ParseONNXGraph(rmodel, graph, filename_nodir);
+   ResetExternalDataState();
+   return rmodel;
+}
+
+RModel RModelParser_ONNX::Parse(std::istream &input, std::string const &name, bool verbose)
+{
+   fVerbose = verbose;
+
+   fTensorTypeMap.clear();
+
+   auto model = LoadModel(input);
+   if (!model)
+      throw std::runtime_error("TMVA::SOFIE - Failed to parse ONNX model from input stream");
+
+   const onnx::GraphProto &graph = model->graph(); // not a memory leak. model freed automatically at the end.
+
+   std::time_t ttime = std::time(0);
+   std::tm *gmt_time = std::gmtime(&ttime);
+   std::string parsetime(std::asctime(gmt_time));
+
+   RModel rmodel(name, parsetime);
+   ParseONNXGraph(rmodel, graph, name);
+   ResetExternalDataState();
+   return rmodel;
+}
+
+// Reset the state used to read external weight data, so that the next Parse
+// call does not pick up the data file of a previously parsed model. The
+// file name set with SetExternalDataFile is valid for a single Parse call.
+void RModelParser_ONNX::ResetExternalDataState()
+{
+   fDataFileName.clear();
+   fModelDirectory.clear();
+   fDefaultDataFileName.clear();
+   fOpenedDataFileName.clear();
+   if (fDataFile.is_open())
+      fDataFile.close();
+}
+
+std::unique_ptr<onnx::ModelProto> RModelParser_ONNX::LoadModel(const std::string &filename) {
+   std::fstream input(filename, std::ios::in | std::ios::binary);
+   if (!input) {
+      std::cerr << "TMVA::SOFIE - Failed to open onnx file " << filename << std::endl;
+      return {};
+   }
+
+   return LoadModel(input);
+}
+
+std::unique_ptr<onnx::ModelProto> RModelParser_ONNX::LoadModel(std::istream &input)
+{
+   auto model = std::make_unique<onnx::ModelProto>();
+
+   if (!model->ParseFromIstream(&input)) {
+      std::cerr << "TMVA::SOFIE - Failed to parse ONNX model from input stream" << std::endl;
+      return {};
+   }
+
+   // ONNX version is ir_version()  - model_version() returns 0
+   if (fVerbose) {
+      std::cout << "ONNX Version " << model->ir_version() << std::endl;
+   }
+   return model;
+}
+
+void RModelParser_ONNX::CheckGraph(const onnx::GraphProto & graph, int & level, std::map<std::string, int> & missingOperators) {
+   if (fVerbose)
+      std::cout << "\n" << graph.name() << " Graph operator list\n";
+   for (int i = 0; i < graph.node_size(); i++) {
+      const auto & node = graph.node(i);
+      const std::string opType =  node.op_type();
+      if (fVerbose) {
+         std::cout << "\tOperator " << i << " : " << opType << " (" << node.name() << "), " << graph.node(i).input_size()
+                      << " inputs : {";
+            for (int j = 0; j < graph.node(i).input_size(); j++) {
+               std::cout << graph.node(i).input(j);
+               if (j < graph.node(i).input_size() - 1)
+                  std::cout << ", ";
+            }
+         std::cout << " }" << std::endl;
+      }
+      // check if operator exists
+      if (!IsRegisteredOperator(opType))
+         missingOperators[opType] = level;
+      // see if sub-graph exists as node attributes
+      for (int j = 0; j < node.attribute_size(); j++) {
+         const auto & attribute = node.attribute(j);
+         if (attribute.has_g()) {
+            const auto & subGraph = attribute.g();
+            level += 1;
+            CheckGraph(subGraph, level, missingOperators);
+         }
+      }
+   }
+}
+
+bool RModelParser_ONNX::CheckModel(std::string filename, bool verbose) {
+
+   fVerbose = verbose;
+   auto model = LoadModel(filename);
+   if (!model) return false;
+
+   const onnx::GraphProto &graph = model->graph();
+    // Initial operator order
+   if (fVerbose)
+      std::cout << "\nModel operator list " << model->producer_name() << "\n";
+
+   std::map<std::string, int> missingOperators;
+   int level = 1;
+   CheckGraph(graph, level, missingOperators);
+
+   if (!missingOperators.empty()) {
+      std::cout << "List of missing operators for model loaded from file " << filename << std::endl;
+      for (auto & op : missingOperators) {
+         std::cout << op.first << "  " << op.second << std::endl;
+      }
+      return false;
+   }
+   std::cout << "All operators in the loaded model are supported!\n";
+   return true;
+}
+
+void RModelParser_ONNX::ParseONNXGraph(RModel & rmodel, const onnx::GraphProto & graph, std::string  graphName)
+{
+   bool verbose = fVerbose;
+
+   if (graphName.empty())
+      graphName = graph.name();
+
+   if (verbose)
+      std::cout << "\nParsing Graph - " << graphName << std::endl;
+
+   // fFusedOperators is keyed by node index, so it is only valid for the graph
+   // being parsed: neither a second model parsed with the same parser nor a
+   // subgraph (e.g. of the If operator) may inherit it.
+   struct FusedOperatorsGuard {
+      std::map<int, std::pair<EFusedOp, int>> &fMap;
+      std::map<int, std::pair<EFusedOp, int>> fSaved;
+      FusedOperatorsGuard(std::map<int, std::pair<EFusedOp, int>> &map) : fMap(map) { fSaved.swap(fMap); }
+      ~FusedOperatorsGuard() { fMap.swap(fSaved); }
+   } fusedOperatorsGuard{fFusedOperators};
 
    std::unordered_set<std::string> initializer_names;
-   for (int i=0; i < graph.initializer_size(); i++){
+   for (int i = 0; i < graph.initializer_size(); i++) {
       initializer_names.insert(graph.initializer(i).name());
    }
 
+   if (verbose)
+      std::cout << "Parsing model inputs...." << std::endl;
+   /// Loop on model inputs
+   for (int i = 0; i < graph.input_size(); i++) {
+      RegisterTensorType(graph.input(i).name(),
+                         static_cast<ETensorType>(graph.input(i).type().tensor_type().elem_type()));
 
-   for (int i=0; i < graph.input_size(); i++){
+      if (verbose)
+         std::cout << "\tgraph input " << i << " name " << graph.input(i).name() << " type "
+                   << graph.input(i).type().tensor_type().elem_type() << std::endl;
 
-      tensor_type[graph.input(i).name()] = static_cast<ETensorType>(graph.input(i).type().tensor_type().elem_type());
+      if (initializer_names.find(graph.input(i).name()) != initializer_names.end())
+         continue;
 
-      if (initializer_names.find(graph.input(i).name()) != initializer_names.end())  continue;
-
-      //input datanode is not a weight node (has no initializer)
-      const onnx::ValueInfoProto& valueinfoproto = graph.input(i);
+      // input data node is not a weight node (has no initializer)
+      const onnx::ValueInfoProto &valueinfoproto = graph.input(i);
       std::string input_name = valueinfoproto.name();
+
       ETensorType type = static_cast<ETensorType>(valueinfoproto.type().tensor_type().elem_type());
-      if (type != ETensorType::FLOAT){
-         throw std::runtime_error("TMVA::SOFIE Data type in input tensor " + input_name + " not supported!\n");
-      }
 
       std::vector<Dim> fShape;
       bool existParam = false;
-      if (!valueinfoproto.type().tensor_type().has_shape()) throw std::runtime_error("TMVA::SOFIE datanode with no shape restrictions is not supported yet");
-      for (int j = 0; j < valueinfoproto.type().tensor_type().shape().dim_size(); j++){
+      if (!valueinfoproto.type().tensor_type().has_shape())
+         throw std::runtime_error("TMVA::SOFIE data node with no shape restrictions is not supported yet");
+      for (int j = 0; j < valueinfoproto.type().tensor_type().shape().dim_size(); j++) {
          Dim dim;
-         if (valueinfoproto.type().tensor_type().shape().dim(j).value_case() == onnx::TensorShapeProto_Dimension::ValueCase::kDimValue){
-            dim.dim = valueinfoproto.type().tensor_type().shape().dim(j).dim_value();
-         }else if (valueinfoproto.type().tensor_type().shape().dim(j).value_case() == onnx::TensorShapeProto_Dimension::ValueCase::kDimParam){
+         if (valueinfoproto.type().tensor_type().shape().dim(j).value_case() ==
+             onnx::TensorShapeProto_Dimension::ValueCase::kDimValue) {
+             int dim_value = valueinfoproto.type().tensor_type().shape().dim(j).dim_value();
+             dim.dim = dim_value;
+             // case input dim is -1 - set a parametric shape
+             if (dim_value < 0) {
+               dim.isParam = true;
+               existParam = true;
+               dim.param = UTILITY::Clean_name(input_name) + "_size";
+             }
+         } else if (valueinfoproto.type().tensor_type().shape().dim(j).value_case() ==
+                    onnx::TensorShapeProto_Dimension::ValueCase::kDimParam) {
             dim.isParam = true;
             existParam = true;
             dim.param = valueinfoproto.type().tensor_type().shape().dim(j).dim_param();
-         }else{
-            throw std::runtime_error("TMVA::SOFIE ONNX file error: Valueinfoproto " + input_name + " has neither dim_value nor dim_param! \n");
+         } else {
+            throw std::runtime_error("TMVA::SOFIE ONNX file error: Valueinfoproto " + input_name +
+                                     " has neither dim_value nor dim_param! \n");
          }
          fShape.push_back(dim);
       }
-      if (valueinfoproto.type().tensor_type().shape().dim_size() == 0){
+      if (valueinfoproto.type().tensor_type().shape().dim_size() == 0) {
          Dim dim;
          dim.dim = 1;
          fShape.push_back(dim);
-      } //in case this TensorShapeProto has no dimension message: ONNX IR defines this to be a scalar
+      } // in case this TensorShapeProto has no dimension message: ONNX IR defines this to be a scalar
 
-      if (!existParam){
+      if (!existParam) {
          std::vector<size_t> fShape_sizet;
-         for (auto& j: fShape){
+         for (auto &j : fShape) {
             fShape_sizet.push_back(j.dim);
          }
 
          rmodel.AddInputTensorInfo(input_name, type, fShape_sizet);
-      }else{
+      } else {
          rmodel.AddInputTensorInfo(input_name, type, fShape);
       }
-
+      rmodel.AddInputTensorName(input_name); // store also names in given order
    }
 
-   for (int i=0; i < graph.initializer_size(); i++){
-      onnx::TensorProto* tensorproto = const_cast<onnx::TensorProto*>(&graph.initializer(i));
-      std::vector<std::size_t> fShape;
-      std::size_t fLength = 1;
-      for (int j = 0; j < tensorproto->dims_size(); j++){
-         fShape.push_back(tensorproto->dims(j));
-         fLength *= tensorproto->dims(j);
+   std::map<std::string, int> allInitializedTensors;
+
+   if (verbose)
+      std::cout << "\nParsing graph initializer list and fill model initialized tensors" << std::endl;
+
+   for (int i = 0; i < graph.initializer_size(); i++) {
+      onnx::TensorProto *tensorproto = const_cast<onnx::TensorProto *>(&graph.initializer(i));
+      std::vector<std::size_t> shape;
+      std::size_t tensor_length = 1;
+      for (int j = 0; j < tensorproto->dims_size(); j++) {
+         shape.push_back(tensorproto->dims(j));
+         tensor_length *= tensorproto->dims(j);
       }
+      // in case of scalars keep an empty shape but with length =1
 
-      std::string input_name = graph.initializer(i).name();
+      std::string tensor_name = graph.initializer(i).name();
 
-      switch(static_cast<ETensorType>(graph.initializer(i).data_type())){
-         case ETensorType::FLOAT : {
-            //void* data = malloc (fLength * sizeof(float));
-            std::shared_ptr<void> data(malloc(fLength * sizeof(float)), free);
+      if (verbose)
+         std::cout << "\t initializer " << i << " name " << tensor_name << " type " << graph.initializer(i).data_type()
+                   << " and length " << tensor_length << std::endl;
 
-            if (tensorproto->raw_data().empty() == false){
-               auto raw_data_ptr = reinterpret_cast<float*>(const_cast<char*>(tensorproto->raw_data().c_str()));
-               std::memcpy(data.get(), raw_data_ptr, fLength * sizeof(float));
-            }else{
-               tensorproto->mutable_float_data()->ExtractSubrange(0, tensorproto->float_data_size(), static_cast<float*>(data.get()));
-            }
 
-            rmodel.AddInitializedTensor(input_name, ETensorType::FLOAT, fShape, data);
-            break;
+      // register also the initialized tensors
+      auto tensor_type = static_cast<ETensorType>(graph.initializer(i).data_type());
+      RegisterTensorType(tensor_name, tensor_type);
+
+      std::shared_ptr<void> data = GetInitializedTensorData(tensorproto, tensor_length * GetTypeSize(tensor_type), tensor_type);
+      rmodel.AddInitializedTensor(tensor_name, tensor_type, shape, data);
+      allInitializedTensors[tensor_name] = i;
+
+      if (verbose) {
+         std::cout << "add initialized tensor " << tensor_name << "with shape " << ConvertShapeToString(shape) << "and  ";
+         if (tensor_type == ETensorType::FLOAT) {
+            std::cout << " float data: ";
+            for (int j = 0; j < std::min(int(tensor_length),3); j++) std::cout << static_cast<float*>(data.get())[j] << "  ";
          }
-         default: throw std::runtime_error("Data type in weight tensor " + graph.initializer(i).name() + " not supported!\n");
+         else if (tensor_type == ETensorType::INT64) {
+            std::cout << " int64 data: ";
+            for (int j = 0; j < std::min(int(tensor_length),3); j++) std::cout << static_cast<int64_t*>(data.get())[j] << "  ";
+         }
+         else if (tensor_type == ETensorType::UINT8) {
+            std::cout << " uint8 data: ";
+            for (int j = 0; j < std::min(int(tensor_length),3); j++) std::cout << static_cast<uint8_t*>(data.get())[j] << "  ";
+         }
+         else if (tensor_type == ETensorType::BOOL) {
+            std::cout << " Boolean data: ";
+            for (int j = 0; j < std::min(int(tensor_length),3); j++) std::cout << static_cast<bool*>(data.get())[j] << "  ";
+         }
+         std::cout << std::endl;
+      }
+   }   // end initializer list
+
+   // Initial operator order
+   if (verbose) {
+      std::cout << "\nGraph operator list (ONNX order)\n";
+      for (int i = 0; i < graph.node_size(); i++) {
+         std::cout << "\tOperator " << i << " : " << graph.node(i).op_type() << " , " << graph.node(i).input_size()
+                   << " inputs : {";
+         for (int j = 0; j < graph.node(i).input_size(); j++) {
+            std::cout << graph.node(i).input(j);
+            if (j < graph.node(i).input_size() - 1)
+               std::cout << ", ";
+         }
+         std::cout << " }" << std::endl;
       }
    }
 
+   // make order of nodes:
+   if (verbose)
+      std::cout << "\n***********************\nRe-Order graph operator list\n*************************\n";
+   std::vector<size_t> nodesOrder;
+   nodesOrder.reserve(graph.node_size());
+   std::vector<bool> foundNodes(graph.node_size());
 
+   // loop at graph inputs
+   std::map<std::string, int> allInputs;
+   for (int i = 0; i < graph.input_size(); i++) {
+      allInputs[graph.input(i).name()] = -1;
+   }
+   do {
+      auto psize = nodesOrder.size();
+      for (int i = 0; i < graph.node_size(); i++) {
+         if (foundNodes[i])
+            continue;
+         // check if all input exists add to list
+         bool existInputs = true;
+         int input_size = graph.node(i).input_size();
+         // special case for Reshape where shape is input and not a weight tensor
+         if (fVerbose)
+            std::cout << "Checking input of  Node " << i << " : " << graph.node(i).name() << std::endl;
+         for (int j = 0; j < input_size; j++) {
+            std::string name = graph.node(i).input(j);
+            // skip empty names
+            if (!name.empty()) {
+               existInputs &= (allInputs.find(name) != allInputs.end() ||
+                               allInitializedTensors.find(name) != allInitializedTensors.end());
+               if (fVerbose) {
+                  std::cout << "\t\t input " << name << " "
+                     << bool(allInputs.find(name) != allInputs.end()) << "  " <<
+                     bool(allInitializedTensors.find(name) != allInitializedTensors.end()) << "  " <<
+                     existInputs << std::endl;
+               }
+            }
+         }
+         if (!existInputs) {
+            if (fVerbose) {
+               std::cout << "skip node " << graph.node(i).op_type() << "  " << graph.node(i).name() << " inputs are not existing ";
+               for (int j = 0; j < input_size; j++) {
+                  std::cout << graph.node(i).input(j) << " ";
+               }
+               std::cout << std::endl;
+            }
+            continue;
+         }
 
-   for (int i=0; i < graph.node_size(); i++){
-      rmodel.AddOperator(INTERNAL::make_ROperator(i, graph, tensor_type));
-      std::string op_type = graph.node(i).op_type();
-      if (op_type == "Gemm") {
-         rmodel.AddBlasRoutines({"Gemm", "Gemv"});
-      } else if (op_type == "Conv") {
-         rmodel.AddBlasRoutines({"Gemm", "Axpy"});
-      } else if (op_type == "RNN") {
-         rmodel.AddBlasRoutines({"Gemm", "Axpy"});
-      } else if (op_type == "Selu" || op_type == "Sigmoid") {
-         rmodel.AddNeededStdLib("cmath");
-      } else if (op_type == "LSTM") {
-         rmodel.AddBlasRoutines({"Gemm", "Axpy"});
+         // adding node to the currectly ordered list
+         if (verbose)
+            std::cout << "===> New node " << graph.node(i).op_type() << "  " << graph.node(i).name() << " order " << i << std::endl;
+
+         nodesOrder.push_back(i);
+         foundNodes[i] = true;
+         // register the outputs
+         for (int j = 0; j < graph.node(i).output_size(); j++) {
+            if (fVerbose) std::cout << "\toutput : " << graph.node(i).output(j) << std::endl;
+            allInputs[graph.node(i).output(j)] = i;
+         }
       }
+      // no increment in nodes - something wrong
+      if (nodesOrder.size() == psize) {
+         int ilast = nodesOrder.back();
+         std::cout << "cannot find a new node after " << graph.node(ilast).op_type() << " " << graph.node(ilast).name() << std::endl;
+         throw std::runtime_error("TMVA::SOFIE - cannot find a new node ");
+      }
+   } while ((int)nodesOrder.size() < graph.node_size());
+
+
+   // find list of children for each operator (used for fusing oiperators)
+   std::vector<std::vector<int>> nodesChildren(graph.node_size());
+
+   for (int k = 0; k < graph.node_size(); k++) {
+      int i = nodesOrder[k];
+      // compute the number of output for the operators
+      if (graph.node(i).output_size() > 0) nodesChildren[i].reserve(graph.node(i).output_size());
+      for (const auto& output_name : graph.node(i).output()) {
+         // loop on all nodes
+         for (int l = k; l < graph.node_size(); l++) {
+            int j = nodesOrder[l];
+            for (const auto& input_name : graph.node(j).input()) {
+               if (input_name == output_name)
+                  nodesChildren[i].push_back(j);
+            }
+         }
+      }
+   }
+
+   // print lit of order operators with list of inputs and list of children nodes
+   if (verbose) {
+      std::cout << "\nGraph operator list (re-ordered)\n";
+      for (int k = 0; k < graph.node_size(); k++) {
+         int i = nodesOrder[k];
+         std::cout << "\tOperator " << i << " : " << graph.node(i).op_type() << " , " << graph.node(i).name() << " input tensors : {";
+            for (int j = 0; j < graph.node(i).input_size(); j++) {
+            std::cout << graph.node(i).input(j);
+            if (j < graph.node(i).input_size() - 1)
+               std::cout << ", ";
+         }
+         std::cout << " } ";
+         std::cout << " children : {";
+         for ( const auto & ichild : nodesChildren[i]) {
+            std::cout << " [ " << ichild << " " << graph.node(ichild).op_type() << " , " << graph.node(ichild).name() << "]";
+         }
+         std::cout << "}" << std::endl;
+      }
+   }
+
+   // fill model with operators
+   if (verbose) {
+      std::cout << "Fill RModel with operators...\n";
+   }
+
+   // we have to record order of node execution separately to
+   // account for fused operators
+   size_t node_order_exec = 0;
+   for (int i = 0; i < graph.node_size(); i++) {
+      std::string op_type = graph.node(nodesOrder[i]).op_type();
+
+      if (verbose) {
+         std::cout << "\t" << i << "  " << nodesOrder[i] << " parsing operator " << op_type << std::endl;
+      }
+
+      std::unique_ptr<ROperator> op = ParseOperator(i, graph, nodesOrder, nodesChildren[nodesOrder[i]]);
+      if (!op) {
+         if (verbose) {
+            std::cout << "\t\tskipping operator since it is fused with previous one" << std::endl;
+         }
+         // for skipping the fused nodes like Add after MatMul
+         continue;
+      }
+      rmodel.AddOperator(std::move(op), node_order_exec++);
    }
 
    std::vector<std::string> outputnames;
-   for (int i=0; i < graph.output_size(); i++){
+   if (verbose)
+      std::cout << "\nParsing Graph output list\n";
+   for (int i = 0; i < graph.output_size(); i++) {
+      if (verbose)
+         std::cout << "\toutput " << i << " name " << graph.output(i).name() << std::endl;
       outputnames.push_back(graph.output(i).name());
    }
    rmodel.AddOutputTensorNameList(outputnames);
 
-   return rmodel;
-
+   return;
 }
 
-
-
-}//SOFIE
-}//Experimental
-}//TMVA
+} // namespace SOFIE
+} // namespace Experimental
+} // namespace TMVA

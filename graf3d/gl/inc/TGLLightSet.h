@@ -29,20 +29,20 @@ public:
                  kLightMask     = 0x001f,
                  kLightSpecular = 0x0100 };
 private:
-   TGLLightSet(const TGLLightSet&);            // Not implemented
-   TGLLightSet& operator=(const TGLLightSet&); // Not implemented
+   TGLLightSet(const TGLLightSet&) = delete;
+   TGLLightSet& operator=(const TGLLightSet&) = delete;
 
 protected:
-   UInt_t        fLightState;   //! light states (on/off) mask
-   Bool_t        fUseSpecular;  //!
+   UInt_t        fLightState;   ///<! light states (on/off) mask
+   Bool_t        fUseSpecular;  ///<!
 
-   Float_t       fFrontPower;    //! power of the front lamp
-   Float_t       fSidePower;     //! power of the side lamps
-   Float_t       fSpecularPower; //! power of specular lamp
+   Float_t       fFrontPower;    ///<! power of the front lamp
+   Float_t       fSidePower;     ///<! power of the side lamps
+   Float_t       fSpecularPower; ///<! power of specular lamp
 
 public:
    TGLLightSet();
-   virtual ~TGLLightSet() {}
+   ~TGLLightSet() override {}
 
    void    ToggleLight(ELight light);
    void    SetLight(ELight light, Bool_t on);
@@ -61,7 +61,7 @@ public:
    void StdSetupLights(const TGLBoundingBox& bbox, const TGLCamera& camera,
                        Bool_t debug=kFALSE);
 
-   ClassDef(TGLLightSet, 0) // A set of OpenGL lights.
+   ClassDefOverride(TGLLightSet, 0) // A set of OpenGL lights.
 }; // endclass TGLLightSet
 
 

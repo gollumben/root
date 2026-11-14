@@ -28,13 +28,13 @@ class TGLBoundingBox;
 class TGLManip : public TVirtualGLManip
 {
 protected:
-   TGLPhysicalShape  *fShape;             //! manipulated shape
-   UInt_t             fSelectedWidget;    //! active width (axis) component
-   Bool_t             fActive;            //! manipulator is active?
+   TGLPhysicalShape  *fShape;             ///<! manipulated shape
+   UInt_t             fSelectedWidget;    ///<! active width (axis) component
+   Bool_t             fActive;            ///<! manipulator is active?
 
    // Mouse tracking - in WINDOW coords
-   TPoint             fFirstMouse;        //! first (start) mouse position (in WINDOW coords)
-   TPoint             fLastMouse;         //! last (latest) mouse position (in WINDOW coords)
+   TPoint             fFirstMouse;        ///<! first (start) mouse position (in WINDOW coords)
+   TPoint             fLastMouse;         ///<! last (latest) mouse position (in WINDOW coords)
 
    TGLManip(const TGLManip&);
    TGLManip& operator=(const TGLManip&);
@@ -47,7 +47,7 @@ protected:
 public:
    TGLManip();
    TGLManip(TGLPhysicalShape* shape);
-   virtual ~TGLManip();
+   ~TGLManip() override;
 
    UInt_t GetSelectedWidget()   const { return fSelectedWidget; }
    void   SetSelectedWidget(UInt_t s) { fSelectedWidget = s; }
@@ -60,12 +60,12 @@ public:
 
    virtual void   Draw(const TGLCamera& camera) const = 0;
    // CRAPPY TVirtualGLManip TTTT, just override it here
-   virtual Bool_t Select(const TGLCamera&, const TGLRect&, const TGLBoundingBox&) { return kFALSE; }
+   Bool_t Select(const TGLCamera&, const TGLRect&, const TGLBoundingBox&) override { return kFALSE; }
 
    virtual Bool_t HandleButton(const Event_t& event, const TGLCamera& camera);
    virtual Bool_t HandleMotion(const Event_t& event, const TGLCamera& camera);
 
-   ClassDef(TGLManip, 0); // abstract base GL manipulator widget
+   ClassDefOverride(TGLManip, 0); // abstract base GL manipulator widget
 };
 
 #endif

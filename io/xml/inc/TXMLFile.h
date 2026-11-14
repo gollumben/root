@@ -50,7 +50,7 @@ private:
 public:
    TXMLFile() {} // NOLINT: not allowed to use = default because of TObject::kIsOnHeap detection, see ROOT-10300
    TXMLFile(const char *filename, Option_t *option = "read", const char *title = "title", Int_t compression = ROOT::RCompressionSetting::EDefaults::kUseCompiledDefault);
-   virtual ~TXMLFile();
+   ~TXMLFile() override;
 
    void Close(Option_t *option = "") final; // *MENU*
    TKey *CreateKey(TDirectory *mother, const TObject *obj, const char *name, Int_t bufsize) final;
@@ -127,15 +127,15 @@ protected:
 
    static void ProduceFileNames(const char *filename, TString &fname, TString &dtdname);
 
-   XMLDocPointer_t fDoc{nullptr}; //!
+   XMLDocPointer_t fDoc{nullptr}; ///<!
 
-   XMLNodePointer_t fStreamerInfoNode{nullptr}; //!  pointer of node with streamer info data
+   XMLNodePointer_t fStreamerInfoNode{nullptr}; ///<!  pointer of node with streamer info data
 
-   std::unique_ptr<TXMLEngine> fXML; //! object for interface with xml library
+   std::unique_ptr<TXMLEngine> fXML; ///<! object for interface with xml library
 
-   Int_t fIOVersion{0}; //! indicates format of ROOT xml file
+   Int_t fIOVersion{0}; ///<! indicates format of ROOT xml file
 
-   Long64_t fKeyCounter{0}; //! counter of created keys, used for keys id
+   Long64_t fKeyCounter{0}; ///<! counter of created keys, used for keys id
 
    ClassDefOverride(TXMLFile, 3) // ROOT file in XML format
 };

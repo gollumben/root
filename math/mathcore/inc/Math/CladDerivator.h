@@ -19,420 +19,961 @@
 #define CLAD_DERIVATOR
 
 #ifndef __CLING__
-  #error "This file must not be included by compiled programs."
+#error "This file must not be included by compiled programs."
 #endif //__CLING__
 
 #include <plugins/include/clad/Differentiator/Differentiator.h>
 #include "TMath.h"
+#include "Math/PdfFuncMathCore.h"
+#include "Math/ProbFuncMathCore.h"
+#include "Math/SpecFuncMathCore.h"
 
+#include <stdexcept>
+
+namespace clad {
 namespace custom_derivatives {
-  template <typename T>
-  T Abs_darg0(T d) {
-    return (d < 0) ? -1 : 1;
-  }
-
-  template <typename T>
-  T Abs_darg0_darg0(T d) {
-    return 0;
-  }
-
-  template <typename T>
-  Double_t ACos_darg0(T d) {
-    return -1./TMath::Sqrt(1 - d * d);
-  }
-
-  template <typename T>
-  Double_t ACos_darg0_darg0(T d) {
-    return - d / (TMath::Sqrt(1 - d * d) * (1 - d * d));
-  }
-
-  template <typename T>
-  Double_t ACosH_darg0(T d) {
-    return 1. / TMath::Sqrt(d * d - 1);
-  }
-
-  template <typename T>
-  Double_t ACosH_darg0_darg0(T d) {
-    return - d / (TMath::Sqrt(d * d - 1) * (d * d - 1) * TMath::Sqrt(d * d + 1) * (d * d + 1));
-  }
-
-  template <typename T>
-  Double_t ASin_darg0(T d) {
-    return 1. / TMath::Sqrt(1 - d * d);
-  }
-
-  template <typename T>
-  Double_t ASin_darg0_darg0(T d) {
-    return d / (TMath::Sqrt(1 - d * d) * (1 - d * d));
-  }
-
-  template <typename T>
-  Double_t ASinH_darg0(T d) {
-    return 1. / TMath::Sqrt(d * d + 1);
-  }
-
-  template <typename T>
-  Double_t ASinH_darg0_darg0(T d) {
-    return -d / (TMath::Sqrt(d * d + 1) * (d * d + 1));
-  }
-
-  template <typename T>
-  Double_t ATan_darg0(T d) {
-    return 1. / (d * d + 1);
-  }
-
-  template <typename T>
-  Double_t ATan_darg0_darg0(T d) {
-    return -2. * d / ((d * d + 1) * (d * d + 1));
-  }
-
-  template <typename T>
-  Double_t ATanH_darg0(T d) {
-    return 1. / (1 - d * d);
-  }
-
-  template <typename T>
-  Double_t ATanH_darg0_darg0(T d) {
-    return 2. * d / ((1 - d * d) * (1 - d * d));
-  }
-
-  template <typename T>
-  T Cos_darg0(T d) {
-    return -TMath::Sin(d);
-  }
-
-  template <typename T>
-  T Cos_darg0_darg0(T d) {
-    return -TMath::Cos(d);
-  }
-
-  template <typename T>
-  T CosH_darg0(T d) {
-    return TMath::SinH(d);
-  }
-
-
-  template <typename T>
-  T CosH_darg0_darg0(T d) {
-    return TMath::CosH(d);
-  }
-
-  template <typename T>
-  Double_t Erf_darg0(T d) {
-    return 2 * TMath::Exp(-d * d) / TMath::Sqrt(TMath::Pi());
-  }
-
-  template <typename T>
-  Double_t Erf_darg0_darg0(T d) {
-    return -4 * TMath::Exp(-d * d) * d / TMath::Sqrt(TMath::Pi());
-  }
-
-  template <typename T>
-  Double_t Erfc_darg0(T d) { 
-    return -Erf_darg0(d);
-  }
-
-  template <typename T>
-  Double_t Erfc_darg0_darg0(T d) {
-    return -Erf_darg0_darg0(d);
-  }
-
-  template <typename T>
-  Double_t Exp_darg0(T d) {
-    return TMath::Exp(d);
-  }
-
-  template <typename T>
-  Double_t Exp_darg0_darg0(T d) {
-    return TMath::Exp(d);
-  }
-
-  template <typename T>
-  T Hypot_darg0(T x, T y) {
-    return x / TMath::Hypot(x, y);
-  }
-
-  template <typename T>
-  T Hypot_darg0_darg0(T x, T y) {
-    return y * y / (TMath::Hypot(x, y) * (x * x + y * y));
-  }
-
-  template <typename T>
-  T Hypot_darg0_darg1(T x, T y) {
-    return x * y / (TMath::Hypot(x, y) * (x * x + y * y));
-  }
-
-  template <typename T>
-  T Hypot_darg1(T x, T y) {
-    return y / TMath::Hypot(x, y);
-  }
-
-  template <typename T>
-  T Hypot_darg1_darg0(T x, T y) {
-    return x * y / (TMath::Hypot(x, y) * (x * x + y * y));
-  }
-
-  template <typename T>
-  T Hypot_darg1_darg1(T x, T y) {
-    return x * x / (TMath::Hypot(x, y) * (x * x + y * y));
-  }
-    
-  template <typename T>
-  void Hypot_grad(T x, T y, T* result) {
-    T h = TMath::Hypot(x, y);
-    result[0] += x / h;
-    result[1] += y / h;
-  }
-
-  template <typename T>
-  void Hypot_darg0_grad(T x, T y, T* result) {
-    T h = y / (TMath::Hypot(x, y) * (x * x + y * y));
-    result[0] += y * h;
-    result[1] += x * h;
-  }
-
-  template <typename T>
-  void Hypot_darg1_grad(T x, T y, T* result) {
-    T h = x / (TMath::Hypot(x, y) * (x * x + y * y));
-    result[0] += y * h;
-    result[1] += x * h;
-  }
-
-  template <typename T>
-  Double_t Log_darg0(T d) {
-    return 1. / d;
-  }
-
-  template <typename T>
-  Double_t Log_darg0_darg0(T d) {
-    return -1. / (d * d);
-  }
-
-  template <typename T>
-  Double_t Log10_darg0(T d) {
-    return Log_darg0(d) / TMath::Ln10();
-  } 
-
-  template <typename T>
-  Double_t Log10_darg0_darg0(T d) {
-    return Log_darg0_darg0(d) / TMath::Ln10();
-  }
-
-  template <typename T>
-  Double_t Log2_darg0(T d) {
-    return Log_darg0(d) / TMath::Log(2);
-  } 
-
-  template <typename T>
-  Double_t Log2_darg0_darg0(T d) {
-    return Log_darg0_darg0(d) / TMath::Log(2);
-  }
-
-  template <typename T>
-  T Max_darg0(T a, T b) {
-    return (a >= b) ? 1 : 0;
-  }
-
-  template <typename T>
-  T Max_darg0_darg0(T a, T b) {
-    return 0;
-  }
-
-  template <typename T>
-  T Max_darg0_darg1(T a, T b) {
-    return 0;
-  }
-
-  template <typename T>
-  T Max_darg1(T a, T b) {
-    return (a >= b) ? 0 : 1;
-  }
-
-  template <typename T>
-  T Max_darg1_darg0(T a, T b) {
-    return 0;
-  }
-
-  template <typename T>
-  T Max_darg1_darg1(T a, T b) {
-    return 0;
-  }
-
-  template <typename T>
-  void Max_grad(T a, T b, T* result) {
-    if (a >= b)
-      result[0] += 1;
-    else
-      result[1] += 1;
-  }
-
-  template <typename T>
-  void Max_darg0_grad(T a, T b, T* result) {
-    return;
-  }
-
-  template <typename T>
-  void Max_darg1_grad(T a, T b, T* result) {
-    return;
-  }
-
-  template <typename T>
-  T Min_darg0(T a, T b) {
-    return (a <= b) ? 1 : 0;
-  }
-
-  template <typename T>
-  T Min_darg0_darg0(T a, T b) {
-    return 0;
-  }
-
-  template <typename T>
-  T Min_darg0_darg1(T a, T b) {
-    return 0;
-  }
-
-  template <typename T>
-  T Min_darg1(T a, T b) {
-    return (a <= b) ? 0 : 1;
-  }
-
-  template <typename T>
-  T Min_darg1_darg0(T a, T b) {
-    return 0;
-  }
-
-  template <typename T>
-  T Min_darg1_darg1(T a, T b) {
-    return 0;
-  }
-
-  template <typename T>
-  void Min_grad(T a, T b, T* result) {
-    if (a <= b)
-      result[0] += 1;
-    else
-      result[1] += 1;
-  }
-
-  template <typename T>
-  void Min_darg0_grad(T a, T b, T* result) {
-    return;
-  }
-
-  template <typename T>
-  void Min_darg1_grad(T a, T b, T* result) {
-    return;
-  }
-
-  template <typename T>
-  T Power_darg0(T x, T y) {
-    return y * TMath::Power(x, y - 1);
-  }
-
-  template <typename T>
-  T Power_darg0_darg0(T x, T y) {
-    return y * (y - 1) * TMath::Power(x, y - 2);
-  }
-
-  template <typename T>
-  Double_t Power_darg0_darg1(T x, T y) {
-    return TMath::Power(x, y - 1) * (y * TMath::Log(x) + 1);
-  }
-
-  template <typename T>
-  Double_t Power_darg1(T x, T y) {
-    return TMath::Power(x, y) * TMath::Log(x);
-  }
-
-  template <typename T>
-  Double_t Power_darg1_darg0(T x, T y) {
-    return TMath::Power(x, y - 1) * (y * TMath::Log(x) + 1);
-  }
-
-  template <typename T>
-  Double_t Power_darg1_darg1(T x, T y) {
-    return TMath::Power(x, y) * TMath::Sq(TMath::Log(x));
-  }
-
-  template <typename T>
-  Double_t Power_grad(T x, T y, Double_t* result) {
-    T t = TMath::Power(x, y - 1);
-    result[0] += y * t;
-    result[1] += x * t * TMath::Log(x);
-  }
-
-  template <typename T>
-  Double_t Power_darg0_grad(T x, T y, Double_t* result) {
-    T t = TMath::Power(x, y - 2);
-    result[0] += y * (y - 1) * t;
-    result[1] += x * t * (y * TMath::Log(x) + 1);
-  }
-
-  template <typename T>
-  Double_t Power_darg1_grad(T x, T y, Double_t* result) {
-    T t = TMath::Power(x, y - 1);
-    result[0] += t * (y * TMath::Log(x) + 1);
-    result[1] += x * t * TMath::Sq(TMath::Log(x));
-  }
-
-  template <typename T>
-  Double_t Sin_darg0(T d) {
-    return TMath::Cos(d);
-  }
-
-  template <typename T>
-  Double_t Sin_darg0_darg0(T d) {
-    return -TMath::Sin(d);
-  }
-
-  template <typename T>
-  Double_t SinH_darg0(T d) {
-    return TMath::CosH(d);
-  }
-
-  template <typename T>
-  Double_t SinH_darg0_darg0(T d) {
-    return TMath::SinH(d);
-  }
-
-  template <typename T>
-  T Sq_darg0(T d) {
-    return 2 * d;
-  }
-
-  template <typename T>
-  T Sq_darg0_darg0(T d) {
-    return 2;
-  }
-
-  template <typename T>
-  Double_t Sqrt_darg0(T d) {
-    return 0.5 / TMath::Sqrt(d);
-  }
-
-  template <typename T>
-  Double_t Sqrt_darg0_darg0(T d) {
-    return 0.25 / (TMath::Sqrt(d) * d);
-  }
-
-  template <typename T>
-  Double_t Tan_darg0(T d) {
-    return 1./ TMath::Sq(TMath::Cos(d));
-  }
-
-  template <typename T>
-  Double_t Tan_darg0_darg0(T d) {
-    return 2. * TMath::Sin(d) / (TMath::Cos(d) * TMath::Cos(d) * TMath::Cos(d));
-  }
-
-  template <typename T>
-  Double_t TanH_darg0(T d) {
-    return 1./ TMath::Sq(TMath::CosH(d));
-  }
-
-  template <typename T>
-  Double_t TanH_darg0_darg0(T d) {
-    return -2. * TMath::SinH(d) / (TMath::CosH(d) * TMath::CosH(d) * TMath::CosH(d));
-  }
+namespace TMath {
+template <typename T>
+ValueAndPushforward<T, T> Abs_pushforward(T x, T d_x)
+{
+   return {::TMath::Abs(x), ((x < 0) ? -1 : 1) * d_x};
 }
+
+template <typename T>
+ValueAndPushforward<T, T> ACos_pushforward(T x, T d_x)
+{
+   return {::TMath::ACos(x), (-1. / ::TMath::Sqrt(1 - x * x)) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> ACosH_pushforward(T x, T d_x)
+{
+   return {::TMath::ACosH(x), (1. / ::TMath::Sqrt(x * x - 1)) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> ASin_pushforward(T x, T d_x)
+{
+   return {::TMath::ASin(x), (1. / ::TMath::Sqrt(1 - x * x)) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> ASinH_pushforward(T x, T d_x)
+{
+   return {::TMath::ASinH(x), (1. / ::TMath::Sqrt(x * x + 1)) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> ATan_pushforward(T x, T d_x)
+{
+   return {::TMath::ATan(x), (1. / (x * x + 1)) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> ATanH_pushforward(T x, T d_x)
+{
+   return {::TMath::ATanH(x), (1. / (1 - x * x)) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Cos_pushforward(T x, T d_x)
+{
+   return {::TMath::Cos(x), -::TMath::Sin(x) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> CosH_pushforward(T x, T d_x)
+{
+   return {::TMath::CosH(x), ::TMath::SinH(x) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Erf_pushforward(T x, T d_x)
+{
+   return {::TMath::Erf(x), (2 * ::TMath::Exp(-x * x) / ::TMath::Sqrt(::TMath::Pi())) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Erfc_pushforward(T x, T d_x)
+{
+   return {::TMath::Erfc(x), -Erf_pushforward(x, d_x).pushforward};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> LnGamma_pushforward(T z, T d_z)
+{
+   return {::TMath::LnGamma(z), ::clad::custom_derivatives::std::clad_digamma(z) * d_z};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Exp_pushforward(T x, T d_x)
+{
+   return {::TMath::Exp(x), ::TMath::Exp(x) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Hypot_pushforward(T x, T y, T d_x, T d_y)
+{
+   return {::TMath::Hypot(x, y), x / ::TMath::Hypot(x, y) * d_x + y / ::TMath::Hypot(x, y) * d_y};
+}
+
+template <typename T, typename U>
+void Hypot_pullback(T x, T y, U p, T *d_x, T *d_y)
+{
+   T h = ::TMath::Hypot(x, y);
+   *d_x += x / h * p;
+   *d_y += y / h * p;
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Log_pushforward(T x, T d_x)
+{
+   return {::TMath::Log(x), (1. / x) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Log10_pushforward(T x, T d_x)
+{
+   return {::TMath::Log10(x), (1.0 / (x * ::TMath::Ln10())) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Log2_pushforward(T x, T d_x)
+{
+   return {::TMath::Log2(x), (1.0 / (x * ::TMath::Log(2.0))) * d_x};
+}
+
+template <typename T, typename U>
+ValueAndPushforward<T, T> Power_pushforward(T x, U y, T d_x, U d_y)
+{
+   T pushforward = y * ::TMath::Power(x, y - 1) * d_x;
+   if (d_y) {
+      pushforward += (::TMath::Power(x, y) * ::TMath::Log(x)) * d_y;
+   }
+   return {::TMath::Power(x, y), pushforward};
+}
+
+template <typename T, typename U, typename V>
+void Power_pullback(T x, U y, V p, T *d_x, U *d_y)
+{
+   auto t = pow_pushforward(x, y, 1, 0);
+   *d_x += t.pushforward * p;
+   t = pow_pushforward(x, y, 0, 1);
+   *d_y += t.pushforward * p;
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Sin_pushforward(T x, T d_x)
+{
+   return {::TMath::Sin(x), ::TMath::Cos(x) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> SinH_pushforward(T x, T d_x)
+{
+   return {::TMath::SinH(x), ::TMath::CosH(x) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Sq_pushforward(T x, T d_x)
+{
+   return {::TMath::Sq(x), 2 * x * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Sqrt_pushforward(T x, T d_x)
+{
+   return {::TMath::Sqrt(x), (0.5 / ::TMath::Sqrt(x)) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> Tan_pushforward(T x, T d_x)
+{
+   return {::TMath::Tan(x), (1. / ::TMath::Sq(::TMath::Cos(x))) * d_x};
+}
+
+template <typename T>
+ValueAndPushforward<T, T> TanH_pushforward(T x, T d_x)
+{
+   return {::TMath::TanH(x), (1. / ::TMath::Sq(::TMath::CosH(x))) * d_x};
+}
+
+} // namespace TMath
+
+namespace ROOT {
+namespace Math {
+
+/// Evaluate the polynomial c[0] + c[1]*x + c[2]*x^2 + ... in Horner form,
+/// matching the evaluation order of the CERNLIB Landau routines below.
+template <unsigned N>
+double horner(const double (&c)[N], double x)
+{
+   double r = c[N - 1];
+   for (unsigned i = N - 1; i > 0; --i)
+      r = c[i - 1] + r * x;
+   return r;
+}
+
+/// Derivative of horner(c, x) with respect to x.
+template <unsigned N>
+double horner_deriv(const double (&c)[N], double x)
+{
+   double r = (N - 1) * c[N - 1];
+   for (unsigned i = N - 1; i > 1; --i)
+      r = (i - 1) * c[i - 1] + r * x;
+   return r;
+}
+
+/// Derivative of the rational function horner(p, x) / horner(q, x) with
+/// respect to x.
+template <unsigned N, unsigned M>
+double rational_deriv(const double (&p)[N], const double (&q)[M], double x)
+{
+   const double den = horner(q, x);
+   return (horner_deriv(p, x) - horner(p, x) / den * horner_deriv(q, x)) / den;
+}
+
+/// First derivative of the standardized Landau density
+/// p(v) = ROOT::Math::landau_pdf(v) with respect to v, obtained by
+/// differentiating each branch of the CERNLIB DENLAN rational approximation.
+/// The branch structure and the coefficient tables mirror landau_pdf() in
+/// PdfFuncMathCore.cxx. Used by landau_pdf_pullback() and by the
+/// second-derivative helpers further down.
+inline double landau_pdf_dv(double v)
+{
+   // clang-format off
+   static constexpr double p1[5] = {0.4259894875,-0.1249762550, 0.03984243700, -0.006298287635,   0.001511162253};
+   static constexpr double q1[5] = {1.0         ,-0.3388260629, 0.09594393323, -0.01608042283,    0.003778942063};
+
+   static constexpr double p2[5] = {0.1788541609, 0.1173957403, 0.01488850518, -0.001394989411,   0.0001283617211};
+   static constexpr double q2[5] = {1.0         , 0.7428795082, 0.3153932961,   0.06694219548,    0.008790609714};
+
+   static constexpr double p3[5] = {0.1788544503, 0.09359161662,0.006325387654, 0.00006611667319,-0.000002031049101};
+   static constexpr double q3[5] = {1.0         , 0.6097809921, 0.2560616665,   0.04746722384,    0.006957301675};
+
+   static constexpr double p4[5] = {0.9874054407, 118.6723273,  849.2794360,   -743.7792444,      427.0262186};
+   static constexpr double q4[5] = {1.0         , 106.8615961,  337.6496214,    2016.712389,      1597.063511};
+
+   static constexpr double p5[5] = {1.003675074,  167.5702434,  4789.711289,    21217.86767,     -22324.94910};
+   static constexpr double q5[5] = {1.0         , 156.9424537,  3745.310488,    9834.698876,      66924.28357};
+
+   static constexpr double p6[5] = {1.000827619,  664.9143136,  62972.92665,    475554.6998,     -5743609.109};
+   static constexpr double q6[5] = {1.0         , 651.4101098,  56974.73333,    165917.4725,     -2815759.939};
+
+   static constexpr double a1[3] = {0.04166666667,-0.01996527778, 0.02709538966};
+
+   static constexpr double a2[2] = {-1.845568670,-4.284640743};
+   // clang-format on
+   if (v < -5.5) {
+      const double u = ::std::exp(v + 1.);
+      if (u < 1e-10)
+         return 0.;
+      // p = C * exp(-1/u) / sqrt(u) * A(u) with u = exp(v + 1), so
+      // dp/dv = p * (1/u - 1/2) + C * exp(-1/u) * sqrt(u) * A'(u)
+      const double eu = 0.3989422803 * ::std::exp(-1. / u);
+      const double val = eu / ::std::sqrt(u) * (1 + (a1[0] + (a1[1] + a1[2] * u) * u) * u);
+      const double dA = a1[0] + (2 * a1[1] + 3 * a1[2] * u) * u;
+      return val * (1. / u - 0.5) + eu * ::std::sqrt(u) * dA;
+   } else if (v < -1) {
+      // p = exp(-u) * sqrt(u) * P(v)/Q(v) with u = exp(-v - 1); v acts both
+      // directly and through u, and d(exp(-u) * sqrt(u))/dv comes out as
+      // exp(-u) * sqrt(u) * (u - 1/2)
+      const double u = ::std::exp(-v - 1);
+      const double eu = ::std::exp(-u) * ::std::sqrt(u);
+      const double q = horner(q1, v);
+      const double r = horner(p1, v) / q;
+      return eu * ((u - 0.5) * r + (horner_deriv(p1, v) - r * horner_deriv(q1, v)) / q);
+   } else if (v < 1) {
+      return rational_deriv(p2, q2, v);
+   } else if (v < 5) {
+      return rational_deriv(p3, q3, v);
+   } else if (v < 12) {
+      // p = u^2 * P(u)/Q(u) with u = 1/v, du/dv = -u^2
+      const double u = 1 / v;
+      return -u * u * (2 * u * horner(p4, u) / horner(q4, u) + u * u * rational_deriv(p4, q4, u));
+   } else if (v < 50) {
+      const double u = 1 / v;
+      return -u * u * (2 * u * horner(p5, u) / horner(q5, u) + u * u * rational_deriv(p5, q5, u));
+   } else if (v < 300) {
+      const double u = 1 / v;
+      return -u * u * (2 * u * horner(p6, u) / horner(q6, u) + u * u * rational_deriv(p6, q6, u));
+   } else {
+      // p = u^2 * B(u) with u = 1/w, w = v - v*log(v)/(v + 1)
+      const double lv = ::std::log(v);
+      const double u = 1 / (v - v * lv / (v + 1));
+      const double dw = 1 - lv / (v + 1) - 1 / (v + 1) + v * lv / ((v + 1) * (v + 1));
+      const double dB = a2[0] + 2 * a2[1] * u;
+      return -u * u * dw * (2 * u * (1 + (a2[0] + a2[1] * u) * u) + u * u * dB);
+   }
+}
+
+inline void landau_pdf_pullback(double x, double xi, double x0, double d_out, double *d_x, double *d_xi, double *d_x0)
+{
+   if (xi <= 0) {
+      return;
+   }
+   // The pdf is p(v) / xi with v = (x - x0) / xi.
+   const double v = (x - x0) / xi;
+   const double p = ::ROOT::Math::landau_pdf(v);
+   const double dp = landau_pdf_dv(v);
+   *d_x += d_out * dp / (xi * xi);
+   *d_x0 += -d_out * dp / (xi * xi);
+   *d_xi += -d_out * (v * dp + p) / (xi * xi);
+}
+
+/// Derivative with respect to v of the CERNLIB DISLAN rational approximation
+/// of the standardized Landau cumulative distribution, obtained by
+/// differentiating each branch of landau_cdf() in ProbFuncMathCore.cxx, whose
+/// branch structure and coefficient tables this function mirrors. Since
+/// DISLAN is an approximation of its own, this is not identical to
+/// landau_pdf() (they are consistent to about 1e-7 relative).
+inline double landau_cdf_dv(double v)
+{
+   // clang-format off
+   static constexpr double p1[5] = {0.2514091491e+0,-0.6250580444e-1, 0.1458381230e-1,-0.2108817737e-2, 0.7411247290e-3};
+   static constexpr double q1[5] = {1.0            ,-0.5571175625e-2, 0.6225310236e-1,-0.3137378427e-2, 0.1931496439e-2};
+
+   static constexpr double p2[4] = {0.2868328584e+0, 0.3564363231e+0, 0.1523518695e+0, 0.2251304883e-1};
+   static constexpr double q2[4] = {1.0            , 0.6191136137e+0, 0.1720721448e+0, 0.2278594771e-1};
+
+   static constexpr double p3[4] = {0.2868329066e+0, 0.3003828436e+0, 0.9950951941e-1, 0.8733827185e-2};
+   static constexpr double q3[4] = {1.0            , 0.4237190502e+0, 0.1095631512e+0, 0.8693851567e-2};
+
+   static constexpr double p4[4] = {0.1000351630e+1, 0.4503592498e+1, 0.1085883880e+2, 0.7536052269e+1};
+   static constexpr double q4[4] = {1.0            , 0.5539969678e+1, 0.1933581111e+2, 0.2721321508e+2};
+
+   static constexpr double p5[4] = {0.1000006517e+1, 0.4909414111e+2, 0.8505544753e+2, 0.1532153455e+3};
+   static constexpr double q5[4] = {1.0            , 0.5009928881e+2, 0.1399819104e+3, 0.4200002909e+3};
+
+   static constexpr double p6[4] = {0.1000000983e+1, 0.1329868456e+3, 0.9162149244e+3,-0.9605054274e+3};
+   static constexpr double q6[4] = {1.0            , 0.1339887843e+3, 0.1055990413e+4, 0.5532224619e+3};
+
+   static constexpr double a1[4] = {0              ,-0.4583333333e+0, 0.6675347222e+0,-0.1641741416e+1};
+   static constexpr double a2[4] = {0              , 1.0            ,-0.4227843351e+0,-0.2043403138e+1};
+   // clang-format on
+   if (v < -5.5) {
+      // F = C * exp(-1/u) * sqrt(u) * A(u) with u = exp(v + 1), so
+      // dF/dv = F * (1/u + 1/2) + C * exp(-1/u) * sqrt(u) * u * A'(u)
+      const double u = ::std::exp(v + 1);
+      const double eu = 0.3989422803 * ::std::exp(-1. / u) * ::std::sqrt(u);
+      const double val = eu * (1 + (a1[1] + (a1[2] + a1[3] * u) * u) * u);
+      const double dA = a1[1] + (2 * a1[2] + 3 * a1[3] * u) * u;
+      return val * (1. / u + 0.5) + eu * u * dA;
+   } else if (v < -1) {
+      // F = exp(-u) / sqrt(u) * P(v)/Q(v) with u = exp(-v - 1); v acts both
+      // directly and through u, and d(exp(-u) / sqrt(u))/dv comes out as
+      // exp(-u) / sqrt(u) * (u + 1/2)
+      const double u = ::std::exp(-v - 1);
+      const double eu = ::std::exp(-u) / ::std::sqrt(u);
+      const double q = horner(q1, v);
+      const double r = horner(p1, v) / q;
+      return eu * ((u + 0.5) * r + (horner_deriv(p1, v) - r * horner_deriv(q1, v)) / q);
+   } else if (v < 1) {
+      return rational_deriv(p2, q2, v);
+   } else if (v < 4) {
+      return rational_deriv(p3, q3, v);
+   } else if (v < 12) {
+      // F = P(u)/Q(u) with u = 1/v, du/dv = -u^2
+      const double u = 1. / v;
+      return -u * u * rational_deriv(p4, q4, u);
+   } else if (v < 50) {
+      const double u = 1. / v;
+      return -u * u * rational_deriv(p5, q5, u);
+   } else if (v < 300) {
+      const double u = 1. / v;
+      return -u * u * rational_deriv(p6, q6, u);
+   } else {
+      // F = 1 - G(u) with u = 1/w, w = v - v*log(v)/(v + 1)
+      const double lv = ::std::log(v);
+      const double u = 1. / (v - v * lv / (v + 1));
+      const double dw = 1 - lv / (v + 1) - 1 / (v + 1) + v * lv / ((v + 1) * (v + 1));
+      return horner_deriv(a2, u) * u * u * dw;
+   }
+}
+
+inline void landau_cdf_pullback(double x, double xi, double x0, double d_out, double *d_x, double *d_xi, double *d_x0)
+{
+   // The cdf is a function of v = (x - x0) / xi alone.
+   const double v = (x - x0) / xi;
+   const double dcdf = landau_cdf_dv(v);
+   *d_x += d_out * dcdf / xi;
+   *d_x0 += -d_out * dcdf / xi;
+   *d_xi += -d_out * dcdf * v / xi;
+}
+
+inline void inc_gamma_c_pullback(double a, double x, double _d_y, double *_d_a, double *_d_x);
+
+inline void inc_gamma_pullback(double a, double x, double _d_y, double *_d_a, double *_d_x)
+{
+   // Synced with SpecFuncCephes.h
+   constexpr double kMACHEP = 1.11022302462515654042363166809e-16;
+   constexpr double kMAXLOG = 709.782712893383973096206318587;
+
+   double _d_ans = 0, _d_ax = 0, _d_c = 0, _d_r = 0;
+   double _t1;
+   double _t2;
+   double _t3;
+   double _t4;
+   double _t5;
+   clad::tape<double> _t7 = {};
+   clad::tape<double> _t8 = {};
+   clad::tape<double> _t9 = {};
+   double ans, ax, c, r;
+   if (a <= 0)
+      return;
+   if (x <= 0)
+      return;
+   if ((x > 1.) && (x > a)) {
+      double _r0 = 0;
+      double _r1 = 0;
+      inc_gamma_c_pullback(a, x, -_d_y, &_r0, &_r1);
+      *_d_a += _r0;
+      *_d_x += _r1;
+      return;
+   }
+   _t1 = ::std::log(x);
+   ax = a * _t1 - x - ::std::lgamma(a);
+   if (ax < -kMAXLOG) {
+      *_d_x += (a * _d_ax / x) - _d_ax;
+      *_d_a += _d_ax * (_t1 - ::clad::custom_derivatives::std::clad_digamma(
+                                 a)); // numerical_diff::forward_central_difference(::std::lgamma, a, 0, 0, a);
+      _d_ax = 0.;
+      return;
+   }
+   _t2 = ax;
+   ax = ::std::exp(ax);
+   _t3 = r;
+   r = a;
+   _t4 = c;
+   c = 1.;
+   _t5 = ans;
+   ans = 1.;
+   unsigned long _t6 = 0;
+   do {
+      _t6++;
+      clad::push(_t7, r);
+      r += 1.;
+      clad::push(_t8, c);
+      c *= x / r;
+      clad::push(_t9, ans);
+      ans += c;
+   } while (c / ans > kMACHEP);
+   {
+      _d_ans += _d_y / a * ax;
+      _d_ax += ans * _d_y / a;
+      double _r6 = _d_y * -(ans * ax / (a * a));
+      *_d_a += _r6;
+   }
+   do {
+      {
+         {
+            ans = clad::pop(_t9);
+            double _r_d7 = _d_ans;
+            _d_c += _r_d7;
+         }
+         {
+            c = clad::pop(_t8);
+            double _r_d6 = _d_c;
+            _d_c -= _r_d6;
+            _d_c += _r_d6 * x / r;
+            *_d_x += c * _r_d6 / r;
+            double _r5 = c * _r_d6 * -(x / (r * r));
+            _d_r += _r5;
+         }
+         {
+            r = clad::pop(_t7);
+            double _r_d5 = _d_r;
+         }
+      }
+      _t6--;
+   } while (_t6);
+   {
+      ans = _t5;
+      double _r_d4 = _d_ans;
+      _d_ans -= _r_d4;
+   }
+   {
+      c = _t4;
+      double _r_d3 = _d_c;
+      _d_c -= _r_d3;
+   }
+   {
+      r = _t3;
+      double _r_d2 = _d_r;
+      _d_r -= _r_d2;
+      *_d_a += _r_d2;
+   }
+   {
+      ax = _t2;
+      double _r_d1 = _d_ax;
+      _d_ax -= _r_d1;
+      double _r4 = 0;
+      _r4 += _r_d1 * ::std::exp(ax);
+      _d_ax += _r4;
+   }
+   {
+      *_d_x += (a * _d_ax / x) - _d_ax;
+      *_d_a += _d_ax * (_t1 - ::clad::custom_derivatives::std::clad_digamma(
+                                 a)); // numerical_diff::forward_central_difference(::std::lgamma, a, 0, 0, a);
+      _d_ax = 0.;
+   }
+}
+
+inline void inc_gamma_c_pullback(double a, double x, double _d_y, double *_d_a, double *_d_x)
+{
+   // Synced with SpecFuncCephes.h
+   constexpr double kMACHEP = 1.11022302462515654042363166809e-16;
+   constexpr double kMAXLOG = 709.782712893383973096206318587;
+   constexpr double kBig = 4.503599627370496e15;
+   constexpr double kBiginv = 2.22044604925031308085e-16;
+
+   double _d_ans = 0, _d_ax = 0, _d_c = 0, _d_yc = 0, _d_r = 0, _d_y0 = 0, _d_z = 0;
+   double _d_pk = 0, _d_pkm1 = 0, _d_pkm2 = 0, _d_qk = 0, _d_qkm1 = 0, _d_qkm2 = 0;
+   double _t1;
+   double _t2;
+   double _t3;
+   double _t4;
+   double _t5;
+   double _t6;
+   double _t7;
+   double _t8;
+   double _t9;
+   double _t10;
+   unsigned long _t11;
+   clad::tape<double> _t12 = {};
+   clad::tape<double> _t13 = {};
+   clad::tape<double> _t14 = {};
+   clad::tape<double> _t15 = {};
+   clad::tape<double> _t16 = {};
+   clad::tape<double> _t17 = {};
+   clad::tape<double> _t19 = {};
+   clad::tape<double> _t20 = {};
+   clad::tape<double> _t22 = {};
+   clad::tape<double> _t24 = {};
+   clad::tape<double> _t25 = {};
+   clad::tape<double> _t26 = {};
+   clad::tape<double> _t27 = {};
+   clad::tape<bool> _t29 = {};
+   clad::tape<double> _t30 = {};
+   clad::tape<double> _t31 = {};
+   clad::tape<double> _t32 = {};
+   clad::tape<double> _t33 = {};
+   double ans, ax, c, yc, r, t, y, z;
+   double pk, pkm1, pkm2, qk, qkm1, qkm2;
+   if (a <= 0)
+      return;
+   if (x <= 0)
+      return;
+   if ((x < 1.) || (x < a)) {
+      double _r0 = 0;
+      double _r1 = 0;
+      inc_gamma_pullback(a, x, -_d_y, &_r0, &_r1);
+      *_d_a += _r0;
+      *_d_x += _r1;
+      return;
+   }
+   _t1 = ::std::log(x);
+   ax = a * _t1 - x - ::std::lgamma(a);
+   if (ax < -kMAXLOG) {
+      *_d_x += a * _d_ax / x - _d_ax;
+      *_d_a += _d_ax * (_t1 - ::clad::custom_derivatives::std::clad_digamma(
+                                 a)); // numerical_diff::forward_central_difference(::std::lgamma, a, 0, 0, a);
+      _d_ax = 0.;
+      return;
+   }
+   _t2 = ax;
+   ax = ::std::exp(ax);
+   _t3 = y;
+   y = 1. - a;
+   _t4 = z;
+   z = x + y + 1.;
+   _t5 = c;
+   c = 0.;
+   _t6 = pkm2;
+   pkm2 = 1.;
+   _t7 = qkm2;
+   qkm2 = x;
+   _t8 = pkm1;
+   pkm1 = x + 1.;
+   _t9 = qkm1;
+   qkm1 = z * x;
+   _t10 = ans;
+   ans = pkm1 / qkm1;
+   _t11 = 0;
+   do {
+      _t11++;
+      clad::push(_t12, c);
+      c += 1.;
+      clad::push(_t13, y);
+      y += 1.;
+      clad::push(_t14, z);
+      z += 2.;
+      clad::push(_t15, yc);
+      yc = y * c;
+      clad::push(_t16, pk);
+      pk = pkm1 * z - pkm2 * yc;
+      clad::push(_t17, qk);
+      qk = qkm1 * z - qkm2 * yc;
+      double _t18 = qk;
+      {
+         if (_t18) {
+            clad::push(_t20, r);
+            r = pk / qk;
+            t = ::std::abs((ans - r) / r);
+            clad::push(_t22, ans);
+            ans = r;
+         } else {
+            t = 1.;
+         }
+         clad::push(_t19, _t18);
+      }
+      clad::push(_t24, pkm2);
+      pkm2 = pkm1;
+      clad::push(_t25, pkm1);
+      pkm1 = pk;
+      clad::push(_t26, qkm2);
+      qkm2 = qkm1;
+      clad::push(_t27, qkm1);
+      qkm1 = qk;
+      bool _t28 = ::std::abs(pk) > kBig;
+      {
+         if (_t28) {
+            clad::push(_t30, pkm2);
+            pkm2 *= kBiginv;
+            clad::push(_t31, pkm1);
+            pkm1 *= kBiginv;
+            clad::push(_t32, qkm2);
+            qkm2 *= kBiginv;
+            clad::push(_t33, qkm1);
+            qkm1 *= kBiginv;
+         }
+         clad::push(_t29, _t28);
+      }
+   } while (t > kMACHEP);
+   {
+      _d_ans += _d_y * ax;
+      _d_ax += ans * _d_y;
+   }
+   do {
+      {
+         if (clad::pop(_t29)) {
+            {
+               qkm1 = clad::pop(_t33);
+               double _r_d27 = _d_qkm1;
+               _d_qkm1 -= _r_d27;
+               _d_qkm1 += _r_d27 * kBiginv;
+            }
+            {
+               qkm2 = clad::pop(_t32);
+               double _r_d26 = _d_qkm2;
+               _d_qkm2 -= _r_d26;
+               _d_qkm2 += _r_d26 * kBiginv;
+            }
+            {
+               pkm1 = clad::pop(_t31);
+               double _r_d25 = _d_pkm1;
+               _d_pkm1 -= _r_d25;
+               _d_pkm1 += _r_d25 * kBiginv;
+            }
+            {
+               pkm2 = clad::pop(_t30);
+               double _r_d24 = _d_pkm2;
+               _d_pkm2 -= _r_d24;
+               _d_pkm2 += _r_d24 * kBiginv;
+            }
+         }
+         {
+            qkm1 = clad::pop(_t27);
+            double _r_d23 = _d_qkm1;
+            _d_qkm1 -= _r_d23;
+            _d_qk += _r_d23;
+         }
+         {
+            qkm2 = clad::pop(_t26);
+            double _r_d22 = _d_qkm2;
+            _d_qkm2 -= _r_d22;
+            _d_qkm1 += _r_d22;
+         }
+         {
+            pkm1 = clad::pop(_t25);
+            double _r_d21 = _d_pkm1;
+            _d_pkm1 -= _r_d21;
+            _d_pk += _r_d21;
+         }
+         {
+            pkm2 = clad::pop(_t24);
+            double _r_d20 = _d_pkm2;
+            _d_pkm2 -= _r_d20;
+            _d_pkm1 += _r_d20;
+         }
+         // t only controls the loop exit, so its adjoint is identically zero
+         // and it needs neither a tape nor a restore.
+         if (clad::pop(_t19)) {
+            {
+               ans = clad::pop(_t22);
+               double _r_d18 = _d_ans;
+               _d_ans -= _r_d18;
+               _d_r += _r_d18;
+            }
+            {
+               r = clad::pop(_t20);
+               double _r_d16 = _d_r;
+               _d_r -= _r_d16;
+               _d_pk += _r_d16 / qk;
+               double _r6 = _r_d16 * -(pk / (qk * qk));
+               _d_qk += _r6;
+            }
+         }
+         {
+            qk = clad::pop(_t17);
+            double _r_d15 = _d_qk;
+            _d_qk -= _r_d15;
+            _d_qkm1 += _r_d15 * z;
+            _d_z += qkm1 * _r_d15;
+            _d_qkm2 += -_r_d15 * yc;
+            _d_yc += qkm2 * -_r_d15;
+         }
+         {
+            pk = clad::pop(_t16);
+            double _r_d14 = _d_pk;
+            _d_pk -= _r_d14;
+            _d_pkm1 += _r_d14 * z;
+            _d_z += pkm1 * _r_d14;
+            _d_pkm2 += -_r_d14 * yc;
+            _d_yc += pkm2 * -_r_d14;
+         }
+         {
+            yc = clad::pop(_t15);
+            double _r_d13 = _d_yc;
+            _d_yc -= _r_d13;
+            _d_y0 += _r_d13 * c;
+            _d_c += y * _r_d13;
+         }
+         {
+            z = clad::pop(_t14);
+            double _r_d12 = _d_z;
+         }
+         {
+            y = clad::pop(_t13);
+            double _r_d11 = _d_y0;
+         }
+         {
+            c = clad::pop(_t12);
+            double _r_d10 = _d_c;
+         }
+      }
+      _t11--;
+   } while (_t11);
+   {
+      ans = _t10;
+      double _r_d9 = _d_ans;
+      _d_ans -= _r_d9;
+      _d_pkm1 += _r_d9 / qkm1;
+      double _r5 = _r_d9 * -(pkm1 / (qkm1 * qkm1));
+      _d_qkm1 += _r5;
+   }
+   {
+      qkm1 = _t9;
+      double _r_d8 = _d_qkm1;
+      _d_qkm1 -= _r_d8;
+      _d_z += _r_d8 * x;
+      *_d_x += z * _r_d8;
+   }
+   {
+      pkm1 = _t8;
+      double _r_d7 = _d_pkm1;
+      _d_pkm1 -= _r_d7;
+      *_d_x += _r_d7;
+   }
+   {
+      qkm2 = _t7;
+      double _r_d6 = _d_qkm2;
+      _d_qkm2 -= _r_d6;
+      *_d_x += _r_d6;
+   }
+   {
+      pkm2 = _t6;
+      double _r_d5 = _d_pkm2;
+      _d_pkm2 -= _r_d5;
+   }
+   {
+      c = _t5;
+      double _r_d4 = _d_c;
+      _d_c -= _r_d4;
+   }
+   {
+      z = _t4;
+      double _r_d3 = _d_z;
+      _d_z -= _r_d3;
+      *_d_x += _r_d3;
+      _d_y0 += _r_d3;
+   }
+   {
+      y = _t3;
+      double _r_d2 = _d_y0;
+      _d_y0 -= _r_d2;
+      *_d_a += -_r_d2;
+   }
+   {
+      ax = _t2;
+      double _r_d1 = _d_ax;
+      _d_ax -= _r_d1;
+      double _r4 = _r_d1 * ::std::exp(ax);
+      _d_ax += _r4;
+   }
+   {
+      *_d_x += a * _d_ax / x - _d_ax;
+      *_d_a += _d_ax * (_t1 - ::clad::custom_derivatives::std::clad_digamma(
+                                 a)); // numerical_diff::forward_central_difference(::std::lgamma, a, 0, 0, a);
+      _d_ax = 0.;
+   }
+}
+
+/// Derivative of the normalized lower incomplete gamma function P(a, x) with
+/// respect to x. This is the integrand of P(a, x), i.e. the gamma
+/// distribution density: x^(a-1) * exp(-x) / Gamma(a).
+inline double inc_gamma_dx(double a, double x)
+{
+   if (a <= 0 || x <= 0)
+      return 0.;
+   return ::std::exp((a - 1.) * ::std::log(x) - x - ::std::lgamma(a));
+}
+
+/// Pullback of inc_gamma_dx(), using the closed forms of the second
+/// derivatives of P(a, x):
+///
+///    d2P/dx2  = inc_gamma_dx(a, x) * ((a - 1) / x - 1)
+///    d2P/dxda = inc_gamma_dx(a, x) * (log(x) - digamma(a))
+inline void inc_gamma_dx_pullback(double a, double x, double _d_y, double *_d_a, double *_d_x)
+{
+   if (a <= 0 || x <= 0)
+      return;
+   const double g = inc_gamma_dx(a, x);
+   *_d_a += _d_y * g * (::std::log(x) - ::clad::custom_derivatives::std::clad_digamma(a));
+   *_d_x += _d_y * g * ((a - 1.) / x - 1.);
+}
+
+/// Derivative of the normalized lower incomplete gamma function P(a, x) with
+/// respect to a. It has no closed form, but inc_gamma_pullback() computes it
+/// exactly by differentiating through the algorithm that evaluates P(a, x).
+inline double inc_gamma_da(double a, double x)
+{
+   double da = 0.;
+   double dx = 0.;
+   inc_gamma_pullback(a, x, 1., &da, &dx);
+   return da;
+}
+
+/// Pullback of inc_gamma_da(). The mixed second derivative is known in
+/// closed form (it is the same as the a-derivative of inc_gamma_dx(), see
+/// inc_gamma_dx_pullback()). For d2P/da2 there is no closed form, so it is
+/// approximated by a central difference of the exact first derivative.
+///
+/// For a <= h, the lower stencil point leaves the domain (inc_gamma_da()
+/// returns zero for non-positive a), so d2P/da2 is unreliable there. This is
+/// acceptable because RooFit never differentiates with respect to a, which is
+/// data there.
+inline void inc_gamma_da_pullback(double a, double x, double _d_y, double *_d_a, double *_d_x)
+{
+   if (a <= 0 || x <= 0)
+      return;
+   *_d_x += _d_y * inc_gamma_dx(a, x) * (::std::log(x) - ::clad::custom_derivatives::std::clad_digamma(a));
+   // A first-order central difference of the exact derivative is much more
+   // accurate than a second-order finite difference of P(a, x) itself. The
+   // step size balances truncation and roundoff error (~ cbrt of the machine
+   // epsilon).
+   const double h = 6e-6 * ::std::max(1., ::std::abs(a));
+   *_d_a += _d_y * (inc_gamma_da(a + h, x) - inc_gamma_da(a - h, x)) / (2. * h);
+}
+
+/// Pushforward of ROOT::Math::inc_gamma. Besides forward-mode differentiation,
+/// this enables second derivatives (e.g. clad::hessian): clad differentiates
+/// this function in reverse mode, and all derivatives it needs for that are
+/// provided by custom pullbacks.
+inline clad::ValueAndPushforward<double, double> inc_gamma_pushforward(double a, double x, double d_a, double d_x)
+{
+   return {::ROOT::Math::inc_gamma(a, x), inc_gamma_da(a, x) * d_a + inc_gamma_dx(a, x) * d_x};
+}
+
+/// Pushforward of ROOT::Math::inc_gamma_c, which is 1 - inc_gamma. See
+/// inc_gamma_pushforward().
+inline clad::ValueAndPushforward<double, double> inc_gamma_c_pushforward(double a, double x, double d_a, double d_x)
+{
+   return {::ROOT::Math::inc_gamma_c(a, x), -inc_gamma_da(a, x) * d_a - inc_gamma_dx(a, x) * d_x};
+}
+
+/// Pullback of landau_pdf_dv(). The second derivative of the standardized
+/// Landau density has no closed form, so it is approximated by a central
+/// difference of the exact first derivative (see also inc_gamma_da_pullback()).
+///
+/// The CERNLIB DENLAN approximation of the density is piecewise rational, and
+/// its first derivative has small jumps at the branch boundaries. Dividing
+/// such a jump by the step size would ruin the difference quotient (up to
+/// ~50 % error right at v = 1), so when the stencil would straddle a boundary
+/// it is shifted sideways to keep both points on the branch that contains v.
+/// The off-center evaluation costs one order in h, which is insignificant at
+/// this step size.
+inline void landau_pdf_dv_pullback(double v, double _d_y, double *_d_v)
+{
+   const double h = 6e-6 * ::std::max(1., ::std::abs(v));
+   double lo = v - h;
+   double hi = v + h;
+   // Branch boundaries of landau_pdf(); each branch covers v < seam.
+   constexpr double seams[] = {-5.5, -1., 1., 5., 12., 50., 300.};
+   for (double seam : seams) {
+      if (lo < seam && seam <= hi) {
+         if (v < seam) {
+            lo -= h;
+            hi -= h;
+         } else {
+            lo += h;
+            hi += h;
+         }
+         break;
+      }
+   }
+   *_d_v += _d_y * (landau_pdf_dv(hi) - landau_pdf_dv(lo)) / (2. * h);
+}
+
+/// Pushforward of ROOT::Math::landau_pdf, which is p((x - x0) / xi) / xi in
+/// terms of the standardized Landau density p. Like for
+/// inc_gamma_pushforward(), all derivatives that clad needs to differentiate
+/// this function in reverse mode (e.g. for clad::hessian) are provided by
+/// custom pullbacks.
+inline clad::ValueAndPushforward<double, double>
+landau_pdf_pushforward(double x, double xi, double x0, double d_x, double d_xi, double d_x0)
+{
+   if (xi <= 0.)
+      return {0., 0.};
+   const double v = (x - x0) / xi;
+   const double p = ::ROOT::Math::landau_pdf(v);
+   const double vDot = (d_x - d_x0 - v * d_xi) / xi;
+   return {p / xi, landau_pdf_dv(v) * vDot / xi - p / (xi * xi) * d_xi};
+}
+
+/// Pushforward of ROOT::Math::landau_cdf, which is the cumulative
+/// distribution function of the standardized Landau density evaluated at
+/// (x - x0) / xi. Its derivative in x is landau_pdf, so unlike for the
+/// density itself, all second derivatives are known in closed form.
+///
+/// That identity is exact only for the mathematical Landau distribution: ROOT
+/// implements the cdf (CERNLIB DISLAN) and the density (CERNLIB DENLAN) as
+/// independent rational approximations that are consistent with each other to
+/// about 1e-7 relative. The derivatives returned here therefore differ at
+/// that level both from the exact derivative of the implemented cdf and from
+/// landau_cdf_pullback(), which differentiates the DISLAN algorithm itself.
+inline clad::ValueAndPushforward<double, double>
+landau_cdf_pushforward(double x, double xi, double x0, double d_x, double d_xi, double d_x0)
+{
+   const double v = (x - x0) / xi;
+   const double vDot = (d_x - d_x0 - v * d_xi) / xi;
+   return {::ROOT::Math::landau_cdf(x, xi, x0), ::ROOT::Math::landau_pdf(v) * vDot};
+}
+
+} // namespace Math
+} // namespace ROOT
+
+} // namespace custom_derivatives
+} // namespace clad
+
 #endif // CLAD_DERIVATOR

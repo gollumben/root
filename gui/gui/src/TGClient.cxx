@@ -49,7 +49,8 @@ class is used to make the initial connection to the window server.
 #include "TGIdleHandler.h"
 #include "TError.h"
 #include "TGlobal.h"
-#include "snprintf.h"
+
+#include <cstdio>
 
 // Global pointer to the TGClient object
 static TGClient *gClientGlobal = nullptr;
@@ -105,7 +106,7 @@ private:
    TGClient  *fClient;   // connection to display server
 public:
    TGInputHandler(TGClient *c, Int_t fd) : TFileHandler(fd, 1) { fClient = c; }
-   Bool_t Notify();
+   Bool_t Notify() override;
    // Important: don't override ReadNotify()
 };
 
@@ -118,7 +119,6 @@ Bool_t TGInputHandler::Notify()
 }
 
 
-ClassImp(TGClient);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a connection with the display sever on host dpyName and setup
@@ -146,8 +146,6 @@ TGClient::TGClient(const char *dpyName)
 
    // Open the connection to the display
    if ((fXfd = gVirtualX->OpenDisplay(dpyName)) < 0) {
-      Error("TGClient", "can't open display \"%s\", switching to batch mode...\n In case you run from a remote ssh session, reconnect with ssh -Y",
-            gVirtualX->DisplayName(dpyName));
       MakeZombie();
       return;
    }
@@ -294,6 +292,15 @@ const TGPicture *TGClient::GetPicture(const char *name)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @copydoc TGPicturePool::GetPictureOrEmpty(const char*)
+
+const TGPicture *TGClient::GetPictureOrEmpty(const char *name)
+{
+   return fPicturePool->GetPictureOrEmpty(name);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 /// Get picture with specified size from pool (picture will be scaled if
 /// necessary). Picture must be freed using TGClient::FreePicture(). If
 /// picture is not found 0 is returned.
@@ -374,7 +381,7 @@ void TGClient::FreeFont(const TGFont *font)
 void TGClient::NeedRedraw(TGWindow *w, Bool_t force)
 {
    if (!w) return;
-   if (gVirtualX->NeedRedraw((ULong_t)w,force)) return;
+   if (gVirtualX->NeedRedraw((ULongptr_t)w,force)) return;
    if (force) {
       w->DoRedraw();
       return;
@@ -462,13 +469,13 @@ Pixel_t TGClient::GetHilite(Pixel_t base_color) const
    GetColorByName("white", white_p.fPixel);
    gVirtualX->QueryColor(attributes.fColormap, white_p);
 
-   color.fRed   = TMath::Max((UShort_t)(white_p.fRed/5),   color.fRed);
-   color.fGreen = TMath::Max((UShort_t)(white_p.fGreen/5), color.fGreen);
-   color.fBlue  = TMath::Max((UShort_t)(white_p.fBlue/5),  color.fBlue);
+   color.fRed   = std::max((UShort_t)(white_p.fRed/5),   color.fRed);
+   color.fGreen = std::max((UShort_t)(white_p.fGreen/5), color.fGreen);
+   color.fBlue  = std::max((UShort_t)(white_p.fBlue/5),  color.fBlue);
 
-   color.fRed   = (UShort_t)TMath::Min((Int_t)white_p.fRed,   (Int_t)(color.fRed*140)/100);
-   color.fGreen = (UShort_t)TMath::Min((Int_t)white_p.fGreen, (Int_t)(color.fGreen*140)/100);
-   color.fBlue  = (UShort_t)TMath::Min((Int_t)white_p.fBlue,  (Int_t)(color.fBlue*140)/100);
+   color.fRed   = (UShort_t)std::min((Int_t)white_p.fRed,   (Int_t)(color.fRed*140)/100);
+   color.fGreen = (UShort_t)std::min((Int_t)white_p.fGreen, (Int_t)(color.fGreen*140)/100);
+   color.fBlue  = (UShort_t)std::min((Int_t)white_p.fBlue,  (Int_t)(color.fBlue*140)/100);
 
    if (!gVirtualX->AllocColor(attributes.fColormap, color))
       Error("GetHilite", "couldn't allocate hilight color");
@@ -953,9 +960,9 @@ void TGClient::SetEditDisabled(Bool_t on)
 
 void TGClient::ProcessedEvent(Event_t *event, Window_t wid)
 {
-   Long_t args[2];
-   args[0] = (Long_t) event;
-   args[1] = (Long_t) wid;
+   Longptr_t args[2];
+   args[0] = (Longptr_t) event;
+   args[1] = (Longptr_t) wid;
 
    Emit("ProcessedEvent(Event_t*, Window_t)", args);
 }

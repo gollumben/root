@@ -33,9 +33,9 @@ Implements GUI for pie-chart attributes.
 #include "TBox.h"
 #include "TPaveLabel.h"
 #include "TVirtualX.h"
-#include "snprintf.h"
 
-ClassImp(TPieEditor);
+#include <cstdio>
+
 
 enum EPieWid {
    kPie = 0,

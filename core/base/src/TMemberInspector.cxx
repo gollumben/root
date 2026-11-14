@@ -57,10 +57,9 @@ void TMemberInspector::TParentBuf::Remove(Ssiz_t startingAt)
    fBuf[startingAt] = 0;
 }
 
-ClassImp(TMemberInspector);
 
 TMemberInspector::TMemberInspector():
-   fObjectPointerState(kUnset)
+   fObjectPointerState(kUnset), fNestedTransient(0)
 {
    // Construct a member inspector
 
@@ -121,7 +120,7 @@ void TMemberInspector::GenericShowMembers(const char *topClassName, const void *
       }
    }
 
-   TClass *top = TClass::GetClass(topClassName);
+   TClass *top = TClass::GetClass(topClassName, true, isTransient);
    if (top) {
       top->CallShowMembers(obj, *this, isTransient);
    } else {

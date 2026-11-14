@@ -1,10 +1,9 @@
 /// \file RNTupleDS.cxx
-/// \ingroup NTuple ROOT7
 /// \author Jakob Blomer <jblomer@cern.ch>
 /// \author Enrico Guiraud <enrico.guiraud@cern.ch>
 /// \date 2018-10-04
-/// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback
-/// is welcome!
+/// \author Vincenzo Eduardo Padulano CERN
+/// \date 2026-10-19
 
 /*************************************************************************
  * Copyright (C) 1995-2020, Rene Brun and Fons Rademakers.               *
@@ -15,136 +14,145 @@
  *************************************************************************/
 
 #include <ROOT/RDF/RColumnReaderBase.hxx>
+#include <ROOT/RDataFrame.hxx>
+#include <ROOT/RDF/Utils.hxx>
 #include <ROOT/RField.hxx>
-#include <ROOT/RFieldValue.hxx>
+#include <ROOT/RFieldUtils.hxx>
+#include <ROOT/RPageStorageFile.hxx>
 #include <ROOT/RNTupleDescriptor.hxx>
 #include <ROOT/RNTupleDS.hxx>
-#include <ROOT/RNTupleUtil.hxx>
+#include <ROOT/RNTupleTypes.hxx>
 #include <ROOT/RPageStorage.hxx>
-#include <ROOT/RStringView.hxx>
+
+#include "RNTupleDSFields.hxx"
 
 #include <TError.h>
+#include <TSystem.h>
 
+#include <cassert>
+#include <limits>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <typeinfo>
+#include <type_traits>
 #include <utility>
+#ifdef R__USE_IMT
+#include <ROOT/RSpan.hxx>
+#include <ROOT/RSlotStack.hxx>
+#include <ROOT/InternalIMTUtils.hxx>
+#include <ROOT/TThreadExecutor.hxx>
+#endif
 
-namespace ROOT {
-namespace Experimental {
-namespace Internal {
+// clang-format off
+/**
+* \class ROOT::RDF::RNTupleDS
+* \ingroup dataframe
+* \brief The RDataSource implementation for RNTuple. It lets RDataFrame read RNTuple data.
+*
+* An RDataFrame that reads RNTuple data can be constructed using FromRNTuple().
+*
+* For each column containing an array or a collection, a corresponding column `#colname` is available to access
+* `colname.size()` without reading and deserializing the collection values.
+*
+**/
+// clang-format on
 
-/// An artificial field that transforms an RNTuple column that contains the offset of collections into
-/// collection sizes. It is used to provide the "number of" RDF columns for collections, e.g.
-/// `R_rdf_sizeof_jets` for a collection named `jets`.
-///
-/// This field owns the collection offset field but instead of exposing the collection offsets it exposes
-/// the collection sizes (offset(N+1) - offset(N)).  For the time being, we offer this functionality only in RDataFrame.
-/// TODO(jblomer): consider providing a general set of useful virtual fields as part of RNTuple.
-class RRDFCardinalityField : public ROOT::Experimental::Detail::RFieldBase {
-protected:
-   std::unique_ptr<ROOT::Experimental::Detail::RFieldBase> CloneImpl(std::string_view /* newName */) const final
-   {
-      return std::make_unique<RRDFCardinalityField>();
-   }
-
-public:
-   static std::string TypeName() { return "std::size_t"; }
-   RRDFCardinalityField()
-      : ROOT::Experimental::Detail::RFieldBase("", TypeName(), ENTupleStructure::kLeaf, false /* isSimple */) {}
-   RRDFCardinalityField(RRDFCardinalityField &&other) = default;
-   RRDFCardinalityField &operator=(RRDFCardinalityField &&other) = default;
-   ~RRDFCardinalityField() = default;
-
-   // Field is only used for reading
-   void GenerateColumnsImpl() final { R__ASSERT(false && "Cardinality fields must only be used for reading"); }
-
-   void GenerateColumnsImpl(const RNTupleDescriptor &) final
-   {
-      RColumnModel model(EColumnType::kIndex, true /* isSorted*/);
-      fColumns.emplace_back(std::unique_ptr<ROOT::Experimental::Detail::RColumn>(
-         ROOT::Experimental::Detail::RColumn::Create<ClusterSize_t, EColumnType::kIndex>(model, 0)));
-      fPrincipalColumn = fColumns[0].get();
-   }
-
-   ROOT::Experimental::Detail::RFieldValue GenerateValue(void *where) final
-   {
-      return ROOT::Experimental::Detail::RFieldValue(this, static_cast<std::size_t *>(where));
-   }
-   ROOT::Experimental::Detail::RFieldValue CaptureValue(void *where) final
-   {
-      return ROOT::Experimental::Detail::RFieldValue(true /* captureFlag */, this, where);
-   }
-   size_t GetValueSize() const final { return sizeof(std::size_t); }
-
-   /// Get the number of elements of the collection identified by globalIndex
-   void
-   ReadGlobalImpl(ROOT::Experimental::NTupleSize_t globalIndex, ROOT::Experimental::Detail::RFieldValue *value) final
-   {
-      RClusterIndex collectionStart;
-      ClusterSize_t size;
-      fPrincipalColumn->GetCollectionInfo(globalIndex, &collectionStart, &size);
-      *value->Get<std::size_t>() = size;
-   }
-
-   /// Get the number of elements of the collection identified by clusterIndex
-   void ReadInClusterImpl(const ROOT::Experimental::RClusterIndex &clusterIndex,
-                          ROOT::Experimental::Detail::RFieldValue *value) final
-   {
-      RClusterIndex collectionStart;
-      ClusterSize_t size;
-      fPrincipalColumn->GetCollectionInfo(clusterIndex, &collectionStart, &size);
-      *value->Get<std::size_t>() = size;
-   }
-};
-
+namespace ROOT::Internal::RDF {
 /// Every RDF column is represented by exactly one RNTuple field
 class RNTupleColumnReader : public ROOT::Detail::RDF::RColumnReaderBase {
-   using RFieldBase = ROOT::Experimental::Detail::RFieldBase;
-   using RFieldValue = ROOT::Experimental::Detail::RFieldValue;
-   using RPageSource = ROOT::Experimental::Detail::RPageSource;
+   using RFieldBase = ROOT::RFieldBase;
+   using RPageSource = ROOT::Internal::RPageSource;
 
-   std::unique_ptr<RFieldBase> fField; ///< The field backing the RDF column
-   RFieldValue fValue;                 ///< The memory location used to read from fField
-   Long64_t fLastEntry;                ///< Last entry number that was read
+   RNTupleDS *fDataSource;                     ///< The data source that owns this column reader
+   RFieldBase *fProtoField;                    ///< The prototype field from which fField is cloned
+   std::unique_ptr<RFieldBase> fField;         ///< The field backing the RDF column
+   std::unique_ptr<RFieldBase::RValue> fValue; ///< The memory location used to read from fField
+   std::shared_ptr<void> fValuePtr;            ///< Used to reuse the object created by fValue when reconnecting sources
+   Long64_t fLastEntry = -1;                   ///< Last entry number that was read
+   /// For chains, the logical entry and the physical entry in any particular file can be different.
+   /// The entry offset stores the logical entry number (sum of all previous physical entries) when a file of the
+   /// corresponding data source was opened.
+   Long64_t fEntryOffset = 0;
 
 public:
-   RNTupleColumnReader(std::unique_ptr<RFieldBase> f)
-      : fField(std::move(f)), fValue(fField->GenerateValue()), fLastEntry(-1)
-   {
-   }
-   virtual ~RNTupleColumnReader() { fField->DestroyValue(fValue); }
-
-   /// Column readers are created as prototype and then cloned for every slot
-   std::unique_ptr<RNTupleColumnReader> Clone()
-   {
-      return std::make_unique<RNTupleColumnReader>(fField->Clone(fField->GetName()));
-   }
+   RNTupleColumnReader(RNTupleDS *ds, RFieldBase *protoField) : fDataSource(ds), fProtoField(protoField) {}
+   ~RNTupleColumnReader() override = default;
 
    /// Connect the field and its subfields to the page source
-   void Connect(RPageSource &source)
+   void Connect(RPageSource &source, Long64_t entryOffset)
    {
-      fField->ConnectPageSource(source);
-      for (auto &f : *fField)
-         f.ConnectPageSource(source);
+      assert(fLastEntry == -1);
+
+      fEntryOffset = entryOffset;
+
+      // Create a new, real field from the prototype and set its field ID in the context of the given page source
+      fField = fProtoField->Clone(fProtoField->GetFieldName());
+      {
+         auto descGuard = source.GetSharedDescriptorGuard();
+         // Set the on-disk field IDs for the field and the subfield
+         fField->SetOnDiskId(
+            descGuard->FindFieldId(fDataSource->fFieldId2QualifiedName.at(fProtoField->GetOnDiskId())));
+         auto iProto = fProtoField->cbegin();
+         auto iReal = fField->begin();
+         for (; iReal != fField->end(); ++iProto, ++iReal) {
+            iReal->SetOnDiskId(descGuard->FindFieldId(fDataSource->fFieldId2QualifiedName.at(iProto->GetOnDiskId())));
+         }
+      }
+
+      RFieldZero fieldZero;
+      ROOT::Internal::SetAllowFieldSubstitutions(fieldZero, true);
+      fieldZero.Attach(std::move(fField));
+      try {
+         ROOT::Internal::CallConnectPageSourceOnField(fieldZero, source);
+      } catch (const ROOT::RException &) {
+         fField = std::move(fieldZero.ReleaseSubfields()[0]);
+         auto onDiskType = source.GetSharedDescriptorGuard()->GetFieldDescriptor(fField->GetOnDiskId()).GetTypeName();
+         std::string msg = "RNTupleDS: invalid type \"" + fField->GetTypeName() + "\" for column \"" +
+                           fDataSource->fFieldId2QualifiedName[fField->GetOnDiskId()] + "\" with on-disk type \"" +
+                           onDiskType + "\"";
+         throw std::runtime_error(msg);
+      }
+      fField = std::move(fieldZero.ReleaseSubfields()[0]);
+
+      if (fValuePtr) {
+         // When the reader reconnects to a new file, the fValuePtr is already set
+         fValue = std::make_unique<RFieldBase::RValue>(fField->BindValue(fValuePtr));
+         fValuePtr = nullptr;
+      } else {
+         // For the first file, create a new object for this field (reader)
+         fValue = std::make_unique<RFieldBase::RValue>(fField->CreateValue());
+      }
+   }
+
+   void Disconnect(bool keepValue)
+   {
+      if (fValue && keepValue) {
+         fValuePtr = fValue->GetPtr<void>();
+      }
+      fValue = nullptr;
+      fField = nullptr;
+      fLastEntry = -1;
    }
 
    void *GetImpl(Long64_t entry) final
    {
       if (entry != fLastEntry) {
-         fField->Read(entry, &fValue);
+         fValue->Read(entry - fEntryOffset);
          fLastEntry = entry;
       }
-      return fValue.GetRawPtr();
+      return fValue->GetPtr<void>().get();
    }
 };
+} // namespace ROOT::Internal::RDF
 
-} // namespace Internal
+ROOT::RDF::RNTupleDS::~RNTupleDS() = default;
 
-RNTupleDS::~RNTupleDS() = default;
-
-void RNTupleDS::AddField(const RNTupleDescriptor &desc, std::string_view colName, DescriptorId_t fieldId,
-                         std::vector<DescriptorId_t> skeinIDs)
+void ROOT::RDF::RNTupleDS::AddField(const ROOT::RNTupleDescriptor &desc, std::string_view colName,
+                                    ROOT::DescriptorId_t fieldId, std::vector<RNTupleDS::RFieldInfo> fieldInfos,
+                                    bool convertToRVec)
 {
    // As an example for the mapping of RNTuple fields to RDF columns, let's consider an RNTuple
    // using the following types and with a top-level field named "event" of type Event:
@@ -164,187 +172,1015 @@ void RNTupleDS::AddField(const RNTupleDescriptor &desc, std::string_view colName
    // AddField() will be called from the constructor with the RNTuple root field (ENTupleStructure::kRecord).
    // From there, we recurse into the "event" sub field (also ENTupleStructure::kRecord) and further down the
    // tree of sub fields and expose the following RDF columns:
-   // TODO(jblomer): Collections should be exposed as RVec<T> instead of std::vector<T>
    //
    // "event"                             [Event]
    // "event.id"                          [int]
-   // "event.tracks"                      [std::vector<Track>]
+   // "event.tracks"                      [RVec<Track>]
    // "R_rdf_sizeof_event.tracks"         [unsigned int]
-   // "event.tracks.hits"                 [std::vector<std::vector<Hit>>]
-   // "R_rdf_sizeof_event.tracks.hits"    [std::vector<unsigned int>]
-   // "event.tracks.hits.x"               [std::vector<std::vector<float>>]
-   // "R_rdf_sizeof_event.tracks.hits.x"  [std::vector<unsigned int>]
-   // "event.tracks.hits.y"               [std::vector<std::vector<float>>]
-   // "R_rdf_sizeof_event.tracks.hits.y"  [std::vector<unsigned int>]
+   // "event.tracks.hits"                 [RVec<RVec<Hit>>]
+   // "R_rdf_sizeof_event.tracks.hits"    [RVec<unsigned int>]
+   // "event.tracks.hits.x"               [RVec<RVec<float>>]
+   // "R_rdf_sizeof_event.tracks.hits.x"  [RVec<unsigned int>]
+   // "event.tracks.hits.y"               [RVec<RVec<float>>]
+   // "R_rdf_sizeof_event.tracks.hits.y"  [RVec<unsigned int>]
 
    const auto &fieldDesc = desc.GetFieldDescriptor(fieldId);
-   if (fieldDesc.GetStructure() == ENTupleStructure::kCollection) {
-      // Inner fields of collections are provided as projected collections of only that inner field,
-      // E.g. we provide a projected collection vector<vector<float>> for "event.tracks.hits.x" in the example
-      // above.
-
+   const auto &nRepetitions = fieldDesc.GetNRepetitions();
+   if ((fieldDesc.GetStructure() == ROOT::ENTupleStructure::kCollection) || (nRepetitions > 0)) {
+      // The field is a collection or a fixed-size array.
       // We open a new collection scope with fieldID being the inner most collection. E.g. for "event.tracks.hits",
-      // skeinIDs would already contain the fieldID of "event.tracks"
-      skeinIDs.emplace_back(fieldId);
+      // fieldInfos would already contain the fieldID of "event.tracks"
+      fieldInfos.emplace_back(fieldId, nRepetitions);
+   }
 
-      if (fieldDesc.GetTypeName().empty()) {
-         // Anonymous collection with one or several sub fields
-         auto cardinalityField = std::make_unique<ROOT::Experimental::Internal::RRDFCardinalityField>();
-         cardinalityField->SetOnDiskId(fieldId);
-         fColumnNames.emplace_back("R_rdf_sizeof_" + std::string(colName));
-         fColumnTypes.emplace_back(cardinalityField->GetType());
-         auto cardColReader = std::make_unique<ROOT::Experimental::Internal::RNTupleColumnReader>(
-            std::move(cardinalityField));
-         fColumnReaderPrototypes.emplace_back(std::move(cardColReader));
+   if (fieldDesc.GetStructure() == ROOT::ENTupleStructure::kCollection) {
+      // Inner fields of collections are provided as projected collections of only that inner field,
+      // E.g. we provide a projected collection RVec<RVec<float>> for "event.tracks.hits.x" in the example
+      // above.
+      bool representableAsRVec =
+         convertToRVec && (fieldDesc.GetTypeName().substr(0, 19) == "ROOT::VecOps::RVec<" ||
+                           fieldDesc.GetTypeName().substr(0, 12) == "std::vector<" || fieldDesc.GetTypeName() == "");
+      const auto &f = *desc.GetFieldIterable(fieldDesc.GetId()).begin();
+      AddField(desc, colName, f.GetId(), fieldInfos, representableAsRVec);
 
-         for (const auto &f : desc.GetFieldIterable(fieldDesc.GetId())) {
-            AddField(desc, std::string(colName) + "." + f.GetFieldName(), f.GetId(), skeinIDs);
-         }
-      } else {
-         // std::vector or ROOT::RVec with exactly one sub field
-         const auto &f = *desc.GetFieldIterable(fieldDesc.GetId()).begin();
-         AddField(desc, colName, f.GetId(), skeinIDs);
-      }
       // Note that at the end of the recursion, we handled the inner sub collections as well as the
       // collection as whole, so we are done.
       return;
-   } else if (fieldDesc.GetStructure() == ENTupleStructure::kRecord) {
+
+   } else if (nRepetitions > 0) {
+      // Fixed-size array, same logic as ROOT::RVec.
+      const auto &f = *desc.GetFieldIterable(fieldDesc.GetId()).begin();
+      AddField(desc, colName, f.GetId(), fieldInfos);
+      return;
+   } else if (fieldDesc.GetStructure() == ROOT::ENTupleStructure::kRecord) {
       // Inner fields of records are provided as individual RDF columns, e.g. "event.id"
       for (const auto &f : desc.GetFieldIterable(fieldDesc.GetId())) {
          auto innerName = colName.empty() ? f.GetFieldName() : (std::string(colName) + "." + f.GetFieldName());
-         AddField(desc, innerName, f.GetId(), skeinIDs);
+         // Inner fields of collections of records are always exposed as ROOT::RVec
+         AddField(desc, innerName, f.GetId(), fieldInfos);
       }
    }
 
    // The fieldID could be the root field or the class of fieldId might not be loaded.
    // In these cases, only the inner fields are exposed as RDF columns.
-   auto fieldOrException = Detail::RFieldBase::Create("", fieldDesc.GetTypeName());
+   auto fieldOrException = ROOT::RFieldBase::Create(fieldDesc.GetFieldName(), fieldDesc.GetTypeName());
    if (!fieldOrException)
       return;
    auto valueField = fieldOrException.Unwrap();
+   if (const auto cardinalityField = dynamic_cast<const ROOT::RCardinalityField *>(valueField.get())) {
+      // Cardinality fields in RDataFrame are presented as integers
+      if (cardinalityField->As32Bit()) {
+         valueField =
+            std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::uint32_t>>(fieldDesc.GetFieldName());
+      } else if (cardinalityField->As64Bit()) {
+         valueField =
+            std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::uint64_t>>(fieldDesc.GetFieldName());
+      } else {
+         R__ASSERT(false && "cardinality field stored with an unexpected integer type");
+      }
+   }
    valueField->SetOnDiskId(fieldId);
-   std::unique_ptr<Detail::RFieldBase> cardinalityField;
+   for (auto &f : *valueField) {
+      f.SetOnDiskId(desc.FindFieldId(f.GetFieldName(), f.GetParent()->GetOnDiskId()));
+   }
+   std::unique_ptr<ROOT::RFieldBase> cardinalityField;
    // Collections get the additional "number of" RDF column (e.g. "R_rdf_sizeof_tracks")
-   if (!skeinIDs.empty()) {
-      cardinalityField = std::make_unique<ROOT::Experimental::Internal::RRDFCardinalityField>();
-      cardinalityField->SetOnDiskId(skeinIDs.back());
+   if (!fieldInfos.empty()) {
+      const auto &info = fieldInfos.back();
+      const std::string name = "R_rdf_sizeof_" + desc.GetFieldDescriptor(info.fFieldId).GetFieldName();
+      if (info.fNRepetitions > 0) {
+         cardinalityField = std::make_unique<ROOT::Internal::RDF::RArraySizeField>(name, info.fNRepetitions);
+      } else {
+         cardinalityField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::size_t>>(name);
+      }
+      cardinalityField->SetOnDiskId(info.fFieldId);
    }
 
-   for (auto i = skeinIDs.rbegin(); i != skeinIDs.rend(); ++i) {
-      valueField = std::make_unique<ROOT::Experimental::RVectorField>("", std::move(valueField));
-      valueField->SetOnDiskId(*i);
+   for (auto i = fieldInfos.rbegin(); i != fieldInfos.rend(); ++i) {
+      const auto &fieldInfo = *i;
+
+      const auto valueFieldName = valueField->GetFieldName();
+
+      if (fieldInfo.fNRepetitions > 0) {
+         // Fixed-size array, read it as ROOT::RVec in memory
+         valueField =
+            std::make_unique<ROOT::RArrayAsRVecField>(valueFieldName, valueField->Clone("_0"), fieldInfo.fNRepetitions);
+      } else {
+         // Actual collection. A std::vector or ROOT::RVec gets added as a ROOT::RVec. All other collection types keep
+         // their original type.
+         if (convertToRVec) {
+            valueField = std::make_unique<ROOT::RRVecField>(valueFieldName, valueField->Clone("_0"));
+         } else {
+            auto outerFieldType = desc.GetFieldDescriptor(fieldInfo.fFieldId).GetTypeName();
+            valueField = ROOT::RFieldBase::Create(valueFieldName, outerFieldType).Unwrap();
+         }
+      }
+
+      valueField->SetOnDiskId(fieldInfo.fFieldId);
+
       // Skip the inner-most collection level to construct the cardinality column
-      if (i != skeinIDs.rbegin()) {
-         cardinalityField = std::make_unique<ROOT::Experimental::RVectorField>("", std::move(cardinalityField));
-         cardinalityField->SetOnDiskId(*i);
+      // It's taken care of by the `if (!fieldInfos.empty())` scope above
+      if (i != fieldInfos.rbegin()) {
+         const auto cardinalityFieldName = cardinalityField->GetFieldName();
+         if (fieldInfo.fNRepetitions > 0) {
+            // This collection level refers to a fixed-size array
+            cardinalityField = std::make_unique<ROOT::RArrayAsRVecField>(
+               cardinalityFieldName, cardinalityField->Clone("_0"), fieldInfo.fNRepetitions);
+         } else {
+            // This collection level refers to an RVec
+            cardinalityField = std::make_unique<ROOT::RRVecField>(cardinalityFieldName, cardinalityField->Clone("_0"));
+         }
+
+         cardinalityField->SetOnDiskId(fieldInfo.fFieldId);
       }
    }
 
    if (cardinalityField) {
       fColumnNames.emplace_back("R_rdf_sizeof_" + std::string(colName));
-      fColumnTypes.emplace_back(cardinalityField->GetType());
-      auto cardColReader = std::make_unique<ROOT::Experimental::Internal::RNTupleColumnReader>(
-         std::move(cardinalityField));
-      fColumnReaderPrototypes.emplace_back(std::move(cardColReader));
+      fColumnTypes.emplace_back(cardinalityField->GetTypeName());
+      fProtoFields.emplace_back(std::move(cardinalityField));
    }
 
-   skeinIDs.emplace_back(fieldId);
+   fieldInfos.emplace_back(fieldId, nRepetitions);
    fColumnNames.emplace_back(colName);
-   fColumnTypes.emplace_back(valueField->GetType());
-   auto valColReader = std::make_unique<ROOT::Experimental::Internal::RNTupleColumnReader>(std::move(valueField));
-   fColumnReaderPrototypes.emplace_back(std::move(valColReader));
+   fColumnTypes.emplace_back(valueField->GetTypeName());
+   fProtoFields.emplace_back(std::move(valueField));
 }
 
-RNTupleDS::RNTupleDS(std::unique_ptr<Detail::RPageSource> pageSource)
+ROOT::RDF::RNTupleDS::RNTupleDS(std::unique_ptr<ROOT::Internal::RPageSource> pageSource)
 {
    pageSource->Attach();
-   const auto &descriptor = pageSource->GetDescriptor();
-   fSources.emplace_back(std::move(pageSource));
+   fPrincipalDescriptor = pageSource->GetSharedDescriptorGuard()->Clone();
+   // TODO(vpadulan): file staging is disabled with the current MT strategy, but it would be good to re-enable it.
+   if (!ROOT::IsImplicitMTEnabled())
+      fStagingArea.emplace_back(std::move(pageSource));
 
-   AddField(descriptor, "", descriptor.GetFieldZeroId(), std::vector<DescriptorId_t>());
+   AddField(fPrincipalDescriptor, "", fPrincipalDescriptor.GetFieldZeroId(),
+            std::vector<ROOT::RDF::RNTupleDS::RFieldInfo>());
+
+   auto topLevelFields = fPrincipalDescriptor.GetTopLevelFields();
+   const auto nTopLevelFields = std::distance(topLevelFields.begin(), topLevelFields.end());
+   fTopLevelFieldNames.reserve(nTopLevelFields);
+   for (const auto &field : topLevelFields)
+      fTopLevelFieldNames.push_back(field.GetFieldName());
 }
 
-RDF::RDataSource::Record_t RNTupleDS::GetColumnReadersImpl(std::string_view /* name */, const std::type_info & /* ti */)
+namespace {
+
+const ROOT::RNTupleReadOptions &GetOpts()
 {
-   // This datasource uses the GetColumnReaders2 API instead (better name in the works)
+   // The setting is for now a global one, must be decided before running the
+   // program by setting the appropriate environment variable. Make sure that
+   // option configuration is thread-safe and happens only once.
+   static ROOT::RNTupleReadOptions opts;
+   static std::once_flag flag;
+   std::call_once(flag, []() {
+      if (auto env = gSystem->Getenv("ROOT_RNTUPLE_CLUSTERBUNCHSIZE"); env != nullptr && strlen(env) > 0) {
+         std::string envStr{env};
+         auto envNum{std::stoul(envStr)};
+         envNum = envNum == 0 ? 1 : envNum;
+         ROOT::Internal::RNTupleReadOptionsManip::SetClusterBunchSize(opts, envNum);
+      }
+   });
+   return opts;
+}
+
+std::unique_ptr<ROOT::Internal::RPageSource> CreatePageSource(std::string_view ntupleName, std::string_view fileName)
+{
+   return ROOT::Internal::RPageSource::Create(ntupleName, fileName, GetOpts());
+}
+} // namespace
+
+ROOT::RDF::RNTupleDS::RNTupleDS(std::string_view ntupleName, std::string_view fileName)
+   : RNTupleDS(CreatePageSource(ntupleName, fileName))
+{
+   fNTupleName = ntupleName;
+   fFileNames = std::vector<std::string>{std::string{fileName}};
+}
+
+ROOT::RDF::RNTupleDS::RNTupleDS(std::string_view ntupleName, const std::vector<std::string> &fileNames)
+   : RNTupleDS(CreatePageSource(ntupleName, fileNames[0]))
+{
+   fNTupleName = ntupleName;
+   fFileNames = fileNames;
+   fStagingArea.resize(fFileNames.size());
+}
+
+ROOT::RDF::RNTupleDS::RNTupleDS(std::string_view ntupleName, const std::vector<std::string> &fileNames,
+                                const std::pair<ULong64_t, ULong64_t> &range)
+   : RNTupleDS(ntupleName, fileNames)
+{
+   fGlobalEntryRange = range;
+}
+
+ROOT::RDF::RDataSource::Record_t
+ROOT::RDF::RNTupleDS::GetColumnReadersImpl(std::string_view /* name */, const std::type_info & /* ti */)
+{
+   // This datasource uses the newer GetColumnReaders() API
    return {};
 }
 
-std::unique_ptr<ROOT::Detail::RDF::RColumnReaderBase>
-RNTupleDS::GetColumnReaders(unsigned int slot, std::string_view name, const std::type_info & /*tid*/)
+ROOT::RFieldBase *ROOT::RDF::RNTupleDS::GetFieldWithTypeChecks(std::string_view fieldName, const std::type_info &tid)
 {
-   // at this point we can assume that `name` will be found in fColumnNames, RDF is in charge validation
-   // TODO(jblomer): check incoming type
-   const auto index = std::distance(fColumnNames.begin(), std::find(fColumnNames.begin(), fColumnNames.end(), name));
-   auto clone = fColumnReaderPrototypes[index]->Clone();
-   clone->Connect(*fSources[slot]);
-   return clone;
-}
+   // At this point we can assume that `name` will be found in fColumnNames
+   const auto index =
+      std::distance(fColumnNames.begin(), std::find(fColumnNames.begin(), fColumnNames.end(), fieldName));
 
-bool RNTupleDS::SetEntry(unsigned int, ULong64_t)
-{
-   return true;
-}
-
-std::vector<std::pair<ULong64_t, ULong64_t>> RNTupleDS::GetEntryRanges()
-{
-   // TODO(jblomer): use cluster boundaries for the entry ranges
-   std::vector<std::pair<ULong64_t, ULong64_t>> ranges;
-   if (fHasSeenAllRanges)
-      return ranges;
-
-   auto nEntries = fSources[0]->GetNEntries();
-   const auto chunkSize = nEntries / fNSlots;
-   const auto reminder = 1U == fNSlots ? 0 : nEntries % fNSlots;
-   auto start = 0UL;
-   auto end = 0UL;
-   for (auto i : ROOT::TSeqU(fNSlots)) {
-      start = end;
-      end += chunkSize;
-      ranges.emplace_back(start, end);
-      (void)i;
+   // A reader was requested but we don't have RTTI for it, this is encoded with the tag UseNativeDataType. We can just
+   // return the available protofield
+   if (tid == typeid(ROOT::Internal::RDF::UseNativeDataType)) {
+      return fProtoFields[index].get();
    }
-   ranges.back().second += reminder;
-   fHasSeenAllRanges = true;
+
+   // The user explicitly requested a type
+   const auto requestedType = ROOT::Internal::GetRenormalizedTypeName(ROOT::Internal::RDF::TypeID2TypeName(tid));
+
+   // If the requested type is different from the proto field that was created when the data source was constructed,
+   // we first have to create an alternative proto field for the column reader.
+   // Otherwise, we can directly use the existing proto field.
+   if (requestedType != fColumnTypes[index]) {
+      auto &altProtoFields = fAlternativeProtoFields[index];
+
+      // If we can find the requested type in the registered alternative protofields, return the corresponding field
+      if (auto altProtoField = std::find_if(altProtoFields.begin(), altProtoFields.end(),
+                                            [&requestedType](const std::unique_ptr<ROOT::RFieldBase> &fld) {
+                                               return fld->GetTypeName() == requestedType;
+                                            });
+          altProtoField != altProtoFields.end()) {
+         return altProtoField->get();
+      }
+
+      // Otherwise, create a new protofield and register it in the alternatives before returning
+      std::unique_ptr<RFieldBase> newAltProtoField;
+      const std::string strName = std::string(fieldName);
+      if (dynamic_cast<ROOT::Internal::RDF::RRDFCardinalityFieldBase *>(fProtoFields[index].get())) {
+         if (requestedType == "bool") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<bool>>(strName);
+         } else if (requestedType == "char") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<char>>(strName);
+         } else if (requestedType == "std::int8_t") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::int8_t>>(strName);
+         } else if (requestedType == "std::uint8_t") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::uint8_t>>(strName);
+         } else if (requestedType == "std::int16_t") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::int16_t>>(strName);
+         } else if (requestedType == "std::uint16_t") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::uint16_t>>(strName);
+         } else if (requestedType == "std::int32_t") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::int32_t>>(strName);
+         } else if (requestedType == "std::uint32_t") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::uint32_t>>(strName);
+         } else if (requestedType == "std::int64_t") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::int64_t>>(strName);
+         } else if (requestedType == "std::uint64_t") {
+            newAltProtoField = std::make_unique<ROOT::Internal::RDF::RRDFCardinalityField<std::uint64_t>>(strName);
+         } else {
+            throw std::runtime_error("RNTupleDS: Could not create field with type \"" + requestedType +
+                                     "\" for column \"" + std::string(fieldName) + "\"");
+         }
+      } else {
+         auto newAltProtoFieldOrException = ROOT::RFieldBase::Create(strName, requestedType);
+         if (!newAltProtoFieldOrException) {
+            throw std::runtime_error("RNTupleDS: Could not create field with type \"" + requestedType +
+                                     "\" for column \"" + std::string(fieldName) + "\"");
+         }
+         newAltProtoField = newAltProtoFieldOrException.Unwrap();
+      }
+      newAltProtoField->SetOnDiskId(fProtoFields[index]->GetOnDiskId());
+      auto *newField = newAltProtoField.get();
+      altProtoFields.emplace_back(std::move(newAltProtoField));
+      return newField;
+   }
+
+   // General case: there was a correspondence between the user-requested type and the corresponding column type
+   return fProtoFields[index].get();
+}
+
+std::unique_ptr<ROOT::Detail::RDF::RColumnReaderBase>
+ROOT::RDF::RNTupleDS::GetColumnReaders(unsigned int slot, std::string_view name, const std::type_info &tid)
+{
+   ROOT::RFieldBase *field = GetFieldWithTypeChecks(name, tid);
+   assert(field != nullptr);
+
+   // Map the field's and subfields' IDs to qualified names so that we can later connect the fields to
+   // other page sources from the chain
+   fFieldId2QualifiedName[field->GetOnDiskId()] = fPrincipalDescriptor.GetQualifiedFieldName(field->GetOnDiskId());
+   for (const auto &s : *field) {
+      fFieldId2QualifiedName[s.GetOnDiskId()] = fPrincipalDescriptor.GetQualifiedFieldName(s.GetOnDiskId());
+   }
+
+   auto reader = std::make_unique<ROOT::Internal::RDF::RNTupleColumnReader>(this, field);
+   fActiveColumnReaders[slot].emplace_back(reader.get());
+
+   return reader;
+}
+
+void ROOT::RDF::RNTupleDS::ExecStaging()
+{
+   while (true) {
+      std::unique_lock lock(fMutexStaging);
+      fCvStaging.wait(lock, [this] { return fIsReadyForStaging || fStagingThreadShouldTerminate; });
+      if (fStagingThreadShouldTerminate)
+         return;
+
+      assert(!fHasNextSources);
+      StageNextSources();
+      fHasNextSources = true;
+      fIsReadyForStaging = false;
+
+      lock.unlock();
+      fCvStaging.notify_one();
+   }
+}
+
+void ROOT::RDF::RNTupleDS::StageNextSources()
+{
+   const auto nFiles = fFileNames.empty() ? 1 : fFileNames.size();
+
+   for (auto i = fNextFileIndex; (i < nFiles) && ((i - fNextFileIndex) < fNSlots); ++i) {
+
+      if (fStagingThreadShouldTerminate)
+         return;
+
+      if (fStagingArea[i]) {
+         // The first file is already open and was used to read the schema
+         assert(i == 0);
+      } else {
+         fStagingArea[i] = CreatePageSource(fNTupleName, fFileNames[i]);
+         fStagingArea[i]->LoadStructure();
+      }
+   }
+}
+
+void ROOT::RDF::RNTupleDS::PrepareNextRanges()
+{
+   assert(fNextRanges.empty());
+
+   auto nFiles = fFileNames.empty() ? 1 : fFileNames.size();
+   auto nRemainingFiles = nFiles - fNextFileIndex;
+
+   if (nRemainingFiles == 0)
+      return;
+
+   // Easy work scheduling: one file per slot. We skip empty files (files without entries).
+
+   if ((nRemainingFiles >= fNSlots) || (fGlobalEntryRange.has_value())) {
+      while ((fNextRanges.size() < fNSlots) && (fNextFileIndex < nFiles)) {
+         REntryRangeDS range;
+
+         std::swap(fStagingArea[fNextFileIndex], range.fSource);
+
+         if (!range.fSource) {
+            // Typically, the prestaged source should have been present. Only if some of the files are empty, we need
+            // to open and attach files here.
+            range.fSource = CreatePageSource(fNTupleName, fFileNames[fNextFileIndex]);
+         }
+         range.fFileName = fFileNames[fNextFileIndex];
+         range.fSource->Attach();
+         fNextFileIndex++;
+         auto nEntries = range.fSource->GetNEntries();
+         if (nEntries == 0)
+            continue;
+         range.fLastEntry = nEntries; // whole file per slot, i.e. entry range [0..nEntries - 1]
+
+         fNextRanges.emplace_back(std::move(range));
+      }
+      return;
+   }
+}
+
+std::vector<std::pair<ULong64_t, ULong64_t>> ROOT::RDF::RNTupleDS::GetEntryRanges()
+{
+   assert(!ROOT::IsImplicitMTEnabled()); // MT scheduling doesn't use this function
+   std::vector<std::pair<ULong64_t, ULong64_t>> ranges;
+
+   // We need to distinguish between single threaded and multi-threaded runs.
+   // In single threaded mode, InitSlot is only called once and column readers have to be rewired
+   // to new page sources of the chain in GetEntryRanges. In multi-threaded mode, on the other hand,
+   // InitSlot is called for every returned range, thus rewiring the column readers takes place in
+   // InitSlot and FinalizeSlot.
+   for (auto r : fActiveColumnReaders[0]) {
+      r->Disconnect(true /* keepValue */);
+   }
+
+   // If we have fewer files than slots and we run multiple event loops, we can reuse fCurrentRanges and don't need
+   // to worry about loading the fNextRanges. I.e., in this case we don't enter the if block.
+   if (fCurrentRanges.empty() || fSeenEntriesNoGlobalRange > 0) {
+      // Otherwise, i.e. start of the first event loop or in the middle of the event loop, prepare the next ranges
+      // and swap with the current ones.
+      {
+         std::unique_lock lock(fMutexStaging);
+         fCvStaging.wait(lock, [this] { return fHasNextSources; });
+      }
+      PrepareNextRanges();
+      if (fNextRanges.empty()) {
+         // No more data
+         return ranges;
+      }
+
+      assert(fNextRanges.size() <= fNSlots);
+
+      fCurrentRanges.clear();
+      std::swap(fCurrentRanges, fNextRanges);
+   }
+
+   // Stage next batch of files for the next call to GetEntryRanges()
+   {
+      std::lock_guard _(fMutexStaging);
+      fIsReadyForStaging = true;
+      fHasNextSources = false;
+   }
+   fCvStaging.notify_one();
+
+   // Create ranges for the RDF loop manager from the list of REntryRangeDS records.
+   // The entry ranges that are relative to the page source in REntryRangeDS are translated into absolute
+   // entry ranges, given the current state of the entry cursor.
+   // We remember the connection from first absolute entry index of a range to its REntryRangeDS record
+   // so that we can properly rewire the column reader in InitSlot
+   fFirstEntry2RangeIdx.clear();
+   fOriginalRanges.clear();
+
+   ULong64_t nEntriesPerSource = 0;
+
+   for (std::size_t i = 0; i < fCurrentRanges.size(); ++i) {
+
+      // Several consecutive ranges may operate on the same file (each with their own page source clone).
+      // We can detect a change of file when the first entry number jumps back to 0.
+      if (fCurrentRanges[i].fFirstEntry == 0) {
+         // New source
+         fSeenEntriesNoGlobalRange += nEntriesPerSource;
+         nEntriesPerSource = 0;
+      }
+
+      auto start = fCurrentRanges[i].fFirstEntry + fSeenEntriesNoGlobalRange;
+      auto end = fCurrentRanges[i].fLastEntry + fSeenEntriesNoGlobalRange;
+
+      nEntriesPerSource += end - start;
+
+      if (fGlobalEntryRange.has_value()) {
+
+         // We need to consider different scenarios for when we have GlobalRanges set by the user.
+         // Consider a simple case of 3 files, with original ranges set as (consecutive entries of 3 files):
+         // [0, 20], [20, 45], [45, 65]
+         // we will now see what happens in each of the scenarios below when GlobalRanges can be set to different
+         // values:
+         // a) [2, 5] - we stay in file 1
+         //  - hence we will use the 1st case and get the range [2,5], in this case we also need to quit further
+         //  processing from the other files by entering case 3
+         // b) [2, 21] - we start in file 1 and finish in file 2
+         // - use the 2nd case first, as 21 > 20 (end of first file), then we will go to case 1, resulting in ranges:
+         // [2, 20], [20, 21], c) [21 - 40] - we skip file 1, start in file 2 and stay in file 2
+         // - to skip the first file, we use the 4th case, followed by the 1st case, resulting range is: [21, 40]
+         // d) [21 - 65] - we skip file 1, start in file 2 and continue to file 3
+         // - to skip the first file, we use the 4th case, we continue with the 2nd case, and use the 1st case at the
+         // end, resulting ranges are [21, 45], [45, 65]
+         // The first case
+         if (fGlobalEntryRange->first >= start && fGlobalEntryRange->second <= end) {
+            fOriginalRanges.emplace_back(start, end);
+            fFirstEntry2RangeIdx[fGlobalEntryRange->first] = i;
+            ranges.emplace_back(fGlobalEntryRange->first, fGlobalEntryRange->second);
+         }
+
+         // The second case:
+         // The `fGlobalEntryRange->first < end` condition is to distinguish this case from the 4th case.
+         else if (fGlobalEntryRange->second > end && fGlobalEntryRange->first < end) {
+            fOriginalRanges.emplace_back(start, end);
+            fFirstEntry2RangeIdx[fGlobalEntryRange->first] = i;
+            ranges.emplace_back(fGlobalEntryRange->first, end);
+            std::optional<std::pair<ULong64_t, ULong64_t>> newvalues({end, fGlobalEntryRange->second});
+            fGlobalEntryRange.swap(newvalues);
+         }
+         // The third case, needed to correctly quit processing if we only stay in the first file
+         else if (fGlobalEntryRange->second < start) {
+            return ranges;
+         }
+
+         // The fourth case:
+         else if (fGlobalEntryRange->first >= end) {
+            fOriginalRanges.emplace_back(start, end);
+            fFirstEntry2RangeIdx[start] = i;
+            ranges.emplace_back(start, start);
+         }
+      }
+
+      else {
+         fFirstEntry2RangeIdx[start] = i;
+         fOriginalRanges.emplace_back(start, end);
+         ranges.emplace_back(start, end);
+      }
+   }
+
+   fSeenEntriesNoGlobalRange += nEntriesPerSource;
+
+   if (fCurrentRanges[0].fSource) {
+      for (auto r : fActiveColumnReaders[0]) {
+         r->Connect(*fCurrentRanges[0].fSource, fOriginalRanges[0].first);
+      }
+   }
+
    return ranges;
 }
 
-std::string RNTupleDS::GetTypeName(std::string_view colName) const
+void ROOT::RDF::RNTupleDS::InitSlot(unsigned int slot, ULong64_t columnReaderOffset)
 {
-   const auto index = std::distance(fColumnNames.begin(), std::find(fColumnNames.begin(), fColumnNames.end(), colName));
+   // Only MT scheduling uses this function
+   if (!ROOT::IsImplicitMTEnabled())
+      return;
+
+   const auto &entryRangeDS = fActiveRangesPerSlot.at(slot * ROOT::Internal::RDF::CacheLineStep<REntryRangeDS>());
+   assert(entryRangeDS.fSource != nullptr);
+
+   for (auto r : fActiveColumnReaders[slot]) {
+      r->Connect(*entryRangeDS.fSource, columnReaderOffset);
+   }
+}
+
+void ROOT::RDF::RNTupleDS::FinalizeSlot(unsigned int slot)
+{
+   // Only MT scheduling uses this function
+   if (!ROOT::IsImplicitMTEnabled())
+      return;
+
+   for (auto r : fActiveColumnReaders[slot]) {
+      r->Disconnect(true /* keepValue */);
+   }
+}
+
+std::string ROOT::RDF::RNTupleDS::GetTypeName(std::string_view colName) const
+{
+   auto colNamePos = std::find(fColumnNames.begin(), fColumnNames.end(), colName);
+
+   if (colNamePos == fColumnNames.end()) {
+      auto msg = std::string("RNTupleDS: There is no column with name \"") + std::string(colName) + "\"";
+      throw std::runtime_error(msg);
+   }
+
+   const auto index = std::distance(fColumnNames.begin(), colNamePos);
    return fColumnTypes[index];
 }
 
-bool RNTupleDS::HasColumn(std::string_view colName) const
+bool ROOT::RDF::RNTupleDS::HasColumn(std::string_view colName) const
 {
    return std::find(fColumnNames.begin(), fColumnNames.end(), colName) != fColumnNames.end();
 }
 
-void RNTupleDS::Initialise()
+void ROOT::RDF::RNTupleDS::Initialize()
 {
-   fHasSeenAllRanges = false;
-}
+   fSeenEntriesNoGlobalRange = 0;
+   fNextFileIndex = 0;
+   fIsReadyForStaging = fHasNextSources = fStagingThreadShouldTerminate = false;
+   // TODO(vpadulan): file staging is disabled with the current MT strategy, but it would be good to re-enable it.
+   if (!ROOT::IsImplicitMTEnabled())
+      fThreadStaging = std::thread(&RNTupleDS::ExecStaging, this);
+   assert(fNextRanges.empty());
 
-void RNTupleDS::Finalise() {}
-
-void RNTupleDS::SetNSlots(unsigned int nSlots)
-{
-   R__ASSERT(fNSlots == 0);
-   R__ASSERT(nSlots > 0);
-   fNSlots = nSlots;
-
-   for (unsigned int i = 1; i < fNSlots; ++i) {
-      fSources.emplace_back(fSources[0]->Clone());
-      R__ASSERT(i == (fSources.size() - 1));
-      fSources[i]->Attach();
+   if (fCurrentRanges.empty() || (fFileNames.size() > fNSlots)) {
+      // First event loop or large number of files: start the staging process.
+      {
+         std::lock_guard _(fMutexStaging);
+         fIsReadyForStaging = true;
+      }
+      fCvStaging.notify_one();
+   } else {
+      // Otherwise, we will reuse fCurrentRanges. Make sure that staging and preparing next ranges will be a noop
+      // (already at the end of the list of files).
+      fNextFileIndex = std::max(fFileNames.size(), std::size_t(1));
    }
 }
-} // namespace Experimental
-} // namespace ROOT
 
-ROOT::RDataFrame ROOT::Experimental::MakeNTupleDataFrame(std::string_view ntupleName, std::string_view fileName)
+void ROOT::RDF::RNTupleDS::Finalize()
 {
-   auto pageSource = ROOT::Experimental::Detail::RPageSource::Create(ntupleName, fileName);
-   ROOT::RDataFrame rdf(std::make_unique<RNTupleDS>(std::move(pageSource)));
-   return rdf;
+   for (unsigned int i = 0; i < fNSlots; ++i) {
+      for (auto r : fActiveColumnReaders[i]) {
+         r->Disconnect(false /* keepValue */);
+      }
+   }
+   {
+      std::lock_guard _(fMutexStaging);
+      fStagingThreadShouldTerminate = true;
+   }
+   fCvStaging.notify_one();
+   // TODO(vpadulan): file staging is disabled with the current MT strategy, but it would be good to re-enable it.
+   if (!ROOT::IsImplicitMTEnabled())
+      fThreadStaging.join();
+   // If we have a chain with more files than the number of slots, the files opened at the end of the
+   // event loop won't be reused when the event loop restarts, so we can close them.
+   if (fFileNames.size() > fNSlots) {
+      fCurrentRanges.clear();
+      fNextRanges.clear();
+      fStagingArea.clear();
+      fStagingArea.resize(fFileNames.size());
+   }
 }
+
+void ROOT::RDF::RNTupleDS::SetNSlots(unsigned int nSlots)
+{
+   assert(fNSlots == 0);
+   assert(nSlots > 0);
+   fNSlots = nSlots;
+   fActiveColumnReaders.resize(fNSlots);
+   fActiveRangesPerSlot.resize(fNSlots * ROOT::Internal::RDF::CacheLineStep<REntryRangeDS>());
+}
+
+ROOT::RDataFrame ROOT::RDF::FromRNTuple(std::string_view ntupleName, std::string_view fileName)
+{
+   return ROOT::RDataFrame(std::make_unique<ROOT::RDF::RNTupleDS>(ntupleName, fileName));
+}
+
+ROOT::RDataFrame ROOT::RDF::FromRNTuple(std::string_view ntupleName, const std::vector<std::string> &fileNames)
+{
+   return ROOT::RDataFrame(std::make_unique<ROOT::RDF::RNTupleDS>(ntupleName, fileNames));
+}
+
+ROOT::RDF::RSampleInfo ROOT::Internal::RDF::RNTupleDS::CreateSampleInfo(
+   unsigned int slot, const std::unordered_map<std::string, ROOT::RDF::Experimental::RSample *> &sampleMap) const
+{
+   // The same slot ID could be picked multiple times in the same execution, thus
+   // ending up processing different page sources. Here we re-establish the
+   // connection between the slot and the correct page source by retrieving
+   // which range is connected currently to the slot
+
+   const auto &entryRangeDS = (!ROOT::IsImplicitMTEnabled())
+                                 ? fCurrentRanges[0]
+                                 : fActiveRangesPerSlot.at(slot * ROOT::Internal::RDF::CacheLineStep<REntryRangeDS>());
+
+   // Missing source if a file does not exist
+   if (!entryRangeDS.fSource)
+      return ROOT::RDF::RSampleInfo{};
+
+   const auto &ntupleName = entryRangeDS.fSource->GetNTupleName();
+   const auto &ntuplePath = entryRangeDS.fFileName;
+   const auto ntupleID = std::string(ntuplePath) + '/' + ntupleName;
+
+   if (sampleMap.empty())
+      return ROOT::RDF::RSampleInfo(ntupleID,
+                                    std::make_pair(entryRangeDS.fFirstEntry - entryRangeDS.fEntryOffset,
+                                                   entryRangeDS.fLastEntry - entryRangeDS.fEntryOffset),
+                                    nullptr, fPrincipalDescriptor.GetNEntries());
+
+   if (sampleMap.find(ntupleID) == sampleMap.end())
+      throw std::runtime_error("Full sample identifier '" + ntupleID + "' cannot be found in the available samples.");
+
+   return ROOT::RDF::RSampleInfo(ntupleID,
+                                 std::make_pair(entryRangeDS.fFirstEntry - entryRangeDS.fEntryOffset,
+                                                entryRangeDS.fLastEntry - entryRangeDS.fEntryOffset),
+                                 sampleMap.at(ntupleID), fPrincipalDescriptor.GetNEntries());
+}
+
+ROOT::RDataFrame ROOT::Internal::RDF::FromRNTuple(std::string_view ntupleName,
+                                                  const ROOT::RDF::ColumnNames_t &fileNames,
+                                                  const std::pair<ULong64_t, ULong64_t> &range)
+{
+   std::unique_ptr<ROOT::RDF::RNTupleDS> ds{new ROOT::RDF::RNTupleDS(ntupleName, fileNames, range)};
+   return ROOT::RDataFrame(std::move(ds));
+}
+
+std::pair<std::vector<ROOT::Internal::RNTupleClusterBoundaries>, ROOT::NTupleSize_t>
+ROOT::Internal::RDF::GetClustersAndEntries(std::string_view ntupleName, std::string_view location)
+{
+   auto source = ROOT::Internal::RPageSource::Create(ntupleName, location);
+   source->Attach();
+   // TODO(jblomer): improve MT scheduling such that not all page lists are required right away
+   source->LoadAllPageLists();
+   auto descGuard = source->GetSharedDescriptorGuard();
+   return std::make_pair(ROOT::Internal::GetClusterBoundaries(descGuard.GetConstRef()), descGuard->GetNEntries());
+}
+
+#ifdef R__USE_IMT
+namespace {
+
+/// \brief Implementation of the Range type to be used in a parallel_for when processing RNTuple data with RDataFrame.
+///
+/// The class represents one range of entries (N consecutive clusters) tied to a specific page source to be processed.
+/// The current MT strategy launches an outer parallel_for with exactly one task per page source, then within each of
+/// these launches another parallel_for that will take an instance of this class. The initial state of the class is to
+/// include the whole list of clusters of the corresponding page source. TBB will eagerly split this range in as many
+/// ranges as possible, until there is a full set of non-splittable ranges (based on IsDivisible). The split ranges
+/// only have a different begin and end cluster, there is no page source copying or cloning done by this range, instead
+/// that happens in the ParallelForBody so that it can be limited by the number of RDF slots used.
+class RSplittableRangeOfClusterBoundaries final : public ROOT::Internal::IMTUtils::RAbstractTBBRangeImpl {
+   // A view of all the cluster boundaries in the page source
+   std::span<const ROOT::Internal::RNTupleClusterBoundaries> fClusters;
+   std::size_t fClusterIdxBegin; // inclusive
+   std::size_t fClusterIdxEnd;   // exclusive
+
+public:
+   RSplittableRangeOfClusterBoundaries(std::span<const ROOT::Internal::RNTupleClusterBoundaries> clusters,
+                                       std::size_t clusterIdxBegin, std::size_t clusterIdxEnd)
+      : fClusters(clusters), fClusterIdxBegin(clusterIdxBegin), fClusterIdxEnd(clusterIdxEnd)
+   {
+      assert(fClusterIdxEnd > fClusterIdxBegin);
+   }
+
+   std::unique_ptr<ROOT::Internal::IMTUtils::RAbstractTBBRangeImpl> SplitWork() final
+   {
+      // Split the cluster range in half
+      auto clusterIdxMid = fClusterIdxBegin + (fClusterIdxEnd - fClusterIdxBegin) / 2;
+      auto newClusterIdxBegin = clusterIdxMid;
+      auto newClusterIdxEnd = fClusterIdxEnd;
+      fClusterIdxEnd = clusterIdxMid;
+
+      return std::make_unique<RSplittableRangeOfClusterBoundaries>(fClusters, newClusterIdxBegin, newClusterIdxEnd);
+   }
+
+   bool IsDivisible() const final
+   {
+      // We choose two because the page source prefetches one cluster ahead of the current one.
+      return fClusterIdxEnd - fClusterIdxBegin > 2;
+   }
+
+   bool Empty() const final
+   {
+      // empty is called once at the beginning of the parallel_for, to guard against empty tasks. We only pass tasks
+      // with actual work by construction
+      return false;
+   }
+
+   std::uint64_t GetCurrentBeginEntry() const { return fClusters[fClusterIdxBegin].fFirstEntry; }
+
+   std::uint64_t GetCurrentEndEntry() const { return fClusters[fClusterIdxEnd - 1].fLastEntryPlusOne; }
+
+   bool IsProcessingFirstCluster() const { return fClusterIdxBegin == 0; }
+};
+} // namespace
+
+// For now we need this function as a pass-through for the information contained in a
+// RSplittableRangeOfClusterBoundaries to be available to the rest of the computation graph (e.g. to connect the column
+// readers and update the sample info)
+void ROOT::RDF::RNTupleDS::InsertActiveEntryRange(unsigned int slot, std::string_view fileName,
+                                                  std::shared_ptr<ROOT::Internal::RPageSource> pageSource,
+                                                  std::uint64_t beginEntry, std::uint64_t endEntry,
+                                                  std::uint64_t offset)
+{
+   REntryRangeDS entryRangeDS;
+   entryRangeDS.fFileName = fileName;
+   entryRangeDS.fSource = std::move(pageSource);
+   entryRangeDS.fFirstEntry = beginEntry + offset;
+   entryRangeDS.fLastEntry = endEntry + offset;
+   entryRangeDS.fEntryOffset = offset;
+   fActiveRangesPerSlot.at(slot * ROOT::Internal::RDF::CacheLineStep<REntryRangeDS>()) = std::move(entryRangeDS);
+}
+
+/// \brief Apply the computation graph to an input range.
+/// \param pageSource The page source to read data from.
+/// \param rangeImpl A Range type carrying information on the range of entries to process.
+/// \param lm The RLoopManager which will run the computation graph.
+/// \param fileName Path to the storage location of the page source.
+/// \param slotStack A stack of slots, each thread needs to request one before running the computation graph.
+/// \param processedEntries Cumulating number of processed entries by this computation graph run.
+/// \param columnReaderOffset Offset value to pass to column readers used in this task. The column reader will request
+/// entries from the page source receiving a global entry number, this offset is subtracted so that the column reader
+/// requests the local entry from the page source.
+void ROOT::RDF::RNTupleDS::ParallelForBody(std::shared_ptr<ROOT::Internal::RPageSource> pageSource,
+                                           const ROOT::Internal::IMTUtils::RAbstractTBBRangeImpl &rangeImpl,
+                                           ROOT::Detail::RDF::RLoopManager &lm, std::string_view fileName,
+                                           ROOT::Internal::RSlotStack &slotStack,
+                                           std::atomic<ULong64_t> &processedEntries, ULong64_t columnReaderOffset)
+{
+   ROOT::Internal::RSlotStackRAII slotRAII{slotStack};
+   const auto &slot = slotRAII.fSlot;
+
+   const auto &range = static_cast<const RSplittableRangeOfClusterBoundaries &>(rangeImpl);
+   const auto &beginEntry = range.GetCurrentBeginEntry();
+   const auto &endEntry = range.GetCurrentEndEntry();
+
+   // We clone the page source only within this function scope, to limit the number of open page sources to 2*fNSlots
+   auto localPageSource = [&]() -> std::shared_ptr<ROOT::Internal::RPageSource> {
+      // In order to avoid an extra Clone, we need to choose one of the ranges that will take the original page source,
+      // we choose it to be the one processing the first valid cluster
+      if (range.IsProcessingFirstCluster())
+         return pageSource;
+
+      auto newPageSource = pageSource->Clone();
+      newPageSource->Attach();
+      return newPageSource;
+   }();
+
+   // Notify the current page source about the current entry range
+   localPageSource->SetEntryRange({beginEntry, endEntry - beginEntry});
+
+   processedEntries.fetch_add(endEntry - beginEntry);
+
+   // At this point we let the RNTupleDS know about the range being processed by this task. This is used for relevant
+   // operations e.g. connecting the column readers as well as populating sample information.
+   InsertActiveEntryRange(slot, fileName, std::move(localPageSource), beginEntry, endEntry, columnReaderOffset);
+
+   lm.RNTupleThreadTask({beginEntry + columnReaderOffset, endEntry + columnReaderOffset}, slot, columnReaderOffset);
+
+   // Clear the active range after having processed it, to avoid keeping around the page source for longer than intended
+   fActiveRangesPerSlot.at(slot * ROOT::Internal::RDF::CacheLineStep<REntryRangeDS>()) = {};
+}
+
+/// \brief Call parallel_for to schedule a splittable task for a page source
+/// \param pool The pool of threads used to schedule the task.
+/// \param pageSource The RNTuple page source for the task.
+/// \param fileName Path to the storage location of the page source.
+/// \param clusterBoundaries A list of cluster boundaries valid for the page source. This may be computed differently,
+/// see ProcessMT.
+/// \param nEntries Number of entries in the page source.
+/// \param lm The RLoopManager which will run the computation graph.
+/// \param slotStack A stack of slots, each thread needs to request one before running the computation graph.
+/// \param processedEntries Cumulating number of processed entries by this computation graph run.
+/// \param globalEntries Cumulating total number of entries in the input dataset.
+///
+/// This function calls the parallel_for overload that takes two arguments, one respecting the Range and the other
+/// respecting the Body requirements. The Range argument is a RSplittableRangeOfClusterBoundaries, a struct with a range
+/// of N cluster boundaries to process (initialised to the whole list of clusters). Immediately when calling
+/// parallel_for, TBB will recursively ask the RSplittableRangeOfClusterBoundaries to split itself into two roughly
+/// equal sub-tasks, until there are only leaf tasks that cannot be split further. This helps balancing cases where some
+/// tasks may end up running much longer than others.
+void ROOT::RDF::RNTupleDS::ScheduleTaskForPageSource(
+   ROOT::TThreadExecutor &pool, std::unique_ptr<ROOT::Internal::RPageSource> pageSource, std::string_view fileName,
+   std::span<const ROOT::Internal::RNTupleClusterBoundaries> clusterBoundaries, std::uint64_t nEntries,
+   ROOT::Detail::RDF::RLoopManager &lm, ROOT::Internal::RSlotStack &slotStack, std::atomic<ULong64_t> &processedEntries,
+   std::atomic<ULong64_t> &globalEntries)
+{
+
+   const auto columnReaderOffset{globalEntries.fetch_add(nEntries)};
+
+   // We need to share the same page source pointer across all splitted tasks, to decide if we clone it (in most cases)
+   // or not (one task will take the original page source).
+   std::shared_ptr<ROOT::Internal::RPageSource> sharedPageSource{std::move(pageSource)};
+
+   auto parallelForBody = [this, &sharedPageSource, &lm, &fileName, &slotStack, &processedEntries,
+                           &columnReaderOffset](const ROOT::Internal::IMTUtils::RAbstractTBBRangeImpl &rangeImpl) {
+      this->ParallelForBody(sharedPageSource, rangeImpl, lm, fileName, slotStack, processedEntries, columnReaderOffset);
+   };
+
+   ROOT::Internal::IMTUtils::ParallelFor(
+      pool, std::make_unique<RSplittableRangeOfClusterBoundaries>(clusterBoundaries, 0, clusterBoundaries.size()),
+      parallelForBody);
+}
+
+/// \brief Computes global entry offsets for the dataset
+///
+/// Used in MT scheduling when the user selects a global entry range to restrict processing to.
+std::vector<std::uint64_t> ROOT::RDF::RNTupleDS::ComputeGlobalEntryOffsets(ROOT::TThreadExecutor &pool) const
+{
+   std::vector<std::uint64_t> fileEntries(fFileNames.size());
+   auto getEntries = [](std::string_view ntupleName, std::string_view fileName) {
+      auto source = ROOT::Internal::RPageSource::Create(ntupleName, fileName);
+      source->Attach();
+      const auto descGuard = source->GetSharedDescriptorGuard();
+      return descGuard->GetNEntries();
+   };
+   pool.Foreach([&fileEntries, this,
+                 getEntries](std::size_t idx) { fileEntries[idx] = getEntries(fNTupleName, fFileNames[idx]); },
+                ROOT::TSeq<std::size_t>(fFileNames.size()));
+
+   // We want the output list of offsets to start from zero:
+   // {0, n_entries_file_0, n_entries_file_1 + n_entries_file_0, ...}
+   std::uint64_t offset{};
+   std::vector<std::uint64_t> ret;
+   ret.reserve(fFileNames.size());
+   for (auto nEntries : fileEntries) {
+      ret.push_back(offset);
+      offset += nEntries;
+   }
+
+   return ret;
+}
+
+/// \brief Launch the task(s) for the input file index, taking into account dataset global entry offsets.
+///
+/// This function is used in MT scheduling to launch a task processing one input file. It is selected when
+/// the user specifies a global entry range to restrict processing to. In this scenario we have precomputed the global
+/// entry offsets of each file upfront so we can then adjust the range of entries in each file accordingly. The task may
+/// be split into smaller tasks based on entry ranges aligned to cluster boundaries, see ScheduleTaskForPageSource.
+void ROOT::RDF::RNTupleDS::ScheduleTasksForFileWithGlobalOffset(
+   std::size_t fileIdx, const std::vector<std::uint64_t> &globalFileOffsets, ROOT::TThreadExecutor &pool,
+   ROOT::Detail::RDF::RLoopManager &lm, ROOT::Internal::RSlotStack &slotStack, std::atomic<ULong64_t> &processedEntries,
+   std::atomic<ULong64_t> &globalEntries)
+{
+   const auto &fileName = fFileNames[fileIdx];
+   auto source = CreatePageSource(fNTupleName, fileName);
+   source->Attach();
+   // TODO: improve MT scheduling such that not all page lists are required right away
+   source->LoadAllPageLists();
+
+   const std::uint64_t globalFileOffset = globalFileOffsets[fileIdx];
+   // captured structured bindings are a C++20 extension
+   const auto globalBegin = fGlobalEntryRange.value().first;
+   const auto globalEnd = fGlobalEntryRange.value().second;
+
+   const auto clustersAndEntries =
+      [&]() -> std::pair<std::vector<ROOT::Internal::RNTupleClusterBoundaries>, ROOT::NTupleSize_t> {
+      const auto descGuard = source->GetSharedDescriptorGuard();
+      const auto nEntries = descGuard->GetNEntries();
+      // Early return:
+      // - There are no entries in the file
+      // - The boundaries of this file are not touched by the global entry range
+      if (nEntries == 0 || (globalFileOffset + nEntries) < globalBegin || globalFileOffset > globalEnd)
+         return {{}, ROOT::kInvalidNTupleIndex};
+
+      const auto clustersInFile = ROOT::Internal::GetClusterBoundaries(descGuard.GetConstRef());
+
+      // The list of cluster boundaries in this file needs to be adjusted if either the beginning or the end of the
+      // global entry range fall within the boundaries of the entries of this file.
+      if ((globalBegin >= globalFileOffset) || (globalEnd < (globalFileOffset + nEntries))) {
+         std::vector<ROOT::Internal::RNTupleClusterBoundaries> adjustedClusters;
+         for (const auto &cluster : clustersInFile) {
+            const std::uint64_t localBegin = globalBegin < globalFileOffset ? 0 : globalBegin - globalFileOffset;
+            const std::uint64_t localEnd =
+               globalEnd > globalFileOffset + nEntries ? globalFileOffset + nEntries : globalEnd - globalFileOffset;
+            const auto currentBegin = std::max(cluster.fFirstEntry, localBegin);
+            const auto currentEnd = std::min(cluster.fLastEntryPlusOne, localEnd);
+            // This is not satified if the desired begin is larger than the last entry of some cluster
+            // In this case, this cluster is not going to be processed further
+            if (currentBegin < currentEnd)
+               adjustedClusters.push_back(ROOT::Internal::RNTupleClusterBoundaries{currentBegin, currentEnd});
+         }
+         return std::make_pair(adjustedClusters, nEntries);
+      }
+
+      return std::make_pair(clustersInFile, nEntries);
+   }();
+   const ROOT::NTupleSize_t nEntries = clustersAndEntries.second;
+   if (nEntries == ROOT::kInvalidNTupleIndex)
+      return;
+   const auto &clusters = clustersAndEntries.first;
+   ScheduleTaskForPageSource(pool, std::move(source), fileName, clusters, nEntries, lm, slotStack, processedEntries,
+                             globalEntries);
+}
+
+/// \brief Launch the task(s) for the input file index
+///
+/// This function is used in MT scheduling to launch a task processing one input file. It is selected when
+/// there is no global entry range. The task may be split into smaller tasks based on entry ranges aligned to cluster
+/// boundaries, see ScheduleTaskForPageSource.
+void ROOT::RDF::RNTupleDS::ScheduleTasksForFile(std::size_t fileIdx, ROOT::TThreadExecutor &pool,
+                                                ROOT::Detail::RDF::RLoopManager &lm,
+                                                ROOT::Internal::RSlotStack &slotStack,
+                                                std::atomic<ULong64_t> &processedEntries,
+                                                std::atomic<ULong64_t> &globalEntries)
+{
+   // Evaluate clusters (with local entry numbers) and number of entries for this file
+   const auto &fileName = fFileNames[fileIdx];
+   auto source = CreatePageSource(fNTupleName, fFileNames[fileIdx]);
+   source->Attach();
+   // TODO: improve MT scheduling such that not all page lists are required right away
+   source->LoadAllPageLists();
+   const auto clustersAndEntries = [&]() {
+      const auto descGuard = source->GetSharedDescriptorGuard();
+      return std::make_pair(ROOT::Internal::GetClusterBoundaries(descGuard.GetConstRef()), descGuard->GetNEntries());
+   }();
+   const ROOT::NTupleSize_t nEntries = clustersAndEntries.second;
+   if (nEntries == 0)
+      return;
+   const auto &clusters = clustersAndEntries.first;
+   ScheduleTaskForPageSource(pool, std::move(source), fileName, clusters, nEntries, lm, slotStack, processedEntries,
+                             globalEntries);
+}
+
+/// \brief Run the computation graph by scheduling MT tasks
+///
+/// The data source interacts with the loop manager and with a pool of threads (via TThreadExecutor) at the same time.
+/// The function schedules one MT task per input file, eventually calling the parallel_for overload taking two input
+/// arguments respectively respecting the Range and Body requirements. This means that each of the file-based tasks
+/// can be split into various sub-tasks, each processing a set of consecutive clusters of the same file. Before
+/// launching the file-based tasks, the function checks if the user has selected a global range of entries to restrict
+/// processing to. If so, the function first computes the global entry offsets of all the input files, so they can be
+/// matched against the user-provided global range. These will be used to adjust the list of clusters of the file before
+/// spawning the corresponding task.
+void ROOT::RDF::RNTupleDS::ProcessMT(ROOT::Detail::RDF::RLoopManager &lm)
+{
+   ROOT::TThreadExecutor pool;
+   ROOT::Internal::RSlotStack slotStack(fNSlots);
+   std::atomic<ULong64_t> processedEntries(0ull);
+   std::atomic<ULong64_t> globalEntries(0ull);
+
+   if (fGlobalEntryRange.has_value()) {
+      const auto globalFileOffsets = ComputeGlobalEntryOffsets(pool);
+      pool.Foreach(
+         [&](std::size_t fileIdx) {
+            ScheduleTasksForFileWithGlobalOffset(fileIdx, globalFileOffsets, pool, lm, slotStack, processedEntries,
+                                                 globalEntries);
+         },
+         ROOT::TSeq<std::size_t>(fFileNames.size()));
+   } else {
+      pool.Foreach(
+         [&](std::size_t fileIdx) {
+            ScheduleTasksForFile(fileIdx, pool, lm, slotStack, processedEntries, globalEntries);
+         },
+         ROOT::TSeq<std::size_t>(fFileNames.size()));
+   }
+
+   if (fGlobalEntryRange.has_value()) {
+      const auto [begin, end] = fGlobalEntryRange.value();
+      ULong64_t finalProcessedEntries = processedEntries.load();
+      // This check serves two purposes:
+      // - The immediate purpose is for when the user specifies an ending entry of the range which is actually beyond
+      // the true last entry in the dataset. This check will inform the user they should restrict their input range.
+      // This case is also tested in dataframe_datasetspec.cxx.
+      // - The second purpose is as a sanity check that we indeed processed as many entries as the user wanted. This
+      // is what we expect, but we take the chance here as a last resort to double check that our expectation
+      // corresponds to reality.
+      if ((end - begin) > finalProcessedEntries) {
+         Warning("RDataFrame::Run",
+                 "RDataFrame stopped processing after %lld entries, whereas an entry range (begin=%lld,end=%lld) was "
+                 "requested. Consider adjusting the end value of the entry range to a maximum of %lld.",
+                 finalProcessedEntries, begin, end, begin + finalProcessedEntries);
+      }
+   }
+}
+#endif

@@ -32,6 +32,7 @@ The following styles are supported:
   - kNESReal:           arbitrary real number
   - kNESDegree:         angle in degree:minutes:seconds format
   - kNESMinSec:         time in minutes:seconds format
+  - kNESMinSecCent:     time in minutes:seconds.centiseconds format
   - kNESHourMin:        time in hour:minutes format
   - kNESHourMinSec:     time in hour:minutes:seconds format
   - kNESDayMYear:       date in day/month/year format
@@ -65,8 +66,10 @@ pressing the alt key at the same time.
 
 Changing the number in the widget will generate the event:
   - kC_TEXTENTRY, kTE_TEXTCHANGED, widget id, 0.
+
 Hitting the enter key will generate:
   - kC_TEXTENTRY, kTE_ENTER, widget id, 0.
+
 Hitting the tab key will generate:
   - kC_TEXTENTRY, kTE_TAB, widget id, 0.
 
@@ -81,16 +84,12 @@ Hitting the tab key will generate:
 #include "TMath.h"
 #include "TVirtualX.h"
 #include "strlcpy.h"
-#include "snprintf.h"
 
+#include <cstdio>
 #include <cctype>
 #include <iostream>
 
 
-ClassImp(TGNumberFormat);
-ClassImp(TGNumberEntryField);
-ClassImp(TGNumberEntryLayout);
-ClassImp(TGNumberEntry);
 
 
 
@@ -184,7 +183,8 @@ static Bool_t IsGoodChar(char c, TGNumberFormat::EStyle style,
         (style == TGNumberFormat::kNESRealFour) ||
         (style == TGNumberFormat::kNESReal) ||
         (style == TGNumberFormat::kNESDegree) ||
-        (style == TGNumberFormat::kNESMinSec)) &&
+        (style == TGNumberFormat::kNESMinSec) ||
+        (style == TGNumberFormat::kNESMinSecCent)) &&
        (attr == TGNumberFormat::kNEAAnyNumber)) {
       return kTRUE;
    }
@@ -199,6 +199,7 @@ static Bool_t IsGoodChar(char c, TGNumberFormat::EStyle style,
         (style == TGNumberFormat::kNESReal) ||
         (style == TGNumberFormat::kNESDegree) ||
         (style == TGNumberFormat::kNESMinSec) ||
+        (style == TGNumberFormat::kNESMinSecCent) ||
         (style == TGNumberFormat::kNESHourMin) ||
         (style == TGNumberFormat::kNESHourMinSec) ||
         (style == TGNumberFormat::kNESDayMYear) ||
@@ -208,6 +209,7 @@ static Bool_t IsGoodChar(char c, TGNumberFormat::EStyle style,
    if ((c == ':') &&
        ((style == TGNumberFormat::kNESDegree) ||
         (style == TGNumberFormat::kNESMinSec) ||
+        (style == TGNumberFormat::kNESMinSecCent) ||
         (style == TGNumberFormat::kNESHourMin) ||
         (style == TGNumberFormat::kNESHourMinSec) ||
         (style == TGNumberFormat::kNESDayMYear) ||
@@ -226,20 +228,32 @@ static Bool_t IsGoodChar(char c, TGNumberFormat::EStyle style,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// \brief Copy the string stored in `src` into `dst`, skipping some chars
+/// depending on the format and style.
+/// The copy is stopped when reaching `dstCap-1` copied chars or when finding a
+/// null terminator char in `src`, whatever happens first.
+/// \param src (owned by caller) is the preallocated char buffer to be copied
+/// \param dst (owned by caller) is a preallocated char buffer where result is stored
+/// \param dstCap must match the length of dst buffer and be bigger than 0
+/// \param style see TGNumberFormat::EStyle
+/// \param attr see TGNumberFormat::EAttribute
+/// \note If `src` is a nullptr, this function is a no-op and returns silently
 
-static char *EliminateGarbage(char *text,
-                              TGNumberFormat::EStyle style,
-                              TGNumberFormat::EAttribute attr)
+static void CopyAndSkipGarbage(char *dst, std::size_t dstCap, const char *src, TGNumberFormat::EStyle style,
+                               TGNumberFormat::EAttribute attr)
 {
-   if (text == 0) {
-      return 0;
-   }
-   for (Int_t i = strlen(text) - 1; i >= 0; i--) {
-      if (!IsGoodChar(text[i], style, attr)) {
-         memmove(text + i, text + i + 1, strlen(text) - i);
+   if (!src)
+      return;
+   assert(dstCap > 0);
+   assert(dst);
+   std::size_t dstIdx = 0;
+   while (dstIdx < dstCap - 1 && *src) {
+      if (IsGoodChar(*src, style, attr)) {
+         dst[dstIdx++] = *src;
       }
+      ++src;
    }
-   return text;
+   dst[dstIdx] = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -260,17 +274,9 @@ static Long_t IntStr(const char *text)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static char *StrInt(char *text, Long_t i, Int_t digits)
+static char *StrInt(char *text, std::size_t textCap, Long_t i, Int_t digits)
 {
-   snprintf(text, 250, "%li", TMath::Abs(i));
-   TString s = text;
-   while (digits > s.Length()) {
-      s = "0" + s;
-   }
-   if (i < 0) {
-      s = "-" + s;
-   }
-   strlcpy(text, (const char *) s, 250);
+   snprintf(text, textCap, "%0*li", digits + (i < 0), i);
    return text;
 }
 
@@ -279,35 +285,45 @@ static char *StrInt(char *text, Long_t i, Int_t digits)
 static TString StringInt(Long_t i, Int_t digits)
 {
    char text[256];
-   StrInt(text, i, digits);
+   StrInt(text, sizeof(text), i, digits);
    return TString(text);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static char *RealToStr(char *text, const RealInfo_t & ri)
+static char *RealToStr(char *text, std::size_t textCap, const RealInfo_t & ri)
 {
    char *p = text;
-   if (text == 0) {
-      return 0;
+   if (!text) {
+      return nullptr;
    }
-   strlcpy(p, "", 256);
+   if (!textCap)
+      return text;
+
+   const auto TextLen = [&p, text, textCap] () -> std::size_t {
+      std::size_t curTextLen = p - text;
+      if (curTextLen >= textCap)
+         return 0;
+      return textCap - curTextLen;
+   };
+
+   strlcpy(p, "", textCap);
    if (ri.fSign < 0) {
-      strlcpy(p, "-", 256);
+      strlcpy(p, "-", textCap);
       p++;
    }
-   StrInt(p, TMath::Abs(ri.fIntNum), 0);
+   StrInt(p, TextLen(), TMath::Abs(ri.fIntNum), 0);
    p += strlen(p);
    if ((ri.fStyle == kRSFrac) || (ri.fStyle == kRSFracExpo)) {
-      strlcpy(p, ".", 256-strlen(p));
+      strlcpy(p, ".", TextLen());
       p++;
-      StrInt(p, TMath::Abs(ri.fFracNum), ri.fFracDigits);
+      StrInt(p, TextLen(), TMath::Abs(ri.fFracNum), ri.fFracDigits);
       p += strlen(p);
    }
    if ((ri.fStyle == kRSExpo) || (ri.fStyle == kRSFracExpo)) {
-      strlcpy(p, "e", 256-strlen(p));
+      strlcpy(p, "e", TextLen());
       p++;
-      StrInt(p, ri.fExpoNum, 0);
+      StrInt(p, TextLen(), ri.fExpoNum, 0);
       p += strlen(p);
    }
    return text;
@@ -430,30 +446,15 @@ static ULong_t HexStrToInt(const char *s)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static char *IntToHexStr(char *text, ULong_t l)
+static char *IntToHexStr(char *text, std::size_t textCap, ULong_t l)
 {
-   const char *const digits = "0123456789ABCDEF";
-   char buf[64];
-   char *p = buf + 62;
-   // coverity[secure_coding]
-   strcpy(p, "");
-   while (l > 0) {
-      *(--p) = digits[l % 16];
-      l /= 16;
-   }
-   if (!p[0]) {
-      // coverity[secure_coding]
-      strcpy(text, "0");
-   } else {
-      // coverity[secure_coding]
-      strcpy(text, p);
-   }
+   snprintf(text, textCap, "%lX", l);
    return text;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static char *MIntToStr(char *text, Long_t l, Int_t digits)
+static char *MIntToStr(char *text, std::size_t textCap, Long_t l, Int_t digits)
 {
    TString s;
    Int_t base;
@@ -480,13 +481,13 @@ static char *MIntToStr(char *text, Long_t l, Int_t digits)
    if (l < 0) {
       s = "-" + s;
    }
-   strlcpy(text, (const char *) s, 256);
+   strlcpy(text, (const char *) s, textCap);
    return text;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static char *DIntToStr(char *text, Long_t l, Bool_t Sec, char Del)
+static char *DIntToStr(char *text, std::size_t textCap, Long_t l, Bool_t Sec, char Del)
 {
    TString s;
    if (Sec) {
@@ -500,7 +501,23 @@ static char *DIntToStr(char *text, Long_t l, Bool_t Sec, char Del)
    if (l < 0) {
       s = "-" + s;
    }
-   strlcpy(text, (const char *) s, 256);
+   strlcpy(text, (const char *) s, textCap);
+   return text;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// For kNESMinSecCent
+
+static char *DIntToStr(char *text, std::size_t textCap, Long_t l, char Del, char Del2)
+{
+   TString s;
+   s = StringInt(TMath::Abs(l) / 6000, 0) + Del +
+       StringInt((TMath::Abs(l) % 6000) / 100, 2) + Del2 +
+       StringInt(TMath::Abs(l) % 100, 2);
+   if (l < 0) {
+      s = "-" + s;
+   }
+   strlcpy(text, (const char *) s, textCap);
    return text;
 }
 
@@ -552,27 +569,33 @@ static Long_t GetSignificant(Long_t l, Int_t Max)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static void AppendFracZero(char *text, Int_t digits)
+/// Given a numeric string "xxx.yyy" or "xxx,yyy", makes sure that the fractional
+/// part (if present) always has at least `digits` digits, appending zeroes if needed.
+static void AppendFracZero(char *text, std::size_t textCap, Int_t digits)
 {
-   char *p;
    Int_t found = 0;
-   p = strchr(text, '.');
-   if (p == 0) {
-      p = strchr(text, ',');
+   char *p = strrchr(text, '.');
+   if (!p) {
+      p = strrchr(text, ',');
    }
-   if (p == 0) {
+   if (!p) {
       return;
    }
    p++;
-   for (UInt_t i = 0; i < strlen(p); i++) {
-      if (isdigit(*p)) {
-         found++;
-      }
+   auto pLen = strlen(p);
+   for (UInt_t i = 0; i < pLen; i++) {
+      // NOTE: converting to bool because isdigit doesn't technically necessarily return 0 or 1
+      // (the specs mention it returns "a nonzero value" for positive cases).
+      found += !!isdigit(p[i]);
    }
-   while (found < digits) {
-      // coverity[secure_coding]
-      strcpy(p + strlen(p), "0");
-      found++;
+   auto pOff = p - text;
+   assert(textCap>= pOff + pLen);
+   auto remainingCap = textCap - pOff - pLen;
+   const auto trailingZeroes = std::min<std::size_t>(std::max(0, digits - found), remainingCap - 1);
+   if (trailingZeroes > 0) {
+      memset(p + pLen, '0', trailingZeroes);
+      // ensure the new string is null terminated
+      p[pLen + trailingZeroes] = 0;
    }
 }
 
@@ -624,7 +647,7 @@ static Long_t TranslateToNum(const char *text,
       {
          char buf[256];
          strlcpy(buf, text, sizeof(buf));
-         AppendFracZero(buf, 2);
+         AppendFracZero(buf, sizeof(buf), 2);
          GetNumbers(buf, sign, n1, 12, n2, 2, n3, 0, ".,");
          return sign * (100 * n1 + GetSignificant(n2, 100));
       }
@@ -632,7 +655,7 @@ static Long_t TranslateToNum(const char *text,
       {
          char buf[256];
          strlcpy(buf, text, sizeof(buf));
-         AppendFracZero(buf, 3);
+         AppendFracZero(buf, sizeof(buf), 3);
          GetNumbers(buf, sign, n1, 12, n2, 3, n3, 0, ".,");
          return sign * (1000 * n1 + GetSignificant(n2, 1000));
       }
@@ -640,7 +663,7 @@ static Long_t TranslateToNum(const char *text,
       {
          char buf[256];
          strlcpy(buf, text, sizeof(buf));
-         AppendFracZero(buf, 4);
+         AppendFracZero(buf, sizeof(buf), 4);
          GetNumbers(buf, sign, n1, 12, n2, 4, n3, 0, ".,");
          return sign * (10000 * n1 + GetSignificant(n2, 10000));
       }
@@ -657,6 +680,10 @@ static Long_t TranslateToNum(const char *text,
    case TGNumberFormat::kNESMinSec:
       GetNumbers(text, sign, n1, 12, n2, 2, n3, 0, ".,:");
       return sign * (60 * n1 + GetSignificant(n2, 60));
+   case TGNumberFormat::kNESMinSecCent:
+      GetNumbers(text, sign, n1, 12, n2, 2, n3, 2, ".,:");
+      return 6000 * n1 + 100*GetSignificant(n2, 60) +
+          GetSignificant(n3, 100);
    case TGNumberFormat::kNESHourMin:
       GetNumbers(text, sign, n1, 12, n2, 2, n3, 0, ".,:");
       return 60 * n1 + GetSignificant(n2, 60);
@@ -674,38 +701,41 @@ static Long_t TranslateToNum(const char *text,
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Translate a number value to a string.
+/// `textCap` indicates the capacity of `text`.
 
-static char *TranslateToStr(char *text, Long_t l,
+static char *TranslateToStr(char *text, std::size_t textCap, Long_t l,
                             TGNumberFormat::EStyle style, const RealInfo_t & ri)
 {
    switch (style) {
    case TGNumberFormat::kNESInteger:
-      return StrInt(text, l, 0);
+      return StrInt(text, textCap, l, 0);
    case TGNumberFormat::kNESRealOne:
-      return MIntToStr(text, l, 1);
+      return MIntToStr(text, textCap, l, 1);
    case TGNumberFormat::kNESRealTwo:
-      return MIntToStr(text, l, 2);
+      return MIntToStr(text, textCap, l, 2);
    case TGNumberFormat::kNESRealThree:
-      return MIntToStr(text, l, 3);
+      return MIntToStr(text, textCap, l, 3);
    case TGNumberFormat::kNESRealFour:
-      return MIntToStr(text, l, 4);
+      return MIntToStr(text, textCap, l, 4);
    case TGNumberFormat::kNESReal:
-      return RealToStr(text, ri);
+      return RealToStr(text, textCap, ri);
    case TGNumberFormat::kNESDegree:
-      return DIntToStr(text, l, kTRUE, '.');
+      return DIntToStr(text, textCap, l, kTRUE, '.');
    case TGNumberFormat::kNESHourMinSec:
-      return DIntToStr(text, l % (24 * 3600), kTRUE, ':');
+      return DIntToStr(text, textCap, l % (24 * 3600), kTRUE, ':');
    case TGNumberFormat::kNESMinSec:
-      return DIntToStr(text, l, kFALSE, ':');
+      return DIntToStr(text, textCap, l, kFALSE, ':');
+   case TGNumberFormat::kNESMinSecCent:
+      return DIntToStr(text, textCap, l % (60 * 6000), ':', '.');
    case TGNumberFormat::kNESHourMin:
-      return DIntToStr(text, l % (24 * 60), kFALSE, ':');
+      return DIntToStr(text, textCap, l % (24 * 60), kFALSE, ':');
    case TGNumberFormat::kNESDayMYear:
       {
          TString date =
              StringInt(TMath::Abs(l) % 100, 0) + "/" +
              StringInt((TMath::Abs(l) / 100) % 100, 0) + "/" +
              StringInt(TMath::Abs(l) / 10000, 0);
-         strlcpy(text, (const char *) date, 256);
+         strlcpy(text, (const char *) date, textCap);
          return text;
       }
    case TGNumberFormat::kNESMDayYear:
@@ -714,11 +744,11 @@ static char *TranslateToStr(char *text, Long_t l,
              StringInt((TMath::Abs(l) / 100) % 100, 0) + "/" +
              StringInt(TMath::Abs(l) % 100, 0) + "/" +
              StringInt(TMath::Abs(l) / 10000, 0);
-         strlcpy(text, (const char *) date, 256);
+         strlcpy(text, (const char *) date, textCap);
          return text;
       }
    case TGNumberFormat::kNESHex:
-      return IntToHexStr(text, (ULong_t) l);
+      return IntToHexStr(text, textCap, (ULong_t) l);
    }
    return 0;
 }
@@ -1081,7 +1111,7 @@ static void IncreaseDate(Long_t & l, TGNumberFormat::EStepSize step, Int_t sign)
 TGNumberEntryField::TGNumberEntryField(const TGWindow * p, Int_t id,
                                        Double_t val, GContext_t norm,
                                        FontStruct_t font, UInt_t option,
-                                       ULong_t back)
+                                       Pixel_t back)
    : TGTextEntry(p, new TGTextBuffer(), id, norm, font, option, back),
      fNeedsVerification(kFALSE), fNumStyle(kNESReal), fNumAttr(kNEAAnyNumber),
      fNumLimits(kNELNoLimits), fNumMin(0.0), fNumMax(1.0)
@@ -1146,6 +1176,9 @@ void TGNumberEntryField::SetNumber(Double_t val, Bool_t emit)
    case kNESMinSec:
       SetIntNumber(Round(val), emit);
       break;
+   case kNESMinSecCent:
+      SetIntNumber(Round(val), emit);
+      break;
    case kNESHourMin:
       SetIntNumber(Round(val), emit);
       break;
@@ -1169,15 +1202,16 @@ void TGNumberEntryField::SetIntNumber(Long_t val, Bool_t emit)
    char text[256];
    RealInfo_t ri;
    if (fNumStyle == kNESReal) {
-      TranslateToStr(text, val, kNESInteger, ri);
+      TranslateToStr(text, sizeof(text), val, kNESInteger, ri);
    } else {
-      TranslateToStr(text, val, fNumStyle, ri);
+      TranslateToStr(text, sizeof(text), val, fNumStyle, ri);
    }
    SetText(text, emit);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set the numeric value (time format).
+/// Set the numeric value (time format). In case of kNESMinSecCent, pass the
+/// centiseconds in the hour variable.
 
 void TGNumberEntryField::SetTime(Int_t hour, Int_t min, Int_t sec, Bool_t emit)
 {
@@ -1187,10 +1221,11 @@ void TGNumberEntryField::SetTime(Int_t hour, Int_t min, Int_t sec, Bool_t emit)
                    TMath::Abs(sec), emit);
       break;
    case kNESMinSec:
-      {
-         SetIntNumber(60 * min + sec, emit);
-         break;
-      }
+      SetIntNumber(60 * TMath::Abs(min) + TMath::Abs(sec), emit);
+      break;
+   case kNESMinSecCent:
+      SetIntNumber(6000 *TMath::Abs(min) + 100 * TMath::Abs(sec) + TMath::Abs(hour), emit);
+      break;
    case kNESHourMin:
       SetIntNumber(60 * TMath::Abs(hour) + TMath::Abs(min), emit);
       break;
@@ -1232,8 +1267,7 @@ void TGNumberEntryField::SetHexNumber(ULong_t val, Bool_t emit)
 void TGNumberEntryField::SetText(const char *text, Bool_t emit)
 {
    char buf[256];
-   strlcpy(buf, text, sizeof(buf));
-   EliminateGarbage(buf, fNumStyle, fNumAttr);
+   CopyAndSkipGarbage(buf, sizeof(buf), text, fNumStyle, fNumAttr);
    TGTextEntry::SetText(buf, emit);
    fNeedsVerification = kFALSE;
 }
@@ -1267,6 +1301,8 @@ Double_t TGNumberEntryField::GetNumber() const
       return (Double_t) GetIntNumber();
    case kNESMinSec:
       return (Double_t) GetIntNumber();
+   case kNESMinSecCent:
+      return (Double_t) GetIntNumber();
    case kNESHourMin:
       return (Double_t) GetIntNumber();
    case kNESDayMYear:
@@ -1289,7 +1325,8 @@ Long_t TGNumberEntryField::GetIntNumber() const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Get the numeric value (time format).
+/// Get the numeric value (time format). In case of kNESMinSecCent, the first
+/// variable (hour) will store instead the centiseconds.
 
 void TGNumberEntryField::GetTime(Int_t & hour, Int_t & min, Int_t & sec) const
 {
@@ -1312,6 +1349,14 @@ void TGNumberEntryField::GetTime(Int_t & hour, Int_t & min, Int_t & sec) const
             min *= -1;
             sec *= -1;
          }
+         break;
+      }
+   case kNESMinSecCent:
+      {
+         Long_t l = GetIntNumber();
+         min = TMath::Abs(l) / 6000;
+         sec = (TMath::Abs(l) % 60) / 100;
+         hour = TMath::Abs(l) % 100;// centisec is stored in variable named hour
          break;
       }
    case kNESHourMin:
@@ -1398,7 +1443,7 @@ void TGNumberEntryField::IncreaseNumber(EStepSize step,
    if ((fNumStyle == kNESDegree) || (fNumStyle == kNESHourMinSec) ||
        (fNumStyle == kNESMinSec) || (fNumStyle == kNESHourMin) ||
        (fNumStyle == kNESDayMYear) || (fNumStyle == kNESMDayYear) ||
-       (fNumStyle == kNESHex)) {
+       (fNumStyle == kNESHex) || (fNumStyle == kNESMinSecCent)) {
       logstep = kFALSE;
       switch (step) {
       case kNSSSmall:
@@ -1518,6 +1563,21 @@ void TGNumberEntryField::IncreaseNumber(EStepSize step,
             l = 1;
          break;
       }
+   case kNESMinSecCent:
+      {
+         if (mag > 60)
+            l += sign * 36 * mag;
+         else if (mag > 6)
+            l += sign * 6 * mag;
+         else
+            l += sign * mag;
+         CheckMinMax(l, fNumStyle, fNumLimits, fNumMin, fNumMax);
+         if (l < 0)
+            l = (60 * 6000) - ((-l) % (60 * 6000));
+         if (l > 0)
+            l = l % (60 * 6000);
+         break;
+      }
    case kNESHourMin:
       {
          if (mag > 6)
@@ -1558,7 +1618,7 @@ void TGNumberEntryField::IncreaseNumber(EStepSize step,
       SetIntNumber(l);
    } else {
       char buf[256];
-      RealToStr(buf, ri);
+      RealToStr(buf, sizeof(buf), ri);
       SetText(buf);
    }
 }
@@ -1811,7 +1871,7 @@ private:
 public:
    TRepeatTimer(TGRepeatFireButton * button, Long_t ms)
     : TTimer(ms, kTRUE), fButton(button) { }
-   virtual Bool_t Notify();
+   Bool_t Notify() override;
 };
 
 
@@ -1842,10 +1902,10 @@ public:
     : TGPictureButton(p, pic, id), fTimer(0), fIgnoreNextFire(0),
        fStep(TGNumberFormat::kNSSSmall), fStepLog(logstep), fDoLogStep(logstep)
        { fEditDisabled = kEditDisable | kEditDisableGrab; }
-   virtual ~TGRepeatFireButton() { delete fTimer; }
+   ~TGRepeatFireButton() override { delete fTimer; }
 
-   virtual  Bool_t HandleButton(Event_t *event);
-            void   FireButton();
+   Bool_t HandleButton(Event_t *event) override;
+   void   FireButton();
    virtual  void   SetLogStep(Bool_t on = kTRUE) { fStepLog = on; }
 };
 
@@ -2054,7 +2114,7 @@ void TGNumberEntry::SetButtonToNum(Bool_t state)
 /// param % 10000 / 100 != 0 indicates log step
 /// param / 10000 != 0 indicates button down
 
-Bool_t TGNumberEntry::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
+Bool_t TGNumberEntry::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2)
 {
    switch (GET_MSG(msg)) {
    case kC_COMMAND:
@@ -2134,13 +2194,11 @@ void TGNumberEntry::Modified()
 
 void TGNumberEntry::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
-
    // to calculate the digits parameter
    Int_t w = fNumericEntry->GetWidth();
    Int_t h = fNumericEntry->GetHeight();
-   Int_t charw  = fNumericEntry->GetCharWidth("0123456789");
-   Int_t digits = (30*w - 240 -20*h)/(3*charw) + 3;
+   Int_t charw = fNumericEntry->GetCharWidth("0123456789");
+   Int_t digits = (30 * w - 240 - 20 * h) / (3 * charw) + 3;
 
    // for time format
    Int_t hour, min, sec;
@@ -2150,102 +2208,86 @@ void TGNumberEntry::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
    Int_t yy, mm, dd;
    GetDate(yy, mm, dd);
 
-   out << "   TGNumberEntry *";
-   out << GetName() << " = new TGNumberEntry(" << fParent->GetName() << ", (Double_t) ";
-   switch (GetNumStyle()){
-      case kNESInteger:
-         out << GetIntNumber() << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESRealOne:
-         out << GetNumber() << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESRealTwo:
-         out << GetNumber() << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESRealThree:
-         out << GetNumber() << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESRealFour:
-         out << GetNumber() << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESReal:
-         out << GetNumber() << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESDegree:
-         out << GetIntNumber() << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESMinSec:
-         out << min*60 + sec << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESHourMin:
-         out << hour*60 + min << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESHourMinSec:
-         out << hour*3600 + min*60 + sec << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESDayMYear:
-         out << yy << mm << dd << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESMDayYear:
-         out << yy << mm << dd << "," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESHex:
-      {  char hex[256];
-         ULong_t l = GetHexNumber();
-         IntToHexStr(hex, l);
-         std::ios::fmtflags f = out.flags(); // store flags
-         out << "0x" << std::hex << "U," << digits << "," << WidgetId()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         out.flags( f ); // restore flags (reset std::hex)
-         break;
-      }
+   out << "   TGNumberEntry *" << GetName() << " = new TGNumberEntry(" << fParent->GetName() << ", (Double_t) ";
+   switch (GetNumStyle()) {
+   case kNESInteger:
+      out << GetIntNumber() << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESRealOne:
+      out << GetNumber() << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESRealTwo:
+      out << GetNumber() << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESRealThree:
+      out << GetNumber() << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESRealFour:
+      out << GetNumber() << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESReal:
+      out << GetNumber() << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESDegree:
+      out << GetIntNumber() << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESMinSec:
+      out << min * 60 + sec << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESMinSecCent:
+      // GetTime returns the centisecs in the hour variable
+      out << min * 6000 + sec * 100 + hour << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) "
+          << GetNumStyle();
+      break;
+   case kNESHourMin:
+      out << hour * 60 + min << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESHourMinSec:
+      out << hour * 3600 + min * 60 + sec << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) "
+          << GetNumStyle();
+      break;
+   case kNESDayMYear:
+      out << yy << mm << dd << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESMDayYear:
+      out << yy << mm << dd << "," << digits << "," << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESHex: {
+      char hexstr[256];
+      IntToHexStr(hexstr, sizeof(hexstr), GetHexNumber());
+      out << "0x" << hexstr << "U, " << digits << ", " << WidgetId() << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
    }
-   if (GetNumMax() ==1) {
+   }
+   if (GetNumMax() == 1) {
       if (GetNumMin() == 0) {
          if (GetNumLimits() == kNELNoLimits) {
             if (GetNumAttr() == kNEAAnyNumber) {
-               out << ");" << std::endl;
+               out << ");\n";
             } else {
-               out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ");" << std::endl;
+               out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ");\n";
             }
          } else {
-            out << ",(TGNumberFormat::EAttribute) " << GetNumAttr()
-                << ",(TGNumberFormat::ELimit) " << GetNumLimits() << ");" << std::endl;
+            out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ",(TGNumberFormat::ELimit) " << GetNumLimits()
+                << ");\n";
          }
       } else {
-         out << ",(TGNumberFormat::EAttribute) " << GetNumAttr()
-             << ",(TGNumberFormat::ELimit) " << GetNumLimits()
-             << "," << GetNumMin() << ");" << std::endl;
+         out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ",(TGNumberFormat::ELimit) " << GetNumLimits()
+             << "," << GetNumMin() << ");\n";
       }
    } else {
-         out << ",(TGNumberFormat::EAttribute) " << GetNumAttr()
-             << ",(TGNumberFormat::ELimit) " << GetNumLimits()
-             << "," << GetNumMin() << "," << GetNumMax() << ");" << std::endl;
+      out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ",(TGNumberFormat::ELimit) " << GetNumLimits() << ","
+          << GetNumMin() << "," << GetNumMax() << ");\n";
    }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
    if (fButtonDown->GetState() == kButtonDisabled)
-      out << "   " << GetName() << "->SetState(kFALSE);" << std::endl;
+      out << "   " << GetName() << "->SetState(kFALSE);\n";
 
    TGToolTip *tip = GetNumberEntry()->GetToolTip();
    if (tip) {
       TString tiptext = tip->GetText()->GetString();
-      tiptext.ReplaceAll("\n", "\\n");
-      out << "   ";
-      out << GetName() << "->GetNumberEntry()->SetToolTipText(" << quote
-          << tiptext << quote << ");"  << std::endl;
+      out << "   " << GetName() << "->GetNumberEntry()->SetToolTipText(\"" << tiptext.ReplaceSpecialCppChars() << "\");\n";
    }
 }
 
@@ -2254,8 +2296,6 @@ void TGNumberEntry::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 
 void TGNumberEntryField::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
-
    // for time format
    Int_t hour, min, sec;
    GetTime(hour, min, sec);
@@ -2264,105 +2304,61 @@ void TGNumberEntryField::SavePrimitive(std::ostream &out, Option_t *option /*= "
    Int_t yy, mm, dd;
    GetDate(yy, mm, dd);
 
-   out << "   TGNumberEntryField *";
-   out << GetName() << " = new TGNumberEntryField(" << fParent->GetName()
-       << ", " << WidgetId() << ", (Double_t) ";
-   switch (GetNumStyle()){
-      case kNESInteger:
-         out << GetIntNumber()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESRealOne:
-         out << GetNumber()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESRealTwo:
-         out << GetNumber()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESRealThree:
-         out << GetNumber()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESRealFour:
-         out << GetNumber()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESReal:
-         out << GetNumber()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESDegree:
-         out << GetIntNumber()
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESMinSec:
-         out << min*60 + sec
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESHourMin:
-         out << hour*60 + min
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESHourMinSec:
-         out << hour*3600 + min*60 + sec
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESDayMYear:
-         out << yy << mm << dd
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESMDayYear:
-         out << yy << mm << dd
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         break;
-      case kNESHex:
-      {  char hex[256];
-         ULong_t l = GetHexNumber();
-         IntToHexStr(hex, l);
-         std::ios::fmtflags f = out.flags(); // store flags
-         out << "0x" << std::hex << "U"
-             << ",(TGNumberFormat::EStyle) " << GetNumStyle();
-         out.flags( f ); // restore flags (reset std::hex)
-         break;
-      }
+   out << "   TGNumberEntryField *" << GetName() << " = new TGNumberEntryField(" << fParent->GetName() << ", " << WidgetId() << ", (Double_t) ";
+   switch (GetNumStyle()) {
+   case kNESInteger: out << GetIntNumber() << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESRealOne: out << GetNumber() << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESRealTwo: out << GetNumber() << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESRealThree: out << GetNumber() << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESRealFour: out << GetNumber() << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESReal: out << GetNumber() << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESDegree: out << GetIntNumber() << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESMinSec: out << min * 60 + sec << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESMinSecCent:
+      // GetTime returns centisec in the hour variable
+      out << min * 6000 + sec * 100 + hour << ",(TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
+   case kNESHourMin: out << hour * 60 + min << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESHourMinSec: out << hour * 3600 + min * 60 + sec << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESDayMYear: out << yy << mm << dd << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESMDayYear: out << yy << mm << dd << ",(TGNumberFormat::EStyle) " << GetNumStyle(); break;
+   case kNESHex: {
+      char hexstr[256];
+      IntToHexStr(hexstr, sizeof(hexstr), GetHexNumber());
+      out << "0x" << hexstr << "U, (TGNumberFormat::EStyle) " << GetNumStyle();
+      break;
    }
-   if (GetNumMax() ==1) {
+   }
+   if (GetNumMax() == 1) {
       if (GetNumMin() == 0) {
          if (GetNumLimits() == kNELNoLimits) {
             if (GetNumAttr() == kNEAAnyNumber) {
-               out << ");" << std::endl;
+               out << ");\n";
             } else {
-               out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ");" << std::endl;
+               out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ");\n";
             }
          } else {
-            out << ",(TGNumberFormat::EAttribute) " << GetNumAttr()
-                << ",(TGNumberFormat::ELimit) " << GetNumLimits() << ");" << std::endl;
+            out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ",(TGNumberFormat::ELimit) " << GetNumLimits()
+                << ");\n";
          }
       } else {
-         out << ",(TGNumberFormat::EAttribute) " << GetNumAttr()
-             << ",(TGNumberFormat::ELimit) " << GetNumLimits()
-             << "," << GetNumMin() << ");" << std::endl;
+         out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ",(TGNumberFormat::ELimit) " << GetNumLimits()
+             << "," << GetNumMin() << ");\n";
       }
    } else {
-         out << ",(TGNumberFormat::EAttribute) " << GetNumAttr()
-             << ",(TGNumberFormat::ELimit) " << GetNumLimits()
-             << "," << GetNumMin() << "," << GetNumMax() << ");" << std::endl;
+      out << ",(TGNumberFormat::EAttribute) " << GetNumAttr() << ",(TGNumberFormat::ELimit) " << GetNumLimits() << ","
+          << GetNumMin() << "," << GetNumMax() << ");\n";
    }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
    if (!IsEnabled())
-      out << "   " << GetName() << "->SetState(kFALSE);" << std::endl;
+      out << "   " << GetName() << "->SetState(kFALSE);\n";
 
-   out << "   " << GetName() << "->Resize("<< GetWidth() << "," << GetName()
-       << "->GetDefaultHeight());" << std::endl;
+   out << "   " << GetName() << "->Resize(" << GetWidth() << "," << GetName() << "->GetDefaultHeight());\n";
 
    TGToolTip *tip = GetToolTip();
    if (tip) {
       TString tiptext = tip->GetText()->GetString();
-      tiptext.ReplaceAll("\n", "\\n");
-      out << "   ";
-      out << GetName() << "->SetToolTipText(" << quote
-          << tiptext << quote << ");"  << std::endl;
+      out << "   " << GetName() << "->SetToolTipText(\"" << tiptext.ReplaceSpecialCppChars() << "\");\n";
    }
 }

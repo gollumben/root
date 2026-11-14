@@ -1,6 +1,5 @@
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2019-10-14
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
  * Copyright (C) 1995-2020, Rene Brun and Fons Rademakers.               *
@@ -24,23 +23,63 @@
 #include "TFolder.h"
 #include "TROOT.h"
 #include "TBufferJSON.h"
+#include "TEnv.h"
 
 #include <algorithm>
 #include <regex>
 
-using namespace ROOT::Experimental;
+using namespace ROOT;
 using namespace std::string_literals;
 
-ROOT::Experimental::RLogChannel &ROOT::Experimental::BrowserLog() {
-   static RLogChannel sLog("ROOT.Browser");
+ROOT::RLogChannel &ROOT::BrowserLog()
+{
+   static ROOT::RLogChannel sLog("ROOT.Browser");
    return sLog;
 }
 
+namespace ROOT {
 
-/** \class ROOT::Experimental::RBrowserData
+class RBrowserDataCleanup : public TObject {
+
+   RBrowserData &fData;
+
+public:
+   RBrowserDataCleanup(RBrowserData &_data) : fData(_data) {}
+
+   void RecursiveRemove(TObject *obj) override
+   {
+      fData.RemoveFromCache(obj);
+   }
+};
+
+} // namespace ROOT
+
+
+/** \class ROOT::RBrowserData
 \ingroup rbrowser
 \brief Way to browse (hopefully) everything in %ROOT
 */
+
+
+/////////////////////////////////////////////////////////////////////
+/// Default constructor
+
+RBrowserData::RBrowserData()
+{
+   fCleanupHandle = std::make_unique<RBrowserDataCleanup>(*this);
+   R__LOCKGUARD(gROOTMutex);
+   gROOT->GetListOfCleanups()->Add(fCleanupHandle.get());
+}
+
+/////////////////////////////////////////////////////////////////////
+/// Destructor
+
+RBrowserData::~RBrowserData()
+{
+   // should be here because of fCleanupHandle destructor
+   R__LOCKGUARD(gROOTMutex);
+   gROOT->GetListOfCleanups()->Remove(fCleanupHandle.get());
+}
 
 /////////////////////////////////////////////////////////////////////
 /// set top element for browsing
@@ -142,6 +181,8 @@ bool RBrowserData::ProcessBrowserRequest(const RBrowserRequest &request, RBrowse
 
       fLastPath = path;
       fLastElement = std::move(elem);
+
+      fLastElement->cd(); // set element active
    } else if (request.reload) {
       // only reload items from element, not need to reset element itself
       ResetLastRequestData(false);
@@ -172,7 +213,7 @@ bool RBrowserData::ProcessBrowserRequest(const RBrowserRequest &request, RBrowse
        (fLastSortReverse != request.reverse)) {
       fLastSortedItems.resize(fLastItems.size(), nullptr);
       int id = 0;
-      if (request.sort.empty()) {
+      if (request.sort.empty() || (request.sort == "none")) {
          // no sorting, just move all folders up
          for (auto &item : fLastItems)
             if (item->IsFolder())
@@ -187,7 +228,7 @@ bool RBrowserData::ProcessBrowserRequest(const RBrowserRequest &request, RBrowse
 
          if (request.sort != "unsorted")
             std::sort(fLastSortedItems.begin(), fLastSortedItems.end(),
-                      [request](const Browsable::RItem *a, const Browsable::RItem *b) { return a->Compare(b, request.sort); });
+                      [request](const Browsable::RItem *a, const Browsable::RItem *b) { return a ? a->Compare(b, request.sort) : !b; });
       }
 
       if (request.reverse)
@@ -263,6 +304,9 @@ std::shared_ptr<Browsable::RElement> RBrowserData::GetSubElement(const Browsable
    if (path.empty())
       return fTopElement;
 
+   // validate cache - removes no longer actual elements
+   RemoveFromCache(nullptr);
+
    // first check direct match in cache
    for (auto &entry : fCache)
       if (entry.first == path)
@@ -320,4 +364,53 @@ std::shared_ptr<Browsable::RElement> RBrowserData::GetSubElement(const Browsable
 void RBrowserData::ClearCache()
 {
    fCache.clear();
+}
+
+/////////////////////////////////////////////////////////////////////////
+/// Remove object from cache
+/// If nullptr specified - removes no-longer-valid elements
+/// Returns true if any element was removed
+
+bool RBrowserData::RemoveFromCache(void *obj)
+{
+   unsigned pos = 0;
+
+   bool isany = false;
+
+   while (pos < fCache.size()) {
+      if (obj ? !fCache[pos].second->IsObject(obj) : fCache[pos].second->CheckValid()) {
+         pos++;
+         continue;
+      }
+
+      isany = true;
+      auto path = fCache[pos].first;
+      fCache.erase(fCache.begin() + pos);
+      if (RemoveFromCache(path))
+         pos = 0; // start scan from the beginning
+   }
+
+   return isany;
+}
+
+/////////////////////////////////////////////////////////////////////////
+/// Remove path (and all sub-paths) from cache
+/// Returns true if any element was removed
+
+bool RBrowserData::RemoveFromCache(const Browsable::RElementPath_t &path)
+{
+   if (path.size() == 0)
+      return false;
+
+   bool isany = false;
+   unsigned pos = 0;
+   while (pos < fCache.size()) {
+      if (Browsable::RElement::ComparePaths(path, fCache[pos].first) == (int) path.size()) {
+         fCache.erase(fCache.begin() + pos);
+         isany = true;
+      } else {
+         pos++;
+      }
+   }
+   return isany;
 }

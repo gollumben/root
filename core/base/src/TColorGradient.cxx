@@ -2,7 +2,7 @@
 // Author: Timur Pocheptsov   20/3/2012
 
 /*************************************************************************
- * Copyright (C) 1995-2012, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2023, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -32,15 +32,6 @@ without re-writing all the graphics code.
 #include "TError.h"
 #include "TROOT.h"
 
-ClassImp(TColorGradient);
-
-////////////////////////////////////////////////////////////////////////////////
-/// Constructor.
-
-TColorGradient::TColorGradient()
-                   : fCoordinateMode(kObjectBoundingMode)
-{
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// There is no way to validate parameters here, so it's up to user
@@ -83,28 +74,27 @@ void TColorGradient::ResetColor(UInt_t nPoints, const Double_t *points, const Co
    assert(points != nullptr && "ResetColor, points parameter is null");
    assert(colorIndices != nullptr && "ResetColor, colorIndices parameter is null");
 
-   fColorPositions.assign(points, points + nPoints);
-   fColors.resize(nPoints * 4);//4 == rgba.
+   std::vector<Double_t> colors(nPoints * 4);
 
-   Float_t rgba[4];
    for (UInt_t i = 0, pos = 0; i < nPoints; ++i, pos += 4) {
       const TColor *clearColor = gROOT->GetColor(colorIndices[i]);
-      if (!clearColor || dynamic_cast<const TColorGradient *>(clearColor)) {
-         //TColorGradient can not be a step in TColorGradient.
+      if (!clearColor) {
          Error("ResetColor", "Bad color for index %d, set to opaque black", colorIndices[i]);
-         fColors[pos] = 0.;
-         fColors[pos + 1] = 0.;
-         fColors[pos + 2] = 0.;
-         fColors[pos + 3] = 1.;//Alpha.
+         colors[pos] = 0.;
+         colors[pos + 1] = 0.;
+         colors[pos + 2] = 0.;
+         colors[pos + 3] = 1.; //Alpha.
       } else {
-         clearColor->GetRGB(rgba[0], rgba[1], rgba[2]);
-         rgba[3] = clearColor->GetAlpha();
-         fColors[pos] = rgba[0];
-         fColors[pos + 1] = rgba[1];
-         fColors[pos + 2] = rgba[2];
-         fColors[pos + 3] = rgba[3];
+         if (dynamic_cast<const TColorGradient *>(clearColor))
+            Warning("ResetColor", "Gradient color index %d used as base for other gradient color", colorIndices[i]);
+         colors[pos] = clearColor->GetRed();
+         colors[pos + 1] = clearColor->GetGreen();
+         colors[pos + 2] = clearColor->GetBlue();
+         colors[pos + 3] = clearColor->GetAlpha();
       }
    }
+
+   ResetColor(nPoints, points, colors.data());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -119,6 +109,39 @@ void TColorGradient::ResetColor(UInt_t nPoints, const Double_t *points,
 
    fColorPositions.assign(points, points + nPoints);
    fColors.assign(colors, colors + nPoints * 4);
+
+   Double_t sum[4] = { 0., 0., 0., 0. };
+#ifdef __clang__
+   // Clang vectoriser bug (confirmed for clang 20 - 22)
+   // https://github.com/llvm/llvm-project/issues/194008
+   // The store in the loop can smash the stack with e.g. -O2 -mavx2.
+#pragma clang loop vectorize(disable)
+#endif
+   for (unsigned n = 0; n < fColors.size(); ++n)
+      sum[n % 4] += fColors[n];
+
+   SetRGB(sum[0] / nPoints, sum[1] / nPoints, sum[2] / nPoints);
+   SetAlpha(sum[3] / nPoints);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Change alpha parameter of the color
+
+void TColorGradient::SetColorAlpha(UInt_t indx, Double_t alpha)
+{
+   if (indx*4 + 3 < fColors.size())
+      fColors[indx*4 + 3] = alpha;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Return alpha parameter of selected color
+
+Double_t TColorGradient::GetColorAlpha(UInt_t indx) const
+{
+   if (indx*4 + 3 < fColors.size())
+      return fColors[indx*4 + 3];
+
+   return 1.;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -150,7 +173,7 @@ TColorGradient::SizeType_t TColorGradient::GetNumberOfSteps()const
 
 const Double_t *TColorGradient::GetColorPositions()const
 {
-   return &fColorPositions[0];
+   return fColorPositions.data();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -158,7 +181,7 @@ const Double_t *TColorGradient::GetColorPositions()const
 
 const Double_t *TColorGradient::GetColors()const
 {
-   return &fColors[0];
+   return fColors.data();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -182,34 +205,6 @@ void TColorGradient::RegisterColor(Color_t colorIndex)
          return;
       }
    }
-}
-
-ClassImp(TLinearGradient);
-
-/** \class TLinearGradient
-Define a linear color gradient.
-*/
-
-TLinearGradient::TLinearGradient()
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Constructor.
-
-TLinearGradient::TLinearGradient(Color_t newColor, UInt_t nPoints, const Double_t *points,
-                                 const Color_t *colorIndices, ECoordinateMode mode)
-                   : TColorGradient(newColor, nPoints, points, colorIndices, mode)
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Constructor.
-
-TLinearGradient::TLinearGradient(Color_t newColor, UInt_t nPoints, const Double_t *points,
-                                 const Double_t *colors, ECoordinateMode mode)
-                   : TColorGradient(newColor, nPoints, points, colors, mode)
-{
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -237,33 +232,6 @@ const TColorGradient::Point &TLinearGradient::GetEnd()const
    return fEnd;
 }
 
-ClassImp(TRadialGradient);
-
-/** \class TRadialGradient
-Define a radial color gradient
-*/
-
-TRadialGradient::TRadialGradient()
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Constructor.
-
-TRadialGradient::TRadialGradient(Color_t newColor, UInt_t nPoints, const Double_t *points,
-                                 const Color_t *colorIndices, ECoordinateMode mode)
-                   : TColorGradient(newColor, nPoints, points, colorIndices, mode)
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Constructor.
-
-TRadialGradient::TRadialGradient(Color_t newColor, UInt_t nPoints, const Double_t *points,
-                                 const Double_t *colors, ECoordinateMode mode)
-                   : TColorGradient(newColor, nPoints, points, colors, mode)
-{
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Get gradient type.

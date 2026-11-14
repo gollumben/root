@@ -8,7 +8,7 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifdef __CINT__
+#ifdef __CLING__
 
 #pragma link C++ nestedclass;
 #pragma link C++ nestedtypedef;
@@ -104,7 +104,6 @@
 #pragma link C++ typedef ROOT::Math::IMultiGradFunction;
 
 #pragma link C++ class ROOT::Math::IBaseFunctionOneDim+;
-#pragma link C++ class ROOT::Math::IGradientOneDim+;
 #pragma link C++ class ROOT::Math::IGradientFunctionOneDim+;
 #pragma link C++ class ROOT::Math::IBaseParam+;
 
@@ -112,7 +111,6 @@
 #pragma link C++ class ROOT::Math::IParametricGradFunctionOneDim+;
 
 #pragma link C++ class ROOT::Math::IBaseFunctionMultiDim+;
-#pragma link C++ class ROOT::Math::IGradientMultiDim+;
 #pragma link C++ class ROOT::Math::IGradientFunctionMultiDim+;
 #pragma link C++ class ROOT::Math::IParametricFunctionMultiDim+;
 #pragma link C++ class ROOT::Math::IParametricGradFunctionMultiDim+;
@@ -176,6 +174,7 @@
 #pragma link C++ class ROOT::Math::DistSamplerOptions+;
 #pragma link C++ class ROOT::Math::GoFTest+;
 #pragma link C++ class std::vector<std::vector<double> >+;
+#pragma link C++ class std::vector<std::vector<float> >+;
 
 #pragma link C++ class ROOT::Math::Delaunay2D+;
 
@@ -185,8 +184,6 @@
 #pragma link C++ class ROOT::Math::TDataPoint<1,Double_t>+;
 #pragma link C++ typedef ROOT::Math::TDataPoint1F;
 #pragma link C++ typedef ROOT::Math::TDataPoint1D;
-#pragma link C++ class  ROOT::Math::TDataPointN<Double_t>+;
-#pragma link C++ class  ROOT::Math::TDataPointN<Float_t>+;
 //
 //N.B. use old streamer (do not use +) for KDTree class because it will not work on Windows
 // to work one would need to change the internal classes from private to public

@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Classes: PDEFoamKernelTrivial                                                  *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Trivial PDEFoam kernel                                                    *
@@ -22,7 +22,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_PDEFoamKernelTrivial
@@ -45,9 +45,9 @@ namespace TMVA
       virtual ~PDEFoamKernelTrivial() {}      // Destructor
 
       // kernel estimator
-      virtual Float_t Estimate(PDEFoam*, std::vector<Float_t>&, ECellValue);
+      Float_t Estimate(PDEFoam*, std::vector<Float_t>&, ECellValue) override;
 
-      ClassDef(PDEFoamKernelTrivial, 1) // trivial PDEFoam kernel estimator
+      ClassDefOverride(PDEFoamKernelTrivial, 1) // trivial PDEFoam kernel estimator
          }; // end of PDEFoamKernelTrivial
 }  // namespace TMVA
 

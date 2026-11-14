@@ -20,7 +20,7 @@
 
 /**
 \class TStreamerInfoActions::TConfiguration
-\ingroup IO
+\ingroup io_files
 */
 
 namespace TStreamerInfoActions {
@@ -82,11 +82,11 @@ namespace TStreamerInfoActions {
    private:
       // assignment operator must be the default because the 'copy' constructor is actually a move constructor and must be used.
    public:
-      TConfiguredAction() : fAction(0), fConfiguration(0) {}
+      TConfiguredAction() : fAction(nullptr), fConfiguration(nullptr) {}
       TConfiguredAction(const TConfiguredAction &rval) : TObject(rval), fAction(rval.fAction), fConfiguration(rval.fConfiguration)
       {
          // WARNING: Technically this is a move constructor ...
-         const_cast<TConfiguredAction&>(rval).fConfiguration = 0;
+         const_cast<TConfiguredAction&>(rval).fConfiguration = nullptr;
       }
       TConfiguredAction &operator=(const TConfiguredAction &rval)
       {
@@ -111,7 +111,7 @@ namespace TStreamerInfoActions {
       {
          // Usual constructor.
       }
-      ~TConfiguredAction() {
+      ~TConfiguredAction() override {
          // Usual destructor.
          // Idea: the configuration ownership might be moved to a single list so that
          // we can shared them between the optimized and non-optimized list of actions.
@@ -131,7 +131,7 @@ namespace TStreamerInfoActions {
          return fLoopAction(buffer, start_collection, end_collection, loopconf, fConfiguration);
       }
 
-      ClassDef(TConfiguredAction,0); // A configured action
+      ClassDefOverride(TConfiguredAction,0); // A configured action
    };
 
    struct TIDNode;
@@ -141,11 +141,9 @@ namespace TStreamerInfoActions {
    // a sub-object
    struct TNestedIDs {
       TNestedIDs() = default;
-      TNestedIDs(TStreamerInfo *info, Int_t offset) : fInfo(info), fOffset(offset) {}
-      ~TNestedIDs() {
-         if (fOwnOnfileObject)
-            delete fOnfileObject;
-      }
+      TNestedIDs(TStreamerInfo *info, Int_t offset);
+      ~TNestedIDs();
+
       TStreamerInfo *fInfo = nullptr; ///< Not owned.
       TVirtualArray *fOnfileObject = nullptr;
       Bool_t         fOwnOnfileObject = kFALSE;
@@ -168,9 +166,16 @@ namespace TStreamerInfoActions {
       std::unique_ptr<TNestedIDs> fNestedIDs;
    };
 
+   inline TNestedIDs::TNestedIDs(TStreamerInfo *info, Int_t offset) : fInfo(info), fOffset(offset) {}
+   inline TNestedIDs::~TNestedIDs() {
+         if (fOwnOnfileObject)
+            delete fOnfileObject;
+      }
+
+
    typedef std::vector<TConfiguredAction> ActionContainer_t;
    class TActionSequence : public TObject {
-      TActionSequence() {};
+      TActionSequence() = delete;
    public:
       enum class EStatusBits {
          kVectorPtrLooper = BIT(14)
@@ -180,15 +185,14 @@ namespace TStreamerInfoActions {
       using SequenceGetter_t = SequencePtr(*)(TStreamerInfo *info, TVirtualCollectionProxy *collectionProxy, TClass *originalClass);
 
       TActionSequence(TVirtualStreamerInfo *info, UInt_t maxdata, Bool_t isForVecPtr = kFALSE)
-         : fStreamerInfo(info), fLoopConfig(0)
+         : fStreamerInfo(info), fLoopConfig(nullptr)
       {
          if (isForVecPtr)
             SetBit((UInt_t)EStatusBits::kVectorPtrLooper);
          fActions.reserve(maxdata);
       };
-      ~TActionSequence() {
-         delete fLoopConfig;
-      }
+      // We have no owner pointer, so the default is perfect.
+      ~TActionSequence() override = default;
 
       template <typename action_t>
       void AddAction( action_t action, TConfiguration *conf ) {
@@ -203,7 +207,7 @@ namespace TStreamerInfoActions {
       }
 
       TVirtualStreamerInfo *fStreamerInfo; ///< StreamerInfo used to derive these actions.
-      TLoopConfiguration   *fLoopConfig;   ///< If this is a bundle of memberwise streaming action, this configures the looping
+      std::unique_ptr<TLoopConfiguration> fLoopConfig;   ///< If this is a bundle of memberwise streaming action, this configures the looping
       ActionContainer_t     fActions;
 
       void AddToOffset(Int_t delta);
@@ -211,13 +215,15 @@ namespace TStreamerInfoActions {
 
       TActionSequence *CreateCopy();
       static TActionSequence *CreateReadMemberWiseActions(TVirtualStreamerInfo *info, TVirtualCollectionProxy &proxy);
+      static TActionSequence *CreateReadMemberWiseActions(TVirtualStreamerInfo &info, std::unique_ptr<TLoopConfiguration> loopConfig);
       static TActionSequence *CreateWriteMemberWiseActions(TVirtualStreamerInfo *info, TVirtualCollectionProxy &proxy);
+      static TActionSequence *CreateWriteMemberWiseActions(TVirtualStreamerInfo &info, std::unique_ptr<TLoopConfiguration> loopConfig);
       TActionSequence *CreateSubSequence(const std::vector<Int_t> &element_ids, size_t offset);
 
       TActionSequence *CreateSubSequence(const TIDs &element_ids, size_t offset, SequenceGetter_t create);
       void AddToSubSequence(TActionSequence *sequence, const TIDs &element_ids, Int_t offset, SequenceGetter_t create);
 
-      void Print(Option_t * = "") const;
+      void Print(Option_t * = "") const override;
 
       // Maybe owner unique_ptr
       struct SequencePtr {
@@ -293,7 +299,7 @@ namespace TStreamerInfoActions {
          auto seq = info->GetWriteMemberWiseActions(kFALSE);
          return {seq, kFALSE};
       }
-      ClassDef(TActionSequence,0);
+      ClassDefOverride(TActionSequence,0);
    };
 
 }

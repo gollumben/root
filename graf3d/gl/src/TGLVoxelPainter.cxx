@@ -19,7 +19,6 @@
 Paint TH3 histograms as "voxels" - colored boxes, transparent if transfer function was specified.
 */
 
-ClassImp(TGLVoxelPainter);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -27,7 +26,7 @@ ClassImp(TGLVoxelPainter);
 
 TGLVoxelPainter::TGLVoxelPainter(TH1 *hist, TGLPlotCamera *cam, TGLPlotCoordinates *coord)
                   : TGLPlotPainter(hist, cam, coord, kFALSE, kFALSE, kFALSE),
-                    fTransferFunc(0)
+                    fTransferFunc(nullptr)
 {
    fDrawPalette = kTRUE;
 }
@@ -400,7 +399,7 @@ void TGLVoxelPainter::PreparePalette()const
             fLevels.push_back(level);
          }
          //sort levels
-         if (fLevels.size()) {
+         if (!fLevels.empty()) {
             std::sort(fLevels.begin(), fLevels.end());
             fLevels.push_back(fMinMaxVal.second);
             fLevels.insert(fLevels.begin(), fMinMaxVal.first);

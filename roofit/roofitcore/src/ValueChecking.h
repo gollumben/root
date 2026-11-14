@@ -1,3 +1,5 @@
+/// \cond ROOFIT_INTERNAL
+
 /*
  * ValueChecking.h
  *
@@ -17,15 +19,12 @@
 
 class CachingError : public std::exception {
   public:
-    CachingError(const std::string& newMessage) :
-      std::exception(),
-      _messages()
+    CachingError(const std::string& newMessage)
     {
       _messages.push_back(newMessage);
     }
 
     CachingError(CachingError&& previous, const std::string& newMessage) :
-    std::exception(),
     _messages{std::move(previous._messages)}
     {
       _messages.push_back(newMessage);
@@ -93,3 +92,5 @@ class FormatPdfTree {
 
 
 #endif /* ROOFIT_ROOFITCORE_INC_VALUECHECKING_H_ */
+
+/// \endcond

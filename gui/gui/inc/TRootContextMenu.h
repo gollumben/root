@@ -31,27 +31,28 @@ private:
 
 public:
    TRootContextMenu(TContextMenu *c = nullptr, const char *name = "ROOT Context Menu");
-   virtual ~TRootContextMenu();
+   ~TRootContextMenu() override;
 
-   virtual void   DisplayPopup(Int_t x, Int_t y);
-   virtual void   Dialog(TObject *object, TMethod *method);
-   virtual void   Dialog(TObject *object, TFunction *function);
-   virtual void   DrawEntry(TGMenuEntry *entry);
+   void   DisplayPopup(Int_t x, Int_t y) override;
+   void   Dialog(TObject *object, TMethod *method) override;
+   void   Dialog(TObject *object, TFunction *function) override;
+   void   DrawEntry(TGMenuEntry *entry) override;
    TRootDialog   *GetDialog() const { return fDialog; };
-   virtual Bool_t HandleButton(Event_t *event);
-   virtual Bool_t HandleCrossing(Event_t *event);
-   virtual Bool_t HandleMotion(Event_t *event);
+   Bool_t HandleButton(Event_t *event) override;
+   Bool_t HandleCrossing(Event_t *event) override;
+   Bool_t HandleMotion(Event_t *event) override;
    virtual void   OnlineHelp();
-   virtual void   RecursiveRemove(TObject *obj);
-
-   Bool_t ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2);
+   void   RecursiveRemove(TObject *obj) override;
+   using TGPopupMenu::Resize;
+   void   Resize(UInt_t w = 0, UInt_t h = 0) override;
+   Bool_t ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2) override;
 
 protected:
    TGPopupMenu * FindHierarchy(const char *commentstring, TString &last_component);
    void AddEntrySorted(TGPopupMenu *current, const char *s, Int_t id, void *ud = nullptr,
                        const TGPicture *p = nullptr, Bool_t sorted = kTRUE);
 
-   ClassDef(TRootContextMenu,0)  //ROOT native GUI context sensitive popup menu
+   ClassDefOverride(TRootContextMenu,0)  //ROOT native GUI context sensitive popup menu
 };
 
 #endif

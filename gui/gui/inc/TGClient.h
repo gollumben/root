@@ -75,7 +75,7 @@ protected:
 
 public:
    TGClient(const char *dpyName = nullptr);
-   virtual ~TGClient();
+   ~TGClient() override;
 
    const TGWindow *GetRoot() const;
    const TGWindow *GetDefaultRoot() const;
@@ -125,6 +125,7 @@ public:
 
    TGPicturePool   *GetPicturePool() const { return fPicturePool; }
    const TGPicture *GetPicture(const char *name);
+   const TGPicture *GetPictureOrEmpty(const char *name);
    const TGPicture *GetPicture(const char *name, UInt_t new_width, UInt_t new_height);
    void             FreePicture(const TGPicture *pic);
 
@@ -150,11 +151,9 @@ public:
 
    static TGClient *Instance();
 
-   ClassDef(TGClient,0)  // Class making connection to display server
+   ClassDefOverride(TGClient,0)  // Class making connection to display server
 };
 
-#ifndef __CINT__
 #define gClient (TGClient::Instance())
-#endif
 
 #endif

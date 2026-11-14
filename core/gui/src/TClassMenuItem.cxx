@@ -29,7 +29,6 @@ replacing it by whatever one wants.
 #include "TClass.h"
 
 
-ClassImp(TClassMenuItem);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default TClassMenuItem ctor. TClassMenuItems are constructed in TClass
@@ -43,9 +42,9 @@ TClassMenuItem::TClassMenuItem() : TObject()
    fType          = kPopupUserFunction;
    fSelf          = 0;
    fToggle        = 0;
-   fCalledObject  = 0;
-   fSubMenu       = 0;
-   fParent        = 0;
+   fCalledObject  = nullptr;
+   fSubMenu       = nullptr;
+   fParent        = nullptr;
    fSelfObjectPos = -1;
 }
 
@@ -74,7 +73,7 @@ TClassMenuItem::TClassMenuItem(Int_t type, TClass *parentcl,
    fCalledObject  = obj;
    fFunctionName  = functionname;
    fArgs          = args;
-   fSubMenu       = 0;
+   fSubMenu       = nullptr;
    fParent        = parentcl;
    fSelfObjectPos = selfobjposition;
 }

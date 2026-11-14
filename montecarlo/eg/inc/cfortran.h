@@ -5,6 +5,10 @@
 #ifndef __CFORTRAN_LOADED
 #define __CFORTRAN_LOADED
 
+#if !defined(ROOT_TGenerator_cxx) && !defined(G__DICTIONARY)
+#warning "This header will be moved to ROOT/cfortran.h in ROOT 6.44, and may be removed later on from public inteface. Use instead the `cfortran.h` header from `cfitsio` library"
+#endif
+
 /*
    THIS FILE IS PROPERTY OF BURKHARD BUROW. IF YOU ARE USING THIS FILE YOU
    SHOULD ALSO HAVE ACCESS TO CFORTRAN.DOC WHICH PROVIDES TERMS FOR USING,
@@ -114,10 +118,10 @@
 #define VAXUltrix
 #endif
 
-#include <stdio.h>     /* NULL [in all machines stdio.h]                      */
-#include <string.h>    /* strlen, memset, memcpy, memchr.                     */
+#include <cstdio>     /* NULL [in all machines stdio.h]                      */
+#include <cstring>    /* strlen, memset, memcpy, memchr.                     */
 #if !( defined(VAXUltrix) || defined(sun) || (defined(apollo)&&!defined(__STDCPP__)) )
-#include <stdlib.h>    /* malloc,free                                         */
+#include <cstdlib>    /* malloc,free                                         */
 #else
 #include <malloc.h>    /* Had to be removed for DomainOS h105 10.4 sys5.3 425t*/
 #ifdef apollo
@@ -348,13 +352,13 @@ only C calling FORTRAN subroutines will work using K&R style.*/
 
 #ifdef sunFortran
 #if defined(sun) || defined(__sun)
-#include <math.h>     /* Sun's FLOATFUNCTIONTYPE, ASSIGNFLOAT, RETURNFLOAT.  */
+#include <cmath>     /* Sun's FLOATFUNCTIONTYPE, ASSIGNFLOAT, RETURNFLOAT.  */
 #else
 #include "math.h"     /* i.e. if crosscompiling assume user has file. */
 #endif
 /* At least starting with the default C compiler SC3.0.1 of SunOS 5.3,
  * FLOATFUNCTIONTYPE, ASSIGNFLOAT, RETURNFLOAT are not required and not in
- * <math.h>, since sun C no longer promotes C float return values to doubles.
+ * <cmath>, since sun C no longer promotes C float return values to doubles.
  * Therefore, only use them if defined.
  * Even if gcc is being used, assume that it exhibits the Sun C compiler
  * behavior in order to be able to use *.o from the Sun C compiler.

@@ -32,14 +32,14 @@ class TObjArray;
 class TRef : public TObject {
 
 protected:
-   TProcessID       *fPID;     //!Pointer to ProcessID when TRef was written
+   TProcessID       *fPID;     ///<!Pointer to ProcessID when TRef was written
 
    static TObjArray  *fgExecs;  //List of execs
    static TObject    *fgObject; //In: this, Out: pointer to object (used by Action on Demand)
 
 public:
 
-   TRef(): fPID(0) { }
+   TRef(): fPID(nullptr) {}
    TRef(TObject *obj);
    TRef(const TRef &ref);
    void  operator=(TObject *obj);
@@ -61,7 +61,7 @@ public:
    friend Bool_t operator==(const TRef &r1, const TRef &r2);
    friend Bool_t operator!=(const TRef &r1, const TRef &r2);
 
-   ClassDef(TRef,1)  //Persistent Reference link to a TObject
+   ClassDefOverride(TRef,1)  //Persistent Reference link to a TObject
 };
 
 #endif

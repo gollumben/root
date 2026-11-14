@@ -1,83 +1,81 @@
 sap.ui.define([
-    "sap/ui/model/json/JSONListBinding"
+   "sap/ui/model/json/JSONListBinding"
 ], function(JSONListBinding) {
-    "use strict";
+   "use strict";
 
-    var hRootListBinding = JSONListBinding.extend("rootui5.browser.model.BrowserListBinding", {
+   let hRootListBinding = JSONListBinding.extend("rootui5.browser.model.BrowserListBinding", {
 
-        // called by the TreeTable to know the amount of entries
-        getLength: function() {
-           return this.getModel().getLength();
-        },
+      // called by the TreeTable to know the amount of entries
+      getLength() {
+         return this.getModel().getLength();
+      },
 
-        // function is called by the TreeTable when requesting the data to display
-        getNodes: function(iStartIndex, iLength, iThreshold) {
+      // function is called by the TreeTable when requesting the data to display
+      getNodes(iStartIndex, iLength, iThreshold) {
+         let args = { begin: iStartIndex, end: iStartIndex + iLength, threshold: iThreshold },
+            nodes = this.getModel().buildFlatNodes(args),
+            aNodes = [];
 
-           var args = { begin: iStartIndex, end: iStartIndex + iLength, threshold: iThreshold },
-               nodes = this.getModel().buildFlatNodes(args);
+         for (let i = args.begin; i < args.end; i++)
+            aNodes.push(nodes && nodes[i] ? nodes[i] : null);
 
-           var aNodes = [];
+         return aNodes;
+      },
 
-           for (var i = args.begin; i < args.end; i++)
-              aNodes.push(nodes && nodes[i] ? nodes[i] : null);
+      getContextByIndex(iIndex) {
+         return this.getModel().getContext(this.getPath() + "/" + iIndex);
+      },
 
-           return aNodes;
-        },
+      // required by openui5 from versions ~1.100.0
+      getNodeByIndex(indx) {
+         return this.getModel().getNodeByIndex(indx);
+      },
 
-        getContextByIndex: function(iIndex) {
-           return this.getModel().getContext(this.getPath() + "/" + iIndex);
-        },
+      findNode() {
+      },
 
-        findNode: function() {
-        },
+      nodeHasChildren(oNode) {
+         return oNode.type === "folder";
+      },
 
-        nodeHasChildren: function(oNode) {
-           return oNode.type === "folder";
-        },
+      isExpanded(iIndex) {
+         let elem = this.getModel().getElementByIndex(iIndex);
 
-        isExpanded: function(iIndex) {
-            var elem = this.getModel().getElementByIndex(iIndex);
-            var res = elem ? !!elem.expanded : false;
+         return elem?.expanded ?? false;
+      },
 
-            return res;
-        },
+      expand(iIndex) {
+         if (this.getModel().toggleNode(iIndex, true))
+            this.checkUpdate(true);
+      },
 
-        expand: function(iIndex) {
-        },
+      collapse(iIndex) {
+         if (this.getModel().toggleNode(iIndex, false))
+            this.checkUpdate(true);
+      },
 
-        collapse: function(iIndex) {
-        },
+      collapseToLevel(lvl) {
+      },
 
-        collapseToLevel: function(lvl) {
-           // console.log('root.model.hListBinding#collapseToLevel', lvl);
-        },
+      expandToLevel(lvl) {
+      },
 
-        expandToLevel: function(lvl) {
-           // console.log('root.model.hListBinding#expandToLevel', lvl);
-        },
+      // called by the TreeTable when a node is expanded/collapsed
+      toggleIndex(iIndex) {
+      },
 
-        // called by the TreeTable when a node is expanded/collapsed
-        toggleIndex: function(iIndex) {
-            // console.log("root.model.hListBinding#toggleIndex(" + iIndex + ")");
+      getSelectedIndex() {
+      },
 
-            if (this.getModel().toggleNode(iIndex))
-               this.checkUpdate(true);
+      isIndexSelectable() {
+      },
 
-            // QUESTION: why one should call checkUpdate?, should it be done automatically always?
-        },
+      // dummy for compatibility with newest 1.70.0 version
+      attachSelectionChanged() {
+      }
 
-        getSelectedIndex: function() {
-        },
+   });
 
-        isIndexSelectable: function() {
-        },
-
-        attachSelectionChanged: function() {
-           // dummy for compatibility with newest 1.70.0 version
-        }
-
-    });
-
-    return hRootListBinding;
+   return hRootListBinding;
 
 });

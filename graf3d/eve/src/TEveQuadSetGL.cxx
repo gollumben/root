@@ -21,12 +21,11 @@
 GL-renderer for TEveQuadSet class.
 */
 
-ClassImp(TEveQuadSetGL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
-TEveQuadSetGL::TEveQuadSetGL() : TEveDigitSetGL(), fM(0)
+TEveQuadSetGL::TEveQuadSetGL() : TEveDigitSetGL(), fM(nullptr)
 {
    // fDLCache = false; // Disable DL.
    fMultiColor = kTRUE;
@@ -65,7 +64,7 @@ void TEveQuadSetGL::DirectDraw(TGLRnrCtx & rnrCtx) const
 
    if (mQ.fPlex.Size() > 0)
    {
-      if (! mQ.fSingleColor && ! mQ.fValueIsColor && mQ.fPalette == 0)
+      if (! mQ.fSingleColor && ! mQ.fValueIsColor && mQ.fPalette == nullptr)
       {
          mQ.AssertPalette();
       }

@@ -25,7 +25,6 @@ unloaded enum.
 #include "TInterpreter.h"
 #include "TVirtualMutex.h"
 
-ClassImp(TListOfEnumsWithLock);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -95,6 +94,15 @@ void TListOfEnumsWithLock::AddAt(TObject *obj, Int_t idx)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Insert object at location idx in the list, with options.
+
+void TListOfEnumsWithLock::AddAt(TObject *obj, Int_t idx, Option_t* opt)
+{
+   R__LOCKGUARD(gInterpreterMutex);
+   TListOfEnums::AddAt(obj, idx, opt);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Insert object after object after in the list.
 
 void TListOfEnumsWithLock::AddAfter(const TObject *after, TObject *obj)
@@ -113,6 +121,24 @@ void TListOfEnumsWithLock::AddAfter(TObjLink *after, TObject *obj)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Insert object after object after in the list, with options.
+
+void TListOfEnumsWithLock::AddAfter(const TObject *after, TObject *obj, Option_t* opt)
+{
+   R__LOCKGUARD(gInterpreterMutex);
+   TListOfEnums::AddAfter(after, obj, opt);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object after object after in the list, with options.
+
+void TListOfEnumsWithLock::AddAfter(TObjLink *after, TObject *obj, Option_t* opt)
+{
+   R__LOCKGUARD(gInterpreterMutex);
+   TListOfEnums::AddAfter(after, obj, opt);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Insert object before object before in the list.
 
 void TListOfEnumsWithLock::AddBefore(const TObject *before, TObject *obj)
@@ -128,6 +154,24 @@ void TListOfEnumsWithLock::AddBefore(TObjLink *before, TObject *obj)
 {
    R__LOCKGUARD(gInterpreterMutex);
    TListOfEnums::AddBefore(before, obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object before object before in the list, with options.
+
+void TListOfEnumsWithLock::AddBefore(const TObject *before, TObject *obj, Option_t* opt)
+{
+   R__LOCKGUARD(gInterpreterMutex);
+   TListOfEnums::AddBefore(before, obj, opt);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object before object before in the list, with options.
+
+void TListOfEnumsWithLock::AddBefore(TObjLink *before, TObject *obj, Option_t* opt)
+{
+   R__LOCKGUARD(gInterpreterMutex);
+   TListOfEnums::AddBefore(before, obj, opt);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -156,16 +200,7 @@ void TListOfEnumsWithLock::Delete(Option_t *option /* ="" */)
 TObject *TListOfEnumsWithLock::FindObject(const char *name) const
 {
    R__LOCKGUARD(gInterpreterMutex);
-   TObject *result = TListOfEnums::FindObject(name);
-   if (!result) {
-
-
-      TInterpreter::DeclId_t decl;
-      if (GetClass()) decl = gInterpreter->GetEnum(GetClass(), name);
-      else        decl = gInterpreter->GetEnum(nullptr, name);
-      if (decl) result = const_cast<TListOfEnumsWithLock *>(this)->Get(decl, name);
-   }
-   return result;
+   return TListOfEnums::FindObject(name);
 }
 
 
@@ -326,7 +361,6 @@ Int_t TListOfEnumsWithLock::GetSize() const
 Iterator for TListOfEnumsWithLock.
 */
 
-ClassImp(TListOfEnumsWithLockIter);
 
 ////////////////////////////////////////////////////////////////////////////////
 

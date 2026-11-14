@@ -38,7 +38,7 @@ different class is selected, a new object editor is loaded in the
 editor frame. The old one is cached in memory for potential reuse.
 
 Any created canvas will be shown with the editor if you have a
-.rootrc file in your working directory containing the the line:
+.rootrc file in your working directory containing the line:
 Canvas.ShowEditor:      true
 
 An created object can be set as selected in a macro by:
@@ -71,7 +71,6 @@ public:
 };
 
 
-ClassImp(TGedEditor);
 
 TGedEditor* TGedEditor::fgFrameCreator = 0;
 
@@ -576,9 +575,9 @@ void  TGedEditor::ExcludeClassEditor(TClass* cl, Bool_t recurse)
    TPair* pair = (TPair*) fExclMap.FindObject(cl);
    if (pair) {
       if (recurse && pair->Value() == 0)
-         pair->SetValue((TObject*)(Long_t)1); // hack, reuse TObject as Bool_t
+         pair->SetValue((TObject*)(Longptr_t)1); // hack, reuse TObject as Bool_t
    } else {
-      fExclMap.Add(cl, (TObject*)(Long_t)(recurse ? 1 : 0));
+      fExclMap.Add(cl, (TObject*)(Longptr_t)(recurse ? 1 : 0));
    }
 }
 

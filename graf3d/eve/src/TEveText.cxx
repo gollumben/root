@@ -24,7 +24,6 @@ TEveElement class used for displaying FreeType GL fonts. Holds a
 set of parameters to define FTGL font and its rendering style.
 */
 
-ClassImp(TEveText);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -78,7 +77,7 @@ void TEveText::SetFontFile(const char* name)
    TIter  next_base(fa);
    TObjString* os;
    Int_t idx = 0;
-   while ((os = (TObjString*) next_base()) != 0) {
+   while ((os = (TObjString*) next_base()) != nullptr) {
       if (os->GetString() == name) {
          SetFontFile(idx);
          return;

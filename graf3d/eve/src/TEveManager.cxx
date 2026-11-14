@@ -52,25 +52,24 @@ Central application manager for Eve.
 Manages elements, GUI, GL scenes and GL viewers.
 */
 
-ClassImp(TEveManager);
 
 ////////////////////////////////////////////////////////////////////////////////
 
 TEveManager::TEveManager(UInt_t w, UInt_t h, Bool_t map_window, Option_t* opt) :
-   fExcHandler  (0),
-   fVizDB       (0), fVizDBReplace(kTRUE), fVizDBUpdate(kTRUE),
-   fGeometries  (0),
-   fGeometryAliases (0),
-   fBrowser     (0),
+   fExcHandler  (nullptr),
+   fVizDB       (nullptr), fVizDBReplace(kTRUE), fVizDBUpdate(kTRUE),
+   fGeometries  (nullptr),
+   fGeometryAliases (nullptr),
+   fBrowser     (nullptr),
 
-   fMacroFolder (0),
+   fMacroFolder (nullptr),
 
-   fWindowManager  (0),
-   fViewers        (0),
-   fScenes         (0),
-   fGlobalScene    (0),
-   fEventScene     (0),
-   fCurrentEvent   (0),
+   fWindowManager  (nullptr),
+   fViewers        (nullptr),
+   fScenes         (nullptr),
+   fGlobalScene    (nullptr),
+   fEventScene     (nullptr),
+   fCurrentEvent   (nullptr),
 
    fRedrawDisabled (0),
    fResetCameras   (kFALSE),
@@ -79,11 +78,11 @@ TEveManager::TEveManager(UInt_t w, UInt_t h, Bool_t map_window, Option_t* opt) :
    fTimerActive    (kFALSE),
    fRedrawTimer    (),
 
-   fStampedElements(0),
-   fSelection      (0),
-   fHighlight      (0),
+   fStampedElements(nullptr),
+   fSelection      (nullptr),
+   fHighlight      (nullptr),
 
-   fOrphanage      (0),
+   fOrphanage      (nullptr),
    fUseOrphanage   (kFALSE)
 {
    // Constructor.
@@ -100,7 +99,7 @@ TEveManager::TEveManager(UInt_t w, UInt_t h, Bool_t map_window, Option_t* opt) :
 
    static const TEveException eh("TEveManager::TEveManager ");
 
-   if (gEve != 0)
+   if (gEve != nullptr)
       throw(eh + "There can be only one!");
 
    gEve = this;
@@ -194,24 +193,24 @@ TEveManager::~TEveManager()
    fTimerActive = kTRUE;
 
    delete fCurrentEvent;
-   fCurrentEvent = 0;
+   fCurrentEvent = nullptr;
 
    fGlobalScene->DecDenyDestroy();
    fEventScene->DecDenyDestroy();
    fScenes->DestroyScenes();
    fScenes->DecDenyDestroy();
    fScenes->Destroy();
-   fScenes = 0;
+   fScenes = nullptr;
 
    fViewers->DestroyElements();
    fViewers->DecDenyDestroy();
    fViewers->Destroy();
-   fViewers = 0;
+   fViewers = nullptr;
 
    fWindowManager->DestroyWindows();
    fWindowManager->DecDenyDestroy();
    fWindowManager->Destroy();
-   fWindowManager = 0;
+   fWindowManager = nullptr;
 
    fOrphanage->DecDenyDestroy();
    fHighlight->DecDenyDestroy();
@@ -265,7 +264,7 @@ TEveViewer* TEveManager::GetDefaultViewer() const
 TGLViewer* TEveManager::GetDefaultGLViewer() const
 {
    TEveViewer *ev = GetDefaultViewer();
-   return ev ? ev->GetGLViewer() : 0;
+   return ev ? ev->GetGLViewer() : nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -302,11 +301,11 @@ TCanvas* TEveManager::AddCanvasTab(const char* name)
 TEveViewer* TEveManager::SpawnNewViewer(const char* name, const char* title,
                                         Bool_t embed)
 {
-   TEveWindowSlot* slot = 0;
+   TEveWindowSlot* slot = nullptr;
    if (embed)
    {
       slot = fWindowManager->GetCurrentWindowAsSlot();
-      if (slot == 0)
+      if (slot == nullptr)
       {
          // In principle should have some default/current container
          // in TEveWindowManager.
@@ -321,7 +320,7 @@ TEveViewer* TEveManager::SpawnNewViewer(const char* name, const char* title,
    }
 
    TEveViewer* v = new TEveViewer(name, title);
-   v->SpawnGLViewer(embed ? GetEditor() : 0);
+   v->SpawnGLViewer(embed ? GetEditor() : nullptr);
 
    slot->ReplaceWindow(v);
 
@@ -487,8 +486,8 @@ TEveManager::AddToListTree(TEveElement* re, Bool_t open, TGListTree* lt)
    // Add element as a top-level to a list-tree.
    // Only add a single copy of a render-element as a top level.
 
-   if (lt == 0) lt = GetListTree();
-   TGListTreeItem* lti = re->AddIntoListTree(lt, (TGListTreeItem*)0);
+   if (lt == nullptr) lt = GetListTree();
+   TGListTreeItem* lti = re->AddIntoListTree(lt, (TGListTreeItem*)nullptr);
    if (open) lt->OpenItem(lti);
    return lti;
 }
@@ -504,7 +503,7 @@ void TEveManager::RemoveFromListTree(TEveElement* element,
    if (lti->GetParent())
       throw(eh + "not a top-level item.");
 
-   element->RemoveFromListTree(lt, 0);
+   element->RemoveFromListTree(lt, nullptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -526,8 +525,8 @@ TGListTreeItem* TEveManager::AddEvent(TEveEventManager* event)
 
 void TEveManager::AddElement(TEveElement* element, TEveElement* parent)
 {
-   if (parent == 0) {
-      if (fCurrentEvent == 0)
+   if (parent == nullptr) {
+      if (fCurrentEvent == nullptr)
          AddEvent(new TEveEventManager("Event", "Auto-created event directory"));
       parent = fCurrentEvent;
    }
@@ -542,7 +541,7 @@ void TEveManager::AddElement(TEveElement* element, TEveElement* parent)
 
 void TEveManager::AddGlobalElement(TEveElement* element, TEveElement* parent)
 {
-   if (parent == 0)
+   if (parent == nullptr)
       parent = fGlobalScene;
 
    parent->AddElement(element);
@@ -564,7 +563,7 @@ void TEveManager::RemoveElement(TEveElement* element,
 void TEveManager::PreDeleteElement(TEveElement* element)
 {
    if (GetEditor()->GetEveElement() == element)
-      EditElement(0);
+      EditElement(nullptr);
    TEveGedEditor::ElementDeleted(element);
 
    if (fScenes)
@@ -585,7 +584,7 @@ void TEveManager::PreDeleteElement(TEveElement* element)
 
 void TEveManager::ElementSelect(TEveElement* element)
 {
-   if (element != 0)
+   if (element != nullptr)
       EditElement(element);
 }
 
@@ -780,24 +779,24 @@ TGeoManager* TEveManager::GetGeometry(const TString& filename)
          Warning(eh, "TGeoManager is locked ... unlocking it.");
          TGeoManager::UnlockGeometry();
       }
-      if (TGeoManager::Import(filename) == 0) {
+      if (TGeoManager::Import(filename) == nullptr) {
          throw(eh + "TGeoManager::Import() failed for '" + exp_filename + "'.");
       }
       if (locked) {
          TGeoManager::LockGeometry();
       }
 
-      gGeoManager->GetTopVolume()->VisibleDaughters(1);
+      gGeoManager->GetTopVolume()->VisibleDaughters(true);
 
       // Import colors exported by Gled, if they exist.
-      {
+      if (gROOT->IsRootFile(exp_filename)) {
          TFile f(exp_filename, "READ");
          TObjArray* collist = (TObjArray*) f.Get("ColorList");
          f.Close();
-         if (collist != 0) {
+         if (collist != nullptr) {
             TIter next(gGeoManager->GetListOfVolumes());
             TGeoVolume* vol;
-            while ((vol = (TGeoVolume*) next()) != 0)
+            while ((vol = (TGeoVolume*) next()) != nullptr)
             {
                Int_t oldID = vol->GetLineColor();
                TColor* col = (TColor*)collist->At(oldID);
@@ -830,7 +829,7 @@ TGeoManager* TEveManager::GetGeometryByAlias(const TString& alias)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Get the default geometry.
-/// It should be registered via RegisterGeometryName("Default", <URL>).
+/// It should be registered via RegisterGeometryName("Default", `<URL>`).
 
 TGeoManager* TEveManager::GetDefaultGeometry()
 {
@@ -861,12 +860,7 @@ void TEveManager::SetStatusLine(const char* text)
 
 void TEveManager::ClearROOTClassSaved()
 {
-   TIter   nextcl(gROOT->GetListOfClasses());
-   TClass *cls;
-   while((cls = (TClass *)nextcl()))
-   {
-      cls->ResetBit(TClass::kClassSaved);
-   }
+   gROOT->ResetClassSaved();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -893,7 +887,7 @@ TEveManager* TEveManager::Create(Bool_t map_window, Option_t* opt)
 {
    static const TEveException eh("TEveManager::Create ");
 
-   if (gEve == 0)
+   if (gEve == nullptr)
    {
       // Make sure that the GUI system is initialized.
       if (gROOT->IsBatch())
@@ -902,7 +896,7 @@ TEveManager* TEveManager::Create(Bool_t map_window, Option_t* opt)
       }
       TApplication::NeedGraphicsLibs();
       gApplication->InitializeGraphics();
-      if (gROOT->IsBatch() || gClient == 0 || gClient->IsZombie())
+      if (gROOT->IsBatch() || gClient == nullptr || gClient->IsZombie())
       {
          throw eh + "window system not initialized.";
       }
@@ -927,7 +921,7 @@ void TEveManager::Terminate()
    TEveGedEditor::DestroyEditors();
 
    delete gEve;
-   gEve = 0;
+   gEve = nullptr;
 }
 
 /** \class TEveManager::TExceptionHandler
@@ -935,7 +929,6 @@ void TEveManager::Terminate()
 Exception handler for Eve exceptions.
 */
 
-ClassImp(TEveManager::TExceptionHandler);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Handle exceptions deriving from TEveException.

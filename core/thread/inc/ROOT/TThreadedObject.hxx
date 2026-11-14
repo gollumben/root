@@ -136,7 +136,6 @@ namespace ROOT {
     * \class ROOT::TThreadedObject
     * \brief A wrapper to make object instances thread private, lazily.
     * \tparam T Class of the object to be made thread private (e.g. TH1F)
-    * \ingroup Multicore
     *
     * A wrapper which makes objects thread private. The methods of the underlying
     * object can be invoked via the arrow operator. The object is created in
@@ -158,7 +157,8 @@ namespace ROOT {
 
       /// Construct the TThreadedObject with initSlots empty slots and the "model" of the thread private objects.
       /// \param initSlots Set the initial number of slots of the TThreadedObject.
-      /// \tparam ARGS Arguments of the constructor of T
+      /// \tparam ARGS Arguments' class type of the constructor of T
+      /// \param args variadic arguments
       ///
       /// This form of the constructor is useful to manually pre-set the content of a given number of slots
       /// when used in combination with TThreadedObject::SetAtSlot().

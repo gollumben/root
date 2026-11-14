@@ -11,15 +11,15 @@
 
 /**
 \class TFileCacheWrite TFileCacheWrite.cxx
-\ingroup IO
+\ingroup io_files
 A cache when writing files over the network
 
 A caching system to speed up network I/O, i.e. when there is
 no operating system caching support (like the buffer cache for
 local disk I/O). The cache makes sure that every I/O is done with
 a (large) fixed length buffer thereby avoiding many small I/O's.
-Currently the write cache system is used by the classes TNetFile,
-TXNetFile and TWebFile (via TFile::WriteBuffers()).
+Currently the write cache system is used by the classes like
+TNetXNGFile (via TFile::WriteBuffers()).
 
 The write cache is automatically created when writing a remote file
 (created in TFile::Open()).
@@ -29,7 +29,6 @@ The write cache is automatically created when writing a remote file
 #include "TFile.h"
 #include "TFileCacheWrite.h"
 
-ClassImp(TFileCacheWrite);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default Constructor.
@@ -47,21 +46,21 @@ TFileCacheWrite::TFileCacheWrite() : TObject()
 ////////////////////////////////////////////////////////////////////////////////
 /// Creates a TFileCacheWrite data structure.
 /// The write cache will be connected to file.
-/// The size of the cache will be buffersize,
-/// if buffersize < 10000 a default size of 512 Kbytes is used
+/// The size of the cache will be bufsize,
+/// if bufsize < 10000 a default size of 512 Kbytes is used
 
-TFileCacheWrite::TFileCacheWrite(TFile *file, Int_t buffersize)
+TFileCacheWrite::TFileCacheWrite(TFile *file, Int_t bufsize)
            : TObject()
 {
-   if (buffersize < 10000) buffersize = 512000;
-   fBufferSize  = buffersize;
+   if (bufsize < 10000) bufsize = 512000;
+   fBufferSize  = bufsize;
    fSeekStart   = 0;
    fNtot        = 0;
    fFile        = file;
    fRecursive   = kFALSE;
    fBuffer      = new char[fBufferSize];
    if (file) file->SetCacheWrite(this);
-   if (gDebug > 0) Info("TFileCacheWrite","Creating a write cache with buffersize=%d bytes",buffersize);
+   if (gDebug > 0) Info("TFileCacheWrite","Creating a write cache with buffersize=%d bytes",bufsize);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

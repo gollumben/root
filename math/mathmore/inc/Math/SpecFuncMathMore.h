@@ -873,8 +873,6 @@ namespace Math {
 
    double wigner_9j(int two_ja, int two_jb, int two_jc, int two_jd, int two_je, int two_jf, int two_jg, int two_jh, int two_ji);
 
-
-
 } // namespace Math
 } // namespace ROOT
 

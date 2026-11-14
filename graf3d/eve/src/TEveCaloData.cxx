@@ -106,7 +106,6 @@ A central manager for calorimeter event data. It provides a list of
 cells within requested phi and eta range.
 */
 
-ClassImp(TEveCaloData);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -114,8 +113,8 @@ TEveCaloData::TEveCaloData(const char* n, const char* t):
    TEveElement(),
    TNamed(n, t),
 
-   fEtaAxis(0),
-   fPhiAxis(0),
+   fEtaAxis(nullptr),
+   fPhiAxis(nullptr),
 
    fWrapTwoPi(kTRUE),
 
@@ -424,7 +423,6 @@ Float_t TEveCaloData::EtaToTheta(Float_t eta)
 Calo data for universal cell geometry.
 */
 
-ClassImp(TEveCaloDataVec);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -731,7 +729,6 @@ A central manager for calorimeter data of an event written in TH2F.
 X axis is used for eta and Y axis for phi.
 */
 
-ClassImp(TEveCaloDataHist);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -739,7 +736,7 @@ ClassImp(TEveCaloDataHist);
 TEveCaloDataHist::TEveCaloDataHist():
    TEveCaloData(),
 
-   fHStack(0)
+   fHStack(nullptr)
 {
    fHStack = new THStack();
    fEps    = 1e-5;

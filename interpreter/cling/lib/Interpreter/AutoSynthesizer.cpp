@@ -23,7 +23,7 @@ namespace cling {
     llvm::DenseSet<NamedDecl*> m_HandledDecls;
   private:
   public:
-    AutoFixer(Sema* S) : m_Sema(S), m_FoundDRE(0) {}
+    AutoFixer(Sema* S) : m_Sema(S), m_FoundDRE(nullptr) {}
 
     CompoundStmt* Fix(CompoundStmt* CS) {
       if (!CS->size())
@@ -43,20 +43,27 @@ namespace cling {
           m_HandledDecls.insert(m_FoundDRE->getDecl());
         }
       }
-      if (CS->size() != Stmts.size())
-        return CompoundStmt::Create(m_Sema->getASTContext(), Stmts,
+      if (CS->size() != Stmts.size()) {
+        FPOptionsOverride FPFeatures;
+        if (CS->hasStoredFPFeatures()) {
+          FPFeatures = CS->getStoredFPFeatures();
+        }
+        return CompoundStmt::Create(m_Sema->getASTContext(), Stmts, FPFeatures,
                                     CS->getLBracLoc(), CS->getRBracLoc());
+      }
       return nullptr;
     }
 
     CXXTryStmt* Fix(CXXTryStmt* TS) {
+      ASTContext &Context = m_Sema->getASTContext();
       CompoundStmt *TryBlock = TS->getTryBlock();
       if (CompoundStmt *NewTryBlock = Fix(TryBlock))
         TryBlock = NewTryBlock;
 
       llvm::SmallVector<Stmt*, 4> Handlers(TS->getNumHandlers());
       for (unsigned int h = 0; h < TS->getNumHandlers(); ++h) {
-        Stmt *HandlerBlock = TS->getHandler(h)->getHandlerBlock();
+        CXXCatchStmt *Handler = TS->getHandler(h);
+        Stmt *HandlerBlock = Handler->getHandlerBlock();
         if (CompoundStmt *HandlerCS = dyn_cast_or_null<CompoundStmt>(HandlerBlock)) {
           if (CompoundStmt *NewHandlerCS = Fix(HandlerCS))
             HandlerBlock = NewHandlerCS;
@@ -64,16 +71,18 @@ namespace cling {
           if (CXXTryStmt *NewHandlerTS = Fix(HandlerTS))
             HandlerBlock = NewHandlerTS;
         }
+        Handlers[h] = new (Context)
+            CXXCatchStmt(Handler->getCatchLoc(), Handler->getExceptionDecl(),
+                         HandlerBlock);
       }
 
-      return CXXTryStmt::Create(m_Sema->getASTContext(), TS->getTryLoc(),
-                                TryBlock, Handlers);
+      return CXXTryStmt::Create(Context, TS->getTryLoc(), TryBlock, Handlers);
     }
 
     bool VisitDeclRefExpr(DeclRefExpr* DRE) {
       const Decl* D = DRE->getDecl();
       if (const AnnotateAttr* A = D->getAttr<AnnotateAttr>())
-        if (A->getAnnotation().equals("__Auto")) {
+        if (A->getAnnotation() == "__Auto") {
           m_FoundDRE = DRE;
           return false; // we abort on the first found candidate.
         }

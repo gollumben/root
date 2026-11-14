@@ -19,8 +19,6 @@
 
 #include <ROOT/RCanvas.hxx>
 
-#include "ROOT/RHist.hxx"
-
 #include "TFitResultPtr.h"
 
 #include <memory>
@@ -43,9 +41,8 @@ class RFitPanel {
    std::string fPadName;              ///<! v6 pad name in the canvas, where object is (was) drawn
 
    std::shared_ptr<RCanvas> fCanvas; ///<! v7 canvas used to display results
-   std::shared_ptr<RH1D> fFitHist;   ///<! v7 histogram for fitting
 
-   std::shared_ptr<RWebWindow> fWindow;  ///<! configured display
+   std::shared_ptr<ROOT::RWebWindow> fWindow;  ///<! configured display
    unsigned fConnId{0};                  ///<! client connection id
 
    std::vector<std::unique_ptr<TF1>> fSystemFuncs; ///<! local copy of all internal system funcs
@@ -88,6 +85,8 @@ class RFitPanel {
 
    TPad *GetDrawPad(TObject *obj, bool force = false);
 
+   void DoPadUpdate(TPad *pad);
+
    void SendModel();
 
    bool DoFit();
@@ -98,7 +97,7 @@ public:
    ~RFitPanel();
 
    // method required when any panel want to be inserted into the RCanvas
-   std::shared_ptr<RWebWindow> GetWindow();
+   std::shared_ptr<ROOT::RWebWindow> GetWindow();
 
    void AssignHistogram(TH1 *hist);
 
@@ -108,13 +107,13 @@ public:
 
    void AssignCanvas(std::shared_ptr<RCanvas> &canv);
 
-   void AssignHistogram(std::shared_ptr<RH1D> &hist);
-
    /// show FitPanel in specified place
-   void Show(const std::string &where = "");
+   void Show(const RWebDisplayArgs &args = "");
 
    /// hide FitPanel
    void Hide();
+
+   void ClearOnClose(const std::shared_ptr<void> &handle);
 };
 
 } // namespace Experimental

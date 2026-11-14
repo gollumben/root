@@ -99,7 +99,6 @@ The Physical disk speed is DiskIO + DiskIO*ReadExtra/100.
 
 #include <iostream>
 
-ClassImp(TTreePerfStats);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// default constructor (used when reading an object only)
@@ -108,13 +107,13 @@ TTreePerfStats::TTreePerfStats() : TVirtualPerfStats()
 {
    fName      = "";
    fHostInfo  = "";
-   fTree      = 0;
+   fTree      = nullptr;
    fNleaves   = 0;
-   fFile      = 0;
-   fGraphIO   = 0;
-   fGraphTime = 0;
-   fWatch     = 0;
-   fPave      = 0;
+   fFile      = nullptr;
+   fGraphIO   = nullptr;
+   fGraphTime = nullptr;
+   fWatch     = nullptr;
+   fPave      = nullptr;
    fTreeCacheSize = 0;
    fReadCalls     = 0;
    fReadaheadSize = 0;
@@ -128,8 +127,8 @@ TTreePerfStats::TTreePerfStats() : TVirtualPerfStats()
    fUnzipInputSize= 0;
    fUnzipObjSize  = 0;
    fCompress      = 0;
-   fRealTimeAxis  = 0;
-   fHostInfoText  = 0;
+   fRealTimeAxis  = nullptr;
+   fHostInfoText  = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -137,6 +136,10 @@ TTreePerfStats::TTreePerfStats() : TVirtualPerfStats()
 
 TTreePerfStats::TTreePerfStats(const char *name, TTree *T) : TVirtualPerfStats()
 {
+   if (ROOT::IsImplicitMTEnabled()){
+      Warning("TTreePerfStats","Results obtained with ImplicitMT enabled are not reliable.");
+   }
+
    fName   = name;
    fTree   = T;
    T->SetPerfStats(this);
@@ -152,7 +155,7 @@ TTreePerfStats::TTreePerfStats(const char *name, TTree *T) : TVirtualPerfStats()
    fGraphTime->SetTitle("Real time vs entries");
    fWatch  = new TStopwatch();
    fWatch->Start();
-   fPave  = 0;
+   fPave  = nullptr;
    fTreeCacheSize = 0;
    fReadCalls     = 0;
    fReadaheadSize = 0;
@@ -165,10 +168,10 @@ TTreePerfStats::TTreePerfStats(const char *name, TTree *T) : TVirtualPerfStats()
    fUnzipTime     = 0;
    fUnzipInputSize= 0;
    fUnzipObjSize  = 0;
-   fRealTimeAxis  = 0;
+   fRealTimeAxis  = nullptr;
    fCompress      = (T->GetTotBytes()+0.00001)/T->GetZipBytes();
 
-   Bool_t isUNIX = strcmp(gSystem->GetName(), "Unix") == 0;
+   bool isUNIX = strcmp(gSystem->GetName(), "Unix") == 0;
    if (isUNIX)
       fHostInfo = gSystem->GetFromPipe("uname -a");
    else
@@ -177,7 +180,7 @@ TTreePerfStats::TTreePerfStats(const char *name, TTree *T) : TVirtualPerfStats()
    fHostInfo += TString::Format("ROOT %s, Git: %s", gROOT->GetVersion(), gROOT->GetGitCommit());
    TDatime dt;
    fHostInfo += TString::Format(" %s",dt.AsString());
-   fHostInfoText   = 0;
+   fHostInfoText   = nullptr;
 
    gPerfStats = this;
 }
@@ -187,8 +190,8 @@ TTreePerfStats::TTreePerfStats(const char *name, TTree *T) : TVirtualPerfStats()
 
 TTreePerfStats::~TTreePerfStats()
 {
-   fTree = 0;
-   fFile = 0;
+   fTree = nullptr;
+   fFile = nullptr;
    delete fGraphIO;
    delete fGraphTime;
    delete fPave;
@@ -197,7 +200,7 @@ TTreePerfStats::~TTreePerfStats()
    delete fHostInfoText;
 
    if (gPerfStats == this) {
-      gPerfStats = 0;
+      gPerfStats = nullptr;
    }
 }
 
@@ -258,7 +261,7 @@ void TTreePerfStats::Draw(Option_t *option)
       if (!gPad->IsEditable()) gROOT->MakeDefCanvas();
       //the following statement is necessary in case one attempts to draw
       //a temporary histogram already in the current pad
-      if (TestBit(kCanDelete)) gPad->GetListOfPrimitives()->Remove(this);
+      if (TestBit(kCanDelete)) gPad->Remove(this);
    } else {
       gROOT->MakeDefCanvas();
    }
@@ -435,12 +438,12 @@ TTreePerfStats::BasketList_t TTreePerfStats::GetDuplicateBasketCache() const
 
    auto branches = cache->GetCachedBranches();
    for (size_t i = 0; i < fBasketsInfo.size(); ++i) {
-      Bool_t first = kTRUE;
+      bool first = true;
       for (size_t j = 0; j < fBasketsInfo[i].size(); ++j) {
          auto &info(fBasketsInfo[i][j]);
          if ((info.fLoaded + info.fLoadedMiss) > 1) {
             if (first) {
-               result.emplace_back(BasketList_t::value_type((TBranch*)branches->At(i), std::vector<size_t>(1)));;
+               result.emplace_back(BasketList_t::value_type((TBranch*)branches->At(i), std::vector<size_t>(1)));
                first = false;
             }
             auto &ref( result.back() );
@@ -471,7 +474,7 @@ void TTreePerfStats::Paint(Option_t *option)
 
    TString opts(option);
    opts.ToLower();
-   Bool_t unzip = opts.Contains("unzip");
+   bool unzip = opts.Contains("unzip");
 
    //superimpose the time info (max 10 points)
    if (fGraphTime) {
@@ -541,8 +544,8 @@ void TTreePerfStats::Print(Option_t * option) const
 {
    TString opts(option);
    opts.ToLower();
-   Bool_t unzip = opts.Contains("unzip");
-   Bool_t basket = opts.Contains("basket");
+   bool unzip = opts.Contains("unzip");
+   bool basket = opts.Contains("basket");
    TTreePerfStats *ps = (TTreePerfStats*)this;
    ps->Finish();
 
@@ -583,7 +586,7 @@ void TTreePerfStats::PrintBasketInfo(Option_t *option) const
 
    TString opts(option);
    opts.ToLower();
-   Bool_t all = opts.Contains("allbasketinfo");
+   bool all = opts.Contains("allbasketinfo");
 
    TFile *file = fTree->GetCurrentFile();
    if (!file)
@@ -598,7 +601,7 @@ void TTreePerfStats::PrintBasketInfo(Option_t *option) const
       const char *branchname = branches->At(i)->GetName();
 
       printf("  br=%zu %s read not cached: ", i, branchname);
-      if (fBasketsInfo[i].size() == 0) {
+      if (fBasketsInfo[i].empty()) {
          printf("none");
       } else
          for (size_t j = 0; j < fBasketsInfo[i].size(); ++j) {
@@ -654,55 +657,29 @@ void TTreePerfStats::SaveAs(const char *filename, Option_t * /*option*/) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out
 
-void TTreePerfStats::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
+void TTreePerfStats::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   char quote = '"';
-   out<<"   "<<std::endl;
-   if (gROOT->ClassSaved(TTreePerfStats::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TTreePerfStats *";
-   }
-   out<<"ps = new TTreePerfStats();"<<std::endl;
-   out<<"   ps->SetName("<<quote<<GetName()<<quote<<");"<<std::endl;
-   out<<"   ps->SetHostInfo("<<quote<<GetHostInfo()<<quote<<");"<<std::endl;
-   out<<"   ps->SetTreeCacheSize("<<fTreeCacheSize<<");"<<std::endl;
-   out<<"   ps->SetNleaves("<<fNleaves<<");"<<std::endl;
-   out<<"   ps->SetReadCalls("<<fReadCalls<<");"<<std::endl;
-   out<<"   ps->SetReadaheadSize("<<fReadaheadSize<<");"<<std::endl;
-   out<<"   ps->SetBytesRead("<<fBytesRead<<");"<<std::endl;
-   out<<"   ps->SetBytesReadExtra("<<fBytesReadExtra<<");"<<std::endl;
-   out<<"   ps->SetRealNorm("<<fRealNorm<<");"<<std::endl;
-   out<<"   ps->SetRealTime("<<fRealTime<<");"<<std::endl;
-   out<<"   ps->SetCpuTime("<<fCpuTime<<");"<<std::endl;
-   out<<"   ps->SetDiskTime("<<fDiskTime<<");"<<std::endl;
-   out<<"   ps->SetUnzipTime("<<fUnzipTime<<");"<<std::endl;
-   out<<"   ps->SetCompress("<<fCompress<<");"<<std::endl;
+   SavePrimitiveConstructor(out, Class(), "perfstats");
+   out << "   perfstats->SetName(\"" << TString(GetName()).ReplaceSpecialCppChars() << "\");\n";
+   out << "   perfstats->SetHostInfo(\"" << TString(GetHostInfo()).ReplaceSpecialCppChars() << "\");\n";
+   out << "   perfstats->SetTreeCacheSize(" << fTreeCacheSize << ");\n";
+   out << "   perfstats->SetNleaves(" << fNleaves << ");\n";
+   out << "   perfstats->SetReadCalls(" << fReadCalls << ");\n";
+   out << "   perfstats->SetReadaheadSize(" << fReadaheadSize << ");\n";
+   out << "   perfstats->SetBytesRead(" << fBytesRead << ");\n";
+   out << "   perfstats->SetBytesReadExtra(" << fBytesReadExtra << ");\n";
+   out << "   perfstats->SetRealNorm(" << fRealNorm << ");\n";
+   out << "   perfstats->SetRealTime(" << fRealTime << ");\n";
+   out << "   perfstats->SetCpuTime(" << fCpuTime << ");\n";
+   out << "   perfstats->SetDiskTime(" << fDiskTime << ");\n";
+   out << "   perfstats->SetUnzipTime(" << fUnzipTime << ");\n";
+   out << "   perfstats->SetCompress(" << fCompress << ");\n";
 
-   Int_t i, npoints = fGraphIO->GetN();
-   out<<"   TGraphErrors *psGraphIO = new TGraphErrors("<<npoints<<");"<<std::endl;
-   out<<"   psGraphIO->SetName("<<quote<<fGraphIO->GetName()<<quote<<");"<<std::endl;
-   out<<"   psGraphIO->SetTitle("<<quote<<fGraphIO->GetTitle()<<quote<<");"<<std::endl;
-   out<<"   ps->SetGraphIO(psGraphIO);"<<std::endl;
-   fGraphIO->SaveFillAttributes(out,"psGraphIO",0,1001);
-   fGraphIO->SaveLineAttributes(out,"psGraphIO",1,1,1);
-   fGraphIO->SaveMarkerAttributes(out,"psGraphIO",1,1,1);
-   for (i=0;i<npoints;i++) {
-      out<<"   psGraphIO->SetPoint("<<i<<","<<fGraphIO->GetX()[i]<<","<<fGraphIO->GetY()[i]<<");"<<std::endl;
-      out<<"   psGraphIO->SetPointError("<<i<<",0,"<<fGraphIO->GetEY()[i]<<");"<<std::endl;
-   }
-   npoints = fGraphTime->GetN();
-   out<<"   TGraphErrors *psGraphTime = new TGraphErrors("<<npoints<<");"<<std::endl;
-   out<<"   psGraphTime->SetName("<<quote<<fGraphTime->GetName()<<quote<<");"<<std::endl;
-   out<<"   psGraphTime->SetTitle("<<quote<<fGraphTime->GetTitle()<<quote<<");"<<std::endl;
-   out<<"   ps->SetGraphTime(psGraphTime);"<<std::endl;
-   fGraphTime->SaveFillAttributes(out,"psGraphTime",0,1001);
-   fGraphTime->SaveLineAttributes(out,"psGraphTime",1,1,1);
-   fGraphTime->SaveMarkerAttributes(out,"psGraphTime",1,1,1);
-   for (i=0;i<npoints;i++) {
-      out<<"   psGraphTime->SetPoint("<<i<<","<<fGraphTime->GetX()[i]<<","<<fGraphTime->GetY()[i]<<");"<<std::endl;
-      out<<"   psGraphTime->SetPointError("<<i<<",0,"<<fGraphTime->GetEY()[i]<<");"<<std::endl;
-   }
+   fGraphIO->SavePrimitive(out, "nodraw");
+   out << "   perfstats->SetGraphIO(gre);\n";
 
-   out<<"   ps->Draw("<<quote<<option<<quote<<");"<<std::endl;
+   fGraphTime->SavePrimitive(out, "nodraw");
+   out << "   perfstats->SetGraphTime(gre);\n";
+
+   SavePrimitiveDraw(out, "perfstats", option);
 }

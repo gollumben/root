@@ -21,7 +21,6 @@ A TLeaf for a 64 bit Integer data type.
 #include "TClonesArray.h"
 #include <iostream>
 
-ClassImp(TLeafL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor for LeafL.
@@ -31,8 +30,8 @@ TLeafL::TLeafL(): TLeaf()
    fLenType = sizeof(Long64_t);
    fMinimum = 0;
    fMaximum = 0;
-   fValue   = 0;
-   fPointer = 0;
+   fValue   = nullptr;
+   fPointer = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -44,8 +43,8 @@ TLeafL::TLeafL(TBranch *parent, const char *name, const char *type)
    fLenType = sizeof(Long64_t);
    fMinimum = 0;
    fMaximum = 0;
-   fValue   = 0;
-   fPointer = 0;
+   fValue   = nullptr;
+   fPointer = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -53,7 +52,7 @@ TLeafL::TLeafL(TBranch *parent, const char *name, const char *type)
 
 TLeafL::~TLeafL()
 {
-   if (ResetAddress(0,kTRUE)) delete [] fValue;
+   if (ResetAddress(nullptr,true)) delete [] fValue;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -124,16 +123,16 @@ LongDouble_t TLeafL::GetValueLongDouble(Int_t i) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy/set fMinimum and fMaximum to include/be wide than those of the parameter
 
-Bool_t TLeafL::IncludeRange(TLeaf *input)
+bool TLeafL::IncludeRange(TLeaf *input)
 {
     if (input) {
         if (input->GetMaximum() > this->GetMaximum())
             this->SetMaximum( input->GetMaximum() );
         if (input->GetMinimum() < this->GetMinimum())
             this->SetMinimum( input->GetMinimum() );
-        return kTRUE;
+        return true;
     } else {
-        return kFALSE;
+        return false;
     }
 }
 
@@ -142,13 +141,16 @@ Bool_t TLeafL::IncludeRange(TLeaf *input)
 
 void TLeafL::Import(TClonesArray *list, Int_t n)
 {
-   const Int_t kIntUndefined = -9999;
+   const Long_t kIntUndefined = -9999;
    Int_t j = 0;
    char *clone;
    for (Int_t i=0;i<n;i++) {
       clone = (char*)list->UncheckedAt(i);
-      if (clone) memcpy(&fValue[j],clone + fOffset, 8*fLen);
-      else       memcpy(&fValue[j],&kIntUndefined,  8*fLen);
+      if (clone)
+         memcpy(&fValue[j],clone + fOffset, 8*fLen);
+      else
+         for (Int_t k = 0; k < fLen; ++k)
+            fValue[j + k] = kIntUndefined;
       j += fLen;
    }
 }
@@ -255,7 +257,7 @@ void TLeafL::SetAddress(void *add)
          Int_t ncountmax = fLen;
          if (fLeafCount) ncountmax = fLen*(fLeafCount->GetMaximum() + 1);
          if ((fLeafCount && ncountmax > Int_t(fLeafCount->GetValue())) ||
-             ncountmax > fNdata || *fPointer == 0) {
+             ncountmax > fNdata || *fPointer == nullptr) {
             if (*fPointer) delete [] *fPointer;
             if (ncountmax > fNdata) fNdata = ncountmax;
             *fPointer = new Long64_t[fNdata];

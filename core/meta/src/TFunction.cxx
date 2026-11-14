@@ -21,12 +21,11 @@ functions (accessible via TROOT::GetListOfGlobalFunctions()).
 #include "TList.h"
 #include "TROOT.h"
 #include "TInterpreter.h"
-#include "Strlen.h"
 
-#include <iostream>
 #include "TVirtualMutex.h"
 
-ClassImp(TFunction);
+#include <cstring>
+#include <iostream>
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default TFunction ctor. TFunctions are constructed in TROOT via
@@ -37,6 +36,9 @@ TFunction::TFunction(MethodInfo_t *info) : TDictionary()
    fInfo       = info;
    fMethodArgs = nullptr;
    if (fInfo) {
+      // The next calls into TClingMethodInfo methods lock the interpreter. Lock
+      // once here instead of locking/unlocking every time.
+      R__LOCKGUARD(gInterpreterMutex);
       SetName(gCling->MethodInfo_Name(fInfo));
       SetTitle(gCling->MethodInfo_Title(fInfo));
       fMangledName = gCling->MethodInfo_GetMangledName(fInfo);
@@ -49,7 +51,7 @@ TFunction::TFunction(MethodInfo_t *info) : TDictionary()
 TFunction::TFunction(const TFunction &orig) : TDictionary(orig)
 {
    if (orig.fInfo) {
-      R__LOCKGUARD(gInterpreterMutex);
+      // The next call locks the interpreter mutex.
       fInfo = gCling->MethodInfo_FactoryCopy(orig.fInfo);
       fMangledName = orig.fMangledName;
    } else
@@ -63,6 +65,8 @@ TFunction::TFunction(const TFunction &orig) : TDictionary(orig)
 TFunction& TFunction::operator=(const TFunction &rhs)
 {
    if (this != &rhs) {
+      // The next calls lock the interpreter mutex. Lock once here instead of
+      // locking/unlocking every time.
       R__LOCKGUARD(gInterpreterMutex);
       gCling->MethodInfo_Delete(fInfo);
       if (fMethodArgs) fMethodArgs->Delete();
@@ -84,7 +88,6 @@ TFunction& TFunction::operator=(const TFunction &rhs)
 
 TFunction::~TFunction()
 {
-   R__LOCKGUARD(gInterpreterMutex);
    gCling->MethodInfo_Delete(fInfo);
 
    if (fMethodArgs) fMethodArgs->Delete();
@@ -96,6 +99,7 @@ TFunction::~TFunction()
 
 TObject *TFunction::Clone(const char *newname) const
 {
+   // The constructor locks the interpreter mutex.
    TNamed *newobj = new TFunction(*this);
    if (newname && strlen(newname)) newobj->SetName(newname);
    return newobj;
@@ -106,7 +110,8 @@ TObject *TFunction::Clone(const char *newname) const
 
 void TFunction::CreateSignature()
 {
-   R__LOCKGUARD(gInterpreterMutex);
+   // The next call locks the interpreter mutex. The result is cached in the
+   // fSignature data member.
    gCling->MethodInfo_CreateSignature(fInfo, fSignature);
 }
 
@@ -116,6 +121,8 @@ void TFunction::CreateSignature()
 const char *TFunction::GetSignature()
 {
    if (fInfo && fSignature.IsNull())
+      // The next call locks the interpreter mutex.
+      // The result is cached in the fSignature data member.
       CreateSignature();
 
    return fSignature.Data();
@@ -130,6 +137,7 @@ TList *TFunction::GetListOfMethodArgs()
       if (!gInterpreter)
          Fatal("GetListOfMethodArgs", "gInterpreter not initialized");
 
+      // The next call locks the interpreter mutex.
       gInterpreter->CreateListOfMethodArgs(this);
    }
    return fMethodArgs;
@@ -140,7 +148,7 @@ TList *TFunction::GetListOfMethodArgs()
 
 const char *TFunction::GetReturnTypeName() const
 {
-   R__LOCKGUARD(gInterpreterMutex);
+   // The next calls lock the interpreter mutex.
    if (fInfo == nullptr || gCling->MethodInfo_Type(fInfo) == nullptr) return "Unknown";
    return gCling->MethodInfo_TypeName(fInfo);
 }
@@ -154,7 +162,7 @@ const char *TFunction::GetReturnTypeName() const
 
 std::string TFunction::GetReturnTypeNormalizedName() const
 {
-   R__LOCKGUARD(gInterpreterMutex);
+   // The next calls lock the interpreter mutex.
    if (fInfo == nullptr || gCling->MethodInfo_Type(fInfo) == nullptr) return "Unknown";
    return gCling->MethodInfo_TypeNormalizedName(fInfo);
 }
@@ -183,6 +191,7 @@ Int_t TFunction::GetNargsOpt() const
 
 Long_t TFunction::Property() const
 {
+   // The next call locks the interpreter mutex.
    return fInfo ? gCling->MethodInfo_Property(fInfo) : 0;
 }
 
@@ -191,6 +200,7 @@ Long_t TFunction::Property() const
 
 Long_t TFunction::ExtraProperty() const
 {
+   // The next call locks the interpreter mutex.
    return fInfo ? gCling->MethodInfo_ExtraProperty(fInfo) : 0;
 }
 
@@ -198,6 +208,7 @@ Long_t TFunction::ExtraProperty() const
 
 TDictionary::DeclId_t TFunction::GetDeclId() const
 {
+   // The next call locks the interpreter mutex.
    return gInterpreter->GetDeclId(fInfo);
 }
 
@@ -208,6 +219,7 @@ TDictionary::DeclId_t TFunction::GetDeclId() const
 
 void *TFunction::InterfaceMethod() const
 {
+   // The next call locks the interpreter mutex.
    return fInfo ? gCling->MethodInfo_InterfaceMethod(fInfo) : nullptr;
 }
 
@@ -221,8 +233,10 @@ Bool_t TFunction::IsValid()
    // Register the transaction when checking the validity of the object.
    if (!fInfo && UpdateInterpreterStateMarker()) {
       // Only for global functions. For data member functions TMethod does it.
+      // The next calls lock the interpreter mutex.
       DeclId_t newId = gInterpreter->GetFunction(nullptr, fName);
       if (newId) {
+         // The next call locks the interpreter mutex. (TODO: why?)
          MethodInfo_t *info = gInterpreter->MethodInfo_Factory(newId);
          Update(info);
       }
@@ -246,7 +260,7 @@ const char *TFunction::GetMangledName() const
 const char *TFunction::GetPrototype() const
 {
    if (fInfo) {
-      R__LOCKGUARD(gInterpreterMutex);
+      // The next call locks the interpreter mutex.
       return gCling->MethodInfo_GetPrototype(fInfo);
    } else
       return nullptr;
@@ -278,10 +292,14 @@ void TFunction::Print(Option_t *options /* ="" */) const
 
 Bool_t TFunction::Update(MethodInfo_t *info)
 {
+   // This function needs to lock access to the interpreter multiple times.
+   // Take the lock at the beginning of the function so that we don't incur
+   // in too much locking/unlocking.
+   R__LOCKGUARD(gInterpreterMutex);
    if (info == nullptr) {
 
       if (fInfo) {
-         R__LOCKGUARD(gInterpreterMutex);
+         // The next call locks the interpreter mutex.
          gCling->MethodInfo_Delete(fInfo);
       }
       fInfo = nullptr;
@@ -294,10 +312,11 @@ Bool_t TFunction::Update(MethodInfo_t *info)
       return kTRUE;
    } else {
       if (fInfo) {
-         R__LOCKGUARD(gInterpreterMutex);
+         // The next call locks the interpreter mutex.
          gCling->MethodInfo_Delete(fInfo);
       }
       fInfo = info;
+      // The next call locks the interpreter mutex.
       TString newMangledName = gCling->MethodInfo_GetMangledName(fInfo);
       if (newMangledName != fMangledName) {
          Error("Update","TFunction object updated with the 'wrong' MethodInfo (%s vs %s).",
@@ -305,11 +324,12 @@ Bool_t TFunction::Update(MethodInfo_t *info)
          fInfo = nullptr;
          return false;
       }
+      // The next call locks the interpreter mutex.
       SetTitle(gCling->MethodInfo_Title(fInfo));
       if (fMethodArgs) {
+         // TODO: Check for MethodArgInfo thread-safety
          MethodArgInfo_t *arg = gCling->MethodArgInfo_Factory(fInfo);
          Int_t i = 0;
-         R__LOCKGUARD(gInterpreterMutex);
          while (gCling->MethodArgInfo_Next(arg)) {
             if (gCling->MethodArgInfo_IsValid(arg)) {
                MethodArgInfo_t *new_arg = gCling->MethodArgInfo_FactoryCopy(arg);

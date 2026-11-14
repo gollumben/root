@@ -12,38 +12,10 @@
 /** \class TEntryList
 \ingroup tree
 
-A List of entry numbers in a TTree or TChain.
+A List of entry numbers in a TTree or TChain. 
 
-There are two types of entry lists:
-
-#### 1.
-    for a TTree (fBlocks data member is non-zero)
-    Entry numbers are stored in TEntryListBlocks, which, in their turn, are stored
-    in the TObjArray fBlocks. The range of the entry numbers is cut into intervals
-    of kBlockSize entries (currently 64000), so that the first block contains
-    information which entries out of the first 64000 pass the selection, the second
-    block - which entries out of the 64000-127999 interval pass the selection, etc.
-    Some blocks, obviously, might be empty. The internal representation of entry
-    numbers in the blocks is described in the TEntryListBlock class description, and
-    this representation might be changed by calling OptimizeStorage() function
-    (when the list is filled via the Enter() function, this is done automatically,
-    except for the last block).
-    Individual entry lists can be merged (functions Merge() and Add())
-    to make an entry list for a TChain of corresponding TTrees.
-Begin_Macro
-entrylist_figure1.C
-End_Macro
-
-#### 2.
-    for a TChain (fLists data member is non-zero)
-    It contains a TList of sub-lists (TEntryList objects, corresponding to each TTree)
-    Trees and lists are matched by the TTree name and its file name (full path).
-    All sub-lists are returned by the GetLists() function and individual lists are
-    returned by GetEntryList() function. Such lists are no different from the lists for
-    TTrees, described above.
-Begin_Macro
-entrylist_figure2.C
-End_Macro
+Note: It is recommended to use approaches such as TTreeReader::SetEntryRange or 
+ROOT::RDataFrame instead of TEntryList if possible.
 
 ## Operations on entry lists
 
@@ -142,6 +114,40 @@ TTreeFormula expressions.
 
 TTree::SetEventList() and TChain::SetEventList() transform a TEventList into a TEntryList
 See comments to those functions for more details
+
+## Types of entry lists
+There are two types of entry lists:
+
+#### 1.
+    for a TTree (fBlocks data member is non-zero)
+    Entry numbers are stored in TEntryListBlocks, which, in their turn, are stored
+    in the TObjArray fBlocks. The range of the entry numbers is cut into intervals
+    of kBlockSize entries (currently 64000), so that the first block contains
+    information which entries out of the first 64000 pass the selection, the second
+    block - which entries out of the 64000-127999 interval pass the selection, etc.
+    Some blocks, obviously, might be empty. The internal representation of entry
+    numbers in the blocks is described in the TEntryListBlock class description, and
+    this representation might be changed by calling OptimizeStorage() function
+    (when the list is filled via the Enter() function, this is done automatically,
+    except for the last block).
+    Individual entry lists can be merged (functions Merge() and Add())
+    to make an entry list for a TChain of corresponding TTrees.
+Begin_Macro
+entrylist_figure1.C
+End_Macro
+
+#### 2.
+    for a TChain (fLists data member is non-zero)
+    It contains a TList of sub-lists (TEntryList objects, corresponding to each TTree)
+    Trees and lists are matched by the TTree name and its file name (full path).
+    All sub-lists are returned by the GetLists() function and individual lists are
+    returned by GetEntryList() function. Such lists are no different from the lists for
+    TTrees, described above.
+Begin_Macro
+entrylist_figure2.C
+End_Macro
+
+
 */
 
 #include "TEntryList.h"
@@ -154,146 +160,87 @@ See comments to those functions for more details
 #include "TRegexp.h"
 #include "TSystem.h"
 #include "TObjString.h"
-
-ClassImp(TEntryList);
+#include "TROOT.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 /// default c-tor
 
-TEntryList::TEntryList() : fEntriesToProcess(0)
-{
-   fLists = 0;
-   fCurrent = 0;
-   fBlocks = 0;
-   fN = 0;
-   fNBlocks = 0;
-   fTreeName = "";
-   fFileName = "";
-   fStringHash = 0;
-   fTreeNumber = -1;
-   fDirectory = 0;
-   fReapply = kFALSE;
-   fLastIndexQueried = -1;
-   fLastIndexReturned = 0;
-   fShift = kFALSE;
-}
+TEntryList::TEntryList() = default;
 
 ////////////////////////////////////////////////////////////////////////////////
 /// c-tor with name and title
 
-TEntryList::TEntryList(const char *name, const char *title) :
-   TNamed(name, title),
-   fEntriesToProcess(0)
+TEntryList::TEntryList(const char *name, const char *title) : TNamed(name, title)
 {
-   fLists = 0;
-   fCurrent = 0;
-   fBlocks = 0;
-   fN = 0;
-   fNBlocks = 0;
-   fTreeName = "";
-   fFileName = "";
-   fStringHash = 0;
-   fTreeNumber = -1;
-   fReapply = kFALSE;
-
-   fDirectory  = gDirectory;
-   if (fDirectory) fDirectory->Append(this);
-
-   fLastIndexQueried = -1;
-   fLastIndexReturned = 0;
-   fShift = kFALSE;
+   if (ROOT::Experimental::ObjectAutoRegistrationEnabled()) {
+      fDirectory = gDirectory;
+      if (fDirectory)
+         fDirectory->Append(this);
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor with name and title, which also sets the tree
 
-TEntryList::TEntryList(const char *name, const char *title, const TTree *tree):TNamed(name, title)
+TEntryList::TEntryList(const char *name, const char *title, const TTree *tree) : TNamed(name, title)
 {
-   fLists = 0;
-   fCurrent = 0;
-   fBlocks = 0;
-   fN = 0;
-   fNBlocks = 0;
-   fTreeNumber = -1;
    TEntryList::SetTree(tree);
-   fReapply = kFALSE;
 
-   fDirectory  = gDirectory;
-   if (fDirectory) fDirectory->Append(this);
-
-   fLastIndexQueried = -1;
-   fLastIndexReturned = 0;
-   fShift = kFALSE;
+   if (ROOT::Experimental::ObjectAutoRegistrationEnabled()) {
+      fDirectory = gDirectory;
+      if (fDirectory)
+         fDirectory->Append(this);
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// c-tor with name and title, which also sets the treename and the filename
 
-TEntryList::TEntryList(const char *name, const char *title, const char *treename, const char *filename) : TNamed(name, title),fEntriesToProcess(0)
+TEntryList::TEntryList(const char *name, const char *title, const char *treename, const char *filename)
+   : TNamed(name, title)
 {
-   fLists = 0;
-   fCurrent = 0;
-   fBlocks = 0;
-   fNBlocks = 0;
-   fN = 0;
    SetTree(treename, filename);
-   fTreeNumber = -1;
-   fReapply = kFALSE;
 
-   fDirectory  = gDirectory;
-   if (fDirectory) fDirectory->Append(this);
-
-   fLastIndexQueried = -1;
-   fLastIndexReturned = 0;
-   fShift = kFALSE;
+   if (ROOT::Experimental::ObjectAutoRegistrationEnabled()) {
+      fDirectory = gDirectory;
+      if (fDirectory)
+         fDirectory->Append(this);
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// c-tor, which sets the tree
 
-TEntryList::TEntryList(const TTree *tree) : fEntriesToProcess(0)
+TEntryList::TEntryList(const TTree *tree)
 {
-   fLists = 0;
-   fCurrent = 0;
-   fBlocks = 0;
-   fNBlocks = 0;
-   fN = 0;
-
    SetTree(tree);
-   fTreeNumber = -1;
 
-   fReapply = kFALSE;
-   fDirectory  = gDirectory;
-   if (fDirectory) fDirectory->Append(this);
-
-   fLastIndexQueried = -1;
-   fLastIndexReturned = 0;
-   fShift = kFALSE;
+   if (ROOT::Experimental::ObjectAutoRegistrationEnabled()) {
+      fDirectory = gDirectory;
+      if (fDirectory)
+         fDirectory->Append(this);
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// copy c-tor
 
-TEntryList::TEntryList(const TEntryList &elist) : TNamed(elist)
+TEntryList::TEntryList(const TEntryList &elist)
+   : TNamed(elist),
+     fNBlocks(elist.fNBlocks),
+     fN(elist.fN),
+     fEntriesToProcess(elist.fEntriesToProcess),
+     fTreeName(elist.fTreeName),
+     fFileName(elist.fFileName),
+     fStringHash(elist.fStringHash),
+     fTreeNumber(elist.fTreeNumber),
+     fShift(elist.fShift),
+     fReapply(elist.fReapply)
 {
-   fNBlocks = elist.fNBlocks;
-   fTreeName = elist.fTreeName;
-   fFileName = elist.fFileName;
-   fStringHash = elist.fStringHash;
-   fTreeNumber = elist.fTreeNumber;
-   fLastIndexQueried = -1;
-   fLastIndexReturned = 0;
-   fN = elist.fN;
-   fShift = elist.fShift;
-   fLists = 0;
-   fBlocks = 0;
-   fReapply = elist.fReapply;
-   fCurrent = 0;
-   fEntriesToProcess = elist.fEntriesToProcess;
    if (elist.fLists){
       fLists = new TList();
-      TEntryList *el1 = 0;
-      TEntryList *el2 = 0;
+      TEntryList *el1 = nullptr;
+      TEntryList *el2 = nullptr;
       TIter next(elist.fLists);
       while((el1 = (TEntryList*)next())){
          el2 = new TEntryList(*el1);
@@ -303,8 +250,8 @@ TEntryList::TEntryList(const TEntryList &elist) : TNamed(elist)
       }
    } else {
       if (elist.fBlocks){
-         TEntryListBlock *block1 = 0;
-         TEntryListBlock *block2 = 0;
+         TEntryListBlock *block1 = nullptr;
+         TEntryListBlock *block2 = nullptr;
          //or just copy it as a TObjArray??
          fBlocks = new TObjArray();
          for (Int_t i=0; i<fNBlocks; i++){
@@ -315,8 +262,6 @@ TEntryList::TEntryList(const TEntryList &elist) : TNamed(elist)
       }
       fCurrent = this;
    }
-   fDirectory  = 0;
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -328,16 +273,16 @@ TEntryList::~TEntryList()
       fBlocks->Delete();
       delete fBlocks;
    }
-   fBlocks = 0;
+   fBlocks = nullptr;
    if (fLists){
       fLists->Delete();
       delete fLists;
    }
 
-   fLists = 0;
+   fLists = nullptr;
 
    if (fDirectory) fDirectory->Remove(this);
-   fDirectory  = 0;
+   fDirectory  = nullptr;
 
 }
 
@@ -373,8 +318,8 @@ void TEntryList::Add(const TEntryList *elist)
          fN = elist->fN;
          if (elist->fLists){
             fLists = new TList();
-            TEntryList *el1 = 0;
-            TEntryList *el2 = 0;
+            TEntryList *el1 = nullptr;
+            TEntryList *el2 = nullptr;
             TIter next(elist->fLists);
             while((el1 = (TEntryList*)next())){
                el2 = new TEntryList(*el1);
@@ -384,8 +329,8 @@ void TEntryList::Add(const TEntryList *elist)
             }
          } else {
             if (elist->fBlocks){
-               TEntryListBlock *block1 = 0;
-               TEntryListBlock *block2 = 0;
+               TEntryListBlock *block1 = nullptr;
+               TEntryListBlock *block2 = nullptr;
                fBlocks = new TObjArray();
                for (Int_t i=0; i<fNBlocks; i++){
                   block1 = (TEntryListBlock*)elist->fBlocks->UncheckedAt(i);
@@ -393,7 +338,7 @@ void TEntryList::Add(const TEntryList *elist)
                   fBlocks->Add(block2);
                }
             }
-            fCurrent = 0;
+            fCurrent = nullptr;
          }
          return;
       }
@@ -408,8 +353,8 @@ void TEntryList::Add(const TEntryList *elist)
                return;
             if (!fBlocks){
                //this entry list is empty
-               TEntryListBlock *block1 = 0;
-               TEntryListBlock *block2 = 0;
+               TEntryListBlock *block1 = nullptr;
+               TEntryListBlock *block2 = nullptr;
                fNBlocks = elist->fNBlocks;
                fN = elist->fN;
                fBlocks = new TObjArray();
@@ -421,10 +366,10 @@ void TEntryList::Add(const TEntryList *elist)
                return;
             }
             //both not empty, merge block by block
-            TEntryListBlock *block1=0;
-            TEntryListBlock *block2=0;
+            TEntryListBlock *block1=nullptr;
+            TEntryListBlock *block2=nullptr;
             Int_t i;
-            Int_t nmin = TMath::Min(fNBlocks, elist->fNBlocks);
+            Int_t nmin = std::min(fNBlocks, elist->fNBlocks);
             Long64_t nnew, nold;
             for (i=0; i<nmin; i++){
                block1 = (TEntryListBlock*)fBlocks->UncheckedAt(i);
@@ -455,7 +400,7 @@ void TEntryList::Add(const TEntryList *elist)
             el->fTreeName = fTreeName;
             el->fFileName = fFileName;
             el->fBlocks = fBlocks;
-            fBlocks = 0;
+            fBlocks = nullptr;
             el->fNBlocks = fNBlocks;
             el->fN = fN;
             el->fLastIndexQueried = -1;
@@ -466,24 +411,24 @@ void TEntryList::Add(const TEntryList *elist)
             el->fLastIndexReturned = 0;
             fLists->Add(el);
             fN+=el->GetN();
-            fCurrent = 0;
+            fCurrent = nullptr;
          }
       } else {
          //second list already has sublists. add one by one
-         TEntryList *el = 0;
+         TEntryList *el = nullptr;
          TIter next(elist->fLists);
          while ((el = (TEntryList*)next())){
             Add(el);
          }
-         fCurrent = 0;
+         fCurrent = nullptr;
       }
    } else {
       //there are already some sublists in this list, just add another one
       if (!elist->fLists){
          //the other list doesn't have sublists
          TIter next(fLists);
-         TEntryList *el = 0;
-         Bool_t found = kFALSE;
+         TEntryList *el = nullptr;
+         bool found = false;
          while ((el = (TEntryList*)next())){
             if (!strcmp(el->fTreeName.Data(), elist->fTreeName.Data()) &&
                 !strcmp(el->fFileName.Data(), elist->fFileName.Data())){
@@ -491,7 +436,7 @@ void TEntryList::Add(const TEntryList *elist)
                //found a list for the same tree
                Long64_t oldn = el->GetN();
                el->Add(elist);
-               found = kTRUE;
+               found = true;
                fN = fN - oldn + el->GetN();
                break;
             }
@@ -505,12 +450,12 @@ void TEntryList::Add(const TEntryList *elist)
          }
       } else {
          //add all sublists from the other list
-         TEntryList *el = 0;
+         TEntryList *el = nullptr;
          TIter next(elist->fLists);
          while ((el = (TEntryList*)next())){
             Add(el);
          }
-         fCurrent = 0;
+         fCurrent = nullptr;
       }
       if (fCurrent){
          if (fCurrent->fBlocks){
@@ -521,7 +466,7 @@ void TEntryList::Add(const TEntryList *elist)
             fCurrent->fLastIndexQueried = -1;
          }
       }
-      fCurrent = 0;
+      fCurrent = nullptr;
    }
 
 }
@@ -588,7 +533,7 @@ Int_t TEntryList::Contains(Long64_t entry, TTree *tree)
    if (!tree){
       if (fBlocks) {
          //this entry list doesn't contain any sub-lists
-         TEntryListBlock *block = 0;
+         TEntryListBlock *block = nullptr;
          Int_t nblock = entry/kBlockSize;
          if (nblock >= fNBlocks) return 0;
          block = (TEntryListBlock*)fBlocks->UncheckedAt(nblock);
@@ -624,17 +569,17 @@ void TEntryList::DirectoryAutoAdd(TDirectory* dir)
 /// - When tree is a chain, the entry is assumed to be global index and the local
 /// entry is recomputed from the treeoffset information of the chain
 
-Bool_t TEntryList::Enter(Long64_t entry, TTree *tree)
+bool TEntryList::Enter(Long64_t entry, TTree *tree)
 {
    if (!tree){
       if (!fLists) {
          if (!fBlocks) fBlocks = new TObjArray();
-         TEntryListBlock *block = 0;
+         TEntryListBlock *block = nullptr;
          Long64_t nblock = entry/kBlockSize;
          if (nblock >= fNBlocks) {
             if (fNBlocks>0){
                block = (TEntryListBlock*)fBlocks->UncheckedAt(fNBlocks-1);
-               if (!block) return 0;
+               if (!block) return false;
                block->OptimizeStorage();
             }
             for (Int_t i=fNBlocks; i<=nblock; i++){
@@ -646,7 +591,7 @@ Bool_t TEntryList::Enter(Long64_t entry, TTree *tree)
          block = (TEntryListBlock*)fBlocks->UncheckedAt(nblock);
          if (block->Enter(entry-nblock*kBlockSize)) {
             fN++;
-            return 1;
+            return true;
          }
       } else {
          //the entry in the current entry list
@@ -654,7 +599,7 @@ Bool_t TEntryList::Enter(Long64_t entry, TTree *tree)
          if (fCurrent->Enter(entry)) {
             if (fLists)
                fN++;
-            return 1;
+            return true;
          }
       }
    } else {
@@ -664,12 +609,25 @@ Bool_t TEntryList::Enter(Long64_t entry, TTree *tree)
          if (fCurrent->Enter(localentry)) {
             if (fLists)
                fN++;
-            return 1;
+            return true;
          }
       }
    }
-   return 0;
+   return false;
 
+}
+
+bool TEntryList::Enter(Long64_t localentry, const char *treename, const char *filename)
+{
+   SetTree(treename, filename);
+   if (fCurrent) {
+      if (fCurrent->Enter(localentry)) {
+         if (fLists)
+            fN++;
+         return true;
+      }
+   }
+   return false;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -697,28 +655,28 @@ void TEntryList::EnterRange(Long64_t start, Long64_t end, TTree *tree, UInt_t st
 /// - When tree is a chain, the entry is assumed to be global index and the local
 /// entry is recomputed from the treeoffset information of the chain
 
-Bool_t TEntryList::Remove(Long64_t entry, TTree *tree)
+bool TEntryList::Remove(Long64_t entry, TTree *tree)
 {
    if (entry < 0)
-     return kFALSE;
+     return false;
    if (!tree) {
       if (!fLists) {
-         if (!fBlocks) return 0;
-         TEntryListBlock *block = 0;
+         if (!fBlocks) return false;
+         TEntryListBlock *block = nullptr;
          Long64_t nblock = entry/kBlockSize;
          block = (TEntryListBlock*)fBlocks->UncheckedAt(nblock);
-         if (!block) return 0;
+         if (!block) return false;
          Long64_t blockindex = entry - nblock*kBlockSize;
          if (block->Remove(blockindex)){
             fN--;
-            return 1;
+            return true;
          }
       } else {
          if (!fCurrent) fCurrent = (TEntryList*)fLists->First();
          if (fCurrent->Remove(entry)){
             if (fLists)
                fN--;
-            return 1;
+            return true;
          }
       }
    } else {
@@ -728,18 +686,18 @@ Bool_t TEntryList::Remove(Long64_t entry, TTree *tree)
          if (fCurrent->Remove(localentry)) {
             if (fLists)
                fN--;
-            return 1;
+            return true;
          }
       }
    }
-   return 0;
+   return false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the number of the entry \#index of this TEntryList in the TTree or TChain
 /// See also Next().
 
-Long64_t TEntryList::GetEntry(Int_t index)
+Long64_t TEntryList::GetEntry(Long64_t index)
 {
 
    if ((index>=fN) || (index<0)) {
@@ -750,7 +708,7 @@ Long64_t TEntryList::GetEntry(Int_t index)
       return Next();
    } else {
       if (fBlocks) {
-         TEntryListBlock *block = 0;
+         TEntryListBlock *block = nullptr;
          Long64_t total_passed = 0;
          Int_t i=0;
          while (total_passed<=index && i<fNBlocks){
@@ -815,7 +773,7 @@ Long64_t TEntryList::GetEntry(Int_t index)
 /// Return the index of "index"-th non-zero entry in the TTree or TChain
 /// and the # of the corresponding tree in the chain
 
-Long64_t TEntryList::GetEntryAndTree(Int_t index, Int_t &treenum)
+Long64_t TEntryList::GetEntryAndTree(Long64_t index, Int_t &treenum)
 {
 //If shift is true, then when the requested entry is found in an entry list,
 //for which there is no corresponding tree in the chain, this list is not
@@ -823,7 +781,7 @@ Long64_t TEntryList::GetEntryAndTree(Int_t index, Int_t &treenum)
 //Example:
 //First sublist - 20 entries, second sublist - 5 entries, third sublist - 10 entries
 //Second sublist doesn't correspond to any trees of the chain
-//Then, when GetEntryAndTree(21, treenum, kTRUE) is called, first entry of the
+//Then, when GetEntryAndTree(21, treenum, true) is called, first entry of the
 //third sublist will be returned
 
    Long64_t result = GetEntry(index);
@@ -850,10 +808,10 @@ Long64_t TEntryList::GetEntryAndTree(Int_t index, Int_t &treenum)
 /// The function optionally (is 'local' is defined) checks file locality (i.e.
 /// protocol 'file://') returning the result in '*local' .
 
-void TEntryList::GetFileName(const char *filename, TString &fn, Bool_t *local)
+void TEntryList::GetFileName(const char *filename, TString &fn, bool *local)
 {
-   TUrl u(filename, kTRUE);
-   if (local) *local = (!strcmp(u.GetProtocol(), "file")) ? kTRUE : kFALSE;
+   TUrl u(filename, true);
+   if (local) *local = (!strcmp(u.GetProtocol(), "file")) ? true : false;
    if (strlen(u.GetAnchor()) > 0) {
       fn.Form("%s#%s", u.GetFile(), u.GetAnchor());
    } else {
@@ -875,15 +833,15 @@ TEntryList *TEntryList::GetEntryList(const char *treename, const char *filename,
       Info("GetEntryList","tree: %s, file: %s",
                           (treename ? treename : "-"), (filename ? filename : "-"));
 
-   if (!treename || !filename) return 0;
+   if (!treename || !filename) return nullptr;
    TString option = opt;
    option.ToUpper();
-   Bool_t nexp = option.Contains("NE");
+   bool nexp = option.Contains("NE");
 
    TString fn;
-   Bool_t local;
+   bool local;
    GetFileName(filename, fn, &local);
-   if (nexp) local = kFALSE;
+   if (nexp) local = false;
 
    if (gDebug > 1)
       Info("GetEntryList", "file: %s, local? %d", filename, local);
@@ -902,7 +860,7 @@ TEntryList *TEntryList::GetEntryList(const char *treename, const char *filename,
             if (!strcmp(treename, fTreeName.Data()) && !(strcmp(fn.Data(), fFileName.Data())))
                return this;
          }
-         return 0;
+         return nullptr;
       }
    }
 
@@ -953,7 +911,7 @@ TEntryList *TEntryList::GetEntryList(const char *treename, const char *filename,
          }
       }
    }
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -963,7 +921,7 @@ Int_t TEntryList::Merge(TCollection *list)
 {
    if (!list) return -1;
    TIter next(list);
-   TEntryList *elist = 0;
+   TEntryList *elist = nullptr;
    while ((elist = (TEntryList*)next())) {
       if (!elist->InheritsFrom(TEntryList::Class())) {
          Error("Add","Attempt to add object of class: %s to a %s",elist->ClassName(),this->ClassName());
@@ -1068,7 +1026,7 @@ Long64_t TEntryList::Next()
 void TEntryList::OptimizeStorage()
 {
    if (fBlocks){
-      TEntryListBlock *block = 0;
+      TEntryListBlock *block = nullptr;
       for (Int_t i=0; i<fNBlocks; i++){
          block = (TEntryListBlock*)fBlocks->UncheckedAt(i);
          block->OptimizeStorage();
@@ -1088,7 +1046,7 @@ void TEntryList::Print(const Option_t* option) const
    if (fBlocks) {
       Printf("%s %s %lld", fTreeName.Data(), fFileName.Data(), fN);
       if (opt.Contains("A")){
-         TEntryListBlock* block = 0;
+         TEntryListBlock* block = nullptr;
          for (Int_t i=0; i<fNBlocks; i++){
             block = (TEntryListBlock*)fBlocks->UncheckedAt(i);
             Int_t shift = i*kBlockSize;
@@ -1097,7 +1055,7 @@ void TEntryList::Print(const Option_t* option) const
       }
    }
    else {
-      TEntryList *elist = 0;
+      TEntryList *elist = nullptr;
       if (fN>0){
          TIter next(fLists);
          while((elist = (TEntryList*)next())){
@@ -1125,17 +1083,17 @@ void TEntryList::Reset()
    if (fBlocks){
       fBlocks->Delete();
       delete fBlocks;
-      fBlocks = 0;
+      fBlocks = nullptr;
    }
    if (fLists){
       if (!((TEntryList*)fLists->First())->GetDirectory()){
          fLists->Delete();
       }
       delete fLists;
-      fLists = 0;
+      fLists = nullptr;
    }
-   fCurrent = 0;
-   fBlocks = 0;
+   fCurrent = nullptr;
+   fBlocks = nullptr;
    fNBlocks = 0;
    fN = 0;
    fTreeName = "";
@@ -1144,7 +1102,7 @@ void TEntryList::Reset()
    fTreeNumber = -1;
    fLastIndexQueried = -1;
    fLastIndexReturned = 0;
-   fReapply = kFALSE;
+   fReapply = false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1166,7 +1124,7 @@ void TEntryList::SetDirectory(TDirectory *dir)
 
 void TEntryList::SetTree(const char *treename, const char *filename)
 {
-   TEntryList *elist = 0;
+   TEntryList *elist = nullptr;
 
    TString fn;
    GetFileName(filename, fn);
@@ -1213,7 +1171,7 @@ void TEntryList::SetTree(const char *treename, const char *filename)
       if (elist->GetDirectory()) {
          //sub lists are not added to the current directory
          elist->GetDirectory()->Remove(elist);
-         elist->SetDirectory(0);
+         elist->SetDirectory(nullptr);
       }
       fLists->Add(elist);
       fCurrent = elist;
@@ -1243,14 +1201,14 @@ void TEntryList::SetTree(const char *treename, const char *filename)
             elist->fN = fN;
             elist->fTreeNumber = fTreeNumber;
             elist->fBlocks = fBlocks;
-            fBlocks = 0;
+            fBlocks = nullptr;
             elist->fNBlocks = fNBlocks;
             fLists->Add(elist);
             elist = new TEntryList("", "", treename, fn.Data());
             if (elist->GetDirectory()) {
                //sub lists are not added to the current directory
                elist->GetDirectory()->Remove(elist);
-               elist->SetDirectory(0);
+               elist->SetDirectory(nullptr);
             }
             fLists->Add(elist);
             fCurrent = elist;
@@ -1292,8 +1250,9 @@ void TEntryList::SetTree(const TTree *tree)
    TString filename;
    if (tree->GetTree()->GetCurrentFile()){
       filename = tree->GetTree()->GetCurrentFile()->GetName();
-      TUrl url(filename.Data(), kTRUE);
+      TUrl url(filename.Data(), true);
       if (!strcmp(url.GetProtocol(), "file")){
+         filename = url.GetFile(); // Get the file part, excluding the anchor, then expand
          gSystem->ExpandPathName(filename);
          if (!gSystem->IsAbsoluteFileName(filename))
             gSystem->PrependPathName(gSystem->pwd(), filename);
@@ -1314,7 +1273,7 @@ void TEntryList::SetTree(const TTree *tree)
 
 void TEntryList::Subtract(const TEntryList *elist)
 {
-   TEntryList *templist = 0;
+   TEntryList *templist = nullptr;
    if (!fLists){
       if (!fBlocks) return;
       //check if lists are for the same tree
@@ -1336,12 +1295,12 @@ void TEntryList::Subtract(const TEntryList *elist)
       } else {
          //second list has sublists, try to find one for the same tree as this list
          TIter next1(elist->GetLists());
-         templist = 0;
-         Bool_t found = kFALSE;
+         templist = nullptr;
+         bool found = false;
          while ((templist = (TEntryList*)next1())){
             if (!strcmp(templist->fTreeName.Data(),fTreeName.Data()) &&
                 !strcmp(templist->fFileName.Data(),fFileName.Data())){
-               found = kTRUE;
+               found = true;
                break;
             }
          }
@@ -1352,7 +1311,7 @@ void TEntryList::Subtract(const TEntryList *elist)
    } else {
       //this list has sublists
       TIter next2(fLists);
-      templist = 0;
+      templist = nullptr;
       Long64_t oldn=0;
       while ((templist = (TEntryList*)next2())){
          oldn = templist->GetN();
@@ -1402,7 +1361,7 @@ Int_t TEntryList::RelocatePaths(const char *newroot, const char *oldroot)
    // Apply to all underlying lists, if any
    if (fLists) {
       TIter nxl(fLists);
-      TEntryList *enl = 0;
+      TEntryList *enl = nullptr;
       while ((enl = (TEntryList *) nxl())) {
          if ((xnrl = enl->RelocatePaths(newroot, oldroot)) < 0) {
             Warning("RelocatePaths", "problems relocating '%s'", enl->GetName());
@@ -1459,9 +1418,9 @@ Int_t TEntryList::Relocate(const char *fn,
    // Read the lists
    TString nm(enlnm);
    if (nm.IsNull()) nm = "*";
-   TRegexp nmrg(nm, kTRUE);
+   TRegexp nmrg(nm, true);
    TIter nxk(fl->GetListOfKeys());
-   TKey *key = 0;
+   TKey *key = nullptr;
    while ((key = (TKey *) nxk())) {
       if (!strcmp(key->GetClassName(), "TEntryList")) {
          TString knm(key->GetName());
@@ -1510,7 +1469,7 @@ static Int_t GetCommonString(TString a, TString b, TString &c)
       c = "";
       return 2;
    }
-   Bool_t ashort = (a.Length() > b.Length()) ? kFALSE : kTRUE;
+   bool ashort = (a.Length() > b.Length()) ? false : true;
    Ssiz_t len = (ashort) ? a.Length() : b.Length();
    Int_t lcom = 0;
    for (Int_t i = 0; i < len; i++) {
@@ -1531,7 +1490,7 @@ static Int_t GetCommonString(TString a, TString b, TString &c)
 /// the found roots to the list as TObjStrings.
 /// Return the number of roots found.
 
-Int_t TEntryList::ScanPaths(TList *roots, Bool_t notify)
+Int_t TEntryList::ScanPaths(TList *roots, bool notify)
 {
    TList *xrl = roots ? roots : new TList;
 
@@ -1539,12 +1498,12 @@ Int_t TEntryList::ScanPaths(TList *roots, Bool_t notify)
    // Apply to all underlying lists, if any
    if (fLists) {
       TIter nxl(fLists);
-      TEntryList *enl = 0;
+      TEntryList *enl = nullptr;
       while ((enl = (TEntryList *) nxl()))
-         nrl += enl->ScanPaths(xrl, kFALSE);
+         nrl += enl->ScanPaths(xrl, false);
    }
    // Apply to ourselves
-   Bool_t newobjs = kTRUE;
+   bool newobjs = true;
    TString path = gSystem->GetDirName(fFileName), com;
    TObjString *objs = nullptr;
    TIter nxr(xrl);
@@ -1554,7 +1513,7 @@ Int_t TEntryList::ScanPaths(TList *roots, Bool_t notify)
          TUrl ucom(com);
          if (strlen(ucom.GetFile()) > 0 && strcmp(ucom.GetFile(), "/")) {
             objs->SetString(com.Data());
-            newobjs = kFALSE;
+            newobjs = false;
             break;
          }
       }
@@ -1575,7 +1534,7 @@ Int_t TEntryList::ScanPaths(TList *roots, Bool_t notify)
    }
 
    if (xrl != roots) {
-      xrl->SetOwner(kTRUE);
+      xrl->SetOwner(true);
       SafeDelete(xrl);
    }
 
@@ -1600,7 +1559,7 @@ Int_t TEntryList::Scan(const char *fn, TList *roots)
    Int_t nrs = 0;
    // Read the lists
    TIter nxk(fl->GetListOfKeys());
-   TKey *key = 0;
+   TKey *key = nullptr;
    while ((key = (TKey *) nxk())) {
       if (!strcmp(key->GetClassName(), "TEntryList")) {
          TEntryList *enl = dynamic_cast<TEntryList *>(fl->Get(key->GetName()));

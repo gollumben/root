@@ -25,11 +25,9 @@ namespace Minuit2 {
 class MnGlobalCorrelationCoeff {
 
 public:
-   MnGlobalCorrelationCoeff() : fGlobalCC(std::vector<double>()), fValid(false) {}
+   MnGlobalCorrelationCoeff() : fValid(false) {}
 
    MnGlobalCorrelationCoeff(const MnAlgebraicSymMatrix &);
-
-   ~MnGlobalCorrelationCoeff() {}
 
    const std::vector<double> &GlobalCC() const { return fGlobalCC; }
 

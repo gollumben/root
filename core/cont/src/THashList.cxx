@@ -24,7 +24,6 @@ can override Hash() as it sees fit.
 #include "TClass.h"
 
 
-ClassImp(THashList);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a THashList object. Capacity is the initial hashtable capacity
@@ -138,6 +137,28 @@ void THashList::AddBefore(TObjLink *before, TObject *obj)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Insert object before object before in the list, with options.
+
+void THashList::AddBefore(const TObject *before, TObject *obj, Option_t *opt)
+{
+   R__COLLECTION_WRITE_LOCKGUARD(ROOT::gCoreMutex);
+
+   TList::AddBefore(before, obj, opt);
+   fTable->AddBefore(before, obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object before object before in the list, with options.
+
+void THashList::AddBefore(TObjLink *before, TObject *obj, Option_t *opt)
+{
+   R__COLLECTION_WRITE_LOCKGUARD(ROOT::gCoreMutex);
+
+   TList::AddBefore(before, obj, opt);
+   fTable->AddBefore(before->GetObject(), obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Insert object after object after in the list.
 
 void THashList::AddAfter(const TObject *after, TObject *obj)
@@ -158,6 +179,27 @@ void THashList::AddAfter(TObjLink *after, TObject *obj)
    TList::AddAfter(after, obj);
    fTable->Add(obj);
 }
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object after object after in the list, with options.
+
+void THashList::AddAfter(const TObject *after, TObject *obj, Option_t *opt)
+{
+   R__COLLECTION_WRITE_LOCKGUARD(ROOT::gCoreMutex);
+
+   TList::AddAfter(after, obj, opt);
+   fTable->Add(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object after object after in the list, with options.
+
+void THashList::AddAfter(TObjLink *after, TObject *obj, Option_t *opt)
+{
+   R__COLLECTION_WRITE_LOCKGUARD(ROOT::gCoreMutex);
+
+   TList::AddAfter(after, obj, opt);
+   fTable->Add(obj);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Insert object at location idx in the list.
@@ -167,6 +209,17 @@ void THashList::AddAt(TObject *obj, Int_t idx)
    R__COLLECTION_WRITE_LOCKGUARD(ROOT::gCoreMutex);
 
    TList::AddAt(obj, idx);
+   fTable->Add(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object at location idx in the list, with options.
+
+void THashList::AddAt(TObject *obj, Int_t idx, Option_t *opt)
+{
+   R__COLLECTION_WRITE_LOCKGUARD(ROOT::gCoreMutex);
+
+   TList::AddAt(obj, idx, opt);
    fTable->Add(obj);
 }
 
@@ -227,7 +280,7 @@ void THashList::Delete(Option_t *option)
          auto obj = tlk->GetObject();
          // In case somebody else access it.
          tlk->SetObject(nullptr);
-         if (obj && !obj->TestBit(kNotDeleted))
+         if (obj && ROOT::Detail::HasBeenDeleted(obj))
             Error("Delete", "A list is accessing an object (%p) already deleted (list name = %s)",
                   obj, GetName());
          else if (obj && obj->IsOnHeap())
@@ -247,9 +300,9 @@ void THashList::Delete(Option_t *option)
       // not, they are supposed to be deleted, so we can as well unregister
       // them from their directory, even if they are stack-based:
       TIter iRemDir(&removeDirectory);
-      TObject* dirRem = 0;
+      TObject* dirRem = nullptr;
       while ((dirRem = iRemDir())) {
-            (*dirRem->IsA()->GetDirectoryAutoAdd())(dirRem, 0);
+            (*dirRem->IsA()->GetDirectoryAutoAdd())(dirRem, nullptr);
       }
       Changed();
    }
@@ -309,12 +362,15 @@ const TList *THashList::GetListForObject(const TObject *obj) const
 
 void THashList::RecursiveRemove(TObject *obj)
 {
-   if (!obj) return;
+   if (!obj || fSize == 0)
+      return;
 
    // It might not be safe to rely on TROOT::RecursiveRemove to take the readlock in case user code
    // is calling directly gROOT->GetListOfCleanups()->RecursiveRemove(...)
    // However this can become a significant bottleneck if there are a very large number of
    // TDirectory object.
+   // If we need to enabling this read lock, we need to move the fSize check afterwards.
+   // TList::RecursiveRemove has the same pattern.
    // R__COLLECTION_READ_LOCKGUARD(ROOT::gCoreMutex);
 
    if (obj->HasInconsistentHash()) {
@@ -334,9 +390,6 @@ void THashList::RecursiveRemove(TObject *obj)
          fTable->Remove(object);
    }
 
-   if (!fFirst.get())
-      return;
-
    // Scan again the list and invoke RecursiveRemove for all objects
    // We need to make sure to go through all the node even those
    // marked as empty by another thread (Eventhough we hold the
@@ -345,12 +398,12 @@ void THashList::RecursiveRemove(TObject *obj)
    // another thread can modify the list; thanks to the shared_pointer
    // forward-and-backward links, our view of the list is still intact
    // but might contains node will nullptr payload)
-   auto lnk  = fFirst;
+   auto lnk = fFirst;
    decltype(lnk) next;
    while (lnk.get()) {
       next = lnk->NextSP();
       TObject *ob = lnk->GetObject();
-      if (ob && ob->TestBit(kNotDeleted)) {
+      if (ob && !ROOT::Detail::HasBeenDeleted(ob)) {
          ob->RecursiveRemove(obj);
       }
       lnk = next;
@@ -378,7 +431,7 @@ void THashList::Rehash(Int_t newCapacity)
 TObject *THashList::Remove(TObject *obj)
 {
    R__COLLECTION_READ_LOCKGUARD(ROOT::gCoreMutex);
-   if (!obj || !fTable->FindObject(obj)) return 0;
+   if (!obj || !fTable->FindObject(obj)) return nullptr;
 
    R__COLLECTION_WRITE_LOCKGUARD(ROOT::gCoreMutex);
    TList::Remove(obj);
@@ -390,7 +443,7 @@ TObject *THashList::Remove(TObject *obj)
 
 TObject *THashList::Remove(TObjLink *lnk)
 {
-   if (!lnk) return 0;
+   if (!lnk) return nullptr;
 
    R__COLLECTION_WRITE_LOCKGUARD(ROOT::gCoreMutex);
    TObject *obj = lnk->GetObject();
@@ -406,8 +459,8 @@ TObject *THashList::Remove(TObjLink *lnk)
 /// Note: To test whether the usage is enabled do:
 ///    collection->TestBit(TCollection::kUseRWLock);
 
-bool THashList::UseRWLock()
+bool THashList::UseRWLock(Bool_t enable)
 {
-   fTable->UseRWLock();
-   return TCollection::UseRWLock();
+   fTable->UseRWLock(enable);
+   return TCollection::UseRWLock(enable);
 }

@@ -36,6 +36,9 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include <numeric>
+#include <limits>
+#include <iomanip>
 
 #include "HFitInterface.h"
 #include "Fit/DataRange.h"
@@ -43,7 +46,6 @@
 
 extern void H1LeastSquareSeqnd(Int_t n, Double_t *a, Int_t idim, Int_t &ifail, Int_t k, Double_t *b);
 
-ClassImp(TGraph);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -64,27 +66,63 @@ class. All details about the various painting options are given in this class.
     TGraph was a light weight object to start with, like TPolyline or TPolyMarker.
     That’s why it did not have any title and name parameters in the constructors.
 
+#### Example
+
 The picture below gives an example:
 
 Begin_Macro(source)
 {
-   TCanvas *c1 = new TCanvas("c1","A Simple Graph Example",200,10,500,300);
-   Double_t x[100], y[100];
-   Int_t n = 20;
-   for (Int_t i=0;i<n;i++) {
+   double x[100], y[100];
+   int n = 20;
+   for (int i=0;i<n;i++) {
      x[i] = i*0.1;
      y[i] = 10*sin(x[i]+0.2);
    }
-   TGraph* gr = new TGraph(n,x,y);
-   gr->Draw("AC*");
+   auto g = new TGraph(n,x,y);
+   g->SetTitle("Graph title;X title;Y title");
+   g->Draw("AC*");
 }
 End_Macro
+
+#### Default X-Points
+
+If one doesn't specify the points in the x-axis, they will get the default values 0, 1, 2, 3, (etc. depending
+on the length of the y-points):
+
+Begin_Macro(source)
+{
+   double y[6] = {3, 8, 1, 10, 5, 7};
+   auto g = new TGraph(6,y);
+   g->SetTitle("A Graph with default X points");
+   g->Draw();
+}
+End_Macro
+
+#### X-axis zooming
+
+The underlying x axis of a TGraph is based on a virtual fixed binwidth histogram, which means that one can not infinitely zoom on it, just down to one bin.
+The number of virtual bins is the maximum between 100 and the number of points in the TGraph. If you find a case where you would like to zoom deeper than allowed,
+you can either start canvas in web mode, or keep in classic mode but predefine the histogram before the first drawing of the graph:
+
+\code{.cpp}
+TGraph gr;
+for(auto i = 0; i < 100; ++i) gr.AddPoint(i,i);
+gr.AddPoint(10000, 0);
+// If one draws here, one can not zoom between x = 0 and x = 50, since first bin goes from x = 0 to 100.
+auto h1 = new TH1F("hist", "hist", 10000, -10., 11000.); // Define underlying hist with 10000 instead of 101 bins
+h1->SetMaximum(120);
+h1->SetStats(0);
+h1->SetDirectory(nullptr);
+gr.SetHistogram(h1);
+gr.Draw("A*")
+\endcode
+
 */
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Graph default constructor.
 
-TGraph::TGraph(): TNamed(), TAttLine(), TAttFill(0, 1000), TAttMarker()
+TGraph::TGraph() : TAttFill(0, 1000)
 {
    fNpoints = -1;  //will be reset to 0 in CtorAllocate
    if (!CtorAllocate()) return;
@@ -95,7 +133,7 @@ TGraph::TGraph(): TNamed(), TAttLine(), TAttFill(0, 1000), TAttMarker()
 /// the arrays x and y will be set later
 
 TGraph::TGraph(Int_t n)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttFill(0, 1000)
 {
    fNpoints = n;
    if (!CtorAllocate()) return;
@@ -106,7 +144,7 @@ TGraph::TGraph(Int_t n)
 /// Graph normal constructor with ints.
 
 TGraph::TGraph(Int_t n, const Int_t *x, const Int_t *y)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttFill(0, 1000)
 {
    if (!x || !y) {
       fNpoints = 0;
@@ -124,7 +162,7 @@ TGraph::TGraph(Int_t n, const Int_t *x, const Int_t *y)
 /// Graph normal constructor with floats.
 
 TGraph::TGraph(Int_t n, const Float_t *x, const Float_t *y)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttFill(0, 1000)
 {
    if (!x || !y) {
       fNpoints = 0;
@@ -139,10 +177,29 @@ TGraph::TGraph(Int_t n, const Float_t *x, const Float_t *y)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Default X-Points constructor. The points along the x-axis get the default
+/// values `start`, `start+step`, `start+2*step`, `start+3*step`, etc ...
+
+TGraph::TGraph(Int_t n, const Double_t *y, Double_t start, Double_t step)
+   : TNamed("Graph", "Graph"), TAttFill(0, 1000)
+{
+   if (!y) {
+      fNpoints = 0;
+   } else {
+      fNpoints = n;
+   }
+   if (!CtorAllocate()) return;
+   for (Int_t i = 0; i < n; i++) {
+      fX[i] = start+i*step;
+      fY[i] = y[i];
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Graph normal constructor with doubles.
 
 TGraph::TGraph(Int_t n, const Double_t *x, const Double_t *y)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttFill(0, 1000)
 {
    if (!x || !y) {
       fNpoints = 0;
@@ -255,7 +312,7 @@ TGraph& TGraph::operator=(const TGraph &gr)
 /// in vx and vy.
 
 TGraph::TGraph(const TVectorF &vx, const TVectorF &vy)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttFill(0, 1000)
 {
    fNpoints = TMath::Min(vx.GetNrows(), vy.GetNrows());
    if (!CtorAllocate()) return;
@@ -274,7 +331,7 @@ TGraph::TGraph(const TVectorF &vx, const TVectorF &vy)
 /// in vx and vy.
 
 TGraph::TGraph(const TVectorD &vx, const TVectorD &vy)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttFill(0, 1000)
 {
    fNpoints = TMath::Min(vx.GetNrows(), vy.GetNrows());
    if (!CtorAllocate()) return;
@@ -290,7 +347,7 @@ TGraph::TGraph(const TVectorD &vx, const TVectorD &vy)
 /// Graph constructor importing its parameters from the TH1 object passed as argument
 
 TGraph::TGraph(const TH1 *h)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttFill(0, 1000)
 {
    if (!h) {
       Error("TGraph", "Pointer to histogram is null");
@@ -301,12 +358,13 @@ TGraph::TGraph(const TH1 *h)
       Error("TGraph", "Histogram must be 1-D; h %s is %d-D", h->GetName(), h->GetDimension());
       fNpoints = 0;
    } else {
-      fNpoints = ((TH1*)h)->GetXaxis()->GetNbins();
+      fNpoints = h->GetXaxis()->GetNbins();
    }
 
-   if (!CtorAllocate()) return;
+   if (!CtorAllocate())
+      return;
 
-   TAxis *xaxis = ((TH1*)h)->GetXaxis();
+   auto xaxis = h->GetXaxis();
    for (Int_t i = 0; i < fNpoints; i++) {
       fX[i] = xaxis->GetBinCenter(i + 1);
       fY[i] = h->GetBinContent(i + 1);
@@ -332,7 +390,7 @@ TGraph::TGraph(const TH1 *h)
 ///                at the fNpx+1 points of f and the integral is normalized to 1.
 
 TGraph::TGraph(const TF1 *f, Option_t *option)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttFill(0, 1000)
 {
    char coption = ' ';
    if (!f) {
@@ -382,21 +440,23 @@ TGraph::TGraph(const TF1 *f, Option_t *option)
 /// `filename` is assumed to contain at least two columns of numbers.
 /// The string format is by default `"%lg %lg"`.
 /// This is a standard c formatting for `scanf()`.
+/// For example, set format to  `"%lg,%lg"` for a comma-separated file.
+/// If format string is empty, suitable value will be provided based on file extension
 ///
 /// If columns of numbers should be skipped, a `"%*lg"` or `"%*s"` for each column
 /// can be added,  e.g. `"%lg %*lg %lg"` would read x-values from the first and
 /// y-values from the third column.
 ///
-/// For files separated by a specific delimiter different from ' ' and '\t' (e.g.
+/// For files separated by a specific delimiter different from ' ' and '\\t' (e.g.
 /// ';' in csv files) you can avoid using `%*s` to bypass this delimiter by explicitly
 /// specify the `option` argument,
-/// e.g. option=`" \t,;"` for columns of figures separated by any of these characters
-/// (' ', '\t', ',', ';')
+/// e.g. option=`" \\t,;"` for columns of figures separated by any of these characters
+/// (' ', '\\t', ',', ';')
 /// used once (e.g. `"1;1"`) or in a combined way (`" 1;,;;  1"`).
 /// Note in that case, the instantiation is about two times slower.
 
 TGraph::TGraph(const char *filename, const char *format, Option_t *option)
-   : TNamed("Graph", filename), TAttLine(), TAttFill(0, 1000), TAttMarker()
+   : TNamed("Graph", filename), TAttFill(0, 1000)
 {
    Double_t x, y;
    TString fname = filename;
@@ -415,11 +475,21 @@ TGraph::TGraph(const char *filename, const char *format, Option_t *option)
    std::string line;
    Int_t np = 0;
 
-   // No delimiters specified (standard constructor).
-   if (strcmp(option, "") == 0) {
+   TString format_ = format;
+
+   if (!option || !*option) { // No delimiters specified (standard constructor).
+      // is empty format string specified - try to guess format from the file extension
+      if (format_.IsNull()) {
+         if (fname.EndsWith(".txt", TString::kIgnoreCase))
+            format_ = "%lg %lg";
+         else if (fname.EndsWith(".tsv", TString::kIgnoreCase))
+            format_ = "%lg\t%lg";
+         else
+            format_ = "%lg,%lg";
+      }
 
       while (std::getline(infile, line, '\n')) {
-         if (2 != sscanf(line.c_str(), format, &x, &y)) {
+         if (2 != sscanf(line.c_str(), format_.Data(), &x, &y)) {
             continue; //skip empty and ill-formed lines
          }
          SetPoint(np, x, y);
@@ -431,7 +501,6 @@ TGraph::TGraph(const char *filename, const char *format, Option_t *option)
    } else {
 
       // Checking format and creating its boolean counterpart
-      TString format_ = TString(format) ;
       format_.ReplaceAll(" ", "") ;
       format_.ReplaceAll("\t", "") ;
       format_.ReplaceAll("lg", "") ;
@@ -463,7 +532,7 @@ TGraph::TGraph(const char *filename, const char *format, Option_t *option)
 
       // Initializing loop variables
       Bool_t isLineToBeSkipped = kFALSE ; //empty and ill-formed lines
-      char * token = NULL ;
+      char * token = nullptr ;
       TString token_str = "" ;
       Int_t token_idx = 0 ;
       Double_t * value = new Double_t [2] ; //x,y buffers
@@ -472,13 +541,13 @@ TGraph::TGraph(const char *filename, const char *format, Option_t *option)
       // Looping
       char *rest;
       while (std::getline(infile, line, '\n')) {
-         if (line != "") {
+         if (!line.empty()) {
             if (line[line.size() - 1] == char(13)) {  // removing DOS CR character
                line.erase(line.end() - 1, line.end()) ;
             }
             //token = R__STRTOK_R(const_cast<char *>(line.c_str()), option, rest);
             token = R__STRTOK_R(const_cast<char *>(line.c_str()), option, &rest);
-            while (token != NULL && value_idx < 2) {
+            while (token != nullptr && value_idx < 2) {
                if (isTokenToBeSaved[token_idx]) {
                   token_str = TString(token) ;
                   token_str.ReplaceAll("\t", "") ;
@@ -490,7 +559,7 @@ TGraph::TGraph(const char *filename, const char *format, Option_t *option)
                      value_idx++ ;
                   }
                }
-               token = R__STRTOK_R(NULL, option, &rest); // next token
+               token = R__STRTOK_R(nullptr, option, &rest); // next token
                token_idx++ ;
             }
             if (!isLineToBeSkipped && value_idx == 2) {
@@ -501,7 +570,7 @@ TGraph::TGraph(const char *filename, const char *format, Option_t *option)
             }
          }
          isLineToBeSkipped = kFALSE ;
-         token = NULL ;
+         token = nullptr ;
          token_idx = 0 ;
          value_idx = 0 ;
       }
@@ -513,6 +582,10 @@ TGraph::TGraph(const char *filename, const char *format, Option_t *option)
       delete token ;
    }
    infile.close();
+   if (fNpoints == 0) {
+      Warning("TGraph", "No points were found in file %s with the specified input format %s", filename, format);
+      return;
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -558,13 +631,30 @@ Double_t** TGraph::AllocateArrays(Int_t Narrays, Int_t arraySize)
    Double_t **newarrays = new Double_t*[Narrays];
    if (!arraySize) {
       for (Int_t i = 0; i < Narrays; ++i)
-         newarrays[i] = 0;
+         newarrays[i] = nullptr;
    } else {
       for (Int_t i = 0; i < Narrays; ++i)
          newarrays[i] = new Double_t[arraySize];
    }
    fMaxSize = arraySize;
    return newarrays;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Performs the operation: `y = y + c1*f(x,y)`
+/// Errors are not recalculated.
+///
+/// \param f may be a 1-D function TF1 or 2-d function TF2
+/// \param c1 a scaling factor, 1 by default
+
+void TGraph::Add(TF1 *f, Double_t c1)
+{
+   if (fHistogram) SetBit(kResetHisto);
+
+   for (Int_t i = 0; i < fNpoints; i++) {
+      fY[i] += c1*f->Eval(fX[i], fY[i]);
+   }
+   if (gPad) gPad->Modified();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -771,37 +861,38 @@ void TGraph::Draw(Option_t *option)
    TString opt = option;
    opt.ToLower();
 
-   if (opt.Contains("same")) {
+   if (opt.Contains("same"))
       opt.ReplaceAll("same", "");
-   }
 
    // in case of option *, set marker style to 3 (star) and replace
    // * option by option P.
-   Ssiz_t pos;
-   if ((pos = opt.Index("*")) != kNPOS) {
+   auto pos = opt.Index("*");
+   if (pos != kNPOS) {
       SetMarkerStyle(3);
-      opt.Replace(pos, 1, "p");
+      opt[pos] = 'p';
    }
 
-   // If no option is specified, it is defined as "alp" in case there
-   // no current pad or if the current pad as no axis defined.
-   if (!strlen(option)) {
-      if (gPad) {
-         if (!gPad->GetListOfPrimitives()->FindObject("TFrame")) opt = "alp";
-      } else {
-         opt = "alp";
+   // If no option is specified, it is defined as "alp" in case there is
+   // no current pad or if the current pad has no axis defined and if there is
+   // no default option set using TGraph::SetOption. If fOption is set using
+   // TGraph::SetOption, it is used as default option.
+   if (!option || !*option) {
+      if (!gPad || !gPad->GetListOfPrimitives()->FindObject("TFrame")) {
+         opt = !fOption.IsNull() ? fOption.Data() : "alp";
+         opt.ToLower();
       }
    }
 
    if (gPad) {
-      if (!gPad->IsEditable()) gROOT->MakeDefCanvas();
-      if (opt.Contains("a")) gPad->Clear();
+      if (!gPad->IsEditable())
+         gROOT->MakeDefCanvas();
+      if (opt.Contains("a"))
+         gPad->Clear();
    }
 
    AppendPad(opt);
 
    gPad->IncrementPaletteColor(1, opt);
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1022,9 +1113,8 @@ void TGraph::Expand(Int_t newsize, Int_t step)
 
 Double_t **TGraph::ExpandAndCopy(Int_t size, Int_t iend)
 {
-   if (size <= fMaxSize) {
-      return 0;
-   }
+   if (size <= fMaxSize)
+      return nullptr;
    Double_t **newarrays = Allocate(2 * size);
    CopyPoints(newarrays, 0, iend, 0);
    return newarrays;
@@ -1045,8 +1135,7 @@ void TGraph::FillZero(Int_t begin, Int_t end, Bool_t)
 
 TObject *TGraph::FindObject(const char *name) const
 {
-   if (fFunctions) return fFunctions->FindObject(name);
-   return 0;
+   return fFunctions ? fFunctions->FindObject(name) : nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1054,26 +1143,147 @@ TObject *TGraph::FindObject(const char *name) const
 
 TObject *TGraph::FindObject(const TObject *obj) const
 {
-   if (fFunctions) return fFunctions->FindObject(obj);
-   return 0;
+   return fFunctions ? fFunctions->FindObject(obj) : nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Fit this graph with function with name fname.
+/// Fit this graph with function f1.
 ///
-/// interface to TGraph::Fit(TF1 *f1...
+/// \param[in] f1 pointer to the function object
+/// \param[in] option string defining the fit options (see table below).
+/// \param[in] goption specify a list of graphics options. See TGraph::Draw and TGraphPainter for a complete list of these possible options.
+/// \param[in] rxmin lower fitting range
+/// \param[in] rxmax upper fitting range
 ///
-/// fname is the name of an already predefined function created by TF1 or TF2
-/// Predefined functions such as gaus, expo and poln are automatically
-/// created by ROOT.
+/// \anchor GFitOpt
+/// ### Graph Fitting Options
+/// The list of fit options is given in parameter option.
 ///
-/// fname can also be a formula, accepted by the linear fitter (linear parts divided
+/// option | description
+/// -------|------------
+/// "S"  | The full result of the fit is returned in the `TFitResultPtr`. This is needed to get the covariance matrix of the fit. See `TFitResult` and the base class `ROOT::Math::FitResult`.
+/// "W"  | Ignore all point errors when fitting a TGraphErrors or TGraphAsymmErrors
+/// "F"  | Uses the default minimizer (e.g. Minuit) when fitting a linear function (e.g. polN) instead of the linear fitter.
+/// "U"  | Uses a user specified objective function (e.g. user providedlikelihood function) defined using `TVirtualFitter::SetFCN`
+/// "E"  | Performs a better parameter errors estimation using the Minos technique for all fit parameters.
+/// "M"  | Uses the IMPROVE algorithm (available only in TMinuit). This algorithm attempts improve the found local minimum by searching for a better one.
+/// "Q"  | Quiet mode (minimum printing)
+/// "V"  | Verbose mode (default is between Q and V)
+/// "+"  | Adds this new fitted function to the list of fitted functions. By default, the previous function is deleted and only the last one is kept.
+/// "N"  | Does not store the graphics function, does not draw the histogram with the function after fitting.
+/// "0"  | Does not draw the histogram and the fitted function after fitting, but in contrast to option "N", it stores the fitted function in the histogram list of functions.
+/// "R"  | Fit using a fitting range specified in the function range with `TF1::SetRange`.
+/// "B"  | Use this option when you want to fix one or more parameters and the fitting function is a predefined one (e.g gaus, expo,..), otherwise in case of pre-defined functions, some default initial values and limits are set.
+/// "C"  | In case of linear fitting, do no calculate the chisquare (saves CPU time).
+/// "G"  | Uses the gradient implemented in `TF1::GradientPar` for the minimization. This allows to use Automatic Differentiation when it is supported by the provided TF1 function.
+/// "EX0" | When fitting a TGraphErrors or TGraphAsymErrors do not consider errors in the X coordinates
+/// "ROB" | In case of linear fitting, compute the LTS regression coefficients (robust (resistant) regression), using the default fraction of good points "ROB=0.x" - compute the LTS regression coefficients, using 0.x as a fraction of good points
+/// "SERIAL" | Runs in serial mode. By default, if ROOT is built with MT support and MT is enabled, the fit is performed in multi-thread.
+/// "MULTITHREAD" | Forces usage of multi-thread execution whenever possible.
+///
+///
+/// This function is used for fitting also the derived TGraph classes such as TGraphErrors or TGraphAsymmErrors.
+/// See the note below on how the errors are used when fitting a TGraphErrors or TGraphAsymmErrors.
+///
+/// The fitting of the TGraph, i.e simple data points without any error associated, is performed using the
+/// un-weighted least-square (chi-square) method.
+///
+///
+///\anchor GFitErrors
+/// ### TGraphErrors fit:
+///
+///   In case of a TGraphErrors or TGraphAsymmErrors object, when `x` errors are present, the error along x,
+///   is projected along the y-direction by calculating the function at the points `x-ex_low` and
+///   `x+ex_high`, where `ex_low` and `ex_high` are the corresponding lower and upper error in x.
+///   The chi-square is then computed as the sum of the quantity below at each data point:
+///
+/// \f[
+///   \frac{(y-f(x))^{2}}{ey^{2}+(\frac{1}{2}(exl+exh)f'(x))^{2}}
+/// \f]
+///
+///   where `x` and `y` are the point coordinates, and `f'(x)` is the derivative of the
+///   function `f(x)`.
+///
+///   In case of asymmetric errors, if the function lies below (above) the data point, `ey` is `ey_low` (`ey_high`).
+///
+///   The approach used to approximate the uncertainty in y because of the
+///   errors in x is to make it equal the error in x times the slope of the line.
+///   This approach is called "effective variance method" and
+///   the implementation is provided in the function FitUtil::EvaluateChi2Effective
+///
+/// \anchor GFitLinear
+/// ### Linear fitting:
+///   When the fitting function is linear (contains the `++` sign) or the fitting
+///   function is a polynomial, a linear fitter is initialised.
+///   To create a linear function, use the following syntax: linear parts
+///   separated by `++` sign.
+///   Example: to fit the parameters of the function `p0*x + p1*sin(x)`, you can create a
+///   TF1 object as
+///
+///       TF1 *f1 = new TF1("f1", "x++sin(x)", xmin, xmax);
+///
+///   For such a TF1 you don't have to set the initial conditions and the linear fitter is used.
+///   Going via the linear fitter for functions, linear in parameters, gives a
+///   considerable advantage in speed.
+///   When using the linear fitting it is also possible to perform a robust fitting with the
+///   Least Trimmed Square (LTS) regression algorithm, by using the fit option `ROB`.
+///   See the tutorial `fitLinearRobust.C`.
+///
+/// ### Notes on TGraph/TGraphErrors Fitting:
+///
+/// 1. By using the "effective variance" method a simple linear regression
+///    becomes a non-linear case, which takes several iterations
+///    instead of 0 as in the linear case.
+/// 2. The effective variance technique assumes that there is no correlation
+///    between the x and y coordinate.
+/// 3. The standard chi2 (least square) method without error in the coordinates (x) can
+///    be forced by using option "EX0"
+/// 4. The linear fitter doesn't take into account the errors in x. When fitting a
+///    TGraphErrors with a linear functions the errors in x will not be considered.
+///    If errors in x are important, use option "F" for linear function fitting.
+/// 5. When fitting a TGraph (i.e. no errors associated with each point),
+///    a correction is applied to the errors on the parameters with the following
+///    formula:
+///    `parameter_error *= sqrt(chisquare/(ndf-1))`
+///
+/// ### General Fitting documentation
+///
+/// See in TH1::Fit for the documentation of
+///  - [Fit Result](\ref HFitRes)
+///  - [Fit Status](\ref HFitStatus)
+///  - [Fit Statistics Box](\ref HFitStatBox)
+///  - [Fitting in a Range](\ref HFitRange)
+///  - [Setting Initial Conditions](\ref HFitInitial)
+
+TFitResultPtr TGraph::Fit(TF1 *f1, Option_t *option, Option_t *goption, Axis_t rxmin, Axis_t rxmax)
+{
+   Foption_t fitOption;
+   ROOT::Fit::FitOptionsMake(ROOT::Fit::EFitObjectType::kGraph, option, fitOption);
+   // create range and minimizer options with default values
+   ROOT::Fit::DataRange range(rxmin, rxmax);
+   ROOT::Math::MinimizerOptions minOption;
+   return ROOT::Fit::FitObject(this, f1 , fitOption , minOption, goption, range);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Fit this graph with the global function named `fname`.
+///
+/// This will retrieve the function with name `fname` from ROOT's global list of functions, and use it to
+/// fit the data in the TGraph.
+/// TF1 or TF2 functions that have been created in the same ROOT session can be accessed using `fname`.
+/// Predefined functions such as gaus, expo, poln, etc. are automatically created by ROOT.
+/// @see TF1::InitStandardFunctions, TF2::InitStandardFunctions, TF3::InitStandardFunctions
+///
+/// Note that using a global function is not thread safe. In this case, use the overload
+/// TGraph::Fit(TF1 *f1,Option_t *, Option_t *, Axis_t, Axis_t) with a locally created function.
+/// For more details about fitting a TGraph, see the same overload.
+///
+/// The parameter `fname` can also be a formula, accepted by the linear fitter (linear parts divided
 /// by "++" sign), for example "x++sin(x)" for fitting "[0]*x+[1]*sin(x)"
 
 TFitResultPtr TGraph::Fit(const char *fname, Option_t *option, Option_t *, Axis_t xmin, Axis_t xmax)
 {
-   char *linear;
-   linear = (char*) strstr(fname, "++");
+   const char *linear = fname ? strstr(fname, "++") : nullptr;
    if (linear) {
       TF1 f1(fname, fname, xmin, xmax);
       return Fit(&f1, option, "", xmin, xmax);
@@ -1084,243 +1294,6 @@ TFitResultPtr TGraph::Fit(const char *fname, Option_t *option, Option_t *, Axis_
       return -1;
    }
    return Fit(f1, option, "", xmin, xmax);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Fit this graph with function f1.
-///
-/// f1 is an already predefined function created by TF1.
-/// Predefined functions such as gaus, expo and poln are automatically
-/// created by ROOT.
-///
-/// The list of fit options is given in parameter option.
-///
-/// option | description
-/// -------|------------
-/// "W" | Ignore all point errors when fitting a TGraphErrors or TGraphAsymmErrors
-/// "U" | Use a User specified fitting algorithm (via SetFCN)
-/// "Q" | Quiet mode (minimum printing)
-/// "V" | Verbose mode (default is between Q and V)
-/// "E" | Perform better Errors estimation using Minos technique
-/// "B" | User defined parameter settings are used for predefined functions like "gaus", "expo", "poln", "landau". Use this option when you want to fix one or more parameters for these functions.
-/// "M" | More. Improve fit results. It uses the IMPROVE command of TMinuit (see TMinuit::mnimpr). This algorithm attempts to improve the found local minimum by searching for a better one.
-/// "R" | Use the Range specified in the function range
-/// "N" | Do not store the graphics function, do not draw
-/// "0" | Do not plot the result of the fit. By default the fitted function is drawn unless the option "N" above is specified.
-/// "+" | Add this new fitted function to the list of fitted functions (by default, any previous function is deleted)
-/// "C" | In case of linear fitting, do not calculate the chisquare (saves time)
-/// "F" | If fitting a polN, use the minuit fitter
-/// "EX0" | When fitting a TGraphErrors or TGraphAsymErrors do not consider errors in the X coordinates
-/// "ROB" | In case of linear fitting, compute the LTS regression coefficients (robust (resistant) regression), using the default fraction of good points "ROB=0.x" - compute the LTS regression coefficients, using 0.x as a fraction of good points
-/// "S" |  The result of the fit is returned in the TFitResultPtr (see below Access to the Fit Result)
-///
-/// When the fit is drawn (by default), the parameter goption may be used
-/// to specify a list of graphics options. See TGraphPainter for a complete
-/// list of these options.
-///
-/// In order to use the Range option, one must first create a function
-/// with the expression to be fitted. For example, if your graph
-/// has a defined range between -4 and 4 and you want to fit a gaussian
-/// only in the interval 1 to 3, you can do:
-///
-///        TF1 *f1 = new TF1("f1","gaus",1,3);
-///        graph->Fit("f1","R");
-///
-/// Who is calling this function:
-///
-/// Note that this function is called when calling TGraphErrors::Fit
-/// or TGraphAsymmErrors::Fit ot TGraphBentErrors::Fit
-/// See the discussion below on error calculation.
-///
-/// ### Linear fitting:
-///   When the fitting function is linear (contains the "++" sign) or the fitting
-///   function is a polynomial, a linear fitter is initialised.
-///   To create a linear function, use the following syntax: linear parts
-///   separated by "++" sign.
-///   Example: to fit the parameters of "[0]*x + [1]*sin(x)", create a
-///    TF1 *f1=new TF1("f1", "x++sin(x)", xmin, xmax);
-///   For such a TF1 you don't have to set the initial conditions.
-///   Going via the linear fitter for functions, linear in parameters, gives a
-///   considerable advantage in speed.
-///
-/// ### Setting initial conditions:
-///
-///   Parameters must be initialized before invoking the Fit function.
-///   The setting of the parameter initial values is automatic for the
-///   predefined functions : poln, expo, gaus, landau. One can however disable
-///   this automatic computation by specifying the option "B".
-///   You can specify boundary limits for some or all parameters via
-///
-///        f1->SetParLimits(p_number, parmin, parmax);
-///   If parmin>=parmax, the parameter is fixed
-///   Note that you are not forced to fix the limits for all parameters.
-///   For example, if you fit a function with 6 parameters, you can do:
-///
-///     func->SetParameters(0,3.1,1.e-6,0.1,-8,100);
-///     func->SetParLimits(4,-10,-4);
-///     func->SetParLimits(5, 1,1);
-///   With this setup, parameters 0->3 can vary freely.
-///   Parameter 4 has boundaries [-10,-4] with initial value -8.
-///   Parameter 5 is fixed to 100.
-///
-/// ### Fit range:
-///
-///   The fit range can be specified in two ways:
-///     - specify rxmax > rxmin (default is rxmin=rxmax=0)
-///     - specify the option "R". In this case, the function will be taken
-///       instead of the full graph range.
-///
-/// ### Changing the fitting function:
-///
-///   By default a chi2 fitting function is used for fitting a TGraph.
-///   The function is implemented in FitUtil::EvaluateChi2.
-///   In case of TGraphErrors an effective chi2 is used (see below TGraphErrors fit)
-///   To specify a User defined fitting function, specify option "U" and
-///   call the following functions:
-///
-///      TVirtualFitter::Fitter(mygraph)->SetFCN(MyFittingFunction)
-///   where MyFittingFunction is of type:
-///   extern void MyFittingFunction(Int_t &npar, Double_t *gin, Double_t &f,
-///                                 Double_t *u, Int_t flag);
-///
-///
-/// ### TGraphErrors fit:
-///
-///   In case of a TGraphErrors object, when x errors are present, the error along x,
-///   is projected along the y-direction by calculating the function at the points x-exlow and
-///   x+exhigh. The chisquare is then computed as the sum of the quantity below at each point:
-///
-/// \f[
-///   \frac{(y-f(x))^{2}}{ey^{2}+(\frac{1}{2}(exl+exh)f'(x))^{2}}
-/// \f]
-///
-///   where x and y are the point coordinates, and f'(x) is the derivative of the
-///   function f(x).
-///
-///   In case the function lies below (above) the data point, ey is ey_low (ey_high).
-///
-///   thanks to Andy Haas (haas@yahoo.com) for adding the case with TGraphAsymmErrors
-///             University of Washington
-///
-///   The approach used to approximate the uncertainty in y because of the
-///   errors in x is to make it equal the error in x times the slope of the line.
-///   The improvement, compared to the first method (f(x+ exhigh) - f(x-exlow))/2
-///   is of (error of x)**2 order. This approach is called "effective variance method".
-///   This improvement has been made in version 4.00/08 by Anna Kreshuk.
-///   The implementation is provided in the function FitUtil::EvaluateChi2Effective
-///
-/// NOTE:
-/// 1. By using the "effective variance" method a simple linear regression
-///    becomes a non-linear case, which takes several iterations
-///    instead of 0 as in the linear case.
-/// 2. The effective variance technique assumes that there is no correlation
-///    between the x and y coordinate.
-/// 3. The standard chi2 (least square) method without error in the coordinates (x) can
-///    be forced by using option "EX0"
-/// 4. The linear fitter doesn't take into account the errors in x. When fitting a
-///    TGraphErrors with a linear functions the errors in x will not be considered.
-///    If errors in x are important, go through minuit (use option "F" for polynomial fitting).
-/// 5. When fitting a TGraph (i.e. no errors associated with each point),
-///    a correction is applied to the errors on the parameters with the following
-///    formula: errorp *= sqrt(chisquare/(ndf-1))
-///
-///  ## Access to the fit result
-///  The function returns a TFitResultPtr which can hold a  pointer to a TFitResult object.
-///  By default the TFitResultPtr contains only the status of the fit which is return by an
-///  automatic conversion of the TFitResultPtr to an integer. One can write in this case
-///  directly:
-///
-///      Int_t fitStatus =  h->Fit(myFunc)
-///
-///  If the option "S" is instead used, TFitResultPtr contains the TFitResult and behaves
-///  as a smart pointer to it. For example one can do:
-///
-///      TFitResultPtr r = h->Fit(myFunc,"S");
-///      TMatrixDSym cov = r->GetCovarianceMatrix();  //  to access the covariance matrix
-///      Double_t chi2   = r->Chi2(); // to retrieve the fit chi2
-///      Double_t par0   = r->Value(0); // retrieve the value for the parameter 0
-///      Double_t err0   = r->ParError(0); // retrieve the error for the parameter 0
-///      r->Print("V");     // print full information of fit including covariance matrix
-///      r->Write();        // store the result in a file
-///
-///  The fit parameters, error and chi2 (but not covariance matrix) can be retrieved also
-///  from the fitted function.
-///  If the histogram is made persistent, the list of
-///  associated functions is also persistent. Given a pointer (see above)
-///  to an associated function myfunc, one can retrieve the function/fit
-///  parameters with calls such as:
-///
-///      Double_t chi2 = myfunc->GetChisquare();
-///      Double_t par0 = myfunc->GetParameter(0); //value of 1st parameter
-///      Double_t err0 = myfunc->GetParError(0);  //error on first parameter
-///
-///
-/// ### Access to the fit status
-///  The status of the fit can be obtained converting the TFitResultPtr to an integer
-///  independently if the fit option "S" is used or not:
-///
-///       TFitResultPtr r = h->Fit(myFunc,opt);
-///       Int_t fitStatus = r;
-///
-///  The fitStatus is 0 if the fit is OK (i.e. no error occurred).
-///  The value of the fit status code is negative in case of an error not connected with the
-///  minimization procedure, for example when a wrong function is used.
-///  Otherwise the return value is the one returned from the minimization procedure.
-///  When TMinuit (default case) or Minuit2 are used as minimizer the status returned is :
-///  fitStatus =  migradResult + 10*minosResult + 100*hesseResult + 1000*improveResult.
-///  TMinuit will return 0 (for migrad, minos, hesse or improve) in case of success and 4 in
-///  case of error (see the documentation of TMinuit::mnexcm). So for example, for an error
-///  only in Minos but not in Migrad a fitStatus of 40 will be returned.
-///  Minuit2 will return also 0 in case of success and different values in migrad, minos or
-///  hesse depending on the error.   See in this case the documentation of
-///  Minuit2Minimizer::Minimize for the migradResult, Minuit2Minimizer::GetMinosError for the
-///  minosResult and Minuit2Minimizer::Hesse for the hesseResult.
-///  If other minimizers are used see their specific documentation for the status code
-///  returned. For example in the case of Fumili, for the status returned see TFumili::Minimize.
-///
-/// ### Associated functions:
-///   One or more object (typically a TF1*) can be added to the list
-///   of functions (fFunctions) associated with each graph.
-///   When TGraph::Fit is invoked, the fitted function is added to this list.
-///   Given a graph gr, one can retrieve an associated function
-///   with:  TF1 *myfunc = gr->GetFunction("myfunc");
-///
-///   If the graph is made persistent, the list of associated functions is also
-///   persistent. Given a pointer (see above) to an associated function myfunc,
-///   one can retrieve the function/fit parameters with calls such as:
-///
-///       Double_t chi2 = myfunc->GetChisquare();
-///       Double_t par0 = myfunc->GetParameter(0); //value of 1st parameter
-///       Double_t err0 = myfunc->GetParError(0);  //error on first parameter
-///
-/// ### Fit Statistics
-///   You can change the statistics box to display the fit parameters with
-///   the TStyle::SetOptFit(mode) method. This mode has four digits.
-///   mode = pcev  (default = 0111)
-///
-///       v = 1;  print name/values of parameters
-///       e = 1;  print errors (if e=1, v must be 1)
-///       c = 1;  print Chisquare/Number of degrees of freedom
-///       p = 1;  print Probability
-///
-///   For example: gStyle->SetOptFit(1011);
-///   prints the fit probability, parameter names/values, and errors.
-///   You can change the position of the statistics box with these lines
-///   (where g is a pointer to the TGraph):
-///
-///       Root > TPaveStats *st = (TPaveStats*)g->GetListOfFunctions()->FindObject("stats")
-///       Root > st->SetX1NDC(newx1); //new x start position
-///       Root > st->SetX2NDC(newx2); //new x end position
-///
-
-TFitResultPtr TGraph::Fit(TF1 *f1, Option_t *option, Option_t *goption, Axis_t rxmin, Axis_t rxmax)
-{
-   Foption_t fitOption;
-   ROOT::Fit::FitOptionsMake(ROOT::Fit::kGraph, option, fitOption);
-   // create range and minimizer options with default values
-   ROOT::Fit::DataRange range(rxmin, rxmax);
-   ROOT::Math::MinimizerOptions minOption;
-   return ROOT::Fit::FitObject(this, f1 , fitOption , minOption, goption, range);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1472,8 +1445,7 @@ Double_t TGraph::GetErrorYlow(Int_t) const
 
 TF1 *TGraph::GetFunction(const char *name) const
 {
-   if (!fFunctions) return nullptr;
-   return (TF1*)fFunctions->FindObject(name);
+   return dynamic_cast<TF1*>(FindObject(name));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1495,7 +1467,7 @@ TH1F *TGraph::GetHistogram() const
    // therefore they might be too strict and cut some points. In that case the
    // fHistogram limits should be recomputed ie: the existing fHistogram
    // should not be returned.
-   TH1F *historg = nullptr;
+   TH1F *histogr = nullptr;
    if (fHistogram) {
       if (!TestBit(kResetHisto)) {
          if (gPad && gPad->GetLogx()) {
@@ -1508,7 +1480,7 @@ TH1F *TGraph::GetHistogram() const
       } else {
          const_cast <TGraph*>(this)->ResetBit(kResetHisto);
       }
-      historg = fHistogram;
+      histogr = fHistogram;
    }
 
    if (rwxmin == rwxmax) rwxmax += 1.;
@@ -1549,7 +1521,7 @@ TH1F *TGraph::GetHistogram() const
    const char *gname = GetName();
    if (!gname[0]) gname = "Graph";
    // do not add the histogram to gDirectory
-   // use local TDirectory::TContect that will set temporarly gDirectory to a nullptr and
+   // use local TDirectory::TContext that will set temporarly gDirectory to a nullptr and
    // will avoid that histogram is added in the global directory
    {
       TDirectory::TContext ctx(nullptr);
@@ -1561,35 +1533,24 @@ TH1F *TGraph::GetHistogram() const
    fHistogram->SetMaximum(maximum);
    fHistogram->GetYaxis()->SetLimits(minimum, maximum);
    // Restore the axis attributes if needed
-   if (historg) {
-      fHistogram->GetXaxis()->SetTitle(historg->GetXaxis()->GetTitle());
-      fHistogram->GetXaxis()->CenterTitle(historg->GetXaxis()->GetCenterTitle());
-      fHistogram->GetXaxis()->RotateTitle(historg->GetXaxis()->GetRotateTitle());
-      fHistogram->GetXaxis()->SetNoExponent(historg->GetXaxis()->GetNoExponent());
-      fHistogram->GetXaxis()->SetNdivisions(historg->GetXaxis()->GetNdivisions());
-      fHistogram->GetXaxis()->SetLabelFont(historg->GetXaxis()->GetLabelFont());
-      fHistogram->GetXaxis()->SetLabelOffset(historg->GetXaxis()->GetLabelOffset());
-      fHistogram->GetXaxis()->SetLabelSize(historg->GetXaxis()->GetLabelSize());
-      fHistogram->GetXaxis()->SetTitleSize(historg->GetXaxis()->GetTitleSize());
-      fHistogram->GetXaxis()->SetTitleOffset(historg->GetXaxis()->GetTitleOffset());
-      fHistogram->GetXaxis()->SetTitleFont(historg->GetXaxis()->GetTitleFont());
-      fHistogram->GetXaxis()->SetTimeDisplay(historg->GetXaxis()->GetTimeDisplay());
-      fHistogram->GetXaxis()->SetTimeFormat(historg->GetXaxis()->GetTimeFormat());
+   if (histogr) {
+      fHistogram->GetXaxis()->SetTitle(histogr->GetXaxis()->GetTitle());
+      fHistogram->GetXaxis()->CenterTitle(histogr->GetXaxis()->GetCenterTitle());
+      fHistogram->GetXaxis()->RotateTitle(histogr->GetXaxis()->GetRotateTitle());
+      fHistogram->GetXaxis()->SetNoExponent(histogr->GetXaxis()->GetNoExponent());
+      fHistogram->GetXaxis()->SetTimeDisplay(histogr->GetXaxis()->GetTimeDisplay());
+      fHistogram->GetXaxis()->SetTimeFormat(histogr->GetXaxis()->GetTimeFormat());
+      histogr->GetXaxis()->TAttAxis::Copy(*(fHistogram->GetXaxis()));
 
-      fHistogram->GetYaxis()->SetTitle(historg->GetYaxis()->GetTitle());
-      fHistogram->GetYaxis()->CenterTitle(historg->GetYaxis()->GetCenterTitle());
-      fHistogram->GetYaxis()->RotateTitle(historg->GetYaxis()->GetRotateTitle());
-      fHistogram->GetYaxis()->SetNoExponent(historg->GetYaxis()->GetNoExponent());
-      fHistogram->GetYaxis()->SetNdivisions(historg->GetYaxis()->GetNdivisions());
-      fHistogram->GetYaxis()->SetLabelFont(historg->GetYaxis()->GetLabelFont());
-      fHistogram->GetYaxis()->SetLabelOffset(historg->GetYaxis()->GetLabelOffset());
-      fHistogram->GetYaxis()->SetLabelSize(historg->GetYaxis()->GetLabelSize());
-      fHistogram->GetYaxis()->SetTitleSize(historg->GetYaxis()->GetTitleSize());
-      fHistogram->GetYaxis()->SetTitleOffset(historg->GetYaxis()->GetTitleOffset());
-      fHistogram->GetYaxis()->SetTitleFont(historg->GetYaxis()->GetTitleFont());
-      fHistogram->GetYaxis()->SetTimeDisplay(historg->GetYaxis()->GetTimeDisplay());
-      fHistogram->GetYaxis()->SetTimeFormat(historg->GetYaxis()->GetTimeFormat());
-      delete historg;
+      fHistogram->GetYaxis()->SetTitle(histogr->GetYaxis()->GetTitle());
+      fHistogram->GetYaxis()->CenterTitle(histogr->GetYaxis()->GetCenterTitle());
+      fHistogram->GetYaxis()->RotateTitle(histogr->GetYaxis()->GetRotateTitle());
+      fHistogram->GetYaxis()->SetNoExponent(histogr->GetYaxis()->GetNoExponent());
+      fHistogram->GetYaxis()->SetTimeDisplay(histogr->GetYaxis()->GetTimeDisplay());
+      fHistogram->GetYaxis()->SetTimeFormat(histogr->GetYaxis()->GetTimeFormat());
+      histogr->GetYaxis()->TAttAxis::Copy(*(fHistogram->GetYaxis()));
+
+      delete histogr;
    }
    return fHistogram;
 }
@@ -1633,9 +1594,8 @@ Double_t TGraph::GetPointY(Int_t i) const
 
 TAxis *TGraph::GetXaxis() const
 {
-   TH1 *h = GetHistogram();
-   if (!h) return 0;
-   return h->GetXaxis();
+   auto h = GetHistogram();
+   return h ? h->GetXaxis() : nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1643,9 +1603,8 @@ TAxis *TGraph::GetXaxis() const
 
 TAxis *TGraph::GetYaxis() const
 {
-   TH1 *h = GetHistogram();
-   if (!h) return 0;
-   return h->GetYaxis();
+   auto h = GetHistogram();
+   return h ? h->GetYaxis() : nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1654,11 +1613,15 @@ TAxis *TGraph::GetYaxis() const
 
 char *TGraph::GetObjectInfo(Int_t px, Int_t py) const
 {
+   if (!gPad) {
+      Error("GetObjectInfo", "Cannot be used without gPad");
+      return nullptr;
+   }
+
    // localize point
    Int_t ipoint = -2;
-   Int_t i;
    // start with a small window (in case the mouse is very close to one point)
-   for (i = 0; i < fNpoints; i++) {
+   for (Int_t i = 0; i < fNpoints; i++) {
       Int_t dpx = px - gPad->XtoAbsPixel(gPad->XtoPad(fX[i]));
       Int_t dpy = py - gPad->YtoAbsPixel(gPad->YtoPad(fY[i]));
 
@@ -1764,6 +1727,11 @@ void TGraph::InitPolynom(Double_t xmin, Double_t xmax)
 
 Int_t TGraph::InsertPoint()
 {
+   if (!gPad) {
+      Error("InsertPoint", "Cannot be used without gPad, requires last mouse position");
+      return -1;
+   }
+
    Int_t px = gPad->GetEventX();
    Int_t py = gPad->GetEventY();
 
@@ -2084,7 +2052,8 @@ void TGraph::Print(Option_t *) const
 void TGraph::RecursiveRemove(TObject *obj)
 {
    if (fFunctions) {
-      if (!fFunctions->TestBit(kInvalidObject)) fFunctions->RecursiveRemove(obj);
+      if (!fFunctions->TestBit(kInvalidObject))
+         fFunctions->RecursiveRemove(obj);
    }
    if (fHistogram == obj)
       fHistogram = nullptr;
@@ -2092,17 +2061,22 @@ void TGraph::RecursiveRemove(TObject *obj)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Delete point close to the mouse position
+/// Returns index of removed point (or -1 if nothing was changed)
 
 Int_t TGraph::RemovePoint()
 {
+   if (!gPad) {
+      Error("RemovePoint", "Cannot be used without gPad, requires last mouse position");
+      return -1;
+   }
+
    Int_t px = gPad->GetEventX();
    Int_t py = gPad->GetEventY();
 
    //localize point to be deleted
    Int_t ipoint = -2;
-   Int_t i;
    // start with a small window (in case the mouse is very close to one point)
-   for (i = 0; i < fNpoints; i++) {
+   for (Int_t i = 0; i < fNpoints; i++) {
       Int_t dpx = px - gPad->XtoAbsPixel(gPad->XtoPad(fX[i]));
       Int_t dpy = py - gPad->YtoAbsPixel(gPad->YtoPad(fY[i]));
       if (dpx * dpx + dpy * dpy < 100) {
@@ -2115,11 +2089,12 @@ Int_t TGraph::RemovePoint()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Delete point number ipoint
+/// Returns index of removed point (or -1 if nothing was changed)
 
 Int_t TGraph::RemovePoint(Int_t ipoint)
 {
-   if (ipoint < 0) return -1;
-   if (ipoint >= fNpoints) return -1;
+   if ((ipoint < 0) || (ipoint >= fNpoints))
+      return -1;
 
    Double_t **ps = ShrinkAndCopy(fNpoints - 1, ipoint);
    CopyAndRelease(ps, ipoint + 1, fNpoints--, ipoint);
@@ -2128,81 +2103,187 @@ Int_t TGraph::RemovePoint(Int_t ipoint)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Save the graph as .csv, .tsv or .txt. In case of any other extension, fall
+/// back to TObject::SaveAs
+///
+/// The result can be immediately imported into Excel, gnuplot, Python or whatever,
+/// without the needing to install pyroot, etc.
+///
+/// \param filename the name of the file where to store the graph
+/// \param option some tuning options
+///
+/// The file extension defines the delimiter used:
+///  - `.csv` : comma
+///  - `.tsv` : tab
+///  - `.txt` : space
+///
+/// By default file contains lines with (X, Y) coordinates. If errors are present,
+/// (X, EX, Y, EY) are written. With asymmetric errors (X, EXL, EXH, Y, EYL, EYH) are stored.
+/// If option contains "asroot" string, order of values will match such order in TGraph constructors.
+/// So one will get (X, Y, EX, EY) or (X, Y, EXL, EXH, EYL, EYH).
+///
+/// Also one can directly select that kind of errors are stored:
+///   - "errors" - (X, Y, EX, EY) will be stored
+///   - "asymmerrors" - (X, Y, EXL, EXH, EYL, EYH) will be stored
+///   - "noerrors" - just (X, Y) will be stored disregard of graph kind
+///
+/// If option contains "title" a title line is generated with the axis titles.
+
+
+void TGraph::SaveAs(const char *filename, Option_t *option) const
+{
+   char del = '\0';
+   TString ext = "";
+   TString fname = filename;
+   TString opt = option;
+   opt.ToLower();
+
+   if (filename) {
+      if      (fname.EndsWith(".csv")) {del = ',';  ext = "csv";}
+      else if (fname.EndsWith(".tsv")) {del = '\t'; ext = "tsv";}
+      else if (fname.EndsWith(".txt")) {del = ' ';  ext = "txt";}
+   }
+   if (del) {
+      std::ofstream out;
+      out.open(filename, std::ios::out);
+      if (!out.good ()) {
+         Error("SaveAs", "cannot open file: %s", filename);
+         return;
+      }
+      Bool_t store_title = opt.Contains("title");
+      Bool_t no_errors = kFALSE, plain_errors = kFALSE, asymm_erros = kFALSE;
+      Bool_t as_root = opt.Contains("asroot") || opt.Contains("native");
+      if (opt.Contains("noerrors"))
+         no_errors = kTRUE;
+      else if (opt.Contains("asymmerrors"))
+         asymm_erros = kTRUE;
+      else if (opt.Contains("errors"))
+         plain_errors = kTRUE;
+      else if (InheritsFrom("TGraphErrors"))
+         plain_errors = kTRUE;
+      else if (InheritsFrom("TGraphAsymmErrors") || InheritsFrom("TGraphBentErrors"))
+         asymm_erros = kTRUE;
+      else
+         no_errors = kTRUE;
+
+      TString xtitle, ytitle;
+      if (fHistogram) {
+         xtitle = fHistogram->GetXaxis()->GetTitle();
+         ytitle = fHistogram->GetYaxis()->GetTitle();
+      }
+      if (xtitle.IsNull())
+         xtitle = "x";
+      if (ytitle.IsNull())
+         ytitle = "y";
+
+      if (plain_errors) {
+         if(store_title) {
+            if (as_root)
+               out << "# " << xtitle << "\t" << ytitle << "\tex\tey\n";
+            else
+               out << "# " << xtitle << "\tex\t" << ytitle << "\tey\n";
+         }
+         for(int i = 0; i < fNpoints ; i++) {
+            Double_t x = GetPointX(i);
+            Double_t y = GetPointY(i);
+            Double_t ex = GetErrorX(i);
+            Double_t ey = GetErrorY(i);
+            if (as_root)
+               out << x << del << y << del <<  ex << del << ey << "\n";
+            else
+               out << x << del << ex << del << y << del << ey << "\n";
+         }
+      } else if (asymm_erros) {
+         if(store_title) {
+            if (as_root)
+               out << "# " << xtitle << "\t" << ytitle << "\texl\texh\teyl\teyh\n";
+            else
+               out << "# " << xtitle << "\texl\texh\t" << ytitle << "\teyl\teyh\n";
+         }
+         for(int i = 0; i < GetN(); i++) {
+            Double_t x = GetPointX(i);
+            Double_t y = GetPointY(i);
+            Double_t exl = GetErrorXlow(i);
+            Double_t exh = GetErrorXhigh(i);
+            Double_t eyl = GetErrorYlow(i);
+            Double_t eyh = GetErrorYhigh(i);
+            if (as_root)
+               out << x << del << y << del << exl << del << exh << del << eyl << del << eyh << "\n";
+            else
+               out << x << del << exl << del << exh << del << y << del << eyl << del << eyh << "\n";
+         }
+      } else if (no_errors) {
+         if(store_title)
+            out << "# " << xtitle << "\t" << ytitle << "\n";
+         for (Int_t i = 0 ; i < GetN(); i++)
+            out << GetPointX(i) << del << GetPointY(i) << "\n";
+      }
+      out.close();
+      Info("SaveAs", "%s file: %s has been generated", ext.Data(), filename);
+   } else {
+      TObject::SaveAs(filename, option);
+   }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out
 
 void TGraph::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
-   out << "   " << std::endl;
-   static Int_t frameNumber = 0;
-   frameNumber++;
-
+   TString args;
    if (fNpoints >= 1) {
-      Int_t i;
-      TString fXName = TString(GetName()) + Form("_fx%d",frameNumber);
-      TString fYName = TString(GetName()) + Form("_fy%d",frameNumber);
-      out << "   Double_t " << fXName << "[" << fNpoints << "] = {" << std::endl;
-      for (i = 0; i < fNpoints-1; i++) out << "   " << fX[i] << "," << std::endl;
-      out << "   " << fX[fNpoints-1] << "};" << std::endl;
-      out << "   Double_t " << fYName << "[" << fNpoints << "] = {" << std::endl;
-      for (i = 0; i < fNpoints-1; i++) out << "   " << fY[i] << "," << std::endl;
-      out << "   " << fY[fNpoints-1] << "};" << std::endl;
-      if (gROOT->ClassSaved(TGraph::Class())) out << "   ";
-      else out << "   TGraph *";
-      out << "graph = new TGraph(" << fNpoints << "," << fXName << "," << fYName << ");" << std::endl;
-   } else {
-      if (gROOT->ClassSaved(TGraph::Class())) out << "   ";
-      else out << "   TGraph *";
-      out << "graph = new TGraph();" << std::endl;
+      TString xname = SavePrimitiveVector(out, "graph_x", fNpoints, fX, kTRUE);
+      TString yname = SavePrimitiveVector(out, "graph_y", fNpoints, fY);
+      args.Form("%d, %s.data(), %s.data()", fNpoints, xname.Data(), yname.Data());
    }
 
-   out << "   graph->SetName(" << quote << GetName() << quote << ");" << std::endl;
-   out << "   graph->SetTitle(" << quote << GetTitle() << quote << ");" << std::endl;
+   SavePrimitiveConstructor(out, Class(), "graph", args, fNpoints < 1);
 
-   SaveFillAttributes(out, "graph", 0, 1001);
-   SaveLineAttributes(out, "graph", 1, 1, 1);
-   SaveMarkerAttributes(out, "graph", 1, 1, 1);
+   SaveHistogramAndFunctions(out, "graph", option);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Save histogram and list of functions of TGraph as C++ statement
+/// Used in all TGraph-derived classes
+
+void TGraph::SaveHistogramAndFunctions(std::ostream &out, const char *varname, Option_t *option)
+{
+   thread_local Int_t frameNumber = 0;
+
+   TString ref = "Graph";
+   if ((ref != GetName()) || (ref != GetTitle()))
+      SavePrimitiveNameTitle(out, varname);
+
+   SaveFillAttributes(out, varname, 0, 1000);
+   SaveLineAttributes(out, varname, 1, 1, 1);
+   SaveMarkerAttributes(out, varname, 1, 1, 1);
 
    if (fHistogram) {
       TString hname = fHistogram->GetName();
-      hname += frameNumber;
-      fHistogram->SetName(Form("Graph_%s", hname.Data()));
+      fHistogram->SetName(TString::Format("Graph_histogram%d", ++frameNumber).Data());
       fHistogram->SavePrimitive(out, "nodraw");
-      out << "   graph->SetHistogram(" << fHistogram->GetName() << ");" << std::endl;
-      out << "   " << std::endl;
+      out << "   " <<varname << "->SetHistogram(" << fHistogram->GetName() << ");\n";
+      out << "   \n";
+      fHistogram->SetName(hname.Data());
    }
 
-   // save list of functions
-   TIter next(fFunctions);
-   TObject *obj;
-   while ((obj = next())) {
-      obj->SavePrimitive(out, Form("nodraw #%d\n",++frameNumber));
-      if (obj->InheritsFrom("TPaveStats")) {
-         out << "   graph->GetListOfFunctions()->Add(ptstats);" << std::endl;
-         out << "   ptstats->SetParent(graph->GetListOfFunctions());" << std::endl;
-      } else {
-         TString objname;
-         objname.Form("%s%d",obj->GetName(),frameNumber);
-         if (obj->InheritsFrom("TF1")) {
-            out << "   " << objname << "->SetParent(graph);\n";
-         }
-         out << "   graph->GetListOfFunctions()->Add("
-             << objname << ");" << std::endl;
-      }
-   }
+   TH1::SavePrimitiveFunctions(out, varname, fFunctions);
 
-   const char *l;
-   l = strstr(option, "multigraph");
+   if (!option)
+      option = "";
+   const char *l = strstr(option, "multigraph");
    if (l) {
-      out << "   multigraph->Add(graph," << quote << l + 10 << quote << ");" << std::endl;
+      out << "   multigraph->Add(" << varname << ",\"" << l + 10 << "\");\n";
       return;
    }
    l = strstr(option, "th2poly");
    if (l) {
-      out << "   " << l + 7 << "->AddBin(graph);" << std::endl;
+      out << "   " << l + 7 << "->AddBin(" << varname << ");\n";
       return;
    }
-   out << "   graph->Draw(" << quote << option << quote << ");" << std::endl;
+
+   SavePrimitiveDraw(out, varname, option);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2261,7 +2342,7 @@ void TGraph::SetEditable(Bool_t editable)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set highlight (enable/disble) mode for the graph
+/// Set highlight (enable/disable) mode for the graph
 /// by default highlight mode is disable
 
 void TGraph::SetHighlight(Bool_t set)
@@ -2272,6 +2353,13 @@ void TGraph::SetHighlight(Bool_t set)
    if (!painter) return;
    SetBit(kIsHighlight, set);
    painter->SetHighlight(this);
+}
+
+/// Set the histogram underlying the TGraph. This transfers the ownership of h to the TGraph. The preexisting fHistogram will be deleted.
+void  TGraph::SetHistogram(TH1F *h)
+{
+   delete fHistogram;
+   fHistogram = h;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2380,7 +2468,7 @@ void TGraph::SetNameTitle(const char *name, const char *title)
 /// Set statistics option on/off.
 ///
 /// By default, the statistics box is drawn.
-/// The paint options can be selected via gStyle->SetOptStats.
+/// The paint options can be selected via gStyle->SetOptStat.
 /// This function sets/resets the kNoStats bit in the graph object.
 /// It has priority over the Style option.
 
@@ -2408,9 +2496,9 @@ void TGraph::SetStats(Bool_t stats)
 
 Double_t **TGraph::ShrinkAndCopy(Int_t size, Int_t oend)
 {
-   if (size * 2 > fMaxSize || !fMaxSize) {
-      return 0;
-   }
+   if (size * 2 > fMaxSize || !fMaxSize)
+      return nullptr;
+
    Double_t **newarrays = Allocate(size);
    CopyPoints(newarrays, 0, oend, 0);
    return newarrays;
@@ -2439,36 +2527,29 @@ Double_t **TGraph::ShrinkAndCopy(Int_t size, Int_t oend)
 ///   graph->Sort(&CompareErrors, kFALSE);
 /// ~~~
 
-void TGraph::Sort(Bool_t (*greaterfunc)(const TGraph*, Int_t, Int_t) /*=TGraph::CompareX()*/,
-                  Bool_t ascending /*=kTRUE*/, Int_t low /* =0 */, Int_t high /* =-1111 */)
+void TGraph::Sort(Bool_t (*greaterfunc)(const TGraph *, Int_t, Int_t) /*=TGraph::CompareX()*/,
+                  Bool_t ascending /*=kTRUE*/, Int_t low /*=0*/, Int_t high /*=-1111*/)
 {
-
    // set the bit in case of an ascending =sort in X
-   if (greaterfunc == TGraph::CompareX && ascending  && low == 0 && high == -1111)
+   if (greaterfunc == TGraph::CompareX && ascending && low == 0 && high == -1111)
       SetBit(TGraph::kIsSortedX);
 
-   if (high == -1111) high = GetN() - 1;
-   //  Termination condition
-   if (high <= low) return;
+   if (high == -1111)
+      high = fNpoints - 1;
 
-   int left, right;
-   left = low; // low is the pivot element
-   right = high;
-   while (left < right) {
-      // move left while item < pivot
-      while (left <= high && greaterfunc(this, left, low) != ascending)
-         left++;
-      // move right while item > pivot
-      while (right > low && greaterfunc(this, right, low) == ascending)
-         right--;
-      if (left < right && left < high && right > low)
-         SwapPoints(left, right);
-   }
-   // right is final position for the pivot
-   if (right > low)
-      SwapPoints(low, right);
-   Sort(greaterfunc, ascending, low, right - 1);
-   Sort(greaterfunc, ascending, right + 1, high);
+   // Create a vector to store the indices of the graph data points.
+   // We use std::vector<Int_t> instead of std::vector<ULong64_t> to match the input type
+   // required by the comparison operator's signature provided as `greaterfunc`
+   std::vector<int> sorting_indices(fNpoints);
+   std::iota(sorting_indices.begin(), sorting_indices.end(), 0);
+
+   // Sort the indices using the provided comparison function
+   std::stable_sort(sorting_indices.begin() + low, sorting_indices.begin() + high + 1,
+             [&](int left, int right) { return ascending ? greaterfunc(this, right, left) :
+                                        greaterfunc(this, left, right); });
+
+   Int_t numSortedPoints = high - low + 1;
+   UpdateArrays(sorting_indices, numSortedPoints, low);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2545,6 +2626,25 @@ void TGraph::SwapPoints(Int_t pos1, Int_t pos2)
 {
    SwapValues(fX, pos1, pos2);
    SwapValues(fY, pos1, pos2);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Update the fX and fY arrays with the sorted values.
+
+void TGraph::UpdateArrays(const std::vector<Int_t> &sorting_indices, Int_t numSortedPoints, Int_t low)
+{
+   std::vector<Double_t> fXSorted(numSortedPoints);
+   std::vector<Double_t> fYSorted(numSortedPoints);
+
+   // Fill the sorted X and Y values based on the sorted indices
+   std::generate(fXSorted.begin(), fXSorted.end(),
+                 [begin = low, &sorting_indices, this]() mutable { return fX[sorting_indices[begin++]]; });
+   std::generate(fYSorted.begin(), fYSorted.end(),
+                 [begin = low, &sorting_indices, this]() mutable { return fY[sorting_indices[begin++]]; });
+
+   // Copy the sorted X and Y values back to the original arrays
+   std::copy(fXSorted.begin(), fXSorted.end(), fX + low);
+   std::copy(fYSorted.begin(), fYSorted.end(), fY + low);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

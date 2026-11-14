@@ -180,8 +180,12 @@ namespace cling {
       return 0;
 
     if (CS->size() != FBody.size()) {
-      auto BodyCS = CompoundStmt::Create(*m_Context, FBody, CS->getLBracLoc(),
-                                         CS->getRBracLoc());
+      FPOptionsOverride FPFeatures;
+      if (CS->hasStoredFPFeatures()) {
+        FPFeatures = CS->getStoredFPFeatures();
+      }
+      auto BodyCS = CompoundStmt::Create(*m_Context, FBody, FPFeatures,
+                                         CS->getLBracLoc(), CS->getRBracLoc());
       FD->setBody(BodyCS);
     }
 
@@ -195,7 +199,7 @@ namespace cling {
     DeclarationName PVName = &m_Context->Idents.get("cling_PrintValue");
     m_LookupResult = new LookupResult(*m_Sema, PVName, sourceLoc,
                                       Sema::LookupOrdinaryName,
-                                      Sema::ForVisibleRedeclaration);
+                                      RedeclarationKind::ForVisibleRedeclaration);
 
     Scope* S = m_Sema->getScopeForContext(m_Sema->CurContext);
     m_Sema->LookupName(*m_LookupResult, S);

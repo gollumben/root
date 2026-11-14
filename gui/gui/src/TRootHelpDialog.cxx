@@ -24,7 +24,6 @@ dialog window). There is on OK button to popdown the dialog.
 #include "TGTextView.h"
 
 
-ClassImp(TRootHelpDialog);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a help text dialog.
@@ -100,7 +99,7 @@ void TRootHelpDialog::CloseWindow()
 ////////////////////////////////////////////////////////////////////////////////
 /// Process OK button.
 
-Bool_t TRootHelpDialog::ProcessMessage(Long_t msg, Long_t, Long_t)
+Bool_t TRootHelpDialog::ProcessMessage(Longptr_t msg, Longptr_t, Longptr_t)
 {
    switch (GET_MSG(msg)) {
       case kC_COMMAND:

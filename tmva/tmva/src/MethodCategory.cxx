@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodCompositeBase                                                   *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Virtual base class for all MVA method                                     *
@@ -27,7 +27,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::MethodCategory
@@ -72,7 +72,6 @@ is due to different locations/angles.
 
 REGISTER_METHOD(Category)
 
-ClassImp(TMVA::MethodCategory);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// standard constructor
@@ -163,10 +162,10 @@ TMVA::IMethod* TMVA::MethodCategory::AddMethod( const TCut& theCut,
 
 
    // set or create correct method base dir for added method
-   const TString dirName(Form("Method_%s",method->GetMethodTypeName().Data()));
+   const TString dirName = TString::Format("Method_%s",method->GetMethodTypeName().Data());
    TDirectory * dir = BaseDir()->GetDirectory(dirName);
    if (dir != 0) method->SetMethodBaseDir( dir );
-   else method->SetMethodBaseDir( BaseDir()->mkdir(dirName,Form("Directory for all %s methods", method->GetMethodTypeName().Data())) );
+   else method->SetMethodBaseDir( BaseDir()->mkdir(dirName,  TString::Format("Directory for all %s methods", method->GetMethodTypeName().Data())) );
 
    // method->SetBaseDir(eigenes base dir, gucken ob Fisher dir existiert, sonst erzeugen )
 
@@ -187,8 +186,8 @@ TMVA::IMethod* TMVA::MethodCategory::AddMethod( const TCut& theCut,
    UInt_t newSpectatorIndex = primaryDSI.GetSpectatorInfos().size();
    fCategorySpecIdx.push_back(newSpectatorIndex);
 
-   primaryDSI.AddSpectator( Form("%s_cat%i:=%s", GetName(),(int)fMethods.size(),theCut.GetTitle()),
-                            Form("%s:%s",GetName(),method->GetName()),
+   primaryDSI.AddSpectator( TString::Format("%s_cat%i:=%s", GetName(),(int)fMethods.size(),theCut.GetTitle()).Data(),
+                            TString::Format("%s:%s",GetName(),method->GetName()).Data(),
                             "pass", 0, 0, 'C' );
 
    return method;
@@ -342,7 +341,7 @@ void TMVA::MethodCategory::InitCircularTree(const DataSetInfo& dsi)
       // The add-then-remove can lead to  a problem if gDirectory points to the same directory (for example
       // gROOT) in the current thread and another one (and both try to add to the directory at the same time).
       TDirectory::TContext ctxt(nullptr);
-      fCatTree = new TTree(Form("Circ%s",GetMethodName().Data()),"Circular Tree for categorization");
+      fCatTree = new TTree(TString::Format("Circ%s",GetMethodName().Data()).Data(),"Circular Tree for categorization");
       fCatTree->SetCircular(1);
    }
 
@@ -357,7 +356,7 @@ void TMVA::MethodCategory::InitCircularTree(const DataSetInfo& dsi)
    }
 
    for(UInt_t cat=0; cat!=fCategoryCuts.size(); ++cat) {
-      fCatFormulas.push_back(new TTreeFormula(Form("Category_%i",cat), fCategoryCuts[cat].GetTitle(), fCatTree));
+      fCatFormulas.push_back(new TTreeFormula(TString::Format("Category_%i",cat).Data(), fCategoryCuts[cat].GetTitle(), fCatTree));
    }
 }
 
@@ -514,7 +513,7 @@ void TMVA::MethodCategory::ReadWeightsFromXML( void* wghtnode )
       // find the spectator index
       std::vector<VariableInfo>& spectators=primaryDSI.GetSpectatorInfos();
       std::vector<VariableInfo>::iterator itrVarInfo;
-      TString specName= Form("%s_cat%i", GetName(),(int)fCategorySpecIdx.size()+1);
+      TString specName= TString::Format("%s_cat%i", GetName(),(int)fCategorySpecIdx.size()+1);
 
       for (itrVarInfo = spectators.begin(); itrVarInfo != spectators.end(); ++itrVarInfo, ++counter) {
          if((specName==itrVarInfo->GetLabel()) || (specName==itrVarInfo->GetExpression())) {
@@ -629,9 +628,9 @@ Double_t TMVA::MethodCategory::GetMvaValue( Double_t* err, Double_t* errUpper )
    Double_t mvaValue = dynamic_cast<MethodBase*>(fMethods[methodToUse])->GetMvaValue(ev,err,errUpper);
    ev->SetVariableArrangement(0);
 
-   std::cout << "Event  is for method " << methodToUse << " spectator is " << ev->GetSpectator(0) << "  "
+   Log() << kDEBUG << "Event  is for method " << methodToUse << " spectator is " << ev->GetSpectator(0) << "  "
              << fVarMaps[0][0] << " classID " << DataInfo().IsSignal(ev) << " value " <<  mvaValue
-             << " type " << Data()->GetCurrentType() << std::endl;
+             << " type " << Data()->GetCurrentType() << Endl;
 
    return mvaValue;
 }
@@ -671,7 +670,6 @@ TMVA::MethodCategory::GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t l
 
    for (UInt_t iev = firstEvt; iev < lastEvt; ++iev)
    {
-      //std::cout << "Loop on event " << iev << " of " << DataInfo().GetName() << std::endl;
       data->SetCurrentEvent(iev);
       UInt_t methodToUse = 0;
       const Event *ev = GetEvent(data->GetEvent());
@@ -698,10 +696,6 @@ TMVA::MethodCategory::GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t l
 
 
       result[iev - firstEvt] = mvaValues[methodToUse][iev - firstEvt];
-
-      // std::cout << "Event " << iev << " is for method " << methodToUse << " spectator is " << ev->GetSpectator(0)
-      //           << "  " << fVarMaps[0][0] << " classID " << DataInfo().IsSignal(ev) << " value "
-      //           << result[iev - firstEvt] << " type " << data->GetCurrentType() << std::endl;
 
       // reset variable map which was set it before
       ev->SetVariableArrangement(nullptr);

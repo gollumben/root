@@ -22,6 +22,7 @@ set(LIBS
   clangCodeGen
   clangBasic
   clangEdit
+  clangInterpreter
 
   clingUtils
 )
@@ -32,10 +33,12 @@ set( LLVM_LINK_COMPONENTS
   coverage
   executionengine
   ipo
+  jitlink
   mc
   object
   option
   orcjit
+  orcdebugging
   runtimedyld
   scalaropts
   support
@@ -93,10 +96,14 @@ add_cling_library(libcling ${ENABLE_SHARED} ${ENABLE_STATIC}
 set_target_properties(libcling
         PROPERTIES ENABLE_EXPORTS 1)
 
+if(MSVC)
+    set_target_properties(libcling PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS 1)
+endif()
+
 if(ENABLE_SHARED)
   if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     set(LIBCLING_LINK_FLAGS " -Wl,-compatibility_version -Wl,1")
-    if (DEFINED ${LLVM_SUBMIT_VERSION})
+    if (DEFINED LLVM_SUBMIT_VERSION)
       set(LIBCLING_LINK_FLAGS
         "${LIBCLING_LINK_FLAGS} -Wl,-current_version -Wl,${LLVM_SUBMIT_VERSION}.${LLVM_SUBMIT_SUBVERSION}")
     endif()

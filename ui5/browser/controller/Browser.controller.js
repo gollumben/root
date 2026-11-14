@@ -5,24 +5,31 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
                'sap/ui/Device',
                'sap/ui/model/json/JSONModel',
                'sap/ui/table/Column',
+               'sap/ui/table/TreeTable',
+               'sap/ui/table/library',
+               'sap/m/table/columnmenu/Menu',
+               'sap/m/table/columnmenu/ActionItem',
                'sap/ui/layout/HorizontalLayout',
                'sap/m/TabContainerItem',
                'sap/m/MessageToast',
                'sap/m/MessageBox',
                'sap/m/Text',
+               'sap/m/VBox',
+               'sap/m/ProgressIndicator',
                'sap/m/Page',
                'sap/ui/core/mvc/XMLView',
+               'sap/ui/core/dnd/DropInfo',
                'sap/ui/core/Icon',
                'sap/m/Button',
-               'sap/m/ButtonType',
-               'sap/ui/core/ValueState',
+               'sap/m/library',
+               'sap/ui/core/library',
                'sap/m/Dialog',
-               'sap/m/DialogType',
                'sap/ui/codeeditor/CodeEditor',
                'sap/m/Image',
                'sap/tnt/ToolHeader',
                'sap/m/ToolbarSpacer',
                'sap/m/OverflowToolbarLayoutData',
+               'sap/m/ScrollContainer',
                'rootui5/browser/controller/FileDialog.controller'
 ],function(Controller,
            Link,
@@ -31,24 +38,31 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
            uiDevice,
            JSONModel,
            tableColumn,
+           TreeTable,
+           table_lib,
+           ColumnMenu,
+           MenuActionItem,
            HorizontalLayout,
            TabContainerItem,
            MessageToast,
            MessageBox,
            mText,
+           mVBox,
+           mProgressIndicator,
            mPage,
            XMLView,
+           DropInfo,
            CoreIcon,
            Button,
-           ButtonType,
-           ValueState,
+           mLibrary,
+           uiCoreLibrary,
            Dialog,
-           DialogType,
            CodeEditor,
            Image,
            ToolHeader,
            ToolbarSpacer,
            OverflowToolbarLayoutData,
+           ScrollContainer,
            FileDialogController) {
 
    "use strict";
@@ -57,94 +71,109 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
      * @desc All Browser functionality is loaded after main ui5 rendering is performed */
 
    return Controller.extend("rootui5.browser.controller.Browser", {
-      onInit: async function () {
+      onInit() {
 
         uiDevice.orientation.attachHandler(mParams => this.handleChangeOrientation(mParams.landscape));
 
         this.handleChangeOrientation(uiDevice.orientation.landscape);
 
+        let data = this.getView().getViewData();
+        this.websocket = data?.conn_handle;
+        this.jsroot = data?.jsroot;
+
+        const SortMethod =  this.websocket.getUserArgs('sort') ?? 'name',
+              ReverseOrder = this.websocket.getUserArgs('reverse') ?? false,
+              ShowHiddenFiles = this.websocket.getUserArgs('hidden') ?? false;
+
         this._oSettingsModel = new JSONModel({
             SortMethods: [
-               { name: "name", value: "name" },
-               { name: "size", value: "size" },
-               { name: "none", value: "" }
+               { name: 'name', value: 'name' },
+               { name: 'size', value: 'size' },
+               { name: 'none', value: 'none' }
             ],
-            SortMethod: "name",
-            ReverseOrder: false,
-            ShowHiddenFiles: false,
+            SortMethod,
+            ReverseOrder,
+            ShowHiddenFiles,
+            OnlyLastCycle: false,
+            AppendToCanvas: false,
+            HandleDoubleClick: true,
             DBLCLKRun: false,
+            optTH1: '<dflt>',
             TH1: [
-               {name: "hist"},
-               {name: "P"},
-               {name: "P0"},
-               {name: "E"},
-               {name: "E1"},
-               {name: "E2"},
-               {name: "E3"},
-               {name: "E4"},
-               {name: "E1X0"},
-               {name: "L"},
-               {name: "LF2"},
-               {name: "B"},
-               {name: "B1"},
-               {name: "A"},
-               {name: "TEXT"},
-               {name: "LEGO"},
-               {name: "same"}
+               {name: '<dflt>'},
+               {name: 'hist'},
+               {name: 'p'},
+               {name: 'p0'},
+               {name: 'e'},
+               {name: 'e1'},
+               {name: 'e2'},
+               {name: 'e3'},
+               {name: 'e4'},
+               {name: 'e1x0'},
+               {name: 'l'},
+               {name: 'lf2'},
+               {name: 'b'},
+               {name: 'b1'},
+               {name: 'A'},
+               {name: 'text'},
+               {name: 'lego'},
+               {name: 'same'}
             ],
+            optTH2: 'col',
             TH2: [
-               {name: "COL"},
-               {name: "COLZ"},
-               {name: "COL0"},
-               {name: "COL1"},
-               {name: "COL0Z"},
-               {name: "COL1Z"},
-               {name: "COLA"},
-               {name: "BOX"},
-               {name: "BOX1"},
-               {name: "PROJ"},
-               {name: "PROJX1"},
-               {name: "PROJX2"},
-               {name: "PROJX3"},
-               {name: "PROJY1"},
-               {name: "PROJY2"},
-               {name: "PROJY3"},
-               {name: "SCAT"},
-               {name: "TEXT"},
-               {name: "TEXTE"},
-               {name: "TEXTE0"},
-               {name: "CONT"},
-               {name: "CONT1"},
-               {name: "CONT2"},
-               {name: "CONT3"},
-               {name: "CONT4"},
-               {name: "ARR"},
-               {name: "SURF"},
-               {name: "SURF1"},
-               {name: "SURF2"},
-               {name: "SURF4"},
-               {name: "SURF6"},
-               {name: "E"},
-               {name: "A"},
-               {name: "LEGO"},
-               {name: "LEGO0"},
-               {name: "LEGO1"},
-               {name: "LEGO2"},
-               {name: "LEGO3"},
-               {name: "LEGO4"},
-               {name: "same"}
+               {name: '<dflt>'},
+               {name: 'col'},
+               {name: 'colz'},
+               {name: 'col0'},
+               {name: 'col1'},
+               {name: 'col0z'},
+               {name: 'col1z'},
+               {name: 'colA'},
+               {name: 'box'},
+               {name: 'box1'},
+               {name: 'proj'},
+               {name: 'projx1'},
+               {name: 'projx2'},
+               {name: 'projx3'},
+               {name: 'projy1'},
+               {name: 'projy2'},
+               {name: 'projy3'},
+               {name: 'scat'},
+               {name: 'text'},
+               {name: 'texte'},
+               {name: 'texte0'},
+               {name: 'cont'},
+               {name: 'cont1'},
+               {name: 'cont2'},
+               {name: 'cont3'},
+               {name: 'cont4'},
+               {name: 'arr'},
+               {name: 'surf'},
+               {name: 'surf1'},
+               {name: 'surf2'},
+               {name: 'surf4'},
+               {name: 'surf6'},
+               {name: 'e'},
+               {name: 'A'},
+               {name: 'lego'},
+               {name: 'lego0'},
+               {name: 'lego1'},
+               {name: 'lego2'},
+               {name: 'lego3'},
+               {name: 'lego4'},
+               {name: 'same'}
             ],
+            optTProfile: '<dflt>',
             TProfile: [
-               {name: "E0"},
-               {name: "E1"},
-               {name: "E2"},
-               {name: "p"},
-               {name: "AH"},
-               {name: "hist"}
+               {name: '<dflt>'},
+               {name: 'e0'},
+               {name: 'e1'},
+               {name: 'e2'},
+               {name: 'p'},
+               {name: 'Ah'},
+               {name: 'hist'}
             ]
          });
-
-        this.websocket = this.getView().getViewData().conn_handle;
 
          // this is code for the Components.js
          // this.websocket = Component.getOwnerComponentFor(this.getView()).getComponentData().conn_handle;
@@ -153,15 +182,22 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          this.websocket.connect();
 
          // if true, most operations are performed locally without involving server
-         this.standalone = (this.websocket.kind == "file");
+         this.standalone = this.websocket.isStandalone();
+
+         // add reload handler
+         if (!this.standalone && this.websocket.addReloadKeyHandler)
+            this.websocket.addReloadKeyHandler();
 
          // create model only for browser - no need for anybody else
          this.model = new BrowserModel();
+         this.model.setSortMethod(SortMethod);
+         this.model.setReverseOrder(ReverseOrder);
+         this.model.setShowHidden(ShowHiddenFiles);
 
          // copy extra attributes from element to node in the browser
          // later can be done automatically
          this.model.addNodeAttributes = function(node, elem) {
-            node.icon = elem.icon;
+            node.icon = elem.icon || 'sap-icon://document';
             node.fsize = elem.fsize;
             node.mtime = elem.mtime;
             node.ftype = elem.ftype;
@@ -171,82 +207,119 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
             node.title = elem.title;
          };
 
-         let t = this.getView().byId("treeTable");
+         let t = this.getView().byId('treeTable');
+
+         t.setSelectionMode(this.model.isHandleDoubleClick() ? table_lib.SelectionMode.None : table_lib.SelectionMode.Single);
          t.setModel(this.model);
 
          this.model.assignTreeTable(t);
+         this.oMenu = new ColumnMenu();
+         this.getView().addDependent(this.oMenu);
+
          t.addColumn(new tableColumn({
-            label: "Name",
+            label: 'Name',
             autoResizable: true,
             visible: true,
+            headerMenu: this.oMenu.getId(),
             template: new HorizontalLayout({
                content: [
-                         new CoreIcon({src:"{icon}", tooltip: "{className}" }),
-                         new mText({text:" {name}", tooltip: "{title}", renderWhitespace: true, wrapping: false })
+                         new CoreIcon({src:'{icon}', tooltip: '{className}' }),
+                         new mText({text:' {name}', tooltip: '{title}', renderWhitespace: true, wrapping: false })
                          ]
             })
          }));
-         t.addColumn(new tableColumn({
-            label: "Size",
-            autoResizable: true,
-            visible: true,
-            template: new HorizontalLayout({
-               content: [ new mText({text:"{fsize}", wrapping: false }) ]
-            })
-         }));
-         t.addColumn(new tableColumn({
-            label: "Time",
-            autoResizable: true,
-            visible: false,
-            template: new HorizontalLayout({
-               content: [ new mText({text:"{mtime}", wrapping: false }) ]
-            })
-         }));
-         t.addColumn(new tableColumn({
-            label: "Type",
-            autoResizable: true,
-            visible: false,
-            template: new HorizontalLayout({
-               content: [ new mText({text:"{ftype}", wrapping: false }) ]
-            })
-         }));
-         t.addColumn(new tableColumn({
-            label: "UID",
-            autoResizable: true,
-            visible: false,
-            template: new HorizontalLayout({
-               content: [ new mText({text:"{fuid}", wrapping: false }) ]
-            })
-         }));
-         t.addColumn(new tableColumn({
-            label: "GID",
-            autoResizable: true,
-            visible: false,
-            template: new HorizontalLayout({
-               content: [ new mText({text:"{fgid}", wrapping: false }) ]
-            })
-         }));
-         t.addColumn(new tableColumn({
-            label: "ClassName",
-            autoResizable: true,
-            visible: false,
-            template: new HorizontalLayout({
-               content: [ new mText({text:"{className}", wrapping: false }) ]
-            })
-         }));
+
+         this.columnNames   = ['Size',  'Time',  'Type',  'UID',  'GID',  'ClassName'];
+         this.columnFields  = ['fsize', 'mtime', 'ftype', 'fuid', 'fgid', 'className'];
+         this.columnVisible = [ true,    false,   false,   false,  false,  false];
+         for (let i = 0; i < this.columnNames.length; ++i) {
+            t.addColumn(new tableColumn({
+               label: this.columnNames[i],
+               autoResizable: true,
+               visible: this.columnVisible[i],
+               headerMenu: this.oMenu.getId(),
+               template: new HorizontalLayout({
+                  content: [ new mText({text:`{${this.columnFields[i]}}`, wrapping: false }) ]
+               })
+            }));
+         }
+
+         this.buildColumnsMenu();
+         // t.getColumns().forEach(column => column.setHeaderMenu(this.oMenu.getId()));
+
+         // ignore first resize
+         this._columnResized = -1;
 
          // catch re-rendering of the table to assign handlers
          t.addEventDelegate({
-            onAfterRendering: function() { this.assignRowHandlers(); }
+            onAfterRendering() {
+               this.assignRowHandlers();
+               if (this._columnResized > 0) {
+                  this._columnResized = 0;
+                  this.adjustToColumnsWidths(false);
+               }
+            }
          }, this);
 
-         this.drawingOptions = { TH1: 'hist', TH2: 'COL', TProfile: 'E0'};
+         t.attachEvent("columnResize", {}, evnt => {
+            this._columnResized++;
+         }, this);
+
+         this.byId("tabContainer").addDragDropConfig(new DropInfo({
+            drop: event => this.onDrop(event)
+         }));
       },
 
-      createImageViewer: function (dummy_url, name, title) {
-         let oTabContainer = this.getView().byId("tabContainer");
+      buildColumnsMenu() {
+         this.oMenu.removeAllItems();
 
-         let image = new Image({ src: "", densityAware: false });
+         for (let i = 0; i < this.columnNames.length; ++i)
+            this.oMenu.addItem(new MenuActionItem({
+               icon: this.columnVisible[i] ? "sap-icon://accept" : "sap-icon://hide",
+               label: this.columnNames[i],
+               press: () => this.pressColumnMenu(i)
+            }));
+         this.oMenu.addItem(new MenuActionItem({
+            icon: 'sap-icon://resize-horizontal',
+            label: 'Resize columns',
+            press: () => this.adjustToColumnsWidths(true)
+         }));
+      },
+
+      pressColumnMenu(indx) {
+         this.columnVisible[indx] = !this.columnVisible[indx];
+
+         const t = this.getView().byId('treeTable');
+         t.getColumns()[indx+1].setVisible(this.columnVisible[indx]);
+
+         this.oMenu.close();
+         this.buildColumnsMenu();
+      },
+
+      adjustToColumnsWidths(auto_resize) {
+         if (auto_resize)
+            this.oMenu.close();
+         let fullsz = 4;
+         const t = this.getView().byId('treeTable');
+         t.getColumns().forEach(col => {
+            if (col.getVisible()) {
+               if (auto_resize)
+                  col.autoResize();
+               fullsz += 4 + col.$().width();
+            }
+         });
+         this.getView().byId('SplitAppBrowser').getAggregation('_navMaster').setWidth(fullsz + 'px');
+      },
+
+
+      /* =========================================== */
+      /* =============== Image Viewer ============== */
+      /* =========================================== */
+
+      createImageViewer(dummy_url, name, title, tooltip) {
+         let oTabContainer = this.getView().byId("tabContainer"),
+             image = new Image({ src: "", densityAware: false });
+
          image.addStyleClass("imageViewer");
 
          let item = new TabContainerItem(name, {
@@ -254,6 +327,7 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
             name: "Image Viewer",
             key: name,
             additionalText: title,
+            tooltip: tooltip || '',
             content: new mPage({
                showNavButton: false,
                showFooter: false,
@@ -268,21 +342,205 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          }));
 
          oTabContainer.addItem(item);
-         // oTabContainer.setSelectedItem(item);
+
+         return item;
       },
+
+      /* =========================================== */
+      /* =============== Tree Viewer =============== */
+      /* =========================================== */
+
+      createTreeViewer(url, name, title, tooltip) {
+         const oTabContainer = this.getView().byId("tabContainer");
+
+         let item = new TabContainerItem(name, {
+            icon: "sap-icon://tree",
+            name: "Tree Viewer",
+            key: name,
+            additionalText: title,
+            tooltip: tooltip || ''
+         });
+
+         oTabContainer.addItem(item);
+
+         // with non empty url creates independent connection
+         const handle = this.websocket.createChannel(url);
+         handle.setUserArgs({ nobrowser: true });
+         item._jsroot_conn = handle; // keep to be able disconnect
+
+         return XMLView.create({
+            viewName: "rootui5.tree.view.TreeViewer",
+            viewData: { conn_handle: handle, embeded: true, jsroot: this.jsroot }
+         }).then(oView => {
+            item.addContent(oView);
+            return item;
+         });
+      },
+
+      /* =========================================== */
+      /* =============== Info Viewer =============== */
+      /* =========================================== */
+
+      createInfoViewer(dummy_url, name, title, tooltip) {
+         const oTabContainer = this.getView().byId("tabContainer");
+
+         let item = new TabContainerItem(name, {
+            icon: "sap-icon://hint",
+            name: "Globals",
+            key: name,
+            additionalText: "{/title}",
+            tooltip: tooltip || ''
+         });
+
+         let table = new TreeTable({
+            width: "100%",
+            editable: false,
+            columnHeaderVisible : true,
+            visibleRowCountMode: 'Auto',
+            rows: "{path:'/items', parameters: {arrayNames:['sub']}}",
+            selectionMode: 'None',
+            enableSelectAll: false,
+            ariaLabelledBy: "title"
+         });
+
+         let column1 = new tableColumn({
+            label: 'Source',
+            width: '15rem',
+            autoResizable: true,
+            visible: true,
+            template: new HorizontalLayout({
+               content: [ new mText({ text:'{name}', wrapping: false }) ]
+            })
+         });
+
+         let column2 = new tableColumn({
+            label: 'Information',
+            autoResizable: true,
+            visible: true,
+            template: new HorizontalLayout({
+               content: [ new mText({ text:'{info}', wrapping: false }) ]
+            })
+         });
+
+         table.addColumn(column1);
+
+         table.addColumn(column2);
+
+         item.addContent(new ToolHeader({
+            height: "40px",
+            content: [
+               new ToolbarSpacer({
+                  layoutData: new OverflowToolbarLayoutData({
+                     priority:"NeverOverflow",
+                     minWidth: "16px"
+                  })
+               }),
+               new Button({
+                  text: "Expand all",
+                  tooltip: "Get cling variables info again",
+                  type: "Transparent",
+                  press: () => table.expandToLevel(1)
+               }),
+               new Button({
+                  text: "Callapse all",
+                  tooltip: "Collapse all",
+                  type: "Transparent",
+                  press: () => table.collapseAll()
+               }),
+               new Button({
+                  text: "Refresh",
+                  tooltip: "Get cling variables info again",
+                  type: "Transparent",
+                  press: () => this.onRefreshInfo(item)
+               })
+            ]
+         }));
+
+         let cont = new ScrollContainer({
+            height: 'calc(100% - 48px)'
+         });
+
+         cont.addContent(table);
+
+         item.addContent(cont);
+
+         item.setModel(new JSONModel({
+            title,
+            info: '---',
+            items: {}
+         }));
+
+         oTabContainer.addItem(item);
+
+         return item;
+      },
+
+      /** @brief Handle the "Refresh" button press event */
+      onRefreshInfo(tab) {
+         this.websocket.send("GETINFO:" + tab.getKey());
+      },
+
+      updateInfo(tab, content) {
+
+         let arr = content.split('\n');
+
+         let items = { sub: [] }, cache = {};
+
+         arr.forEach(line => {
+            let name = '', p = line.indexOf(' ');
+            if (p == 0)
+               name = '<default>';
+            else
+               name = line.slice(0, p).trim();
+
+            if (!name) return;
+            if (name == '<command')
+               name = '<command line>';
+
+            p = line.indexOf('(address: NA)');
+
+            if (p < 0) return;
+
+            if (name.indexOf('ROOT_cli') == 0)
+               name = 'ROOT_cli';
+
+            let info = line.slice(p + 14),
+                item = cache[name];
+
+            if (!item) {
+               item = cache[name] = { name, sub: [] };
+               items.sub.push(item);
+            }
+            item.sub.push({ name: "", info });
+         });
+
+         items.sub.sort((a,b) => a.name > b.name);
+
+         // single elements not create hierarchy
+         items.sub.forEach(item => {
+            if (item.sub.length == 1) {
+               item.info = item.sub[0].info;
+               delete item.sub;
+            }
+         });
+
+         tab.getModel().setProperty("/items", items);
+      },
+
 
       /* =========================================== */
       /* =============== Code Editor =============== */
       /* =========================================== */
 
-      createCodeEditor: function(dummy_url, name, editor_title) {
+      createCodeEditor(dummy_url, name, editor_title, tooltip) {
          const oTabContainer = this.getView().byId("tabContainer");
 
          let item = new TabContainerItem(name, {
             icon: "sap-icon://write-new-document",
             name: "Code Editor",
             key: name,
-            additionalText: "{/title}"
+            additionalText: "{/title}",
+            tooltip: tooltip || ''
          });
 
          item.addContent(new ToolHeader({
@@ -330,7 +588,7 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
             type: "c_cpp",
             value: "{/code}",
             height: "calc(100% - 40px)",
-            liveChange: function() {
+            liveChange() {
                const model = this.getModel();
                if (model.getProperty("/first_change")) {
                   model.setProperty("/first_change", false);
@@ -353,12 +611,12 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          }));
 
          oTabContainer.addItem(item);
-         // oTabContainer.setSelectedItem(item);
+
+         return item;
       },
 
       /** @brief Invoke dialog with server side code */
-      onSaveAsFile: function(tab) {
-
+      onSaveAsFile(tab) {
          const oModel = tab.getModel();
          FileDialogController.SaveAs({
             websocket: this.websocket,
@@ -382,7 +640,7 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
       },
 
       /** @summary send editor content to server (if was changed) */
-      syncEditor: function(tab, cmd) {
+      syncEditor(tab, cmd) {
          const oModel = tab.getModel();
          let modified = oModel.getProperty("/modified");
          if ((modified === false) && !cmd) return;
@@ -398,32 +656,33 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
       },
 
       /** @brief Handle the "Save" button press event */
-      onSaveFile: function (tab) {
+      onSaveFile(tab) {
          if (!tab.getModel().getProperty("/filename"))
             return this.onSaveAsFile(tab);
          this.syncEditor(tab, "SAVE");
       },
 
       /** @brief Handle the "Run" button press event */
-      onRunMacro: function (tab) {
+      onRunMacro(tab) {
          if (!tab.getModel().getProperty("/filename"))
             return this.onSaveAsFile(tab);
          this.syncEditor(tab, "RUN");
       },
 
       /** @summary Search TabContainerItem by key value */
-      findTab: function(name, set_active) {
-         let oTabContainer = this.byId("tabContainer"),
-             items = oTabContainer.getItems();
-         for(let i = 0; i< items.length; i++)
+      findTab(name, set_active) {
+         const oTabContainer = this.byId("tabContainer"),
+               items = oTabContainer.getItems();
+         for(let i = 0; i < items.length; i++)
             if (items[i].getKey() === name) {
-               if (set_active) oTabContainer.setSelectedItem(items[i]);
+               if (set_active)
+                  oTabContainer.setSelectedItem(items[i]);
                return items[i];
             }
       },
 
-      /** @summary Retuns current selected tab, instance of TabContainerItem */
-      getSelectedTab: function() {
+      /** @summary Returns current selected tab, instance of TabContainerItem */
+      getSelectedTab() {
          let oTabContainer = this.byId("tabContainer");
          let items = oTabContainer.getItems();
          for(let i = 0; i< items.length; i++)
@@ -431,8 +690,8 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
                return items[i];
       },
 
-      /** @summary Retuns code editor from the tab */
-      getCodeEditor: function(tab) {
+      /** @summary Returns code editor from the tab */
+      getCodeEditor(tab) {
          let items = tab ? tab.getContent() : [];
          for (let n = 0; n < items.length; ++n)
             if (items[n].isA("sap.ui.codeeditor.CodeEditor"))
@@ -441,7 +700,7 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
 
       /** @summary Extract the file name and extension
         * @desc Used to set the editor's model properties and display the file name on the tab element */
-      setEditorFileKind: function (oTabElement, title) {
+      setEditorFileKind(oTabElement, title) {
          let oEditor = this.getCodeEditor(oTabElement);
          if (!oEditor) return;
          let oModel = oTabElement.getModel();
@@ -484,6 +743,7 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
                oEditor.setType('markdown');
                break;
             case "py":
+               oModel.setProperty("/runEnabled", true);
                oEditor.setType('python');
                break;
             case "tex":
@@ -520,39 +780,59 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
       /* =============== Settings menu =============== */
       /* ============================================= */
 
-      _getSettingsMenu: async function () {
-         if (!this._oSettingsMenu) {
-            this._oSettingsMenu = await Fragment.load({ name: "rootui5.browser.view.settingsmenu", controller: this });
-            this._oSettingsMenu.setModel(this._oSettingsModel);
-            this.getView().addDependent(this._oSettingsMenu);
-         }
-         return this._oSettingsMenu;
-      },
-
-      onSettingPress: async function () {
-         let menu = await this._getSettingsMenu();
-
+      onSettingsPress() {
+         this._oSettingsModel.setProperty("/AppendToCanvas", this.model.isAppendToCanvas());
+         this._oSettingsModel.setProperty("/HandleDoubleClick", this.model.isHandleDoubleClick());
+         this._oSettingsModel.setProperty("/OnlyLastCycle", this.model.getOnlyLastCycle());
          this._oSettingsModel.setProperty("/ShowHiddenFiles", this.model.isShowHidden());
          this._oSettingsModel.setProperty("/SortMethod", this.model.getSortMethod());
          this._oSettingsModel.setProperty("/ReverseOrder", this.model.isReverseOrder());
 
-         menu.open();
+         if (!this._oSettingsMenu)
+            this._oSettingsMenu = Fragment.load({
+               name: "rootui5.browser.view.settingsmenu",
+               controller: this
+            }).then(menu => {
+               menu.setModel(this._oSettingsModel);
+               this.getView().addDependent(menu);
+               return menu;
+            });
+
+         this._oSettingsMenu.then(menu => menu.open());
       },
 
-      handleSettingsChange: function (oEvent) {
-         let graphType = oEvent.getSource().sId.split("-")[1];
-         this.drawingOptions[graphType] = oEvent.getSource().mProperties.value;
+      handleSettingsReset() {
+         this._oSettingsModel.setProperty('/optTH1', '<dflt>');
+         this._oSettingsModel.setProperty('/optTH2', 'col');
+         this._oSettingsModel.setProperty('/optTProfile', '<dflt>')
       },
 
-      handleSeetingsConfirm: function() {
-         let hidden = this._oSettingsModel.getProperty("/ShowHiddenFiles"),
+      handleSeetingsConfirm() {
+         let append = this._oSettingsModel.getProperty("/AppendToCanvas"),
+             handledbl = this._oSettingsModel.getProperty("/HandleDoubleClick"),
+             lastcycle = this._oSettingsModel.getProperty("/OnlyLastCycle"),
+             hidden = this._oSettingsModel.getProperty("/ShowHiddenFiles"),
              sort = this._oSettingsModel.getProperty("/SortMethod"),
              reverse = this._oSettingsModel.getProperty("/ReverseOrder"),
-             changed = false;
+             changed = false, changed_dblclick = false;
+
+         if (append != this.model.isAppendToCanvas())
+            this.model.setAppendToCanvas(append);
+
+         if (handledbl != this.model.isHandleDoubleClick()) {
+            this.model.setHandleDoubleClick(handledbl);
+            changed_dblclick = true;
+         }
+
+         if (lastcycle != this.model.getOnlyLastCycle()) {
+            changed = true;
+            this.model.setOnlyLastCycle(lastcycle);
+            this.websocket.send('LASTCYCLE:' + (lastcycle ? '1' : '0'));
+         }
 
          if (hidden != this.model.isShowHidden()) {
             changed = true;
-            this.model.setShowHidden(hiden);
+            this.model.setShowHidden(hidden);
          }
 
          if (reverse != this.model.isReverseOrder()) {
@@ -565,40 +845,65 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
             this.model.setSortMethod(sort);
          }
 
-         if (changed) {
-            this.doReload();
+         let optmsg = this.getOptionsMessage();
+         if (optmsg != this.lastOptMessage) {
+            this.lastOptMessage = optmsg;
+            this.websocket.send(optmsg);
          }
+
+         if (changed_dblclick) {
+            this.assignRowHandlers();
+            this.getView().byId('treeTable').setSelectionMode(this.model.isHandleDoubleClick() ? table_lib.SelectionMode.None : table_lib.SelectionMode.Single);
+         }
+
+         if (changed)
+            this.doReload();
+      },
+
+      /** @summary Return message need to be send to server to change options */
+      getOptionsMessage() {
+         let arr = [ this._oSettingsModel.getProperty('/optTH1') || '',
+                     this._oSettingsModel.getProperty('/optTH2') || '',
+                     this._oSettingsModel.getProperty('/optTProfile') || '' ];
+         for (let n = 0; n < arr.length; ++n)
+            if (arr[n] == '<dflt>')
+               arr[n] = '';
+         return 'OPTIONS:' + JSON.stringify(arr);
       },
 
       /** @summary Add Tab event handler */
-      handlePressAddTab: async function (oEvent) {
+      handlePressAddTab(oEvent) {
          //TODO: Change to some UI5 function (unknown for now), not know how to get
          let oButton = oEvent.getSource().mAggregations._tabStrip.mAggregations.addButton;
 
          // create action sheet only once
-         if (!this._tabMenu) {
-            this._tabMenu = await Fragment.load({
+         if (!this._tabMenu)
+            this._tabMenu = Fragment.load({
                name: "rootui5.browser.view.tabsmenu",
                controller: this
+            }).then(menu => {
+               this.getView().addDependent(menu);
+               return menu;
             });
-            this.getView().addDependent(this._tabMenu);
-         }
-         this._tabMenu.openBy(oButton);
+
+         this._tabMenu.then(menu => menu.openBy(oButton));
       },
 
       /** @summary handle creation of new tab */
-      handleNewTab: function (oEvent) {
+      handleNewTab(oEvent) {
          let msg, txt = oEvent.getSource().getText();
 
-         if (txt.indexOf("editor") >= 0)
+         if (txt.indexOf('editor') >= 0)
             msg = "NEWWIDGET:editor";
-         else if (txt.indexOf("Image") >= 0)
+         if (txt.indexOf('info') >= 0)
+            msg = "NEWWIDGET:info";
+         else if (txt.indexOf('Image') >= 0)
             msg = "NEWWIDGET:image";
-         else if (txt.indexOf("Geometry") >= 0)
+         else if (txt.indexOf('Geometry') >= 0)
             msg = "NEWWIDGET:geom";
-         else if (txt.indexOf("Root 6") >= 0)
+         else if (txt.indexOf('Root 6') >= 0)
             msg = "NEWWIDGET:tcanvas";
-         else if (txt.indexOf("Root 7") >= 0)
+         else if (txt.indexOf('Root 7') >= 0)
             msg = "NEWWIDGET:rcanvas";
 
          if (this.isConnected && msg)
@@ -609,12 +914,12 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
       /* =============== Breadcrumbs =============== */
       /* =========================================== */
 
-      updateBReadcrumbs: function(split) {
+      updateBReadcrumbs(split) {
          // already array with all items inside
          let oBreadcrumbs = this.getView().byId("breadcrumbs");
          oBreadcrumbs.removeAllLinks();
-         for (let i=-1; i<split.length; i++) {
-            let txt = i<0 ? "/": split[i];
+         for (let i = -1; i < split.length; i++) {
+            let txt = i < 0 ? '/' : split[i];
             if (i === split.length-1) {
                oBreadcrumbs.setCurrentLocationText(txt);
             } else {
@@ -625,34 +930,37 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          }
       },
 
-      onBreadcrumbsPress: function(oEvent) {
+      onBreadcrumbsPress(oEvent) {
          let sId = oEvent.getSource().getId();
          let oBreadcrumbs = oEvent.getSource().getParent();
          let oLinks = oBreadcrumbs.getLinks();
          let path = [];
          for (let i = 0; i < oLinks.length; i++) {
-            if (i>0) path.push(oLinks[i].getText());
+            if (i > 0) path.push(oLinks[i].getText());
             if (oLinks[i].getId() === sId ) break;
          }
          // after CHPATH will be replied, client also start reload
          this.websocket.send('CHPATH:' + JSON.stringify(path));
       },
 
-      tabSelectItem: function(oEvent) {
+      tabSelectItem(oEvent) {
          let item = oEvent.getParameter('item');
          if (item && item.getKey())
             this.websocket.send("WIDGET_SELECTED:" + item.getKey());
       },
 
-      doCloseTabItem: function(item) {
+      doCloseTabItem(item, skip_send) {
          let oTabContainer = this.byId("tabContainer");
-         if (item.getKey())
+         if (item.getKey() && !skip_send)
             this.websocket.send("CLOSE_TAB:" + item.getKey());
+         // force connection to close
+         item._jsroot_conn?.close(true);
+         item._jsroot_painter?.cleanup();
          oTabContainer.removeItem(item);
       },
 
       /** @brief Close Tab event handler */
-      handleTabClose: function(oEvent) {
+      handleTabClose(oEvent) {
          // prevent the tab being closed by default
          oEvent.preventDefault();
 
@@ -676,7 +984,7 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
       /* =============== Terminal =============== */
       /* ======================================== */
 
-      onTerminalSubmit: function(oEvent) {
+      onTerminalSubmit(oEvent) {
          let command = oEvent.getSource().getValue();
          this.websocket.send("CMD:" + command);
          oEvent.getSource().setValue("");
@@ -684,27 +992,46 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          this.requestLogs();
       },
 
-      requestRootHist: function() {
+      requestRootHist() {
          return this.websocket.send("GETHISTORY:");
       },
 
-      updateRootHist: function(entries) {
+      updateRootHist(entries) {
          let json = { hist:[] };
          entries.forEach(entry => json.hist.push({ name: entry }));
          this.getView().byId("terminal-input").setModel(new JSONModel(json));
       },
 
-      requestLogs: function() {
+      requestLogs() {
          return this.websocket.send("GETLOGS:");
       },
 
-      updateLogs: function(logs) {
+      formatLine(line) {
+         let res = "", p = line.indexOf("\u001b");
+
+         while (p >= 0) {
+            if (p > 0)
+               res += line.slice(0, p);
+            line = line.slice(p+1);
+            // cut of colors codes
+            if (line[0] == '[') {
+               p = 0;
+               while ((p < line.length) && (line[p] != 'm')) p++;
+               line = line.slice(p+1);
+            }
+            p = line.indexOf("\u001b");
+         }
+
+         return res + line;
+      },
+
+      updateLogs(logs) {
          let str = "";
-         logs.forEach(line => str += line+"\n");
+         logs.forEach(line => str += this.formatLine(line)+"\n");
          this.getView().byId("output_log").setValue(str);
       },
 
-      onFullScreen: function() {
+      onFullScreen() {
          let splitApp = this.getView().byId("SplitAppBrowser");
          if (uiDevice.orientation.landscape) {
             if(splitApp.getMode() === "ShowHideMode") {
@@ -721,14 +1048,16 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          }
       },
 
-      handleChangeOrientation: function(is_landscape) {
+      handleChangeOrientation(is_landscape) {
          let btn = this.getView().byId('expandMaster');
          btn.setVisible(is_landscape);
          btn.setIcon("sap-icon://open-command-field");
          this.getView().byId('masterPage').getParent().removeStyleClass('masterExpanded');
       },
 
-      onExpandMaster: function () {
+      onExpandMaster() {
+         // when button pressed - remove exact width value to let rule it via the style
+         this.getView().byId('SplitAppBrowser').getAggregation('_navMaster').setWidth('');
          const master = this.getView().byId('masterPage').getParent();
          master.toggleStyleClass('masterExpanded');
          const expanded = master.hasStyleClass('masterExpanded');
@@ -741,50 +1070,89 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
       /* ========================================== */
 
       /** @summary Assign the "double click" event handler to each row */
-      assignRowHandlers: function () {
-         let rows = this.byId("treeTable").getRows();
+      assignRowHandlers() {
+         const rows = this.byId("treeTable").getRows(),
+               on = this.model.isHandleDoubleClick();
          for (let k = 0; k < rows.length; ++k) {
-            rows[k].$().dblclick(this.onRowDblClick.bind(this, rows[k]));
+            rows[k].$().dblclick(on ? this.onRowDblClick.bind(this, rows[k]) : null)
+                       .css('user-select', 'none');
          }
       },
 
+      onCellClick(oEvent) {
+         if (!this.model.isHandleDoubleClick())
+            this.onRowDblClick(null, oEvent.getParameter('rowBindingContext'));
+      },
+
+      onCellContextMenu(oEvent) {
+         oEvent.preventDefault();
+      },
+
+      onDragStart(oEvent) {
+         const oDraggedRow = oEvent.getParameter("target"),
+               oDragSession = oEvent.getParameter("dragSession"),
+               ctxt = oDraggedRow.getBindingContext(),
+               prop = ctxt?.getProperty(ctxt?.getPath());
+
+         // do not support dragging of folders or elements without path
+         if (!prop?.isLeaf || !prop?.path)
+            return oEvent.preventDefault();
+
+         oDragSession.setComplexData("item_property", prop);
+      },
+
+      onDrop(oEvent) {
+         const oDragSession = oEvent.getParameter("dragSession"),
+               prop = oDragSession.getComplexData("item_property");
+
+         this.websocket.send("DROP:" + JSON.stringify(prop.path));
+
+         this.invokeWarning("Processing drop of: " + prop.name, 1000);
+      },
+
       /** @summary Double-click event handler */
-      onRowDblClick: function (row) {
-         let ctxt = row.getBindingContext(),
-            prop = ctxt ? ctxt.getProperty(ctxt.getPath()) : null;
+      onRowDblClick(row, ctxt) {
+         if (row) ctxt = row.getBindingContext();
+         const prop = ctxt?.getProperty(ctxt?.getPath());
+         if (!prop?.path)
+            return;
 
-         if (!prop || !prop.path) return;
+         let opt = "<dflt>", exec = "";
 
-         let className = this.getBaseClass(prop.className),
-             opt = className ? this.drawingOptions[className] : "",
-             exec = "";
+         if (this.model.isAppendToCanvas())
+            opt = "<append>" + opt;
 
-         if (this._oSettingsModel.getProperty("/DBLCLKRun")) exec = "exec";
-         if (!opt) opt = "";
+         if (this._oSettingsModel.getProperty("/DBLCLKRun"))
+            exec = "exec";
 
-         let args = prop.path.slice(); // make copy of array
+         const args = prop.path.slice(); // make copy of array
          args.push(opt, exec);
 
          this.websocket.send("DBLCLK:" + JSON.stringify(args));
 
-         this.invokeWarning("Processing double click on: " + prop.name, 200);
+         this.invokeWarning("Processing double click on: " + prop.name, 500);
       },
 
-      invokeWarning: function(msg, tmout) {
+      invokeWarning(msg, tmout) {
          this.cancelWarning();
 
          this.warn_timeout = setTimeout(() => {
             if (!this.warn_timeout) return;
             delete this.warn_timeout;
 
+            let content = new mVBox;
+            content.addItem(new mText({ text: msg }));
+            this.oWarningProgress = new mProgressIndicator({ percentValue: 0, displayValue: '0', showValue: true, visible: false });
+            content.addItem(this.oWarningProgress);
+
             this.oWarningDialog = new Dialog({
-               type: DialogType.Message,
+               type: mLibrary.DialogType.Message,
                title: "Warning",
-               state: ValueState.Warning,
-               content: new mText({ text: msg }),
+               state: uiCoreLibrary.ValueState.Warning,
+               content,
                beginButton: new Button({
-                  type: ButtonType.Emphasized,
-                  text: "OK",
+                  type: mLibrary.ButtonType.Emphasized,
+                  text: 'OK',
                   press: () => this.cancelWarning()
                })
             });
@@ -795,7 +1163,7 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
 
       },
 
-      cancelWarning: function() {
+      cancelWarning() {
          if (this.warn_timeout) {
             clearTimeout(this.warn_timeout);
             delete this.warn_timeout;
@@ -803,31 +1171,24 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          if (this.oWarningDialog) {
             this.oWarningDialog.close();
             delete this.oWarningDialog;
+            delete this.oWarningProgress;
          }
-
       },
 
-      getBaseClass: function(className) {
-         if (typeof className !== 'string')
-            className = "";
-         if (className.match(/^TH1/)) {
-            return "TH1";
-         } else if (className.match(/^TH2/)) {
-            return "TH2";
-         }
-         return className;
+      sendNewChannel(tabname, chid) {
+         this.websocket.send(`NEWCHANNEL:["${tabname}","${chid}"]`);
       },
 
-      onWebsocketOpened: function(handle) {
+      onWebsocketOpened(/*handle*/) {
          this.isConnected = true;
 
          if (this.model)
             this.model.sendFirstRequest(this.websocket);
       },
 
-      onWebsocketClosed: function() {
+      onWebsocketClosed() {
          // when connection closed, close panel as well
-         console.log('CLOSE WINDOW WHEN CONNECTION CLOSED');
+         console.log('Close RBrowser window when connection closed');
 
          if (window) window.close();
 
@@ -835,19 +1196,32 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
       },
 
      /** @summary Entry point for all data from server */
-     onWebsocketMsg: function(handle, msg, offset) {
-
-         // any message from server clear all warnings
-         this.cancelWarning();
+     onWebsocketMsg(handle, msg, offset) {
 
          if (typeof msg != "string")
             return console.error("Browser do not uses binary messages len = " + mgs.byteLength);
 
-         // console.log('MSG', msg.substr(0,20));
+         let p = msg.indexOf(':'), mhdr = '';
+         if (p > 0) {
+            mhdr = msg.slice(0, p);
+            msg = msg.slice(p+1);
+         } else {
+            mhdr = msg;
+            msg = '';
+         }
 
-         let mhdr = msg.split(":")[0];
-         msg = msg.substr(mhdr.length+1);
+         // any message from server clear all warnings
+         if (mhdr === 'PROGRESS') {
+            let progr = Number.parseFloat(msg);
+            if (this.oWarningProgress && Number.isFinite(progr)) {
+               this.oWarningProgress.setVisible(true);
+               this.oWarningProgress.setPercentValue(progr*100);
+               this.oWarningProgress.setDisplayValue((progr*100).toFixed(1) + '%');
+            }
+            return;
+         }
 
+         this.cancelWarning();
 
          switch (mhdr) {
          case "INMSG":
@@ -856,8 +1230,8 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          case "NOPE":
             break;
          case "EDITOR": { // update code editor
-            let arr = JSON.parse(msg);
-            let tab = this.findTab(arr[0]);
+            let arr = JSON.parse(msg),
+                tab = this.findTab(arr[0]);
 
             if (tab) {
                this.setEditorFileKind(tab, arr[1]);
@@ -871,8 +1245,8 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
             break;
          }
          case "IMAGE": { // update image viewer
-            let arr = JSON.parse(msg);
-            let tab = this.findTab(arr[0]);
+            let arr = JSON.parse(msg),
+                tab = this.findTab(arr[0]);
 
             if (tab) {
                tab.setAdditionalText(arr[1]);
@@ -882,10 +1256,29 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
             }
             break;
          }
+         case "INFO": {
+            let arr = JSON.parse(msg),
+                tab = this.findTab(arr[0]);
+            if (tab)
+               this.updateInfo(tab, arr[2]);
+            break;
+         }
          case "NEWWIDGET": {  // widget created by server, need to establish connection
-            let arr = JSON.parse(msg);
-            this.createElement(arr[0], arr[1], arr[2], arr[3]);
+            const arr = JSON.parse(msg);
+            const pr = this.createElement(arr[0], arr[1], arr[2], arr[3], arr[4]);
+
             this.findTab(arr[2], true); // set active
+            Promise.resolve(pr).then(tab => {
+               if (tab?._jsroot_conn?.isChannel())
+                  this.sendNewChannel(arr[2], tab._jsroot_conn.getChannelId());
+            });
+            break;
+         }
+         case "SET_TITLE": {
+            let arr = JSON.parse(msg),
+                tab = this.findTab(arr[0]);
+            tab?.setAdditionalText(arr[1]);
+            tab?.setTooltip(arr[2] || '');
             break;
          }
          case "WORKPATH":
@@ -895,6 +1288,12 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          case "SELECT_WIDGET":
            this.findTab(msg, true); // set active
            break;
+         case "CLOSE_WIDGETS":
+            JSON.parse(msg).forEach(name => {
+               let tab = this.findTab(name);
+               if (tab) this.doCloseTabItem(tab, true);
+            });
+            break;
          case "BREPL":   // browser reply
             if (this.model) {
                let bresp = JSON.parse(msg);
@@ -914,12 +1313,12 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
             this.updateLogs(JSON.parse(msg));
             break;
          default:
-            console.error('Non recognized msg ' + mhdr + ' len=' + msg.length);
+            console.error(`Not recognized msg ${mhdr} len= ${msg.length}`);
          }
       },
 
       /** @summary Show special message instead of nodes hierarchy */
-      showTextInBrowser: function(text) {
+      showTextInBrowser(text) {
          let br = this.byId("treeTable");
          br.collapseAll();
          if (!text || (text === "RESET")) {
@@ -937,11 +1336,11 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
          }
       },
 
-      onBeforeRendering: function() {
+      onBeforeRendering() {
          this.renderingDone = false;
       },
 
-      onAfterRendering: function() {
+      onAfterRendering() {
          this.renderingDone = true;
 
          // this is how master width can be changed, may be extra control can be provided
@@ -950,15 +1349,15 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
       },
 
       /** @summary Reload (refresh) file tree browser */
-      onRealoadPress: function() {
+      onRealoadPress() {
          this.doReload(true); // force also update of items on server
       },
 
-      onWorkingDirPress: function() {
+      onWorkingDirPress() {
          this.websocket.send("CDWORKDIR");
       },
 
-      doReload: function(force_reload) {
+      doReload(force_reload) {
          if (this.standalone) {
             this.showTextInBrowser();
             this.paintFoundNodes(null);
@@ -969,34 +1368,37 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
       },
 
       /** @summary Quit ROOT session */
-      onQuitRootPress: function() {
+      onQuitRootPress() {
          this.websocket.send("QUIT_ROOT");
          setTimeout(() => { if (window) window.close(); }, 2000);
       },
 
-      onSearch : function(oEvt) {
+      /** @summary Start reload sequence with server */
+      onReloadPress() {
+         this.websocket?.askReload();
+      },
+
+      onSearch(oEvt) {
          this.changeItemsFilter(oEvt.getSource().getValue());
       },
 
       /** @summary Submit node search query to server, ignore in offline case */
-      changeItemsFilter: function(query, from_handler) {
+      changeItemsFilter(query, from_handler) {
 
-         if (!from_handler) {
-            // do not submit immediately, but after very short timeout
+         if (from_handler) {
+            delete this.search_handler;
+            this.model.setItemsFilter(query);
+         } else {
+            // do not submit immediately, but after short timeout
             // if user types very fast - only last selection will be shown
             if (this.search_handler) clearTimeout(this.search_handler);
-            this.search_handler = setTimeout(this.changeItemsFilter.bind(this, query, true), 1000);
-            return;
+            this.search_handler = setTimeout(() => this.changeItemsFilter(query, true), 1000);
          }
-
-         delete this.search_handler;
-
-         this.model.changeItemsFilter(query);
       },
 
       /** @summary process initial message, now it is list of existing canvases */
-      processInitMsg: function(msg) {
-         let arr = JSROOT.parse(msg);
+      processInitMsg(msg) {
+         const arr = this.jsroot.parse(msg);
          if (!arr) return;
 
          this.updateBReadcrumbs(arr[0]);
@@ -1011,88 +1413,132 @@ sap.ui.define(['sap/ui/core/mvc/Controller',
             } else if (kind == "logs") {
                arr[k].shift();
                this.updateLogs(arr[k]);
+            } else if (kind == "drawoptions") {
+               this._oSettingsModel.setProperty('/optTH1', arr[k][1] || '<dflt>');
+               this._oSettingsModel.setProperty('/optTH2', arr[k][2]|| '<dflt>');
+               this._oSettingsModel.setProperty('/optTProfile', arr[k][3]|| '<dflt>');
+            } else if (kind == "settings") {
+               const expand = (arr[k][1] == 'on' || arr[k][1] == 'yes' || arr[k][1] == '1');
+               if (expand)
+                  this.onExpandMaster();
+               this.model.setOnlyLastCycle(arr[k][2] == '1');
             } else {
-               this.createElement(kind, arr[k][1], arr[k][2], arr[k][3]);
+               const pr = this.createElement(kind, arr[k][1], arr[k][2], arr[k][3], arr[k][4]);
+               Promise.resolve(pr).then(tab => {
+                  if (tab?._jsroot_conn?.isChannel())
+                     this.sendNewChannel(arr[k][2], tab._jsroot_conn.getChannelId());
+               });
             }
          }
+
+         this.lastOptMessage = this.getOptionsMessage();
       },
 
-      createElement: function(kind, par1, par2, par3) {
+      createElement(kind, par1, par2, par3, tooltip) {
+         let tabItem;
          switch(kind) {
-            case "editor": this.createCodeEditor(par1, par2, par3); break;
-            case "image": this.createImageViewer(par1, par2, par3); break;
-            case "geom": this.createGeomViewer(par1, par2, par3); break;
-            case "catched": this.createCatchedWidget(par1, par2, par3); break;
-            default: this.createCanvas(kind, par1, par2, par3);
+            case "editor": tabItem = this.createCodeEditor(par1, par2, par3, tooltip); break;
+            case "image": tabItem = this.createImageViewer(par1, par2, par3, tooltip); break;
+            case "info": tabItem = this.createInfoViewer(par1, par2, par3, tooltip); break;
+            case "tree": tabItem = this.createTreeViewer(par1, par2, par3, tooltip); break;
+            case "geom": tabItem = this.createGeomViewer(par1, par2, par3, tooltip); break;
+            case "catched": tabItem = this.createCatchedWidget(par1, par2, par3, tooltip); break;
+            default: tabItem = this.createCanvas(kind, par1, par2, par3, tooltip);
          }
+         return tabItem;
       },
 
-      createCatchedWidget: function(url, name, catched_kind) {
+      createCatchedWidget(url, name, catched_kind, tooltip) {
          switch(catched_kind) {
-            case "rcanvas": this.createCanvas("rcanvas", url, name, "Catched RCanvas"); break;
-            case "tcanvas": this.createCanvas("tcanvas", url, name, "Catched RCanvas"); break;
-            case "geom": this.createGeomViewer(url, name, "Catched geom viewer"); break;
+            case "rcanvas": return this.createCanvas("rcanvas", url, name, "Catched RCanvas", tooltip);
+            case "tcanvas": return this.createCanvas("tcanvas", url, name, "Catched TCanvas", tooltip);
+            case "tree": return this.createTreeViewer(url, name, "Catched tree viewer", tooltip);
+            case "geom": return this.createGeomViewer(url, name, "Catched geom viewer", tooltip);
             default: console.error("Not supported cacthed kind", catched_kind);
          }
       },
 
-      createGeomViewer: function(url, name, title) {
+      createGeomViewer(url, name , _title, tooltip) {
          let oTabContainer = this.byId("tabContainer");
          let item = new TabContainerItem({
             name: "Geom viewer",
             key: name,
             additionalText: name,
-            icon: "sap-icon://column-chart-dual-axis"
+            icon: "sap-icon://column-chart-dual-axis",
+            tooltip: tooltip || ''
          });
 
          oTabContainer.addItem(item);
-         // oTabContainer.setSelectedItem(item);
 
-         JSROOT.connectWebWindow({
-            kind: this.websocket.kind,
-            href: this.websocket.getHRef(url),
-            user_args: { nobrowser: true }
-         }).then(handle => XMLView.create({
-            viewName: "rootui5.eve7.view.GeomViewer",
-            viewData: { conn_handle: handle, embeded: true }
-         })).then(oView => item.addContent(oView));
+         // with non empty url creates independent connection
+         const handle = this.websocket.createChannel(url);
+         handle.setUserArgs({ nobrowser: true });
+         item._jsroot_conn = handle; // keep to be able disconnect
+
+         return XMLView.create({
+            viewName: 'rootui5.geom.view.GeomViewer',
+            viewData: { conn_handle: handle, embeded: true, jsroot: this.jsroot }
+         }).then(oView => {
+            item.addContent(oView);
+            return item;
+
+         });
       },
 
-      createCanvas: async function(kind, url, name, title) {
-         if (!url || !name || (kind != "tcanvas" && kind != "rcanvas")) return;
+      createCanvas(kind, url, name, title, tooltip) {
+         if (!name || (kind != "tcanvas" && kind != "rcanvas"))
+            return null;
 
          let item = new TabContainerItem({
             name: (kind == "rcanvas") ? "RCanvas" : "TCanvas",
             key: name,
             additionalText: title || name,
-            icon: "sap-icon://column-chart-dual-axis"
+            icon: "sap-icon://column-chart-dual-axis",
+            tooltip: tooltip || ''
          });
 
          this.byId("tabContainer").addItem(item);
 
-         let conn = new JSROOT.WebWindowHandle(this.websocket.kind);
-         conn.setHRef(this.websocket.getHRef(url)); // argument for connect, makes relative path
+         // with non empty url creates independent connection
+         const conn = this.websocket.createChannel(url);
+         item._jsroot_conn = conn; // keep to be able disconnect
 
-         let painter = await ((kind == "rcanvas")
-                ? JSROOT.require("v7").then(() => new JSROOT.v7.RCanvasPainter(null, null))
-                : JSROOT.require("v6").then(() => new JSROOT.TCanvasPainter(null, null)));
+         return import('jsroot/draw').then(draw => {
+            if (kind == "rcanvas")
+               return import('jsrootsys/modules/gpad/RCanvasPainter.mjs').then(h => {
+                   draw.assignPadPainterDraw(h.RPadPainter);
+                   return new h.RCanvasPainter(null, null);
+                });
 
-         painter.online_canvas = true; // indicates that canvas gets data from running server
-         painter.embed_canvas = true;  // use to indicate that canvas ui should not close complete window when closing
-         painter.use_openui = true;
-         painter.batch_mode = false;
-         painter._window_handle = conn;
+            return import('jsrootsys/modules/gpad/TCanvasPainter.mjs').then(h => {
+               draw.assignPadPainterDraw(h.TPadPainter);
+               return new h.TCanvasPainter(null, null);
+            });
+         }).then(painter => {
+            item._jsroot_painter = painter;
 
-         let oView = await XMLView.create({
-            viewName: "rootui5.canv.view.Canvas",
-            viewData: { canvas_painter: painter },
-            height: "100%"
+            painter.online_canvas = true; // indicates that canvas gets data from running server
+            painter.embed_canvas = true;  // use to indicate that canvas ui should not close complete window when closing
+            painter.use_openui = true;
+            painter.batch_mode = false;
+            painter._window_handle = conn;
+
+            return XMLView.create({
+               viewName: "rootui5.canv.view.Canvas",
+               viewData: { canvas_painter: painter },
+               height: "100%"
+            });
+         }).then(oView => {
+            item.addContent(oView);
+            let ctrl = oView.getController();
+            ctrl.onCloseCanvasPress = this.doCloseTabItem.bind(this, item);
+            if (!item._jsroot_painter._window_handle)
+               return item;
+            // wait until painter is ready and fully configured to send message to server with newly created channel
+            return new Promise(resolveFunc => {
+               item._jsroot_painter._window_resolve = resolveFunc;
+            }).then(() => item);
          });
-
-         item.addContent(oView);
-
-         let ctrl = oView.getController();
-         ctrl.onCloseCanvasPress = this.doCloseTabItem.bind(this, item);
       }
 
    });

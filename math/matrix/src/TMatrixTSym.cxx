@@ -12,15 +12,15 @@
 /** \class TMatrixTSym
     \ingroup Matrix
 
- TMatrixTSym
+TMatrixTSym
 
- Template class of a symmetric matrix in the linear algebra package.
+Template class of a symmetric matrix in the linear algebra package.
 
- See \ref MatrixPage for the documentation of the linear algebra package.
+See the \ref Matrix page for the documentation of the linear algebra package
 
- Note that in this implementation both matrix element m[i][j] and
- m[j][i] are updated and stored in memory . However, when making the
- object persistent only the upper right triangle is stored .
+Note that in this implementation both matrix element m[i][j] and
+m[j][i] are updated and stored in memory. However, when making the
+object persistent only the upper right triangle is stored.
 
 */
 
@@ -32,7 +32,6 @@
 #include "TMatrixDSymEigen.h"
 #include "TMath.h"
 
-templateClassImp(TMatrixTSym);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -66,9 +65,6 @@ TMatrixTSym<Element>::TMatrixTSym(Int_t no_rows,const Element *elements,Option_t
 {
    Allocate(no_rows,no_rows);
    SetMatrixArray(elements,option);
-   if (!this->IsSymmetric()) {
-      Error("TMatrixTSym(Int_t,Element*,Option_t*)","matrix not symmetric");
-   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -80,9 +76,6 @@ TMatrixTSym<Element>::TMatrixTSym(Int_t row_lwb,Int_t row_upb,const Element *ele
    const Int_t no_rows = row_upb-row_lwb+1;
    Allocate(no_rows,no_rows,row_lwb,row_lwb);
    SetMatrixArray(elements,option);
-   if (!this->IsSymmetric()) {
-      Error("TMatrixTSym(Int_t,Int_t,Element*,Option_t*)","matrix not symmetric");
-   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -203,7 +196,7 @@ TMatrixTSym<Element>::TMatrixTSym(const TMatrixTSymLazy<Element> &lazy_construct
             lazy_constructor.GetRowUpb()-lazy_constructor.GetRowLwb()+1,
             lazy_constructor.GetRowLwb(),lazy_constructor.GetRowLwb(),1);
    lazy_constructor.FillIn(*this);
-   if (!this->IsSymmetric()) {
+   if (!this->TMatrixTBase<Element>::IsSymmetric()) {
       Error("TMatrixTSym(TMatrixTSymLazy)","matrix not symmetric");
    }
 }
@@ -217,7 +210,7 @@ void TMatrixTSym<Element>::Delete_m(Int_t size,Element *&m)
    if (m) {
       if (size > this->kSizeMax)
          delete [] m;
-      m = 0;
+      m = nullptr;
    }
 }
 
@@ -228,7 +221,7 @@ void TMatrixTSym<Element>::Delete_m(Int_t size,Element *&m)
 template<class Element>
 Element* TMatrixTSym<Element>::New_m(Int_t size)
 {
-   if (size == 0) return 0;
+   if (size == 0) return nullptr;
    else {
       if ( size <= this->kSizeMax )
          return fDataStack;
@@ -281,7 +274,7 @@ void TMatrixTSym<Element>::Allocate(Int_t no_rows,Int_t no_cols,Int_t row_lwb,In
    this->fRowLwb  = 0;
    this->fColLwb  = 0;
    this->fNelems  = 0;
-   fElements      = 0;
+   fElements      = nullptr;
 
    if (no_rows < 0 || no_cols < 0)
    {
@@ -302,11 +295,11 @@ void TMatrixTSym<Element>::Allocate(Int_t no_rows,Int_t no_cols,Int_t row_lwb,In
       if (init)
          memset(fElements,0,this->fNelems*sizeof(Element));
    } else
-     fElements = 0;
+     fElements = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Symmetric matrix summation. Create a matrix C such that C = A + B.
+/// Symmetric matrix summation. Replace this matrix with C such that C = A + B.
 
 template<class Element>
 void TMatrixTSym<Element>::Plus(const TMatrixTSym<Element> &a,const TMatrixTSym<Element> &b)
@@ -340,7 +333,7 @@ void TMatrixTSym<Element>::Plus(const TMatrixTSym<Element> &a,const TMatrixTSym<
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Symmetric matrix summation. Create a matrix C such that C = A + B.
+/// Symmetric matrix subtraction. Replace this matrix with C such that C = A - B.
 
 template<class Element>
 void TMatrixTSym<Element>::Minus(const TMatrixTSym<Element> &a,const TMatrixTSym<Element> &b)
@@ -374,7 +367,7 @@ void TMatrixTSym<Element>::Minus(const TMatrixTSym<Element> &a,const TMatrixTSym
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Create a matrix C such that C = A' * A. In other words,
+/// Replace this matrix with C such that C = A' * A. In other words,
 /// c[i,j] = SUM{ a[k,i] * a[k,j] }.
 
 template<class Element>
@@ -423,7 +416,7 @@ void TMatrixTSym<Element>::TMult(const TMatrixT<Element> &a)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Matrix multiplication, with A symmetric
-/// Create a matrix C such that C = A' * A = A * A = A * A'
+/// Replace this matrix with C such that C = A' * A = A * A = A * A'
 
 template<class Element>
 void TMatrixTSym<Element>::TMult(const TMatrixTSym<Element> &a)
@@ -743,7 +736,7 @@ template<class Element>
 TMatrixTBase<Element> &TMatrixTSym<Element>::SetMatrixArray(const Element *data,Option_t *option)
 {
    TMatrixTBase<Element>::SetMatrixArray(data,option);
-   if (!this->IsSymmetric()) {
+   if (!this->TMatrixTBase<Element>::IsSymmetric()) {
       Error("SetMatrixArray","Matrix is not symmetric after Set");
    }
 
@@ -882,7 +875,7 @@ TMatrixTBase<Element> &TMatrixTSym<Element>::ResizeTo(Int_t row_lwb,Int_t row_up
       R__ASSERT(this->IsValid());
 
       Element *elements_new = GetMatrixArray();
-      // new memory should be initialized but be careful ot to wipe out the stack
+      // new memory should be initialized but be careful not to wipe out the stack
       // storage. Initialize all when old or new storage was on the heap
       if (this->fNelems > this->kSizeMax || nelems_old > this->kSizeMax)
          memset(elements_new,0,this->fNelems*sizeof(Element));

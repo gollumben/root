@@ -206,7 +206,7 @@ std::vector<uint8_t> RColor::AsRGBA() const
    else if (IsRGBA())
       rgba.resize(4);
 
-   if (rgba.size() > 0) {
+   if (!rgba.empty()) {
       try {
         rgba[0] = std::stoi(fColor.substr(1,2), nullptr, 16);
         rgba[1] = std::stoi(fColor.substr(3,2), nullptr, 16);
@@ -232,10 +232,10 @@ std::vector<uint8_t> RColor::AsRGBA() const
 
 std::string RColor::toHex(uint8_t v)
 {
-   static const char *digits = "0123456789ABCDEF";
+   auto digits = [](auto d) { return d < 10 ? '0' + d : 'A' - 10 + d; };
    std::string res(2,'0');
-   res[0] = digits[v >> 4];
-   res[1] = digits[v & 0xf];
+   res[0] = digits(v >> 4);
+   res[1] = digits(v & 0xf);
    return res;
 }
 

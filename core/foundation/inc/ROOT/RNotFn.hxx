@@ -1,5 +1,4 @@
 /// \file ROOT/RNotFn.hxx
-/// \ingroup Base StdExt
 /// \author Danilo Piparo, Enrico Guiraud
 /// \date 2018-01-19
 
@@ -23,6 +22,8 @@
 
 #define R__NOTFN_BACKPORT
 
+#include "ROOT/TypeTraits.hxx" // InvokeInvokeResult_t
+                               //
 #include <type_traits> // std::decay
 #include <utility>     // std::forward, std::declval
 
@@ -39,14 +40,14 @@ public:
    not_fn_t(const not_fn_t &f) = default;
 
    template <class... Args>
-   auto operator()(Args &&... args) & -> decltype(
-      !std::declval<std::result_of_t<std::decay_t<F>(Args...)>>())
+   auto
+   operator()(Args &&...args) & -> decltype(!std::declval<ROOT::TypeTraits::InvokeResult_t<std::decay_t<F>, Args...>>())
    {
       return !fFun(std::forward<Args>(args)...);
    }
    template <class... Args>
-   auto operator()(Args &&... args) const & -> decltype(
-      !std::declval<std::result_of_t<std::decay_t<F> const(Args...)>>())
+   auto operator()(Args &&...args)
+      const & -> decltype(!std::declval<ROOT::TypeTraits::InvokeResult_t<std::decay_t<F> const, Args...>>())
    {
       return !fFun(std::forward<Args>(args)...);
    }

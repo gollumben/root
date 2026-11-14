@@ -11,7 +11,7 @@
 #include "TObject.h"
 #include "TVirtualPad.h"
 
-using namespace ROOT::Experimental::Browsable;
+using namespace ROOT::Browsable;
 
 /** Provider for drawing of ROOT6 classes */
 
@@ -32,9 +32,7 @@ public:
             tobj->SetBit(TObject::kMustCleanup); // TCanvas should care about cleanup
          }
 
-         pad->GetListOfPrimitives()->Clear();
-
-         pad->GetListOfPrimitives()->Add(tobj, opt.c_str());
+         pad->Add(tobj, opt.c_str());
 
          return true;
       });

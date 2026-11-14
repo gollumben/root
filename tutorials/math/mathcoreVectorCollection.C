@@ -2,6 +2,7 @@
 /// \ingroup tutorial_math
 /// \notebook -js
 /// Example showing how to write and read a std vector of ROOT::Math LorentzVector in a ROOT tree.
+///
 /// In the write() function a variable number of track Vectors is generated
 /// according to a Poisson distribution with random momentum uniformly distributed
 /// in phi and eta.
@@ -32,7 +33,7 @@
 
 #include <iostream>
 
-// CINT does not understand some files included by LorentzVector
+// CLING does not understand some files included by LorentzVector
 #include "Math/Vector3D.h"
 #include "Math/Vector4D.h"
 
@@ -101,7 +102,7 @@ double read() {
    // create tree
    TTree *t1 = (TTree*)f1.Get("t1");
 
-   std::vector<ROOT::Math::LorentzVector<ROOT::Math::PxPyPzE4D<double> > > * pTracks = 0;
+   std::vector<ROOT::Math::LorentzVector<ROOT::Math::PxPyPzE4D<double> > > * pTracks = nullptr;
    t1->SetBranchAddress("tracks",&pTracks);
 
    timer.Start();

@@ -27,14 +27,13 @@
 OpenGL renderer class for TEveCalo2D.
 */
 
-ClassImp(TEveCalo2DGL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
 TEveCalo2DGL::TEveCalo2DGL() :
    TGLObject(),
-   fM(0)
+   fM(nullptr)
 {
    // fDLCache = kFALSE; // Disable display list.
    fMultiColor = kTRUE;

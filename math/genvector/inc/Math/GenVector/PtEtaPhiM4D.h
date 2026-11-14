@@ -11,7 +11,7 @@
 // Header file for class PtEtaPhiM4D
 //
 // Created by: fischler at Wed Jul 21 2005
-//   Similar to PtEtaPhiMSystem by moneta
+//   Successor to PtEtaPhiMSystem by moneta
 //
 // Last update: $Id$
 //
@@ -19,6 +19,7 @@
 #define ROOT_Math_GenVector_PtEtaPhiM4D  1
 
 #include "Math/Math.h"
+#include "TMath.h"
 
 #include "Math/GenVector/etaMax.h"
 
@@ -42,10 +43,12 @@ namespace Math {
     using Pt , Phi, Eta and M (mass)
     The metric used is (-,-,-,+).
     Spacelike particles (M2 < 0) are described with negative mass values,
-    but in this case m2 must alwasy be less than P2 to preserve a positive value of E2
+    but in this case m2 must always be less than P2 to preserve a positive value of E2
     Phi is restricted to be in the range [-PI,PI)
 
     @ingroup GenVector
+
+    @see GenVector
 */
 
 template <class ScalarType>
@@ -54,6 +57,7 @@ class PtEtaPhiM4D {
 public :
 
    typedef ScalarType Scalar;
+   static constexpr unsigned int Dimension = 4U;
 
    // --------- Constructors ---------------
 
@@ -76,28 +80,8 @@ public :
       Pt(), Eta(), Phi() and M()
    */
    template <class CoordSystem >
-   explicit PtEtaPhiM4D(const CoordSystem & c) :
+   explicit constexpr PtEtaPhiM4D(const CoordSystem & c) :
       fPt(c.Pt()), fEta(c.Eta()), fPhi(c.Phi()), fM(c.M())  { RestrictPhi(); }
-
-   // for g++  3.2 and 3.4 on 32 bits found that the compiler generated copy ctor and assignment are much slower
-   // so we decided to re-implement them ( there is no no need to have them with g++4)
-
-   /**
-      copy constructor
-    */
-   PtEtaPhiM4D(const PtEtaPhiM4D & v) :
-      fPt(v.fPt), fEta(v.fEta), fPhi(v.fPhi), fM(v.fM) { }
-
-   /**
-      assignment operator
-    */
-   PtEtaPhiM4D & operator = (const PtEtaPhiM4D & v) {
-      fPt  = v.fPt;
-      fEta = v.fEta;
-      fPhi = v.fPhi;
-      fM   = v.fM;
-      return *this;
-   }
 
 
    /**
@@ -225,8 +209,8 @@ public :
          using std::sqrt;
          return sqrt(mm);
       } else {
-         GenVector::Throw  ("PtEtaPhiM4D::Mt() - Tachyonic:\n"
-                            "    Pz^2 > E^2 so the transverse mass would be imaginary");
+         GenVector_Throw("PtEtaPhiM4D::Mt() - Tachyonic:\n"
+                         "    Pz^2 > E^2 so the transverse mass would be imaginary");
          using std::sqrt;
          return -sqrt(-mm);
       }
@@ -247,7 +231,7 @@ public :
    Scalar Et() const { using std::cosh; return E() / cosh(fEta); }
 
 private:
-   inline static Scalar pi() { return M_PI; }
+   inline static Scalar pi() { return TMath::Pi(); }
    inline void RestrictPhi() {
       using std::floor;
       if (fPhi <= -pi() || fPhi > pi()) fPhi = fPhi - floor(fPhi / (2 * pi()) + .5) * 2 * pi();
@@ -257,7 +241,7 @@ private:
    inline void RestrictNegMass() {
       if (fM < 0) {
          if (P2() - fM * fM < 0) {
-            GenVector::Throw("PtEtaPhiM4D::unphysical value of mass, set to closest physical value");
+            GenVector_Throw("PtEtaPhiM4D::unphysical value of mass, set to closest physical value");
             fM = -P();
          }
       }
@@ -315,7 +299,7 @@ public:
    void Negate( ) {
       fPhi = ( (fPhi > 0) ? fPhi - pi() : fPhi + pi()  );
       fEta = - fEta;
-      GenVector::Throw ("PtEtaPhiM4D::Negate - cannot negate the energy - can negate only the spatial components");
+      GenVector_Throw("PtEtaPhiM4D::Negate - cannot negate the energy - can negate only the spatial components");
    }
 
    /**
@@ -361,7 +345,7 @@ public:
    Scalar t() const { return E(); }
 
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 
    // ====== Set member functions for coordinates in other systems =======
 
@@ -405,7 +389,7 @@ inline void PtEtaPhiM4D<ScalarType>::SetPxPyPzE(Scalar px, Scalar py, Scalar pz,
 }
 
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 
   // ====== Set member functions for coordinates in other systems =======
 
@@ -434,7 +418,7 @@ void PtEtaPhiM4D<ScalarType>::SetE(Scalar energy) {
    PxPyPzE4D<Scalar> v(*this); v.SetE(energy);   *this = PtEtaPhiM4D<Scalar>(v);
 }
 
-#endif  // endif __MAKE__CINT || G__DICTIONARY
+#endif  // endif __ROOTCLING__ || G__DICTIONARY
 
 } // end namespace Math
 

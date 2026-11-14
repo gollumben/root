@@ -14,7 +14,7 @@
 #include "ROOT/RDF/GraphNode.hxx"
 #include "ROOT/RDF/RFilterBase.hxx"
 #include "ROOT/RDF/RLoopManager.hxx"
-#include "ROOT/RStringView.hxx"
+#include <string_view>
 #include "RtypesCore.h"
 
 #include <memory>
@@ -38,10 +38,19 @@ namespace RDFGraphDrawing = ROOT::Internal::RDF::GraphDrawing;
 /// at a later time, from jitted code.
 class RJittedFilter final : public RFilterBase {
    std::unique_ptr<RFilterBase> fConcreteFilter = nullptr;
+   std::shared_ptr<RNodeBase> fPrevNode;
 
 public:
-   RJittedFilter(RLoopManager *lm, std::string_view name);
-   ~RJittedFilter() { fLoopManager->Deregister(this); }
+   RJittedFilter(RLoopManager *lm, std::string_view name, const std::vector<std::string> &variations,
+                 std::shared_ptr<ROOT::Detail::RDF::RNodeBase> prevNode = nullptr);
+
+   // Rule of five
+
+   RJittedFilter(const RJittedFilter &) = delete;
+   RJittedFilter &operator=(const RJittedFilter &) = delete;
+   RJittedFilter(RJittedFilter &&) = delete;
+   RJittedFilter &operator=(RJittedFilter &&) = delete;
+   ~RJittedFilter() final;
 
    void SetFilter(std::unique_ptr<RFilterBase> f);
 
@@ -57,8 +66,11 @@ public:
    void ResetReportCount() final;
    void InitNode() final;
    void AddFilterName(std::vector<std::string> &filters) final;
-   void FinaliseSlot(unsigned int slot) final;
-   std::shared_ptr<RDFGraphDrawing::GraphNode> GetGraph();
+   void FinalizeSlot(unsigned int slot) final;
+   std::shared_ptr<RDFGraphDrawing::GraphNode>
+   GetGraph(std::unordered_map<void *, std::shared_ptr<RDFGraphDrawing::GraphNode>> &visitedMap) final;
+   std::shared_ptr<RNodeBase> GetVariedFilter(const std::string &variationName) final;
+   std::shared_ptr<RNodeBase> MoveOutPrevNode();
 };
 
 } // ns RDF

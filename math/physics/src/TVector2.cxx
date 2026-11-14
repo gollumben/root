@@ -12,6 +12,12 @@
 /** \class TVector2
     \ingroup Physics
 
+\attention \parblock
+TVector2 is a legacy class. It is slower and worse for serialization than the recommended superior alternative ROOT::Math::XYVector.
+
+More details can be found in the documentation of the @ref GenVector package.
+\endparblock
+
 TVector2 is a general two vector class, which can be used for
 the description of different vectors in 2D.
 */
@@ -25,7 +31,6 @@ the description of different vectors in 2D.
 Double_t const  kPI        = TMath::Pi();
 Double_t const  kTWOPI     = 2.*kPI;
 
-ClassImp(TVector2);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor
@@ -54,11 +59,6 @@ TVector2::TVector2(Double_t x0, Double_t y0)
    fY = y0;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-TVector2::~TVector2()
-{
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Return modulo of this vector

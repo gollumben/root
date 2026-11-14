@@ -38,7 +38,7 @@ namespace ROOT {
 
 //___________________________________________________________________________________
 /**
-   Chi2FCN class for binnned fits using the least square methods
+   Chi2FCN class for binned fits using the least square methods
 
    @ingroup  FitMethodFunc
 */
@@ -68,11 +68,10 @@ public:
    { }
 
    /**
-      Same Constructor from data set (binned ) and model function but now managed by the user
-      we clone the function but not the data
+      Same Constructor from data set (binned ) and model function cloning the function and the data
    */
    Chi2FCN ( const BinData & data, const IModelFunction & func, const ::ROOT::EExecutionPolicy &executionPolicy = ::ROOT::EExecutionPolicy::kSequential) :
-      BaseFCN(std::shared_ptr<BinData>(const_cast<BinData*>(&data), DummyDeleter<BinData>()), std::shared_ptr<IModelFunction>(dynamic_cast<IModelFunction*>(func.Clone() ) ) ),
+      BaseFCN(std::make_shared<BinData>(data), std::shared_ptr<IModelFunction>(dynamic_cast<IModelFunction*>(func.Clone() ) ) ),
       fNEffPoints(0),
       fGrad ( std::vector<double> ( func.NPar() ) ),
       fExecutionPolicy(executionPolicy)
@@ -105,7 +104,7 @@ public:
    /*
       clone the function
     */
-   virtual BaseFunction * Clone() const {
+   BaseFunction * Clone() const override {
       return new Chi2FCN(*this);
    }
 
@@ -115,20 +114,21 @@ public:
 
 
    /// i-th chi-square residual
-   virtual double DataElement(const double *x, unsigned int i, double *g) const {
+   double DataElement(const double *x, unsigned int i, double *g, double * h = nullptr, bool fullHessian = false) const override {
       if (i==0) this->UpdateNCalls();
-      return FitUtil::Evaluate<T>::EvalChi2Residual(BaseFCN::ModelFunction(), BaseFCN::Data(), x, i, g);
+      return FitUtil::Evaluate<T>::EvalChi2Residual(BaseFCN::ModelFunction(), BaseFCN::Data(), x, i, g, h, BaseFCN::IsAGradFCN(), fullHessian);
    }
 
    // need to be virtual to be instantiated
-   virtual void Gradient(const double *x, double *g) const {
+   void Gradient(const double *x, double *g) const override {
       // evaluate the chi2 gradient
       FitUtil::Evaluate<T>::EvalChi2Gradient(BaseFCN::ModelFunction(), BaseFCN::Data(), x, g, fNEffPoints,
                                              fExecutionPolicy);
    }
 
+
    /// get type of fit method function
-   virtual  typename BaseObjFunction::Type_t Type() const { return BaseObjFunction::kLeastSquare; }
+   typename BaseObjFunction::Type_t Type() const override { return BaseObjFunction::kLeastSquare; }
 
 
 protected:
@@ -141,24 +141,27 @@ private:
    /**
       Evaluation of the  function (required by interface)
     */
-   virtual double DoEval (const double * x) const {
+   double DoEval(const double *x) const override
+   {
       this->UpdateNCalls();
       if (BaseFCN::Data().HaveCoordErrors() || BaseFCN::Data().HaveAsymErrors())
-         return FitUtil::Evaluate<T>::EvalChi2Effective(BaseFCN::ModelFunction(), BaseFCN::Data(), x, fNEffPoints);
+         return FitUtil::Evaluate<T>::EvalChi2Effective(BaseFCN::ModelFunction(), BaseFCN::Data(), x, fNEffPoints,
+                                                        fExecutionPolicy);
       else
-         return FitUtil::Evaluate<T>::EvalChi2(BaseFCN::ModelFunction(), BaseFCN::Data(), x, fNEffPoints, fExecutionPolicy);
+         return FitUtil::Evaluate<T>::EvalChi2(BaseFCN::ModelFunction(), BaseFCN::Data(), x, fNEffPoints,
+                                               fExecutionPolicy);
    }
 
    // for derivatives
-   virtual double  DoDerivative(const double * x, unsigned int icoord ) const {
+   double DoDerivative(const double * x, unsigned int icoord) const override {
       Gradient(x, fGrad.data());
       return fGrad[icoord];
    }
 
 
-   mutable unsigned int fNEffPoints;  // number of effective points used in the fit
+   mutable unsigned int fNEffPoints;  ///< number of effective points used in the fit
 
-   mutable std::vector<double> fGrad; // for derivatives
+   mutable std::vector<double> fGrad; ///< for derivatives
    ::ROOT::EExecutionPolicy fExecutionPolicy;
 
 };

@@ -16,7 +16,17 @@
 
 #include <cling/Interpreter/Visibility.h>
 
+#if __cplusplus >= 201703L
+#include <filesystem>
+#endif
 #include <memory>
+#if __cplusplus >= 202002L
+#include <version>
+#endif
+#ifdef __cpp_lib_source_location
+#include <source_location>
+#include <sstream>
+#endif
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -141,6 +151,15 @@ namespace cling {
     return toUTF8(reinterpret_cast<const char * const>(val), N, 1);
   }
 
+#ifdef __cpp_lib_source_location
+  inline std::string printValue(const std::source_location* location) {
+    std::ostringstream strm;
+    strm << location->file_name() << ":" << location->line() << ":"
+         << location->function_name();
+    return strm.str();
+  }
+#endif
+
   // cling::Value
   CLING_LIB_EXPORT
   std::string printValue(const Value *value);
@@ -181,24 +200,44 @@ namespace cling {
       isMap(const T* M, const typename T::mapped_type* V = 0) { return M; }
       static constexpr const void* isMap(const void* M) { return nullptr; }
     };
+    template <typename CollectionType>
+    struct is_std_array : public std::false_type {};
 
-    // vector, set, deque etc.
+    template <typename T, std::size_t N>
+    struct is_std_array<std::array<T, N>> : public std::true_type {};
+
+    // vector, set, deque, array etc.
     template <typename CollectionType>
     inline auto printValue_impl(
         const CollectionType* obj,
         typename std::enable_if<
             std::is_reference<decltype(*std::begin(*obj))>::value>::type* = 0)
         -> decltype(std::end(*obj), std::string()) {
-      auto iter = obj->begin(), iterEnd = obj->end();
+      auto iter = obj->begin();
+      auto iterEnd = obj->end();
       if (iter == iterEnd) return valuePrinterInternal::kEmptyCollection;
 
       const void* M = TypeTest::isMap(obj);
 
       std::string str("{ ");
-      str += printValue(&(*iter), M);
+
+      // If the dereferenced iterator points to the container itself, we have
+      // infinite recursion. This occurs with scalar values in nlohmann::json
+      auto printWithRecursionGuard = [obj](const auto* ptr,
+                                           const void* M) -> std::string {
+        // std::array begins at the same location as the object itself, but it
+        // is not infinitely recursive
+        if constexpr (is_std_array<CollectionType>::value)
+          return printValue(ptr, M);
+        if (static_cast<const void*>(ptr) == static_cast<const void*>(obj))
+          return "<recursion detected>";
+        return printValue(ptr, M);
+      };
+
+      str += printWithRecursionGuard(&(*iter), M);
       while (++iter != iterEnd) {
         str += ", ";
-        str += printValue(&(*iter), M);
+        str += printWithRecursionGuard(&(*iter), M);
       }
       return str + " }";
     }
@@ -210,7 +249,8 @@ namespace cling {
         typename std::enable_if<
             !std::is_reference<decltype(*(obj->begin()))>::value>::type* = 0)
         -> decltype(++(obj->begin()), obj->end(), std::string()) {
-      auto iter = obj->begin(), iterEnd = obj->end();
+      auto iter = obj->begin();
+      auto iterEnd = obj->end();
       if (iter == iterEnd) return valuePrinterInternal::kEmptyCollection;
 
       std::string str("{ ");
@@ -229,6 +269,13 @@ namespace cling {
   -> decltype(collectionPrinterInternal::printValue_impl(obj), std::string()) {
     return collectionPrinterInternal::printValue_impl(obj);
   }
+
+#if __cplusplus >= 201703L
+  // For std::filesystem::path
+  inline std::string printValue(const std::filesystem::path* obj) {
+    return obj->string();
+  }
+#endif
 
   // Arrays
   template<typename T, size_t N>

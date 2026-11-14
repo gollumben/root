@@ -1,0 +1,71 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
+set(ROOT_CFITSIO_VERSION 4.6.3)
+set(ROOT_CFITSIO_HASH "fad44fff274fdda5ffcc0c0fff3bc3c596362722b9292fc8944db91187813600")
+
+set(CFITSIO_PREFIX ${CMAKE_BINARY_DIR}/CFITSIO-prefix)
+set(CFITSIO_LIBRARIES ${CFITSIO_PREFIX}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}cfitsio${CMAKE_STATIC_LIBRARY_SUFFIX})
+
+if(NOT WIN32)
+  set(CFITSIO_C_FLAGS -fPIC)
+endif()
+
+if(WIN32 AND NOT CMAKE_GENERATOR MATCHES Ninja)
+  if(winrtdebug)
+    set(CFITSIO_BUILD_COMMAND_FLAGS "--config Debug")
+  else()
+    set(CFITSIO_BUILD_COMMAND_FLAGS "--config $<IF:$<CONFIG:Debug,RelWithDebInfo>,RelWithDebInfo,Release>")
+  endif()
+endif()
+
+# flag required only on Windows, on old alma paltforms it make troubles
+if(WIN32)
+  set(patch_args --ignore-whitespace)
+endif()
+
+ROOT_BUILTIN_PATCH_COMMAND(CFITSIO_PATCH_COMMAND
+                           PATCHES ${CMAKE_CURRENT_SOURCE_DIR}/cfitsio-no-find-zlib.diff
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/no-fortran-wrapper.diff
+                           GIT_APPLY_ARGS ${patch_args})
+
+ExternalProject_Add(
+  BUILTIN_CFITSIO
+  PREFIX ${CFITSIO_PREFIX}
+  DOWNLOAD_DIR ${ROOT_DOWNLOAD_DIR}
+  URL ${lcgpackages}/cfitsio-${ROOT_CFITSIO_VERSION}.tar.gz
+      https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-${ROOT_CFITSIO_VERSION}.tar.gz
+  URL_HASH SHA256=${ROOT_CFITSIO_HASH}
+  CMAKE_ARGS -G ${CMAKE_GENERATOR}
+             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+             -DCMAKE_C_FLAGS=${CFITSIO_C_FLAGS}
+             -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+             -DCMAKE_INSTALL_LIBDIR=<INSTALL_DIR>/lib
+             -DBUILD_SHARED_LIBS=OFF
+             -DUSE_CURL=OFF
+             -DZLIB_FOUND=TRUE
+             -DZLIB_INCLUDE_DIR=${ZLIB_INCLUDE_DIRS}
+             -DZLIB_LIBRARIES=$<TARGET_FILE:ZLIB::ZLIB>
+  # Skip the find_package(ZLIB REQUIRED), because we feed CFITSIO our own ZLIB flags.
+  ${CFITSIO_PATCH_COMMAND}
+  BUILD_COMMAND ${CMAKE_COMMAND} --build . ${CFITSIO_BUILD_COMMAND_FLAGS}
+  INSTALL_COMMAND ${CMAKE_COMMAND} --build . ${CFITSIO_BUILD_COMMAND_FLAGS} --target install
+  LOG_PATCH 1 LOG_DOWNLOAD 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1 LOG_OUTPUT_ON_FAILURE 1
+  BUILD_BYPRODUCTS ${CFITSIO_LIBRARIES}
+  TIMEOUT 600
+)
+
+add_dependencies(BUILTIN_CFITSIO ZLIB::ZLIB)
+
+add_dependencies(CFITSIO::CFITSIO BUILTIN_CFITSIO)
+set(CFITSIO_INCLUDE_DIRS ${CFITSIO_PREFIX}/include)
+file(MAKE_DIRECTORY ${CFITSIO_INCLUDE_DIRS})
+set_target_properties(CFITSIO::CFITSIO PROPERTIES
+    IMPORTED_LOCATION ${CFITSIO_LIBRARIES}
+    INTERFACE_INCLUDE_DIRECTORIES ${CFITSIO_INCLUDE_DIRS}
+    INTERFACE_LINK_LIBRARIES ZLIB::ZLIB
+)

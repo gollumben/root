@@ -33,7 +33,6 @@ field can be deleted by calling [1] with a different argument (which can be
 NULL). Otherwise the global field is deleted together with the field manager.
 */
 
-ClassImp(TVirtualMagField);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Destructor. Unregisters the field.
@@ -54,13 +53,11 @@ TVirtualMagField::~TVirtualMagField()
 Implementation for uniform magnetic field.
 */
 
-ClassImp(TGeoUniformMagField);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor;
 
-TGeoUniformMagField::TGeoUniformMagField()
-                    :TVirtualMagField()
+TGeoUniformMagField::TGeoUniformMagField() : TVirtualMagField()
 {
    fB[0] = 0.;
    fB[1] = 0.;
@@ -71,7 +68,7 @@ TGeoUniformMagField::TGeoUniformMagField()
 /// Default constructor;
 
 TGeoUniformMagField::TGeoUniformMagField(Double_t Bx, Double_t By, Double_t Bz)
-                    :TVirtualMagField("Uniform magnetic field")
+   : TVirtualMagField("Uniform magnetic field")
 {
    fB[0] = Bx;
    fB[1] = By;

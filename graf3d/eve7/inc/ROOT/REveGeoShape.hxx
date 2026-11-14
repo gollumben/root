@@ -14,6 +14,7 @@
 
 #include <ROOT/REveShape.hxx>
 
+class TGeoManager;
 class TGeoShape;
 class TGeoHMatrix;
 class TGeoCompositeShape;
@@ -40,7 +41,7 @@ private:
 protected:
    Int_t fNSegments{0};
    TGeoShape *fShape{nullptr};
-   TGeoCompositeShape *fCompositeShape{nullptr}; //! Temporary holder (if passed shape is composite shape).
+   TGeoCompositeShape *fCompositeShape{nullptr}; ///<! Temporary holder (if passed shape is composite shape).
 
    static TGeoManager *fgGeoManager;
 
@@ -51,7 +52,7 @@ protected:
 
 public:
    REveGeoShape(const std::string &name = "REveGeoShape", const std::string &title = "");
-   virtual ~REveGeoShape();
+   ~REveGeoShape() override;
 
    Int_t WriteCoreJson(nlohmann::json &j, Int_t rnr_offset) override;
    void BuildRenderData() override;
@@ -88,13 +89,13 @@ private:
    REveGeoShapeProjected &operator=(const REveGeoShapeProjected &) = delete;
 
 protected:
-   std::unique_ptr<TBuffer3D> fBuff;    //! 3d buffer
+   std::unique_ptr<TBuffer3D> fBuff;    ///<! 3d buffer
 
    void SetDepthLocal(Float_t d) override;
 
 public:
    REveGeoShapeProjected();
-   virtual ~REveGeoShapeProjected();
+   ~REveGeoShapeProjected() override;
 
    void SetProjection(REveProjectionManager *proj, REveProjectable *model) override;
    void UpdateProjection() override;

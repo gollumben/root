@@ -1,21 +1,24 @@
 #include <gtest/gtest.h>
+#include <ROOT/TestSupport.hxx>
 
 #include <TFile.h>
 #include <TTree.h>
+#include <TROOT.h>
 #include <TSystem.h>
 #include <TMVA/Factory.h>
 #include <TMVA/DataLoader.h>
 
 #include <TMVA/RReader.hxx>
 #include <TMVA/RInferenceUtils.hxx>
-#include <TMVA/RTensor.hxx>
-#include <TMVA/RTensorUtils.hxx>
+
+#include <ROOT/RDataFrame.hxx>
+#include <ROOT/RSpan.hxx>
 
 using namespace TMVA::Experimental;
 
 // Classification
 static const std::string modelClassification = "RReaderClassification/weights/RReaderClassification_BDT.weights.xml";
-static const std::string filenameClassification = "http://root.cern.ch/files/tmva_class_example.root";
+static const std::string filenameClassification = std::string(gROOT->GetTutorialDir()) + "/machine_learning/data/tmva_class_example.root";
 static const std::vector<std::string> variablesClassification = {"var1", "var2", "var3", "var4"};
 
 void TrainClassificationModel()
@@ -34,8 +37,8 @@ void TrainClassificationModel()
            output, "Silent:!V:!DrawProgressBar:AnalysisType=Classification");
 
    // Open trees with signal and background events
-   const std::string filename = "http://root.cern.ch/files/tmva_class_example.root";
-   auto data = TFile::Open(filename.c_str());
+   const std::string filename = filenameClassification;
+   std::unique_ptr<TFile> data{TFile::Open(filename.c_str())};
    auto signal = (TTree *)data->Get("TreeS");
    auto background = (TTree *)data->Get("TreeB");
 
@@ -57,7 +60,7 @@ void TrainClassificationModel()
 
 // Regression
 static const std::string modelRegression = "RReaderRegression/weights/RReaderRegression_BDTG.weights.xml";
-static const std::string filenameRegression = "http://root.cern.ch/files/tmva_reg_example.root";
+static const std::string filenameRegression = std::string(gROOT->GetTutorialDir()) + "/machine_learning/data/tmva_reg_example.root";
 static const std::vector<std::string> variablesRegression = {"var1", "var2"};
 
 void TrainRegressionModel()
@@ -76,8 +79,8 @@ void TrainRegressionModel()
            output, "Silent:!V:!DrawProgressBar:AnalysisType=Regression");
 
    // Open trees with signal and background events
-   const std::string filename = "http://root.cern.ch/files/tmva_reg_example.root";
-   auto data = TFile::Open(filename.c_str());
+   const std::string filename = filenameRegression;
+   std::unique_ptr<TFile> data{TFile::Open(filename.c_str())};
    auto tree = (TTree *)data->Get("TreeR");
 
    // Add variables and register the trees with the dataloader
@@ -96,7 +99,7 @@ void TrainRegressionModel()
 
 // Multiclass
 static const std::string modelMulticlass = "RReaderMulticlass/weights/RReaderMulticlass_BDT.weights.xml";
-static const std::string filenameMulticlass = "http://root.cern.ch/files/tmva_multiclass_example.root";
+static const std::string filenameMulticlass = std::string(gROOT->GetTutorialDir()) + "/machine_learning/data/tmva_multiclass_example.root";
 static const std::vector<std::string> variablesMulticlass = variablesClassification;
 
 void TrainMulticlassModel()
@@ -115,8 +118,8 @@ void TrainMulticlassModel()
            output, "Silent:!V:!DrawProgressBar:AnalysisType=Multiclass");
 
    // Open trees with signal and background events
-   const std::string filename = "http://root.cern.ch/files/tmva_multiclass_example.root";
-   auto data = TFile::Open(filename.c_str());
+   const std::string filename = filenameMulticlass;
+   std::unique_ptr<TFile> data{TFile::Open(filename.c_str())};
    auto signal = (TTree *)data->Get("TreeS");
    auto background0 = (TTree *)data->Get("TreeB0");
    auto background1 = (TTree *)data->Get("TreeB1");
@@ -160,19 +163,18 @@ TEST(RReader, ClassificationComputeVector)
    EXPECT_EQ(y.size(), 1ul);
 }
 
-TEST(RReader, ClassificationComputeTensor)
+TEST(RReader, ClassificationComputeBatch)
 {
    TrainClassificationModel();
-   ROOT::RDataFrame df("TreeS", filenameClassification);
-   auto x = AsTensor<float>(df, variablesClassification);
+
+   // Batch of two events, each with the four input variables
+   const std::vector<float> x = {1.0, 2.0, 3.0, 4.0, //
+                                 5.0, 6.0, 7.0, 8.0};
 
    RReader model(modelClassification);
-   auto y = model.Compute(x);
+   auto y = model.Compute(std::span<const float>(x));
 
-   const auto shapeX = x.GetShape();
-   const auto shapeY = y.GetShape();
-   EXPECT_EQ(shapeY.size(), 1ul);
-   EXPECT_EQ(shapeY[0], shapeX[0]);
+   EXPECT_EQ(y.size(), 2ul);
 }
 
 TEST(RReader, ClassificationComputeDataFrame)
@@ -207,19 +209,18 @@ TEST(RReader, RegressionComputeVector)
    EXPECT_EQ(y.size(), 1ul);
 }
 
-TEST(RReader, RegressionComputeTensor)
+TEST(RReader, RegressionComputeBatch)
 {
    TrainRegressionModel();
-   ROOT::RDataFrame df("TreeR", filenameRegression);
-   auto x = AsTensor<float>(df, variablesRegression);
+
+   // Batch of two events, each with the two input variables
+   const std::vector<float> x = {1.0, 2.0, //
+                                 3.0, 4.0};
 
    RReader model(modelRegression);
-   auto y = model.Compute(x);
+   auto y = model.Compute(std::span<const float>(x));
 
-   const auto shapeX = x.GetShape();
-   const auto shapeY = y.GetShape();
-   EXPECT_EQ(shapeY.size(), 1ul);
-   EXPECT_EQ(shapeY[0], shapeX[0]);
+   EXPECT_EQ(y.size(), 2ul);
 }
 
 TEST(RReader, RegressionComputeDataFrame)
@@ -254,20 +255,19 @@ TEST(RReader, MulticlassComputeVector)
    EXPECT_EQ(y.size(), 4ul);
 }
 
-TEST(RReader, MulticlassComputeTensor)
+TEST(RReader, MulticlassComputeBatch)
 {
    TrainMulticlassModel();
-   ROOT::RDataFrame df("TreeS", filenameMulticlass);
-   auto x = AsTensor<float>(df, variablesMulticlass);
+
+   // Batch of two events, each with the four input variables
+   const std::vector<float> x = {1.0, 2.0, 3.0, 4.0, //
+                                 5.0, 6.0, 7.0, 8.0};
 
    RReader model(modelMulticlass);
-   auto y = model.Compute(x);
+   auto y = model.Compute(std::span<const float>(x));
 
-   const auto shapeX = x.GetShape();
-   const auto shapeY = y.GetShape();
-   EXPECT_EQ(shapeY.size(), 2ul);
-   EXPECT_EQ(shapeY[0], shapeX[0]);
-   EXPECT_EQ(shapeY[1], 4ul);
+   // The output is flat with one value per class and event
+   EXPECT_EQ(y.size(), 2ul * 4ul);
 }
 
 TEST(RReader, MulticlassComputeDataFrame)
@@ -280,4 +280,23 @@ TEST(RReader, MulticlassComputeDataFrame)
    auto c = df3.Count();
    auto y = df2.Take<std::vector<float>>("y");
    EXPECT_EQ(y->size(), *c);
+}
+
+// https://its.cern.ch/jira/browse/ROOT-9833
+// https://its.cern.ch/jira/browse/ROOT-10018
+TEST(RReader, DataLoaderUndefinedVariables)
+{
+   ROOT::TestSupport::CheckDiagsRAII diagRAII;
+   diagRAII.requiredDiag(kError, "TMVA::DataLoader::AddEvent",
+      "Number of variables defined through DataLoader::AddVariable (0) is inconsistent with number of variables given to DataLoader::Add*Event (2)."
+      " Please check your variable definitions and statement ordering. This event will not be added.");
+   diagRAII.requiredDiag(kError, "TMVA::DataLoader::AddEvent",
+      "Number of variables defined through DataLoader::AddVariable (0) is inconsistent with number of variables given to DataLoader::Add*Event (1)."
+      " Please check your variable definitions and statement ordering. This event will not be added.");
+   
+   std::vector<double> evData = {1, 2};
+   TMVA::DataLoader dl;
+   dl.AddEvent("class1", TMVA::Types::kTraining, evData, 1.0);
+   TMVA::DataLoader d("dataset");
+   d.AddSignalTrainingEvent({0.0}, 1.0);
 }

@@ -27,8 +27,6 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef __CINT__
-
 #ifdef __CLING__
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -128,13 +126,9 @@
 #undef ERROR
 #undef GetYValue
 
-#if !defined(ROOT_TGWin32Object) && !defined(ROOT_TGWin32)
+#if !defined(ROOT_TGWin32Object) && !defined(ROOT_TGWin32) && !defined(ROOT_TGWin32cxx)
 #   undef GetObject
 #   undef GetClassInfo
-#endif
-
-#else
-    typedef void * HANDLE;
 #endif
 
 #endif

@@ -22,10 +22,10 @@ private:
    // Shallow ring interaction
    // Where the ring plane forms a shallow angle to the eye direction -
    // a different interaction is required in these cases - see HandleMotion()
-   Bool_t     fShallowRing;         //! does active ring form shallow angle to eye?
-   Bool_t     fShallowFront;        //! front or back of the active shallow ring?
-   TGLPlane   fActiveRingPlane;     //! plane of the active ring (widget)
-   TGLVertex3 fActiveRingCenter;    //! center of active ring
+   Bool_t     fShallowRing;         ///<! does active ring form shallow angle to eye?
+   Bool_t     fShallowFront;        ///<! front or back of the active shallow ring?
+   TGLPlane   fActiveRingPlane;     ///<! plane of the active ring (widget)
+   TGLVertex3 fActiveRingCenter;    ///<! center of active ring
    // TODO: Is ring center required - why not get from plane?
 
    // Normal interaction tracking (non-shallow)
@@ -44,13 +44,13 @@ protected:
 public:
    TGLRotateManip();
    TGLRotateManip(TGLPhysicalShape* shape);
-   virtual ~TGLRotateManip();
+   ~TGLRotateManip() override;
 
-   virtual void   Draw(const TGLCamera& camera) const;
-   virtual Bool_t HandleButton(const Event_t& event, const TGLCamera& camera);
-   virtual Bool_t HandleMotion(const Event_t& event, const TGLCamera& camera);
+   void   Draw(const TGLCamera& camera) const override;
+   Bool_t HandleButton(const Event_t& event, const TGLCamera& camera) override;
+   Bool_t HandleMotion(const Event_t& event, const TGLCamera& camera) override;
 
-   ClassDef(TGLRotateManip, 0); // GL rotation manipulator widget
+   ClassDefOverride(TGLRotateManip, 0); // GL rotation manipulator widget
 };
 
 #endif

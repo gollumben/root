@@ -11,7 +11,7 @@ sap.ui.define([
 ], function (Controller, JSONModel, Button, mInput, mStepInput, mCheckBox, mText, ColorPalettePopover, HorizontalLayout) {
    "use strict";
 
-   var UI5PopupColors = {
+   let UI5PopupColors = {
          aliceblue: 'f0f8ff',
          antiquewhite: 'faebd7',
          aqua: '00ffff',
@@ -164,7 +164,7 @@ sap.ui.define([
 
 
    // TODO: move to separate file
-   var EVEColorButton = Button.extend("rootui5.eve7.controller.EVEColorButton", {
+   let EVEColorButton = Button.extend("rootui5.eve7.controller.EVEColorButton", {
       // when default value not specified - openui tries to load custom
       renderer: {}, // ButtonRenderer.render,
 
@@ -180,7 +180,7 @@ sap.ui.define([
 
    });
 
-    var EVEColorPopup = ColorPalettePopover.extend("rootui5.eve7.controller.EVEColorPopup", {
+    let EVEColorPopup = ColorPalettePopover.extend("rootui5.eve7.controller.EVEColorPopup", {
         // when default value not specified - openui tries to load custom
         defaultColors : ['gold','darkorange', 'indianred','rgb(102,51,0)', 'cyan',// 'magenta'
                              'blue', 'lime', 'gray','slategray','rgb(204, 198, 170)',
@@ -211,7 +211,7 @@ sap.ui.define([
 
     });
 
-   var GedController = Controller.extend("rootui5.eve7.controller.Ged", {
+   let GedController = Controller.extend("rootui5.eve7.controller.Ged", {
 
       onInit : function() {
          this.oModel = new JSONModel({ title: "GED title", "widgetlist" : [] });
@@ -234,8 +234,8 @@ sap.ui.define([
 
       closeGedEditor: function() {
          if (this.ged_visible) {
-            var prnt = this.getView().getParent();
-            if (prnt) prnt.removeContentArea(this.getView());
+            let prnt = this.getView().getParent();
+            if (prnt) prnt.removeItem(this.getView());
             this.ged_visible = false;
          }
 
@@ -248,19 +248,19 @@ sap.ui.define([
          if (this.ged_visible && (elementId == this.ged_id))
             return this.closeGedEditor();
 
-         var editorElement = this.mgr ? this.mgr.GetElement(elementId) : null;
+         let editorElement = this.mgr ? this.mgr.GetElement(elementId) : null;
          if (!editorElement)
             return this.closeGedEditor();
 
          if (!this.ged_visible)
-            sumSplitter.addContentArea(this.getView());
+            sumSplitter.addItem(this.getView());
 
          this.ged_id = elementId;
          this.ged_visible = true;
 
          this.editorElement = editorElement;
 
-         var title = this.editorElement.fName + " (" +  this.editorElement._typename.substring(20) + " )" ;
+         let title = this.editorElement.fName + " (" +  this.editorElement._typename.substring(20) + " )" ;
          this.oModel.setProperty("/title", title);
          this.buildEditor();
       },
@@ -301,10 +301,123 @@ sap.ui.define([
          this.makeNumberSetter(el.fNDiv, "NDiv");
       },
 
+      buildREveTextSetter : function(el)
+      {
+         this.buildREveElementSetter(el);
+         // write editor only for screen coordinates
+         this.makeStringSetter(el.fText, "Text");
+         if (el.fMode) {
+            let gedFrame = this.getView().byId("GED");
+            this.makeNumberSetter(el.fFont, "FontType", "SetFont");
+            this.makeNumberSetter(el.fFontSize, "FontSize");
+            this.makeNumberSetter(el.fPosX, "PosX", "SetPosX");
+            this.makeNumberSetter(el.fPosY, "PosY", "SetPosY");
+         }
+      },
+
+      // REveSMorph. The Tx, Cx, Rz ([-2, 2]) and extent ([0, 1]) sliders match
+      // the clamps in the REveSMorph setters; the tessellation and texture
+      // sliders cover less than their clamps. Keep them in step by hand.
+      buildREveSMorphSetter : function(el)
+      {
+         this.buildREveElementSetter(el);
+
+         this.makeSliderSetter(el.fTLevel, "TLevel", null, {min: 2, max: 100, step: 1});
+         this.makeSliderSetter(el.fPLevel, "PLevel", null, {min: 3, max: 100, step: 1});
+
+         this.makeSliderSetter(el.fTx, "Tx", null,
+            {min: -2, max: 2, step: 0.01, tip: "Twist of phi, proportional to cos(theta)"});
+         this.makeSliderSetter(el.fCx, "Cx", null,
+            {min: -2, max: 2, step: 0.01, tip: "Radial convergence, proportional to cos(theta)"});
+         this.makeSliderSetter(el.fRz, "Rz", null,
+            {min: -2, max: 2, step: 0.01, tip: "Shear about z, proportional to the polar coordinate"});
+
+         this.makeSliderSetter(el.fThetaMin,  "ThetaMin",  null, {min: 0, max: 1, step: 0.001});
+         this.makeSliderSetter(el.fThetaMax,  "ThetaMax",  null, {min: 0, max: 1, step: 0.001});
+         this.makeSliderSetter(el.fPhiMean,   "PhiMean",   null, {min: 0, max: 1, step: 0.001});
+         this.makeSliderSetter(el.fPhiRange,  "PhiRange",  null, {min: 0, max: 1, step: 0.001,
+            tip: "1 closes the seam; below that the surface is an open patch"});
+
+         this.makeBoolSetter(el.fEquiSurf, "EquiSurf");
+
+         this.makeSliderSetter(el.fTexXC, "TexXC", null,
+            {min: -8, max: 8, step: 0.05, tip: "Texture wraps per turn in phi"});
+         this.makeSliderSetter(el.fTexYC, "TexYC", null,
+            {min: -8, max: 8, step: 0.05, tip: "Texture wraps per sweep in theta"});
+         this.makeSliderSetter(el.fTexX0, "TexX0", null, {min: -2, max: 2, step: 0.01});
+         this.makeSliderSetter(el.fTexY0, "TexY0", null, {min: -2, max: 2, step: 0.01});
+         this.makeSliderSetter(el.fTexYOff, "TexYOff", null,
+            {min: -1, max: 1, step: 0.01, tip: "Shift u per whole v, for a brick bond"});
+      },
+
       buildREveTrackSetter : function(el)
       {
          this.buildREveElementSetter(el);
          this.makeNumberSetter(el.fLineWidth, "LineWidth");
+      },
+
+      buildREveViewerSetter: function(el)
+      {
+         // AxesType is a three-value enum, REveViewer::EAxesType, so it gets a
+         // selector rather than a checkbox.
+         this.makeAxesTypeSelector(el);
+         // Shown whatever AxesType is: the panel is built on viewer selection,
+         // not on an AxesType change, so hidden rows would stay hidden after
+         // the axes are switched on.
+         //
+         // The axis sliders cover less than the server clamps (SetAxesAtten takes
+         // [-4, 8]), and their tooltips say where the useful values are.
+         this.makeSliderSetter(el.AxesAtten, "AxesAtten", "SetAxesAtten",
+                               { min: 0, max: 4, step: 0.2, tickmarks: false,
+                                 tip: "Label shrink with distance. 0 = constant "
+                                    + "pixel size, 1 = realistic (shrinks exactly "
+                                    + "like geometry), above that exaggerates. The "
+                                    + "setter clamps to [-4, 8], so inverse "
+                                    + "perspective -- far labels largest -- is "
+                                    + "reachable from a macro or a MIR, just not "
+                                    + "from this slider." });
+         this.makeSliderSetter(el.AxesFontSize, "AxesFontSize", "SetAxesFontSize",
+                               { min: 0.004, max: 0.05, step: 0.001,
+                                 tip: "Label height as a fraction of the viewport. "
+                                    + "0.015 is the default and about the smallest "
+                                    + "that stays crisp; by 0.05 the labels of a "
+                                    + "box axis start to meet." });
+         this.makeSliderSetter(el.TooltipFontSize, "TooltipFontSize",
+                               "SetTooltipFontSize",
+                               { min: 0.004, max: 0.05, step: 0.001,
+                                 tip: "Hover-tooltip label height, as a fraction "
+                                    + "of the viewport. Separate from the axis "
+                                    + "size because a tooltip is read, where an "
+                                    + "axis number is only glanced at." });
+         this.makeSliderSetter(el.TooltipAlpha, "TooltipAlpha", "SetTooltipAlpha",
+                               { min: 0, max: 1, step: 0.05,
+                                 tip: "Opacity of the plate behind the tooltip "
+                                    + "and kept annotations. 0 leaves the text "
+                                    + "floating on the scene, 1 hides whatever "
+                                    + "is behind it." });
+         this.makeBoolSetter(el.BlackBg, "BlackBackground");
+
+         // Motion settings, in a collapsed panel since they matter only while
+         // something moves:
+         //
+         //   RenderMaxHz        how often the result is drawn
+         //   ExtrapolateMotion  whether anything is drawn between updates
+         let motion = new sap.m.Panel({
+            headerText: "Motion",
+            expandable: true,
+            expanded: false,
+            width: "100%"
+         });
+         this.getView().byId("GED").addContent(motion);
+
+         this.makeSliderSetter(el.RenderMaxHz, "RenderMaxHz", null,
+            {min: 0, max: 120, step: 1,
+             tip: "Animation redraws per second. 0 is uncapped -- every display frame."},
+            motion);
+         this.makeBoolSetter(el.ExtrapolateMotion, "ExtrapolateMotion", null, motion);
+
+         // camera type selector
+         this.makeCameraTypeSelector(el);
       },
 
       buildREveDataCollectionSetter : function(el)
@@ -334,7 +447,7 @@ sap.ui.define([
 	 //
 	 // Also, it is not tested whether for all types of events, the direct browser
 	 // event is coming BEFORE the itemPress event handler invocation!
-         var ctrlKeyPressed = false;
+         let ctrlKeyPressed = false;
          list.attachBrowserEvent("click", function(e) {
 	    ctrlKeyPressed = e.ctrlKey;
 	 });
@@ -343,7 +456,7 @@ sap.ui.define([
          let makeItem = function(i) {
             let iid = "item_"+ i;
             let fout = citems[i].fFiltered;
-	    var item  = new sap.m.CustomListItem( iid, {type:sap.m.ListType.Active});
+	    let item  = new sap.m.CustomListItem( iid, {type:sap.m.ListType.Active});
 	    item.addStyleClass("sapUiTinyMargin");
 
             // item info
@@ -366,7 +479,7 @@ sap.ui.define([
 
             let col_widget = new EVEColorButton( {
                icon : "sap-icon://palette",
-               background: JSROOT.Painter.getColor(citems[i].fColor),
+               background: EVE.JSR.getColor(citems[i].fColor),
                press: function () {
                   let oCPPop = new EVEColorPopup( {
                      colorSelect: function(event) {
@@ -435,7 +548,7 @@ sap.ui.define([
          {
             let pthis = this;
             let col_widget = new EVEColorButton( {
-               background: JSROOT.Painter.getColor(si[i].color),
+               background: EVE.JSR.getColor(si[i].color),
                press: function () {
                   let oCPPop = new EVEColorPopup( {
                      colorSelect: function(event) {
@@ -479,6 +592,116 @@ sap.ui.define([
          }
       },
 
+      buildREveBoxSetSetter : function(el)
+      {
+         this.buildREveElementSetter(el);
+         this.makeBoolSetter(el.coneCap, "DrawConeCap");
+      },
+   
+      buildREveRGBAPaletteSetter: function (el) {
+         let  gedFrame =  this.getView().byId("GED");
+
+         // fix color
+         this.makeBoolSetter(el.fixRng, "FixColorRange");
+         this.makeBoolSetter(el.interpolate, "Interpolate");
+
+         // modes
+         var sheetNames = { myList: [{ Name: "Cut", Key: 0 }, { Name: "Mark", Key: 1 },{ Name: "Clip", Key : 2 }, { Name: "Wrap", Key : 3 } ] };
+         var sheets = new sap.ui.model.json.JSONModel(sheetNames);
+
+         // underflow
+         {
+            let oa_label = new mText({ text: "UnderFlowAction" });
+            gedFrame.addContent(oa_label);
+            let comboBox = new sap.m.ComboBox({
+               showSecondaryValues: true,
+               items: {
+                  path: "/myList",
+                  template: new sap.ui.core.ListItem({ key: "{Key}", text: "{Name}" })
+               },
+
+               selectionChange: function (oControlEvent) {
+                  var oSelectedItem = oControlEvent.getParameter("selectedItem");
+                  oSelectedItem = oSelectedItem.getKey();
+                  let mir = "SetUnderflowAction(" + oSelectedItem + ")";
+                  gcm.mgr.SendMIR(mir, gcm.editorElement.fElementId, gcm.editorElement._typename);
+               }
+            });
+            comboBox.setModel(sheets);
+            let ci = comboBox.getItems();
+            comboBox.setSelectedItem(el.oAction, true);
+
+            let tagg = sheetNames.myList[el.oAction].Name;
+            comboBox.setPlaceholder(tagg);
+            gedFrame.addContent(comboBox);
+         }
+         this.makeColorSetter(el.uColor, "UnderColor", "SetUnderColorRGBA");
+
+         // overflow
+         {
+            let oa_label = new mText({ text: "OverFlowAction" });
+            gedFrame.addContent(oa_label);
+            let comboBox = new sap.m.ComboBox({
+               showSecondaryValues: true,
+               items: {
+                  path: "/myList",
+                  template: new sap.ui.core.ListItem({ key: "{Key}", text: "{Name}" })
+               },
+
+               selectionChange: function (oControlEvent) {
+                  var oSelectedItem = oControlEvent.getParameter("selectedItem");
+                  oSelectedItem = oSelectedItem.getKey();
+                  let mir = "SetOverflowAction(" + oSelectedItem + ")";
+                  gcm.mgr.SendMIR(mir, gcm.editorElement.fElementId, gcm.editorElement._typename);
+               }
+            });
+            comboBox.setModel(sheets);
+            let ci = comboBox.getItems();
+            let tagg = sheetNames.myList[el.oAction].Name;
+                        comboBox.setPlaceholder(tagg);
+            comboBox.setSelectedItem(el.oAction, true);
+
+            gedFrame.addContent(comboBox);
+         }
+         this.makeColorSetter(el.oColor, "OverColor", "SetOverColorRGBA");
+
+         // range
+         let label = new mText({ text: "Range" });
+         label.addStyleClass("sapUiTinyMargin");
+         gedFrame.addContent(label);
+
+         let gcm = this;
+         let s = new sap.m.RangeSlider({
+            min:el.lowLimit,
+            max:el.highLimit,
+            enableTickmarks: true,
+            width: "80%",
+            scale: new sap.m.ResponsiveScale({tickmarksBetweenLabels: 5}),
+            range: [el.min, el.max],
+            liveChange: function (oControlEvent) { // change range
+               // AMT tmp workaround / event queue not enabled
+               if (gcm.mgr.busyProcessingChanges)
+                   return;
+               
+               let minv = this.getValue();
+               let maxv = this.getValue2();
+               let mir = "SetMinMax(" + minv + "," + maxv + ")";
+               gcm.mgr.SendMIR(mir, gcm.editorElement.fElementId, gcm.editorElement._typename );
+            },
+            change: function (oControlEvent) { // change only min or max side
+               // AMT tmp workaround / event queue not enabled
+               if (gcm.mgr.busyProcessingChanges)
+               return;
+               let minv = this.getValue();
+               let maxv = this.getValue2();
+               let mir = "SetMinMax(" + minv + "," + maxv + ")";
+               gcm.mgr.SendMIR(mir, gcm.editorElement.fElementId, gcm.editorElement._typename );
+            }
+         });
+
+         gedFrame.addContent(s);
+      },
+
       makeBoolSetter : function(val, labelName, funcName, gedFrame)
       {
          if (!gedFrame)
@@ -501,14 +724,7 @@ sap.ui.define([
             }
          });
 
-         let label = new mText({ text: labelName });
-         label.addStyleClass("sapUiTinyMargin");
-
-         let frame = new HorizontalLayout({
-            content : [widget, label]
-         });
-
-         gedFrame.addContent(frame);
+         this.makeGedRow(labelName, widget, null, gedFrame);
       },
 
       makeColorSetter : function(val, labelName, funcName, gedFrame)
@@ -523,7 +739,7 @@ sap.ui.define([
          let pthis = this;
          let widget = new EVEColorButton( {
             icon: "sap-icon://palette",
-            background: JSROOT.Painter.getColor(val),
+            background: EVE.JSR.getColor(val),
             press: function () {
                let oCPPop = new EVEColorPopup( {
                   colors: this.defaultColors,
@@ -546,6 +762,146 @@ sap.ui.define([
          gedFrame.addContent(frame);
       },
 
+      /** One row of the editor: a label in a fixed 130px column, then the
+       * control, both vertically centred. The width must fit the longest label
+       * in use, currently "ExtrapolateMotion", or rows wrap and go ragged. */
+      makeGedRow : function(labelText, widget, tip, gedFrame) {
+         if (!gedFrame)
+            gedFrame = this.getView().byId("GED");
+
+         let label = new mText({ text: labelText, width: "130px" });
+         if (tip) label.setTooltip(tip);
+         label.addStyleClass("sapUiTinyMarginBegin");
+
+         let row = new sap.m.HBox({
+            alignItems: "Center",
+            items: [label, widget]
+         });
+         row.addStyleClass("sapUiTinyMarginBottom");
+         gedFrame.addContent(row);
+         return row;
+      },
+
+      /** A bounded continuous value, as a slider with a numeric readout. The
+       * slider shows the range and cannot leave it, so a server-side clamp never
+       * contradicts what was entered. The MIR is sent when the drag pauses for
+       * the idle delay, and again on release. */
+      makeSliderSetter : function(val, labelName, funcName, opts, gedFrame)
+      {
+         if (!gedFrame)
+            gedFrame = this.getView().byId("GED");
+         if (!funcName)
+            funcName = "Set" + labelName;
+         opts = opts || {};
+
+         let gcm = this;
+
+         // How long the drag must pause before the value is sent: the HTimeout
+         // user arg, which also sets the hover-highlight delay. 250 ms if unset,
+         // as in GL.controller.
+         let idle = this.mgr?.handle?.getUserArgs?.("HTimeout");
+         if (idle === undefined || !(idle > 0)) idle = 250;
+
+         let send = (v) => gcm.mgr.SendMIR(funcName + "(" + v + ")",
+                                           gcm.editorElement.fElementId,
+                                           gcm.editorElement._typename);
+
+         const min  = (opts.min  !== undefined) ? opts.min  : 0;
+         const max  = (opts.max  !== undefined) ? opts.max  : 1;
+         const step = (opts.step !== undefined) ? opts.step : 0.05;
+
+         // Decimals shown, derived from the step: 0.2 gives one, 0.001 three.
+         const dec = Math.max(0, -Math.floor(Math.log10(step)));
+
+         // A fixed readout beside the slider. showAdvancedTooltip is off because
+         // UI5 leaves its value chip over the handle after the drag ends.
+         let readout = new mText({
+            text: Number(val).toFixed(dec),
+            width: "42px",
+            textAlign: "End"
+         });
+         readout.addStyleClass("sapUiTinyMarginBegin");
+
+         let slider = new sap.m.Slider({
+            width: "150px",
+            tooltip: opts.tip,
+
+            min: min,
+            max: max,
+            step: step,
+            value: val,
+            enableTickmarks: !!opts.tickmarks,
+            showAdvancedTooltip: false,
+
+            // Send once the drag pauses for `idle` ms. Sending on every
+            // liveChange would be a round trip per step, and a font-size change
+            // rebuilds label geometry on every client of the viewer.
+            liveChange: function(event) {
+               const v = event.getParameter("value");
+               const sl = event.getSource();
+               gcm.beginInteraction();
+               // The readout follows the handle at once, ahead of the held-back MIR.
+               readout.setText(Number(v).toFixed(dec));
+               if (sl._ged_idle) clearTimeout(sl._ged_idle);
+               sl._ged_idle = setTimeout(() => { delete sl._ged_idle; send(v); }, idle);
+            },
+
+            // Release: send at once and drop any pending idle send, so the
+            // final value cannot be overtaken by a stale one still in flight.
+            change: function(event) {
+               const sl = event.getSource();
+               const v = event.getParameter("value");
+               readout.setText(Number(v).toFixed(dec));
+               if (sl._ged_idle) { clearTimeout(sl._ged_idle); delete sl._ged_idle; }
+               send(v);
+               gcm.endInteraction();
+            }
+         });
+
+         // The wheel over the slider moves it by one step, ten with shift, a
+         // hundred with ctrl+shift, for exact values a drag cannot hit.
+         const wheelBump = function(ev) {
+            ev.preventDefault();
+
+            let mult = 1;
+            if (ev.shiftKey && ev.ctrlKey) mult = 100;
+            else if (ev.shiftKey)          mult = 10;
+
+            const dir = (ev.deltaY < 0) ? 1 : -1;
+            let v = slider.getValue() + dir * step * mult;
+
+            // Snap to the step grid, or repeated bumps accumulate the float
+            // error until the readout shows something the step cannot express.
+            v = min + Math.round((v - min) / step) * step;
+            v = Math.max(min, Math.min(max, v));
+
+            if (v === slider.getValue()) return;
+
+            slider.setValue(v);
+            readout.setText(Number(v).toFixed(dec));
+            gcm.beginInteraction();
+            send(v);
+            gcm.endInteraction();
+         };
+
+         slider.addEventDelegate({
+            onAfterRendering: function() {
+               const dom = slider.getDomRef();
+               if (!dom || dom._ged_wheel) return;
+               dom._ged_wheel = true;
+               // Not passive: this has to preventDefault, or the page scrolls
+               // under the pointer at the same time.
+               dom.addEventListener("wheel", wheelBump, { passive: false });
+            }
+         });
+
+         // The tip goes on the label as well as on the slider.
+         this.makeGedRow(labelName,
+                         new sap.m.HBox({ alignItems: "Center",
+                                          items: [slider, readout] }),
+                         opts.tip, gedFrame);
+      },
+
       makeNumberSetter : function(val, labelName, funcName, gedFrame)
       {
          if (!gedFrame)
@@ -560,18 +916,14 @@ sap.ui.define([
             change: function (event)
             {
                let value = event.getParameter("value");
-               let mir =  funcName + "( " + value + " )";
+               let mir =  funcName + "(" + value + " )";
                gcm.mgr.SendMIR(mir, gcm.editorElement.fElementId, gcm.editorElement._typename );
             }
          });
          widget.setType(sap.m.InputType.Number);
-         let label = new mText({ text: labelName });
-         label.addStyleClass("sapUiTinyMargin");
-
-         let frame = new HorizontalLayout({
-            content : [widget, label]
-         });
-         gedFrame.addContent(frame);
+         widget.setWidth("160px");
+         this.makeGedRow(labelName, widget, null, gedFrame);
+         return widget;
       },
 
       makeStringSetter : function(val, labelName, funcName, gedFrame)
@@ -605,9 +957,40 @@ sap.ui.define([
       },
 
       updateGED: function(elementId) {
-         if (this.ged_visible && this.editorElement && (this.editorElement.fElementId == elementId)) {
-            this.buildEditor();
+         if ( ! (this.ged_visible && this.editorElement &&
+                 this.editorElement.fElementId == elementId)) return;
+
+         // buildEditor() destroys and recreates every control, so a rebuild
+         // during a drag would reset the slider to the last streamed value.
+         // Defer it until the gesture ends; see beginInteraction().
+         if (this.interacting) { this.rebuild_pending = true; return; }
+
+         this.buildEditor();
+      },
+
+      /** Hold off editor rebuilds for the duration of a gesture. */
+      beginInteraction: function() {
+         this.interacting = true;
+         if (this._interaction_timer) {
+            clearTimeout(this._interaction_timer);
+            delete this._interaction_timer;
          }
+      },
+
+      /** End of gesture. The delay covers the server's echo of the last value,
+        * which would otherwise arrive just after the guard lifted and rebuild
+        * anyway. */
+      endInteraction: function() {
+         let gcm = this;
+         if (this._interaction_timer) clearTimeout(this._interaction_timer);
+         this._interaction_timer = setTimeout(function() {
+            delete gcm._interaction_timer;
+            gcm.interacting = false;
+            if (gcm.rebuild_pending) {
+               gcm.rebuild_pending = false;
+               if (gcm.ged_visible && gcm.editorElement) gcm.buildEditor();
+            }
+         }, 400);
       },
 
       updateSecondarySelectionGED:function(elementId, sec_idcs) {
@@ -617,8 +1000,7 @@ sap.ui.define([
                let selected = this.secSelectList.getSelectedItems();
                for (let s = 0; s < selected.length; s++)
                   this.secSelectList.setSelectedItem(selected[s], false);
-
-
+      
                for (let i =0; i < sec_idcs.length; ++i) {
                   let sid = "item_"+sec_idcs[i];
                   this.secSelectList.setSelectedItemById(sid, true);
@@ -627,24 +1009,137 @@ sap.ui.define([
             else
                this.secSelectList.removeSelections();
          }
-   }
+      }, 
+      
+      makeCameraTypeSelector: function(viewer) {
+         let gedFrame = this.getView().byId("GED");
+         let gcm = this;
+         
+         let cameraTypes = [
+            { key: 0, text: "Perspective XOZ" },
+            { key: 1, text: "Perspective YOZ" },
+            { key: 2, text: "Perspective XOY" },
+            { key: 3, text: "Orthographic XOY" },
+            { key: 4, text: "Orthographic XOZ" },
+            { key: 5, text: "Orthographic ZOY" },
+            { key: 6, text: "Orthographic ZOX" },
+            { key: 7, text: "Orthographic XnOY" },
+            { key: 8, text: "Orthographic XnOZ" },
+            { key: 9, text: "Orthographic ZnOY" },
+            { key: 10, text: "Orthographic ZnOX" }
+         ];
+         
+         let currentCamera = null;
+         let currentType = 0;
+         
+         if (viewer.fCameraId) {
+            currentCamera = this.mgr.GetElement(viewer.fCameraId);
+            if (currentCamera && currentCamera.fType !== undefined) {
+               currentType = currentCamera.fType;
+            }
+         }
+         
+         let cameraModel = new sap.ui.model.json.JSONModel({
+            types: cameraTypes
+         });
+         
+         let comboBox = new sap.m.ComboBox({
+            width: "100%",
+            selectedKey: currentType.toString(),
+            items: {
+               path: "/types",
+               template: new sap.ui.core.ListItem({
+                  key: "{key}",
+                  text: "{text}"
+               })
+            },
+            selectionChange: function(oEvent) {
+               let selectedItem = oEvent.getParameter("selectedItem");
+               if (selectedItem) {
+                  let selectedType = parseInt(selectedItem.getKey());
+                  gcm.onCameraTypeChange(viewer, selectedType);
+               }
+            }
+         });
+         
+         comboBox.setModel(cameraModel);
+         
+         gcm.makeGedRow("Camera Type", comboBox, null, gedFrame);
+      },
+      
+      /** Axis style: none, from the origin, or a box round the scene. Keys are
+       * REveViewer::EAxesType values and go straight to SetAxesType(int). */
+      makeAxesTypeSelector: function(viewer) {
+         let gedFrame = this.getView().byId("GED");
+         let gcm = this;
 
+         let current = viewer.AxesType ? viewer.AxesType : 0;
+
+         // sap.m.Select rather than sap.m.ComboBox: a closed set needs no text
+         // field, and a ComboBox's editable value can disagree with selectedKey.
+         // The items are a plain array, so there is no model binding to sync.
+         let sel = new sap.m.Select({
+            // Fixed width, enough for the longest item plus the arrow.
+            width: "110px",
+            items: [
+               new sap.ui.core.Item({ key: "0", text: "None" }),
+               new sap.ui.core.Item({ key: "1", text: "Origin" }),
+               new sap.ui.core.Item({ key: "2", text: "Box" })
+            ],
+            selectedKey: current.toString(),
+            change: function(oEvent) {
+               let item = oEvent.getParameter("selectedItem");
+               if (item)
+                  gcm.mgr.SendMIR("SetAxesType(" + parseInt(item.getKey()) + ")",
+                                  viewer.fElementId, viewer._typename);
+            }
+         });
+
+         this.makeGedRow("Axes", sel,
+                         "None, rays from the origin, or a box round the scene.",
+                         gedFrame);
+      },
+
+      onCameraTypeChange: function(viewer, newCameraType) {
+      let mir = "SetCameraType(" + newCameraType + ")";
+      this.mgr.SendMIR(mir, viewer.fElementId, viewer._typename);
+      },
+      
+      getCameraList: function() {
+         let cameras = [];
+         
+         if (this.mgr && this.mgr.childs && this.mgr.childs.length > 0) {
+            let world = this.mgr.childs[0];
+            
+            if (world.childs) {
+               for (let child of world.childs) {
+                  if (child.fName === "Cameras" && child.childs) {
+                     cameras = child.childs;
+                     break;
+                  }
+               }
+            }
+         }
+         
+         return cameras;
+      }
+      
    });
+      
    GedController.canEditClass = function(typename) {
       return true;
    };
 
    /** Return method to toggle rendering self */
    GedController.GetRnrSelfMethod = function(typename) {
-      var desc = this.canEditClass(typename);
+      let desc = this.canEditClass(typename);
       if (desc)
-         for (var k=0;k<desc.length;++k)
+         for (let k=0;k<desc.length;++k)
             if ((desc[k].member == "fRnrSelf") && desc[k].name)
                return "Set" + desc[k].name;
 
       return "SetRnrSelf";
    }
-
 
    return GedController;
 

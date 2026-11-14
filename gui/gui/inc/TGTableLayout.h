@@ -23,8 +23,6 @@ enum ETableLayoutHints {
 };
 
 
-
-
 class TGTableLayoutHints : public TGLayoutHints {
 
 private:
@@ -48,18 +46,16 @@ public:
          fAttachRight(attach_right),
          fAttachTop(attach_top),
          fAttachBottom(attach_bottom) { }
-   virtual ~TGTableLayoutHints() { }
+   ~TGTableLayoutHints() override { }
 
    UInt_t GetAttachLeft() const { return fAttachLeft; }
    UInt_t GetAttachRight() const { return fAttachRight; }
    UInt_t GetAttachTop() const { return fAttachTop; }
    UInt_t GetAttachBottom() const { return fAttachBottom; }
-   virtual void SavePrimitive(std::ostream &out, Option_t * = "");
+   void SavePrimitive(std::ostream &out, Option_t * = "") override;
 
-   ClassDef(TGTableLayoutHints,0)  // Class describing GUI table layout hints
+   ClassDefOverride(TGTableLayoutHints,0)  // Class describing GUI table layout hints
 };
-
-
 
 
 class TGTableLayout : public TGLayoutManager {
@@ -107,13 +103,13 @@ public:
 
    TGTableLayout(TGCompositeFrame *main, UInt_t nrows, UInt_t ncols,
                  Bool_t homogeneous = kFALSE, Int_t sep = 0, Int_t hints = 0);
-   virtual ~TGTableLayout();
+   ~TGTableLayout() override;
 
-   virtual void Layout();
-   virtual TGDimension GetDefaultSize() const; // return sum of all child sizes
-   virtual void SavePrimitive(std::ostream &out, Option_t * = "");
+   void Layout() override;
+   TGDimension GetDefaultSize() const override; // return sum of all child sizes
+   void SavePrimitive(std::ostream &out, Option_t * = "") override;
 
-   ClassDef(TGTableLayout,0)  // Table layout manager
+   ClassDefOverride(TGTableLayout,0)  // Table layout manager
 };
 
 #endif

@@ -119,7 +119,6 @@ When most solids or volumes are added to the geometry they
 #include <sstream>
 #include <locale>
 
-ClassImp(TGDMLParse);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor
@@ -127,13 +126,13 @@ ClassImp(TGDMLParse);
 TGDMLParse::TGDMLParse()
 {
    fWorldName = "";
-   fWorld = 0;
+   fWorld = nullptr;
    fVolID = 0;
    fFILENO = 0;
    for (Int_t i = 0; i < 20; i++)
-      fFileEngine[i] = 0;
-   fStartFile = 0;
-   fCurrentFile = 0;
+      fFileEngine[i] = nullptr;
+   fStartFile = nullptr;
+   fCurrentFile = nullptr;
    auto def_units = gGeoManager->GetDefaultUnits();
    switch (def_units) {
    case TGeoManager::kG4Units:
@@ -163,9 +162,9 @@ TGeoVolume *TGDMLParse::GDMLReadFile(const char *filename)
 
    // Now try to parse xml file
    XMLDocPointer_t gdmldoc = gdml->ParseFile(filename);
-   if (gdmldoc == 0) {
+   if (gdmldoc == nullptr) {
       delete gdml;
-      return 0;
+      return nullptr;
    } else {
 
       // take access to main node
@@ -182,6 +181,14 @@ TGeoVolume *TGDMLParse::GDMLReadFile(const char *filename)
       gdml->FreeDoc(gdmldoc);
       delete gdml;
    }
+   if (fNunitless && gGeoManager->GetDefaultUnits() == TGeoManager::kRootUnits) {
+      Warning("GDMLReadFile",
+              "\x1B[31m Found %d GDML entities missing explicit units, while the default "
+              "units are currently ROOT units [cm, deg]. This can cause unexpected behaviour with respect "
+              "to the GDML schema. To remove this warning, either use explicit units or call the static method "
+              "TGeoManager::SetDefaultUnits(kG4Units) before importing the GDML file \x1B[34m%s \x1B[0m",
+              fNunitless, filename);
+   }
    return fWorld;
 }
 
@@ -197,7 +204,7 @@ const char *TGDMLParse::ParseGDML(TXMLEngine *gdml, XMLNodePointer_t node)
    const char *name = gdml->GetNodeName(node);
    XMLNodePointer_t parentn = gdml->GetParent(node);
    const char *parent = gdml->GetNodeName(parentn);
-   XMLNodePointer_t childtmp = 0;
+   XMLNodePointer_t childtmp = nullptr;
 
    const char *posistr = "position";
    const char *setustr = "setup";
@@ -234,6 +241,7 @@ const char *TGDMLParse::ParseGDML(TXMLEngine *gdml, XMLNodePointer_t node)
    const char *parbstr = "paraboloid";
    const char *intestr = "intersection";
    const char *reflstr = "reflectedSolid";
+   const char *ssolstr = "scaledSolid";
    const char *ellistr = "ellipsoid";
    const char *elcnstr = "elcone";
    const char *optsstr = "opticalsurface";
@@ -366,6 +374,8 @@ const char *TGDMLParse::ParseGDML(TXMLEngine *gdml, XMLNodePointer_t node)
       node = BooSolid(gdml, node, attr, 3);
    } else if ((strcmp(name, reflstr)) == 0) {
       node = Reflection(gdml, node, attr);
+   } else if ((strcmp(name, ssolstr)) == 0) {
+      node = ScaledSolid(gdml, node, attr);
    } else if ((strcmp(name, assestr)) == 0) {
       node = AssProcess(gdml, node);
    } else if ((strcmp(name, usrstr)) == 0) {
@@ -385,7 +395,7 @@ const char *TGDMLParse::ParseGDML(TXMLEngine *gdml, XMLNodePointer_t node)
    // Check for Child node - if present call this funct. recursively until no more
 
    XMLNodePointer_t child = gdml->GetChild(node);
-   while (child != 0) {
+   while (child != nullptr) {
       ParseGDML(gdml, child);
       child = gdml->GetNext(child);
    }
@@ -454,7 +464,7 @@ XMLNodePointer_t TGDMLParse::ConProcess(TXMLEngine *gdml, XMLNodePointer_t node,
    TString value = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
 
@@ -485,36 +495,36 @@ void TGDMLParse::DefineConstants()
    auto def_units = gGeoManager->GetDefaultUnits();
 
    // Units used in TGeo. Note that they are based on cm/degree/GeV and they are different from Geant4
-   fconsts["mm"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::mm : TGeant4Unit::mm;
+   fconsts["mm"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::mm : TGeant4Unit::mm;
    fconsts["millimeter"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::mm : TGeant4Unit::mm;
-   fconsts["cm"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::cm : TGeant4Unit::cm;
+   fconsts["cm"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::cm : TGeant4Unit::cm;
    fconsts["centimeter"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::cm : TGeant4Unit::cm;
-   fconsts["m"]          = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::m  : TGeant4Unit::m;
-   fconsts["meter"]      = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::m  : TGeant4Unit::m;
-   fconsts["km"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::km : TGeant4Unit::km;
-   fconsts["kilometer"]  = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::km : TGeant4Unit::km;
-   fconsts["rad"]        = TGeoUnit::rad;
-   fconsts["radian"]     = TGeoUnit::rad;
-   fconsts["deg"]        = TGeoUnit::deg;
-   fconsts["degree"]     = TGeoUnit::deg;
-   fconsts["pi"]         = TGeoUnit::pi;
-   fconsts["twopi"]      = TGeoUnit::twopi;
-   fconsts["avogadro"]   = TMath::Na();
-   fconsts["gev"]        = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::GeV : TGeant4Unit::GeV;
-   fconsts["GeV"]        = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::GeV : TGeant4Unit::GeV;
-   fconsts["mev"]        = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::MeV : TGeant4Unit::MeV;
-   fconsts["MeV"]        = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::MeV : TGeant4Unit::MeV;
-   fconsts["kev"]        = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::keV : TGeant4Unit::keV;
-   fconsts["keV"]        = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::keV : TGeant4Unit::keV;
-   fconsts["ev"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::eV  : TGeant4Unit::eV;
-   fconsts["eV"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::eV  : TGeant4Unit::eV;
-   fconsts["s"]          = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::s   : TGeant4Unit::s;
-   fconsts["ms"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::ms  : TGeant4Unit::ms;
-   fconsts["ns"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::ns  : TGeant4Unit::ns;
-   fconsts["us"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::us  : TGeant4Unit::us;
-   fconsts["kg"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::kg  : TGeant4Unit::kg;
-   fconsts["g"]          = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::g   : TGeant4Unit::g;
-   fconsts["mg"]         = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::mg  : TGeant4Unit::mg;
+   fconsts["m"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::m : TGeant4Unit::m;
+   fconsts["meter"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::m : TGeant4Unit::m;
+   fconsts["km"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::km : TGeant4Unit::km;
+   fconsts["kilometer"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::km : TGeant4Unit::km;
+   fconsts["rad"] = TGeoUnit::rad;
+   fconsts["radian"] = TGeoUnit::rad;
+   fconsts["deg"] = TGeoUnit::deg;
+   fconsts["degree"] = TGeoUnit::deg;
+   fconsts["pi"] = TGeoUnit::pi;
+   fconsts["twopi"] = TGeoUnit::twopi;
+   fconsts["avogadro"] = TMath::Na();
+   fconsts["gev"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::GeV : TGeant4Unit::GeV;
+   fconsts["GeV"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::GeV : TGeant4Unit::GeV;
+   fconsts["mev"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::MeV : TGeant4Unit::MeV;
+   fconsts["MeV"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::MeV : TGeant4Unit::MeV;
+   fconsts["kev"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::keV : TGeant4Unit::keV;
+   fconsts["keV"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::keV : TGeant4Unit::keV;
+   fconsts["ev"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::eV : TGeant4Unit::eV;
+   fconsts["eV"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::eV : TGeant4Unit::eV;
+   fconsts["s"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::s : TGeant4Unit::s;
+   fconsts["ms"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::ms : TGeant4Unit::ms;
+   fconsts["ns"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::ns : TGeant4Unit::ns;
+   fconsts["us"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::us : TGeant4Unit::us;
+   fconsts["kg"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::kg : TGeant4Unit::kg;
+   fconsts["g"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::g : TGeant4Unit::g;
+   fconsts["mg"] = (def_units == TGeoManager::kRootUnits) ? TGeoUnit::mg : TGeant4Unit::mg;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -528,7 +538,7 @@ XMLNodePointer_t TGDMLParse::QuantityProcess(TXMLEngine *gdml, XMLNodePointer_t 
    TString unit = "1.0";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
 
@@ -559,7 +569,7 @@ XMLNodePointer_t TGDMLParse::MatrixProcess(TXMLEngine *gdml, XMLNodePointer_t no
    std::string values;
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
 
@@ -587,14 +597,19 @@ XMLNodePointer_t TGDMLParse::MatrixProcess(TXMLEngine *gdml, XMLNodePointer_t no
       valueList.push_back(Value(matrixValue.c_str()));
    }
 
-   TGDMLMatrix *matrix = new TGDMLMatrix(name, valueList.size() / coldim, coldim);
-   matrix->SetMatrixAsString(values.c_str());
-   for (size_t i = 0; i < valueList.size(); ++i)
-      matrix->Set(i / coldim, i % coldim, valueList[i]);
+   // Const Properties in GDML are matrices with size 1 not constants
+   // This gives some ambiguity, but what can one do?
+   if (coldim == 1 && valueList.size() == 1) {
+      gGeoManager->AddProperty(name, valueList[0]);
+   } else {
+      TGDMLMatrix *matrix = new TGDMLMatrix(name, valueList.size() / coldim, coldim);
+      matrix->SetMatrixAsString(values.c_str());
+      for (size_t i = 0; i < valueList.size(); ++i)
+         matrix->Set(i / coldim, i % coldim, valueList[i]);
 
-   gGeoManager->AddGDMLMatrix(matrix);
-   fmatrices[name.Data()] = matrix;
-
+      gGeoManager->AddGDMLMatrix(matrix);
+      fmatrices[name.Data()] = matrix;
+   }
    return node;
 }
 
@@ -610,7 +625,7 @@ XMLNodePointer_t TGDMLParse::OpticalSurfaceProcess(TXMLEngine *gdml, XMLNodePoin
    Double_t value = 0;
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
 
@@ -635,10 +650,10 @@ XMLNodePointer_t TGDMLParse::OpticalSurfaceProcess(TXMLEngine *gdml, XMLNodePoin
    TGeoOpticalSurface *surf = new TGeoOpticalSurface(name, model, finish, type, value);
 
    XMLNodePointer_t child = gdml->GetChild(node);
-   while (child != 0) {
+   while (child != nullptr) {
       attr = gdml->GetFirstAttr(child);
       if ((strcmp(gdml->GetNodeName(child), "property")) == 0) {
-         while (attr != 0) {
+         while (attr != nullptr) {
             tempattr = gdml->GetAttrName(attr);
             tempattr.ToLower();
             if (tempattr == "name") {
@@ -719,32 +734,32 @@ Double_t TGDMLParse::GetScaleVal(const char *sunit)
    unit.ToLower();
 
    if ((unit == "mm") || (unit == "millimeter") || (unit == "milimeter")) {
-     retunit = (def_units == TGeoManager::kRootUnits) ? 0.1 : 1.0;
+      retunit = (def_units == TGeoManager::kRootUnits) ? 0.1 : 1.0;
    } else if ((unit == "cm") || (unit == "centimeter")) {
-     retunit = (def_units == TGeoManager::kRootUnits) ? 1.0 : 10.0;
+      retunit = (def_units == TGeoManager::kRootUnits) ? 1.0 : 10.0;
    } else if ((unit == "m") || (unit == "meter")) {
-     retunit = (def_units == TGeoManager::kRootUnits) ? 100.0 : 1e3;
+      retunit = (def_units == TGeoManager::kRootUnits) ? 100.0 : 1e3;
    } else if ((unit == "km") || (unit == "kilometer")) {
-     retunit = (def_units == TGeoManager::kRootUnits) ? 100000.0 : 1e6;
+      retunit = (def_units == TGeoManager::kRootUnits) ? 100000.0 : 1e6;
    } else if ((unit == "rad") || (unit == "radian")) {
-     retunit = TMath::RadToDeg();
+      retunit = TMath::RadToDeg();
    } else if ((unit == "deg") || (unit == "degree")) {
-     retunit = 1.0;
+      retunit = 1.0;
    } else if ((unit == "ev") || (unit == "electronvolt")) {
-     retunit = (def_units == TGeoManager::kRootUnits) ? 0.000000001 : 1e-6;
+      retunit = (def_units == TGeoManager::kRootUnits) ? 0.000000001 : 1e-6;
    } else if ((unit == "kev") || (unit == "kiloelectronvolt")) {
-     retunit = (def_units == TGeoManager::kRootUnits) ? 0.000001 : 1e-3;
+      retunit = (def_units == TGeoManager::kRootUnits) ? 0.000001 : 1e-3;
    } else if ((unit == "mev") || (unit == "megaelectronvolt")) {
-     retunit = (def_units == TGeoManager::kRootUnits) ? 0.001 : 1.0;
+      retunit = (def_units == TGeoManager::kRootUnits) ? 0.001 : 1.0;
    } else if ((unit == "gev") || (unit == "gigaelectronvolt")) {
-     retunit = (def_units == TGeoManager::kRootUnits) ? 1.0 : 1000.0;
+      retunit = (def_units == TGeoManager::kRootUnits) ? 1.0 : 1000.0;
    } else if (unit == "pi") {
-     retunit = TMath::Pi();
+      retunit = TMath::Pi();
    } else if (unit == "avogadro") {
-     retunit = TMath::Na();
+      retunit = TMath::Na();
    } else {
-     Fatal("GetScaleVal", "Unit <%s> not known", sunit);
-     retunit = 0;
+      Fatal("GetScaleVal", "Unit <%s> not known", sunit);
+      retunit = 0;
    }
    return retunit;
 }
@@ -838,13 +853,15 @@ Double_t TGDMLParse::Value(const char *svalue) const
 XMLNodePointer_t TGDMLParse::PosProcess(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
+   bool unitless_l = true;
+
    TString xpos = "0";
    TString ypos = "0";
    TString zpos = "0";
    TString name = "0";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -859,6 +876,7 @@ XMLNodePointer_t TGDMLParse::PosProcess(TXMLEngine *gdml, XMLNodePointer_t node,
          zpos = gdml->GetAttrValue(attr);
       } else if (tempattr == "unit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
@@ -869,6 +887,8 @@ XMLNodePointer_t TGDMLParse::PosProcess(TXMLEngine *gdml, XMLNodePointer_t node,
    }
 
    Double_t retunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
+
    Double_t xline = Value(xpos) * retunit;
    Double_t yline = Value(ypos) * retunit;
    Double_t zline = Value(zpos) * retunit;
@@ -890,13 +910,14 @@ XMLNodePointer_t TGDMLParse::PosProcess(TXMLEngine *gdml, XMLNodePointer_t node,
 XMLNodePointer_t TGDMLParse::RotProcess(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
    TString xpos = "0";
    TString ypos = "0";
    TString zpos = "0";
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -911,6 +932,7 @@ XMLNodePointer_t TGDMLParse::RotProcess(TXMLEngine *gdml, XMLNodePointer_t node,
          zpos = gdml->GetAttrValue(attr);
       } else if (tempattr == "unit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
@@ -921,6 +943,7 @@ XMLNodePointer_t TGDMLParse::RotProcess(TXMLEngine *gdml, XMLNodePointer_t node,
    }
 
    Double_t retunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l);
 
    Double_t xline = Value(xpos) * retunit;
    Double_t yline = Value(ypos) * retunit;
@@ -952,7 +975,7 @@ XMLNodePointer_t TGDMLParse::SclProcess(TXMLEngine *gdml, XMLNodePointer_t node,
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -1000,7 +1023,7 @@ XMLNodePointer_t TGDMLParse::IsoProcess(TXMLEngine *gdml, XMLNodePointer_t node,
 
    XMLAttrPointer_t attr = gdml->GetFirstAttr(parentn);
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -1020,7 +1043,7 @@ XMLNodePointer_t TGDMLParse::IsoProcess(TXMLEngine *gdml, XMLNodePointer_t node,
 
    attr = gdml->GetFirstAttr(node);
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
 
@@ -1031,8 +1054,9 @@ XMLNodePointer_t TGDMLParse::IsoProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       attr = gdml->GetNextAttr(attr);
    }
 
+   TString local_name = name;
    if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
    }
 
    Int_t z2 = (Int_t)Value(z);
@@ -1048,7 +1072,7 @@ XMLNodePointer_t TGDMLParse::IsoProcess(TXMLEngine *gdml, XMLNodePointer_t node,
    } else if (gDebug >= 2) {
       Info("TGDMLParse", "Re-use existing isotope: %s", iso->GetName());
    }
-   fisomap[name.Data()] = iso;
+   fisomap[local_name.Data()] = iso;
 
    return node;
 }
@@ -1063,7 +1087,7 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
 
 {
    TString z = "0";
-   TString name = "";
+   TString name, local_name;
    TString formula = "";
    TString atom = "0";
    TString tempattr;
@@ -1073,7 +1097,7 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
    typedef FracMap::iterator fractions;
    FracMap fracmap;
 
-   XMLNodePointer_t child = 0;
+   XMLNodePointer_t child = nullptr;
 
    // obtain attributes for the element
 
@@ -1082,13 +1106,13 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
    if (hasIsotopes) {
 
       // Get the name of the element
-      while (attr != 0) {
+      while (attr != nullptr) {
          tempattr = gdml->GetAttrName(attr);
          if (tempattr == "name") {
             name = gdml->GetAttrValue(attr);
-
+            local_name = name;
             if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-               name = TString::Format("%s_%s", name.Data(), fCurrentFile);
+               local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
             }
             break;
          }
@@ -1096,7 +1120,7 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       }
       // Get component isotopes. Loop all children.
       child = gdml->GetChild(node);
-      while (child != 0) {
+      while (child != nullptr) {
 
          // Check for fraction node name
          if ((strcmp(gdml->GetNodeName(child), "fraction")) == 0) {
@@ -1104,7 +1128,7 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
             TString ref = "";
             ncompo = ncompo + 1;
             attr = gdml->GetFirstAttr(child);
-            while (attr != 0) {
+            while (attr != nullptr) {
                tempattr = gdml->GetAttrName(attr);
                tempattr.ToLower();
                if (tempattr == "n") {
@@ -1126,17 +1150,14 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       // We cannot use elements with Z = 0, so we expect a user definition
       if (ele && ele->Z() == 0)
          ele = nullptr;
-      if (!ele) {
+      if (!ele)
          ele = new TGeoElement(NameShort(name), NameShort(name), ncompo);
-         for (fractions f = fracmap.begin(); f != fracmap.end(); ++f) {
-            if (fisomap.find(f->first) != fisomap.end()) {
-               ele->AddIsotope((TGeoIsotope *)fisomap[f->first], f->second);
-            }
+      for (fractions f = fracmap.begin(); f != fracmap.end(); ++f) {
+         if (fisomap.find(f->first) != fisomap.end()) {
+            ele->AddIsotope((TGeoIsotope *)fisomap[f->first], f->second);
          }
-      } else if (gDebug >= 2) {
-         Info("TGDMLParse", "Re-use existing element: %s", ele->GetName());
       }
-      felemap[name.Data()] = ele;
+      felemap[local_name.Data()] = ele;
       return child;
    } // hasisotopes end loop
 
@@ -1144,14 +1165,14 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
 
    if (hasIsotopesExtended) {
 
-      while (attr != 0) {
+      while (attr != nullptr) {
          tempattr = gdml->GetAttrName(attr);
 
          if (tempattr == "name") {
             name = gdml->GetAttrValue(attr);
-
+            local_name = name;
             if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-               name = TString::Format("%s_%s", name.Data(), fCurrentFile);
+               local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
             }
             break;
          }
@@ -1159,7 +1180,7 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       }
       // Get component isotopes. Loop all children.
       child = gdml->GetChild(node);
-      while (child != 0) {
+      while (child != nullptr) {
 
          // Check for fraction node name
          if ((strcmp(gdml->GetNodeName(child), "fraction")) == 0) {
@@ -1167,7 +1188,7 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
             TString ref = "";
             ncompo = ncompo + 1;
             attr = gdml->GetFirstAttr(child);
-            while (attr != 0) {
+            while (attr != nullptr) {
                tempattr = gdml->GetAttrName(attr);
                tempattr.ToLower();
                if (tempattr == "n") {
@@ -1189,24 +1210,21 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       // We cannot use elements with Z = 0, so we expect a user definition
       if (ele && ele->Z() == 0)
          ele = nullptr;
-      if (!ele) {
+      if (!ele)
          ele = new TGeoElement(NameShort(name), NameShort(name), ncompo);
-         for (fractions f = fracmap.begin(); f != fracmap.end(); ++f) {
-            if (fisomap.find(f->first) != fisomap.end()) {
-               ele->AddIsotope((TGeoIsotope *)fisomap[f->first], f->second);
-            }
+      for (fractions f = fracmap.begin(); f != fracmap.end(); ++f) {
+         if (fisomap.find(f->first) != fisomap.end()) {
+            ele->AddIsotope((TGeoIsotope *)fisomap[f->first], f->second);
          }
-      } else if (gDebug >= 2) {
-         Info("TGDMLParse", "Re-use existing element: %s", ele->GetName());
       }
-      felemap[name.Data()] = ele;
+      felemap[local_name.Data()] = ele;
       return child;
    } // hasisotopesExtended end loop
 
    //***************************
 
    attr = gdml->GetFirstAttr(parentn);
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -1227,7 +1245,7 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
 
    attr = gdml->GetFirstAttr(node);
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -1239,8 +1257,9 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       attr = gdml->GetNextAttr(attr);
    }
 
+   local_name = name;
    if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
    }
 
    Int_t z2 = (Int_t)Value(z);
@@ -1255,7 +1274,7 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
    } else if (gDebug >= 2) {
       Info("TGDMLParse", "Re-use existing element: %s", ele->GetName());
    }
-   felemap[name.Data()] = ele;
+   felemap[local_name.Data()] = ele;
    return node;
 }
 
@@ -1271,7 +1290,7 @@ XMLNodePointer_t TGDMLParse::EleProcess(TXMLEngine *gdml, XMLNodePointer_t node,
 
 XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr, int z)
 {
-   //! Map to hold fractions while being processed
+   ///<! Map to hold fractions while being processed
    typedef FracMap::iterator fractions;
    //  typedef FracMap::iterator i;
    FracMap fracmap;
@@ -1287,11 +1306,10 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
    TString tempattr = "";
    Int_t ncompo = 0, mixflag = 2;
    Double_t density = 0;
-   TString name = "";
-   TGeoMixture *mix = 0;
-   TGeoMaterial *mat = 0;
+   TString name, local_name;
+   TGeoMixture *mix = nullptr;
+   TGeoMaterial *mat = nullptr;
    TString tempconst = "";
-   TString matname;
    Bool_t composite = kFALSE;
 
    if (z == 1) {
@@ -1299,16 +1317,17 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       Double_t d = 0;
 
       name = gdml->GetAttr(node, "name");
+      local_name = name;
       if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-         name = TString::Format("%s_%s", name.Data(), fCurrentFile);
+         local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
       }
 
-      while (child != 0) {
+      while (child != nullptr) {
          attr = gdml->GetFirstAttr(child);
 
          if ((strcmp(gdml->GetNodeName(child), "property")) == 0) {
             TNamed *property = new TNamed();
-            while (attr != 0) {
+            while (attr != nullptr) {
                tempattr = gdml->GetAttrName(attr);
                tempattr.ToLower();
 
@@ -1320,7 +1339,7 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
                   if (matrix)
                      properties.Add(property);
                   else {
-                     Bool_t error = 0;
+                     Bool_t error = false;
                      gGeoManager->GetProperty(property->GetTitle(), &error);
                      if (error)
                         Error("MatProcess", "Reference %s for material %s not found", property->GetTitle(),
@@ -1334,7 +1353,7 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
          }
 
          if ((strcmp(gdml->GetNodeName(child), "atom")) == 0) {
-            while (attr != 0) {
+            while (attr != nullptr) {
                tempattr = gdml->GetAttrName(attr);
                tempattr.ToLower();
 
@@ -1346,7 +1365,7 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
          }
 
          if ((strcmp(gdml->GetNodeName(child), "D")) == 0) {
-            while (attr != 0) {
+            while (attr != nullptr) {
                tempattr = gdml->GetAttrName(attr);
                tempattr.ToLower();
 
@@ -1401,16 +1420,16 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       } else if (gDebug >= 2) {
          Info("TGDMLParse", "Re-use existing material-element: %s", mat_ele->GetName());
       }
-      felemap[name.Data()] = mat_ele;
+      felemap[local_name.Data()] = mat_ele;
    }
 
    else if (z == 0) {
-      while (child != 0) {
+      while (child != nullptr) {
          attr = gdml->GetFirstAttr(child);
 
          if ((strcmp(gdml->GetNodeName(child), "property")) == 0) {
             TNamed *property = new TNamed();
-            while (attr != 0) {
+            while (attr != nullptr) {
                tempattr = gdml->GetAttrName(attr);
                tempattr.ToLower();
 
@@ -1422,7 +1441,7 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
                   if (matrix)
                      properties.Add(property);
                   else {
-                     Bool_t error = 0;
+                     Bool_t error = false;
                      gGeoManager->GetProperty(property->GetTitle(), &error);
                      if (error)
                         Error("MatProcess", "Reference %s for material %s not found", property->GetTitle(),
@@ -1439,7 +1458,7 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
             TString ref = "";
             ncompo = ncompo + 1;
 
-            while (attr != 0) {
+            while (attr != nullptr) {
                tempattr = gdml->GetAttrName(attr);
                tempattr.ToLower();
 
@@ -1462,7 +1481,7 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
             TString ref = "";
             ncompo = ncompo + 1;
 
-            while (attr != 0) {
+            while (attr != nullptr) {
                tempattr = gdml->GetAttrName(attr);
                tempattr.ToLower();
                if (tempattr == "n") {
@@ -1477,7 +1496,7 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
             }
             fracmap[ref.Data()] = n;
          } else if ((strcmp(gdml->GetNodeName(child), "D")) == 0) {
-            while (attr != 0) {
+            while (attr != nullptr) {
                tempattr = gdml->GetAttrName(attr);
                tempattr.ToLower();
 
@@ -1492,8 +1511,9 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       // still in the not Z else...but not in the while..
 
       name = gdml->GetAttr(node, "name");
+      local_name = name;
       if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-         name = TString::Format("%s_%s", name.Data(), fCurrentFile);
+         local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
       }
       // mix = new TGeoMixture(NameShort(name), 0 /*ncompo*/, density);
       mixflag = 1;
@@ -1525,17 +1545,21 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
       Double_t weight;
 
       for (fractions f = fracmap.begin(); f != fracmap.end(); ++f) {
-         matname = f->first;
-         matname = NameShort(matname);
+         TGeoMaterial *mattmp = nullptr;
+         auto material = fmatmap.find(f->first);
+         if (material != fmatmap.end())
+            mattmp = (TGeoMaterial *)material->second;
+         else {
+            auto mixture = fmixmap.find(f->first);
+            if (mixture != fmixmap.end())
+               mattmp = (TGeoMixture *)mixture->second;
+         }
+         auto element = felemap.find(f->first);
 
-         TGeoMaterial *mattmp = (TGeoMaterial *)gGeoManager->GetListOfMaterials()->FindObject(matname);
-
-         if (mattmp || (felemap.find(f->first) != felemap.end())) {
+         if ((composite && element != felemap.end()) || (!composite && (mattmp || element != felemap.end()))) {
             if (composite) {
                natoms = (Int_t)f->second;
-
-               mix->AddElement(felemap[f->first], natoms);
-
+               mix->AddElement((TGeoElement *)element->second, natoms);
             }
 
             else {
@@ -1543,7 +1567,7 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
                if (mattmp) {
                   mix->AddElement(mattmp, weight);
                } else {
-                  mix->AddElement(felemap[f->first], weight);
+                  mix->AddElement((TGeoElement *)element->second, weight);
                }
             }
          }
@@ -1552,19 +1576,22 @@ XMLNodePointer_t TGDMLParse::MatProcess(TXMLEngine *gdml, XMLNodePointer_t node,
 
    medid = medid + 1;
 
+   if (mixflag == 1)
+      fmixmap[local_name.Data()] = mix;
+   else if (mixflag == 0)
+      fmatmap[local_name.Data()] = mat;
+
    TGeoMedium *med = mgr->GetMedium(NameShort(name));
    if (!med) {
       if (mixflag == 1) {
-         fmixmap[name.Data()] = mix;
          med = new TGeoMedium(NameShort(name), medid, mix);
       } else if (mixflag == 0) {
-         fmatmap[name.Data()] = mat;
          med = new TGeoMedium(NameShort(name), medid, mat);
       }
    } else if (gDebug >= 2) {
       Info("TGDMLParse", "Re-use existing medium: %s", med->GetName());
    }
-   fmedmap[name.Data()] = med;
+   fmedmap[local_name.Data()] = med;
 
    return child;
 }
@@ -1577,7 +1604,7 @@ XMLNodePointer_t TGDMLParse::SkinSurfaceProcess(TXMLEngine *gdml, XMLNodePointer
    TString name, surfname, volname;
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
 
@@ -1591,10 +1618,10 @@ XMLNodePointer_t TGDMLParse::SkinSurfaceProcess(TXMLEngine *gdml, XMLNodePointer
    }
 
    XMLNodePointer_t child = gdml->GetChild(node);
-   while (child != 0) {
+   while (child != nullptr) {
       attr = gdml->GetFirstAttr(child);
       if ((strcmp(gdml->GetNodeName(child), "volumeref")) == 0) {
-         while (attr != 0) {
+         while (attr != nullptr) {
             tempattr = gdml->GetAttrName(attr);
             tempattr.ToLower();
             if (tempattr == "ref") {
@@ -1609,7 +1636,7 @@ XMLNodePointer_t TGDMLParse::SkinSurfaceProcess(TXMLEngine *gdml, XMLNodePointer
    if (!surf)
       Fatal("SkinSurfaceProcess", "Skin surface %s: referenced optical surface %s not defined", name.Data(),
             surfname.Data());
-   TGeoVolume *vol = fvolmap[volname.Data()];
+   TGeoVolume *vol = GetVolume(volname.Data());
    TGeoSkinSurface *skin = new TGeoSkinSurface(name, surfname, surf, vol);
    gGeoManager->AddSkinSurface(skin);
    return child;
@@ -1623,7 +1650,7 @@ XMLNodePointer_t TGDMLParse::BorderSurfaceProcess(TXMLEngine *gdml, XMLNodePoint
    TString name, surfname, nodename[2];
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
 
@@ -1638,10 +1665,10 @@ XMLNodePointer_t TGDMLParse::BorderSurfaceProcess(TXMLEngine *gdml, XMLNodePoint
 
    XMLNodePointer_t child = gdml->GetChild(node);
    Int_t inode = 0;
-   while (child != 0) {
+   while (child != nullptr) {
       attr = gdml->GetFirstAttr(child);
       if ((strcmp(gdml->GetNodeName(child), "physvolref")) == 0) {
-         while (attr != 0) {
+         while (attr != nullptr) {
             tempattr = gdml->GetAttrName(attr);
             tempattr.ToLower();
             if (tempattr == "ref") {
@@ -1669,6 +1696,101 @@ XMLNodePointer_t TGDMLParse::BorderSurfaceProcess(TXMLEngine *gdml, XMLNodePoint
    return child;
 }
 
+TGeoTranslation *TGDMLParse::GetPosition(const char *name)
+{
+   // Get defined position by name, in local file scope.
+   TGeoTranslation *pos = nullptr;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
+      // Search local file namespace first
+      TString reftemp = TString::Format("%s_%s", name, fCurrentFile);
+      if (fposmap.find(reftemp.Data()) != fposmap.end())
+         pos = fposmap[reftemp.Data()];
+   }
+
+   if (!pos && fposmap.find(name) != fposmap.end())
+      pos = fposmap[name];
+
+   if (!pos)
+      Error("GetPosition", "Position %s not defined", name);
+   return pos;
+}
+
+TGeoRotation *TGDMLParse::GetRotation(const char *name)
+{
+   // Get defined rotation by name.
+   TGeoRotation *rot = nullptr;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
+      // Search local file namespace first
+      TString reftemp = TString::Format("%s_%s", name, fCurrentFile);
+      if (frotmap.find(reftemp.Data()) != frotmap.end())
+         rot = frotmap[reftemp.Data()];
+   }
+
+   if (!rot && frotmap.find(name) != frotmap.end())
+      rot = frotmap[name];
+
+   if (!rot)
+      Error("GetRotation", "Rotation %s not defined", name);
+   return rot;
+}
+
+TGeoScale *TGDMLParse::GetScaleObj(const char *name)
+{
+   // Get defined scale by name.
+   TGeoScale *scl = nullptr;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
+      // Search local file namespace first
+      TString reftemp = TString::Format("%s_%s", name, fCurrentFile);
+      if (fsclmap.find(reftemp.Data()) != fsclmap.end())
+         scl = fsclmap[reftemp.Data()];
+   }
+
+   if (!scl && fsclmap.find(name) != fsclmap.end())
+      scl = fsclmap[name];
+
+   if (!scl)
+      Error("GetScale", "Scale %s not defined", name);
+   return scl;
+}
+
+TGeoShape *TGDMLParse::GetSolid(const char *name)
+{
+   // Get defined solid by name.
+   TGeoShape *sol = nullptr;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
+      // Search local file namespace first
+      TString reftemp = TString::Format("%s_%s", name, fCurrentFile);
+      if (fsolmap.find(reftemp.Data()) != fsolmap.end())
+         sol = fsolmap[reftemp.Data()];
+   }
+
+   if (!sol && fsolmap.find(name) != fsolmap.end())
+      sol = fsolmap[name];
+
+   if (!sol)
+      Error("GetSolid", "Solid %s not defined", name);
+   return sol;
+}
+
+TGeoVolume *TGDMLParse::GetVolume(const char *name)
+{
+   // Get defined solid by name.
+   TGeoVolume *vol = nullptr;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
+      // Search local file namespace first
+      TString reftemp = TString::Format("%s_%s", name, fCurrentFile);
+      if (fvolmap.find(reftemp.Data()) != fvolmap.end())
+         vol = fvolmap[reftemp.Data()];
+   }
+
+   if (!vol && fvolmap.find(name) != fvolmap.end())
+      vol = fvolmap[name];
+
+   if (!vol)
+      Error("GetVolume", "Volume %s not defined", name);
+   return vol;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// In the structure section of the GDML file, volumes can be declared.
 /// when the volume keyword is found, this function is called, and the
@@ -1694,17 +1816,17 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
    TString name;
    TString solidname = "";
    TString tempattr = "";
-   TGeoShape *solid = 0;
-   TGeoMedium *medium = 0;
-   TGeoVolume *vol = 0;
-   TGeoVolume *lv = 0;
-   TGeoShape *reflex = 0;
-   const Double_t *parentrot = 0;
+   TGeoShape *solid = nullptr;
+   TGeoMedium *medium = nullptr;
+   TGeoVolume *vol = nullptr;
+   TGeoVolume *lv = nullptr;
+   TGeoShape *reflex = nullptr;
+   const Double_t *parentrot = nullptr;
    int yesrefl = 0;
    TString reftemp = "";
-   TMap *auxmap = 0;
+   TMap *auxmap = nullptr;
 
-   while (child != 0) {
+   while (child != nullptr) {
       if ((strcmp(gdml->GetNodeName(child), "solidref")) == 0) {
 
          reftemp = gdml->GetAttr(child, "ref");
@@ -1737,12 +1859,12 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
    }
 
    name = gdml->GetAttr(node, "name");
-
+   TString local_name = name;
    if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
    }
 
-   if (reflex == 0) {
+   if (reflex == nullptr) {
       vol = new TGeoVolume(NameShort(name), solid, medium);
    } else {
       vol = new TGeoVolume(NameShort(name), reflex, medium);
@@ -1752,36 +1874,33 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
       yesrefl = 1;
    }
 
-   fvolmap[name.Data()] = vol;
+   fvolmap[local_name.Data()] = vol;
 
    // PHYSVOL - run through child nodes of VOLUME again..
 
    child = gdml->GetChild(node);
 
-   while (child != 0) {
+   while (child != nullptr) {
       if ((strcmp(gdml->GetNodeName(child), "physvol")) == 0) {
 
          TString volref = "";
 
-         TGeoTranslation *pos = 0;
-         TGeoRotation *rot = 0;
-         TGeoScale *scl = 0;
+         TGeoTranslation *pos = nullptr;
+         TGeoRotation *rot = nullptr;
+         TGeoScale *scl = nullptr;
          TString pnodename = gdml->GetAttr(child, "name");
          TString scopynum = gdml->GetAttr(child, "copynumber");
          Int_t copynum = (scopynum.IsNull()) ? 0 : (Int_t)Value(scopynum);
 
          subchild = gdml->GetChild(child);
 
-         while (subchild != 0) {
+         while (subchild != nullptr) {
             tempattr = gdml->GetNodeName(subchild);
             tempattr.ToLower();
 
             if (tempattr == "volumeref") {
                reftemp = gdml->GetAttr(subchild, "ref");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               lv = fvolmap[reftemp.Data()];
+               lv = GetVolume(reftemp.Data());
                volref = reftemp;
             } else if (tempattr == "file") {
                const char *filevol;
@@ -1793,7 +1912,7 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
                TXMLEngine *gdml2 = new TXMLEngine;
                gdml2->SetSkipComments(kTRUE);
                XMLDocPointer_t filedoc1 = gdml2->ParseFile(fCurrentFile);
-               if (filedoc1 == 0) {
+               if (filedoc1 == nullptr) {
                   Fatal("VolProcess", "Bad filename given %s", fCurrentFile);
                }
                // take access to main node
@@ -1809,18 +1928,14 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
                   ffilemap[fCurrentFile] = volref;
                }
 
-               if (filevol) {
+               if (filevol)
                   volref = filevol;
-                  if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                     volref = TString::Format("%s_%s", volref.Data(), fCurrentFile);
-                  }
-               }
+               lv = GetVolume(volref.Data());
 
                fFILENO = fFILENO - 1;
                gdml = fFileEngine[fFILENO];
                fCurrentFile = prevfile;
 
-               lv = fvolmap[volref.Data()];
                // File tree complete - Release memory before exit
 
                gdml->FreeDoc(filedoc1);
@@ -1829,53 +1944,32 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
                attr = gdml->GetFirstAttr(subchild);
                PosProcess(gdml, subchild, attr);
                reftemp = gdml->GetAttr(subchild, "name");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               pos = fposmap[reftemp.Data()];
+               pos = GetPosition(reftemp.Data());
             } else if (tempattr == "positionref") {
                reftemp = gdml->GetAttr(subchild, "ref");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               if (fposmap.find(reftemp.Data()) != fposmap.end())
-                  pos = fposmap[reftemp.Data()];
-               else
-                  std::cout << "ERROR! Physvol's position " << reftemp << " not found!" << std::endl;
+               pos = GetPosition(reftemp.Data());
+               if (!pos)
+                  Fatal("VolProcess", "Physvol's position %s not found", reftemp.Data());
             } else if (tempattr == "rotation") {
                attr = gdml->GetFirstAttr(subchild);
                RotProcess(gdml, subchild, attr);
                reftemp = gdml->GetAttr(subchild, "name");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               rot = frotmap[reftemp.Data()];
+               rot = GetRotation(reftemp.Data());
             } else if (tempattr == "rotationref") {
                reftemp = gdml->GetAttr(subchild, "ref");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               if (frotmap.find(reftemp.Data()) != frotmap.end())
-                  rot = frotmap[reftemp.Data()];
-               else
-                  std::cout << "ERROR! Physvol's rotation " << reftemp << " not found!" << std::endl;
+               rot = GetRotation(reftemp.Data());
+               if (!rot)
+                  Fatal("VolProcess", "Physvol's rotation %s not found", reftemp.Data());
             } else if (tempattr == "scale") {
                attr = gdml->GetFirstAttr(subchild);
                SclProcess(gdml, subchild, attr);
                reftemp = gdml->GetAttr(subchild, "name");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               scl = fsclmap[reftemp.Data()];
+               scl = GetScaleObj(reftemp.Data());
             } else if (tempattr == "scaleref") {
                reftemp = gdml->GetAttr(subchild, "ref");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               if (fsclmap.find(reftemp.Data()) != fsclmap.end())
-                  scl = fsclmap[reftemp.Data()];
-               else
-                  std::cout << "ERROR! Physvol's scale " << reftemp << " not found!" << std::endl;
+               scl = GetScaleObj(reftemp.Data());
+               if (!scl)
+                  Fatal("VolProcess", "Physvol's scale %s not found", reftemp.Data());
             }
 
             subchild = gdml->GetNext(subchild);
@@ -1886,12 +1980,12 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 
          TGeoHMatrix *transform = new TGeoHMatrix();
 
-         if (pos != 0)
+         if (pos != nullptr)
             transform->SetTranslation(pos->GetTranslation());
-         if (rot != 0)
+         if (rot != nullptr)
             transform->SetRotation(rot->GetRotationMatrix());
 
-         if (scl != 0) { // Scaling must be added to the rotation matrix!
+         if (scl != nullptr) { // Scaling must be added to the rotation matrix!
 
             Double_t scale3x3[9];
             memset(scale3x3, 0, 9 * sizeof(Double_t));
@@ -1936,10 +2030,13 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
          TString width = "";
          TString offset = "";
          TString lunit = fDefault_lunit.c_str();
+         bool unitless_l = true;
+         reftemp = "";
+         local_name = "";
 
          attr = gdml->GetFirstAttr(child);
 
-         while (attr != 0) {
+         while (attr != nullptr) {
 
             tempattr = gdml->GetAttrName(attr);
             tempattr.ToLower();
@@ -1954,6 +2051,7 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
                offset = gdml->GetAttrValue(attr);
             } else if (tempattr == "unit") {
                lunit = gdml->GetAttrValue(attr);
+               unitless_l = false;
             }
 
             attr = gdml->GetNextAttr(attr);
@@ -1961,14 +2059,15 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 
          subchild = gdml->GetChild(child);
 
-         while (subchild != 0) {
+         while (subchild != nullptr) {
             tempattr = gdml->GetNodeName(subchild);
             tempattr.ToLower();
 
             if (tempattr == "volumeref") {
                reftemp = gdml->GetAttr(subchild, "ref");
+               local_name = reftemp;
                if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
+                  local_name = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
                }
                divVolref = reftemp;
             }
@@ -1978,6 +2077,7 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 
          Double_t numberline = Value(number);
          Double_t retunit = GetScaleVal(lunit);
+         fNunitless += int(unitless_l);
          Double_t step = Value(width) * retunit;
          Double_t offsetline = Value(offset) * retunit;
 
@@ -1989,10 +2089,9 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
          Double_t start = xlo + offsetline;
 
          Int_t numed = 0;
-         TGeoVolume *old = fvolmap[NameShort(reftemp)];
+         TGeoVolume *old = GetVolume(reftemp);
          if (old) {
             // We need to recreate the content of the divided volume
-            old = fvolmap[NameShort(reftemp)];
             // medium id
             numed = old->GetMedium()->GetId();
          }
@@ -2004,7 +2103,7 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
          if (old && old->GetNdaughters()) {
             divvol->ReplayCreation(old);
          }
-         fvolmap[NameShort(reftemp)] = divvol;
+         fvolmap[local_name.Data()] = divvol;
 
       } // end of Division else if
 
@@ -2017,12 +2116,15 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
          TString offset = "";
          TString wunit = fDefault_lunit.c_str();
          TString ounit = fDefault_lunit.c_str();
+         bool unitless_l = true;
          Double_t wvalue = 0;
          Double_t ovalue = 0;
+         reftemp = "";
+         local_name = "";
 
          attr = gdml->GetFirstAttr(child);
 
-         while (attr != 0) {
+         while (attr != nullptr) {
 
             tempattr = gdml->GetAttrName(attr);
             tempattr.ToLower();
@@ -2035,14 +2137,15 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 
          subchild = gdml->GetChild(child);
 
-         while (subchild != 0) {
+         while (subchild != nullptr) {
             tempattr = gdml->GetNodeName(subchild);
             tempattr.ToLower();
 
             if (tempattr == "volumeref") {
                reftemp = gdml->GetAttr(subchild, "ref");
+               local_name = reftemp;
                if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
+                  local_name = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
                }
                divVolref = reftemp;
             }
@@ -2050,35 +2153,37 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
             if (tempattr == "replicate_along_axis") {
                subsubchild = gdml->GetChild(subchild);
 
-               while (subsubchild != 0) {
+               while (subsubchild != nullptr) {
                   if ((strcmp(gdml->GetNodeName(subsubchild), "width")) == 0) {
                      attr = gdml->GetFirstAttr(subsubchild);
-                     while (attr != 0) {
+                     while (attr != nullptr) {
                         tempattr = gdml->GetAttrName(attr);
                         tempattr.ToLower();
                         if (tempattr == "value") {
                            wvalue = Value(gdml->GetAttrValue(attr));
                         } else if (tempattr == "unit") {
                            wunit = gdml->GetAttrValue(attr);
+                           unitless_l = false;
                         }
 
                         attr = gdml->GetNextAttr(attr);
                      }
                   } else if ((strcmp(gdml->GetNodeName(subsubchild), "offset")) == 0) {
                      attr = gdml->GetFirstAttr(subsubchild);
-                     while (attr != 0) {
+                     while (attr != nullptr) {
                         tempattr = gdml->GetAttrName(attr);
                         tempattr.ToLower();
                         if (tempattr == "value") {
                            ovalue = Value(gdml->GetAttrValue(attr));
                         } else if (tempattr == "unit") {
                            ounit = gdml->GetAttrValue(attr);
+                           unitless_l = false;
                         }
                         attr = gdml->GetNextAttr(attr);
                      }
                   } else if ((strcmp(gdml->GetNodeName(subsubchild), "direction")) == 0) {
                      attr = gdml->GetFirstAttr(subsubchild);
-                     while (attr != 0) {
+                     while (attr != nullptr) {
                         tempattr = gdml->GetAttrName(attr);
                         tempattr.ToLower();
                         if (tempattr == "x") {
@@ -2106,6 +2211,7 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 
          Double_t retwunit = GetScaleVal(wunit);
          Double_t retounit = GetScaleVal(ounit);
+         fNunitless += int(unitless_l);
 
          Double_t numberline = Value(number);
          Double_t widthline = wvalue * retwunit;
@@ -2120,10 +2226,9 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 
          Double_t step = widthline;
          Int_t numed = 0;
-         TGeoVolume *old = fvolmap[NameShort(reftemp)];
+         TGeoVolume *old = GetVolume(reftemp);
          if (old) {
             // We need to recreate the content of the divided volume
-            old = fvolmap[NameShort(reftemp)];
             // medium id
             numed = old->GetMedium()->GetId();
          }
@@ -2135,7 +2240,7 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
          if (old && old->GetNdaughters()) {
             divvol->ReplayCreation(old);
          }
-         fvolmap[NameShort(reftemp)] = divvol;
+         fvolmap[local_name.Data()] = divvol;
 
       } // End of replicavol
       else if (strcmp(gdml->GetNodeName(child), "auxiliary") == 0) {
@@ -2143,7 +2248,9 @@ XMLNodePointer_t TGDMLParse::VolProcess(TXMLEngine *gdml, XMLNodePointer_t node)
          if (!auxmap) {
             // printf("Auxiliary values for volume %s\n",vol->GetName());
             auxmap = new TMap();
-            vol->SetUserExtension(new TGeoRCExtension(auxmap));
+            auto ext = new TGeoRCExtension(auxmap);
+            vol->SetUserExtension(ext); // grabs a copy
+            ext->Release();
          }
          attr = gdml->GetFirstAttr(child);
          while (attr) {
@@ -2184,8 +2291,8 @@ XMLNodePointer_t TGDMLParse::BooSolid(TXMLEngine *gdml, XMLNodePointer_t node, X
    TString tempattr = "";
    XMLNodePointer_t child = gdml->GetChild(node);
 
-   TGeoShape *first = 0;
-   TGeoShape *second = 0;
+   TGeoShape *first = nullptr;
+   TGeoShape *second = nullptr;
 
    TGeoTranslation *firstPos = new TGeoTranslation(0, 0, 0);
    TGeoTranslation *secondPos = new TGeoTranslation(0, 0, 0);
@@ -2202,94 +2309,65 @@ XMLNodePointer_t TGDMLParse::BooSolid(TXMLEngine *gdml, XMLNodePointer_t node, X
    secondRot->RotateX(0);
 
    TString name = gdml->GetAttr(node, "name");
+   TString local_name = name;
 
    if ((strcmp(fCurrentFile, fStartFile)) != 0)
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
-   while (child != 0) {
+   while (child != nullptr) {
       tempattr = gdml->GetNodeName(child);
       tempattr.ToLower();
 
       if (tempattr == "first") {
          reftemp = gdml->GetAttr(child, "ref");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         if (fsolmap.find(reftemp.Data()) != fsolmap.end()) {
-            first = fsolmap[reftemp.Data()];
-         }
+         first = GetSolid(reftemp.Data());
+         if (!first)
+            Fatal("BooSolid", "First solid %s not found", reftemp.Data());
       } else if (tempattr == "second") {
          reftemp = gdml->GetAttr(child, "ref");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         if (fsolmap.find(reftemp.Data()) != fsolmap.end()) {
-            second = fsolmap[reftemp.Data()];
-         }
+         second = GetSolid(reftemp.Data());
+         if (!second)
+            Fatal("BooSolid", "Second solid %s not found", reftemp.Data());
       } else if (tempattr == "position") {
          attr = gdml->GetFirstAttr(child);
          PosProcess(gdml, child, attr);
          reftemp = gdml->GetAttr(child, "name");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         secondPos = fposmap[reftemp.Data()];
+         secondPos = GetPosition(reftemp.Data());
       } else if (tempattr == "positionref") {
          reftemp = gdml->GetAttr(child, "ref");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         if (fposmap.find(reftemp.Data()) != fposmap.end()) {
-            secondPos = fposmap[reftemp.Data()];
-         }
+         secondPos = GetPosition(reftemp.Data());
+         if (!secondPos)
+            Fatal("BooSolid", "Second position %s not found", reftemp.Data());
       } else if (tempattr == "rotation") {
          attr = gdml->GetFirstAttr(child);
          RotProcess(gdml, child, attr);
          reftemp = gdml->GetAttr(child, "name");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         secondRot = frotmap[reftemp.Data()];
+         secondRot = GetRotation(reftemp.Data());
       } else if (tempattr == "rotationref") {
          reftemp = gdml->GetAttr(child, "ref");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         if (frotmap.find(reftemp.Data()) != frotmap.end()) {
-            secondRot = frotmap[reftemp.Data()];
-         }
+         secondRot = GetRotation(reftemp.Data());
+         if (!secondRot)
+            Fatal("BooSolid", "Second rotation %s not found", reftemp.Data());
       } else if (tempattr == "firstposition") {
          attr = gdml->GetFirstAttr(child);
          PosProcess(gdml, child, attr);
          reftemp = gdml->GetAttr(child, "name");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         firstPos = fposmap[reftemp.Data()];
+         firstPos = GetPosition(reftemp.Data());
       } else if (tempattr == "firstpositionref") {
          reftemp = gdml->GetAttr(child, "ref");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         if (fposmap.find(reftemp.Data()) != fposmap.end()) {
-            firstPos = fposmap[reftemp.Data()];
-         }
+         firstPos = GetPosition(reftemp.Data());
+         if (!firstPos)
+            Fatal("BooSolid", "First position %s not found", reftemp.Data());
       } else if (tempattr == "firstrotation") {
          attr = gdml->GetFirstAttr(child);
          RotProcess(gdml, child, attr);
          reftemp = gdml->GetAttr(child, "name");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         firstRot = frotmap[reftemp.Data()];
+         firstRot = GetRotation(reftemp.Data());
       } else if (tempattr == "firstrotationref") {
          reftemp = gdml->GetAttr(child, "ref");
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         if (frotmap.find(reftemp.Data()) != frotmap.end()) {
-            firstRot = frotmap[reftemp.Data()];
-         }
+         firstRot = GetRotation(reftemp.Data());
+         if (!firstRot)
+            Fatal("BooSolid", "First rotation %s not found", reftemp.Data());
       }
       child = gdml->GetNext(child);
    }
@@ -2297,11 +2375,7 @@ XMLNodePointer_t TGDMLParse::BooSolid(TXMLEngine *gdml, XMLNodePointer_t node, X
    TGeoMatrix *firstMatrix = new TGeoCombiTrans(*firstPos, firstRot->Inverse());
    TGeoMatrix *secondMatrix = new TGeoCombiTrans(*secondPos, secondRot->Inverse());
 
-   TGeoCompositeShape *boolean = 0;
-   if (!first || !second) {
-      Fatal("BooSolid", "Incomplete solid %s, missing shape components", name.Data());
-      return child;
-   }
+   TGeoCompositeShape *boolean = nullptr;
    switch (num) {
    case 1:
       boolean = new TGeoCompositeShape(NameShort(name), new TGeoSubtraction(first, second, firstMatrix, secondMatrix));
@@ -2315,7 +2389,7 @@ XMLNodePointer_t TGDMLParse::BooSolid(TXMLEngine *gdml, XMLNodePointer_t node, X
    default: break;
    }
 
-   fsolmap[name.Data()] = boolean;
+   fsolmap[local_name.Data()] = boolean;
 
    return child;
 }
@@ -2379,20 +2453,20 @@ XMLNodePointer_t TGDMLParse::UsrProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 XMLNodePointer_t TGDMLParse::AssProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 {
    TString name = gdml->GetAttr(node, "name");
+   TString local_name = name;
    TString reftemp = "";
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    XMLAttrPointer_t attr;
    XMLNodePointer_t subchild;
    XMLNodePointer_t child = gdml->GetChild(node);
    TString tempattr = "";
-   TGeoVolume *lv = 0;
-   TGeoTranslation *pos = 0;
-   TGeoRotation *rot = 0;
-   TGeoCombiTrans *matr;
+   TGeoVolume *lv = nullptr;
+   TGeoTranslation *pos = nullptr;
+   TGeoRotation *rot = nullptr;
+   TGeoScale *scl = nullptr;
 
    TGeoVolumeAssembly *assem = new TGeoVolumeAssembly(NameShort(name));
 
@@ -2400,7 +2474,7 @@ XMLNodePointer_t TGDMLParse::AssProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 
    //   child = gdml->GetChild(node);
 
-   while (child != 0) {
+   while (child != nullptr) {
       if ((strcmp(gdml->GetNodeName(child), "physvol")) == 0) {
          TString pnodename = gdml->GetAttr(child, "name");
          TString scopynum = gdml->GetAttr(child, "copynumber");
@@ -2409,49 +2483,45 @@ XMLNodePointer_t TGDMLParse::AssProcess(TXMLEngine *gdml, XMLNodePointer_t node)
          subchild = gdml->GetChild(child);
          pos = new TGeoTranslation(0, 0, 0);
          rot = new TGeoRotation();
+         scl = nullptr;
 
-         while (subchild != 0) {
+         while (subchild != nullptr) {
             tempattr = gdml->GetNodeName(subchild);
             tempattr.ToLower();
 
             if (tempattr == "volumeref") {
                reftemp = gdml->GetAttr(subchild, "ref");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               lv = fvolmap[reftemp.Data()];
+               lv = GetVolume(reftemp.Data());
             } else if (tempattr == "positionref") {
                reftemp = gdml->GetAttr(subchild, "ref");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               if (fposmap.find(reftemp.Data()) != fposmap.end()) {
-                  pos = fposmap[reftemp.Data()];
-               }
+               pos = GetPosition(reftemp.Data());
+               if (!pos)
+                  Fatal("AssProcess", "Position %s not found", reftemp.Data());
             } else if (tempattr == "position") {
                attr = gdml->GetFirstAttr(subchild);
                PosProcess(gdml, subchild, attr);
                reftemp = gdml->GetAttr(subchild, "name");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               pos = fposmap[reftemp.Data()];
+               pos = GetPosition(reftemp.Data());
             } else if (tempattr == "rotationref") {
                reftemp = gdml->GetAttr(subchild, "ref");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               if (frotmap.find(reftemp.Data()) != frotmap.end()) {
-                  rot = frotmap[reftemp.Data()];
-               }
+               rot = GetRotation(reftemp.Data());
+               if (!rot)
+                  Fatal("AssProcess", "Rotation %s not found", reftemp.Data());
             } else if (tempattr == "rotation") {
                attr = gdml->GetFirstAttr(subchild);
                RotProcess(gdml, subchild, attr);
                reftemp = gdml->GetAttr(subchild, "name");
-               if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-                  reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-               }
-               rot = frotmap[reftemp.Data()];
+               rot = GetRotation(reftemp.Data());
+            } else if (tempattr == "scale") {
+               attr = gdml->GetFirstAttr(subchild);
+               SclProcess(gdml, subchild, attr);
+               reftemp = gdml->GetAttr(subchild, "name");
+               scl = GetScaleObj(reftemp.Data());
+            } else if (tempattr == "scaleref") {
+               reftemp = gdml->GetAttr(subchild, "ref");
+               scl = GetScaleObj(reftemp.Data());
+               if (!scl)
+                  Fatal("AssProcess", "Physvol's scale %s not found", reftemp.Data());
             }
 
             subchild = gdml->GetNext(subchild);
@@ -2459,7 +2529,25 @@ XMLNodePointer_t TGDMLParse::AssProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 
          // ADD PHYSVOL TO GEOMETRY
          fVolID = fVolID + 1;
-         matr = new TGeoCombiTrans(*pos, *rot);
+         TGeoHMatrix *matr = new TGeoHMatrix();
+         matr->SetTranslation(pos->GetTranslation());
+         matr->SetRotation(rot->GetRotationMatrix());
+
+         if (scl != nullptr) { // Scaling must be added to the rotation matrix!
+
+            Double_t scale3x3[9];
+            memset(scale3x3, 0, 9 * sizeof(Double_t));
+            const Double_t *diagonal = scl->GetScale();
+
+            scale3x3[0] = diagonal[0];
+            scale3x3[4] = diagonal[1];
+            scale3x3[8] = diagonal[2];
+
+            TGeoRotation scaleMatrix;
+            scaleMatrix.SetMatrix(scale3x3);
+            matr->Multiply(&scaleMatrix);
+         }
+
          assem->AddNode(lv, copynum, matr);
          TGeoNode *lastnode = (TGeoNode *)assem->GetNodes()->Last();
          if (!pnodename.IsNull())
@@ -2469,7 +2557,7 @@ XMLNodePointer_t TGDMLParse::AssProcess(TXMLEngine *gdml, XMLNodePointer_t node)
       child = gdml->GetNext(child);
    }
 
-   fvolmap[name.Data()] = assem;
+   fvolmap[local_name.Data()] = assem;
    return child;
 }
 
@@ -2485,17 +2573,13 @@ XMLNodePointer_t TGDMLParse::TopProcess(TXMLEngine *gdml, XMLNodePointer_t node)
    XMLNodePointer_t child = gdml->GetChild(node);
    TString reftemp = "";
 
-   while (child != 0) {
+   while (child != nullptr) {
 
       if ((strcmp(gdml->GetNodeName(child), "world") == 0)) {
          // const char* reftemp;
          // TString reftemp = "";
          reftemp = gdml->GetAttr(child, "ref");
-
-         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
-         }
-         fWorld = fvolmap[reftemp.Data()];
+         fWorld = GetVolume(reftemp.Data());
          fWorldName = reftemp.Data();
       }
       child = gdml->GetNext(child);
@@ -2513,13 +2597,14 @@ XMLNodePointer_t TGDMLParse::TopProcess(TXMLEngine *gdml, XMLNodePointer_t node)
 XMLNodePointer_t TGDMLParse::Box(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
+   bool unitless_l = true;
    TString xpos = "0";
    TString ypos = "0";
    TString zpos = "0";
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -2534,16 +2619,18 @@ XMLNodePointer_t TGDMLParse::Box(TXMLEngine *gdml, XMLNodePointer_t node, XMLAtt
          zpos = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
 
    Double_t xline = 0.5 * Value(xpos) * retunit;
    Double_t yline = 0.5 * Value(ypos) * retunit;
@@ -2551,7 +2638,7 @@ XMLNodePointer_t TGDMLParse::Box(TXMLEngine *gdml, XMLNodePointer_t node, XMLAtt
 
    TGeoBBox *box = new TGeoBBox(NameShort(name), xline, yline, zline);
 
-   fsolmap[name.Data()] = box;
+   fsolmap[local_name.Data()] = box;
 
    return node;
 }
@@ -2568,6 +2655,7 @@ XMLNodePointer_t TGDMLParse::Box(TXMLEngine *gdml, XMLNodePointer_t node, XMLAtt
 XMLNodePointer_t TGDMLParse::Ellipsoid(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
+   bool unitless_l = true;
    TString ax = "0";
    TString by = "0";
    TString cz = "0";
@@ -2577,7 +2665,7 @@ XMLNodePointer_t TGDMLParse::Ellipsoid(TXMLEngine *gdml, XMLNodePointer_t node, 
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -2596,16 +2684,18 @@ XMLNodePointer_t TGDMLParse::Ellipsoid(TXMLEngine *gdml, XMLNodePointer_t node, 
          zcut2 = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
 
    Double_t dx = Value(ax) * retunit;
    Double_t dy = Value(by) * retunit;
@@ -2634,9 +2724,9 @@ XMLNodePointer_t TGDMLParse::Ellipsoid(TXMLEngine *gdml, XMLNodePointer_t node, 
    origin[2] = 0.5 * (z1 + z2);
    Double_t dz = 0.5 * (z2 - z1);
    TGeoBBox *pCutBox = new TGeoBBox("cutBox", dx, dy, dz, origin);
-   TGeoBoolNode *pBoolNode = new TGeoIntersection(shape, pCutBox, 0, 0);
+   TGeoBoolNode *pBoolNode = new TGeoIntersection(shape, pCutBox, nullptr, nullptr);
    TGeoCompositeShape *cs = new TGeoCompositeShape(NameShort(name), pBoolNode);
-   fsolmap[name.Data()] = cs;
+   fsolmap[local_name.Data()] = cs;
 
    return node;
 }
@@ -2653,6 +2743,7 @@ XMLNodePointer_t TGDMLParse::Ellipsoid(TXMLEngine *gdml, XMLNodePointer_t node, 
 XMLNodePointer_t TGDMLParse::ElCone(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
+   bool unitless_l = true;
    TString dx = "0";
    TString dy = "0";
    TString zmax = "0";
@@ -2660,7 +2751,7 @@ XMLNodePointer_t TGDMLParse::ElCone(TXMLEngine *gdml, XMLNodePointer_t node, XML
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -2677,18 +2768,20 @@ XMLNodePointer_t TGDMLParse::ElCone(TXMLEngine *gdml, XMLNodePointer_t node, XML
          zcut = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    // semiaxises of elliptical cone (elcone) are different then ellipsoid
 
    Double_t retunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
 
    // dxline and dyline are without units because they are as a ration
    Double_t dxratio = Value(dx);
@@ -2714,7 +2807,7 @@ XMLNodePointer_t TGDMLParse::ElCone(TXMLEngine *gdml, XMLNodePointer_t node, XML
    TGeoScale *scl = new TGeoScale("", sx, sy, sz);
    TGeoScaledShape *shape = new TGeoScaledShape(NameShort(name), con, scl);
 
-   fsolmap[name.Data()] = shape;
+   fsolmap[local_name.Data()] = shape;
 
    return node;
 }
@@ -2729,13 +2822,14 @@ XMLNodePointer_t TGDMLParse::ElCone(TXMLEngine *gdml, XMLNodePointer_t node, XML
 XMLNodePointer_t TGDMLParse::Paraboloid(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
+   bool unitless_l = true;
    TString rlopos = "0";
    TString rhipos = "0";
    TString dzpos = "0";
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -2750,16 +2844,18 @@ XMLNodePointer_t TGDMLParse::Paraboloid(TXMLEngine *gdml, XMLNodePointer_t node,
          dzpos = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
 
    Double_t rlo = Value(rlopos) * retunit;
    Double_t rhi = Value(rhipos) * retunit;
@@ -2767,7 +2863,7 @@ XMLNodePointer_t TGDMLParse::Paraboloid(TXMLEngine *gdml, XMLNodePointer_t node,
 
    TGeoParaboloid *paraboloid = new TGeoParaboloid(NameShort(name), rlo, rhi, dz);
 
-   fsolmap[name.Data()] = paraboloid;
+   fsolmap[local_name.Data()] = paraboloid;
 
    return node;
 }
@@ -2782,6 +2878,7 @@ XMLNodePointer_t TGDMLParse::Paraboloid(TXMLEngine *gdml, XMLNodePointer_t node,
 XMLNodePointer_t TGDMLParse::Arb8(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
+   bool unitless_l = true;
    TString v1xpos = "0";
    TString v1ypos = "0";
    TString v2xpos = "0";
@@ -2802,7 +2899,7 @@ XMLNodePointer_t TGDMLParse::Arb8(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -2845,16 +2942,18 @@ XMLNodePointer_t TGDMLParse::Arb8(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
          dzpos = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
 
    Double_t v1x = Value(v1xpos) * retunit;
    Double_t v1y = Value(v1ypos) * retunit;
@@ -2885,7 +2984,7 @@ XMLNodePointer_t TGDMLParse::Arb8(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    arb8->SetVertex(6, v7x, v7y);
    arb8->SetVertex(7, v8x, v8y);
 
-   fsolmap[name.Data()] = arb8;
+   fsolmap[local_name.Data()] = arb8;
 
    return node;
 }
@@ -2901,6 +3000,8 @@ XMLNodePointer_t TGDMLParse::Tube(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString rmin = "0";
    TString rmax = "0";
    TString z = "0";
@@ -2909,7 +3010,7 @@ XMLNodePointer_t TGDMLParse::Tube(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -2924,8 +3025,10 @@ XMLNodePointer_t TGDMLParse::Tube(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
          z = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "startphi") {
          startphi = gdml->GetAttrValue(attr);
       } else if (tempattr == "deltaphi") {
@@ -2935,12 +3038,13 @@ XMLNodePointer_t TGDMLParse::Tube(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    Double_t rminline = Value(rmin) * retlunit;
    Double_t rmaxline = Value(rmax) * retlunit;
@@ -2949,12 +3053,12 @@ XMLNodePointer_t TGDMLParse::Tube(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    Double_t deltaphideg = Value(deltaphi) * retaunit;
    Double_t endphideg = startphideg + deltaphideg;
 
-   TGeoShape *tube = 0;
+   TGeoShape *tube = nullptr;
    if (deltaphideg < 360.)
       tube = new TGeoTubeSeg(NameShort(name), rminline, rmaxline, zline / 2, startphideg, endphideg);
    else
       tube = new TGeoTube(NameShort(name), rminline, rmaxline, zline / 2);
-   fsolmap[name.Data()] = tube;
+   fsolmap[local_name.Data()] = tube;
 
    return node;
 }
@@ -2970,6 +3074,8 @@ XMLNodePointer_t TGDMLParse::CutTube(TXMLEngine *gdml, XMLNodePointer_t node, XM
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString rmin = "0";
    TString rmax = "0";
    TString z = "0";
@@ -2984,7 +3090,7 @@ XMLNodePointer_t TGDMLParse::CutTube(TXMLEngine *gdml, XMLNodePointer_t node, XM
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -2999,8 +3105,10 @@ XMLNodePointer_t TGDMLParse::CutTube(TXMLEngine *gdml, XMLNodePointer_t node, XM
          z = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "startphi") {
          startphi = gdml->GetAttrValue(attr);
       } else if (tempattr == "deltaphi") {
@@ -3022,12 +3130,13 @@ XMLNodePointer_t TGDMLParse::CutTube(TXMLEngine *gdml, XMLNodePointer_t node, XM
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    Double_t rminline = Value(rmin) * retlunit;
    Double_t rmaxline = Value(rmax) * retlunit;
@@ -3044,7 +3153,7 @@ XMLNodePointer_t TGDMLParse::CutTube(TXMLEngine *gdml, XMLNodePointer_t node, XM
    TGeoCtub *cuttube = new TGeoCtub(NameShort(name), rminline, rmaxline, zline / 2, startphiline, deltaphiline,
                                     lowXline, lowYline, lowZline, highXline, highYline, highZline);
 
-   fsolmap[name.Data()] = cuttube;
+   fsolmap[local_name.Data()] = cuttube;
 
    return node;
 }
@@ -3060,6 +3169,8 @@ XMLNodePointer_t TGDMLParse::Cone(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString rmin1 = "0";
    TString rmax1 = "0";
    TString rmin2 = "0";
@@ -3070,7 +3181,7 @@ XMLNodePointer_t TGDMLParse::Cone(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3089,8 +3200,10 @@ XMLNodePointer_t TGDMLParse::Cone(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
          z = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "startphi") {
          startphi = gdml->GetAttrValue(attr);
       } else if (tempattr == "deltaphi") {
@@ -3100,12 +3213,13 @@ XMLNodePointer_t TGDMLParse::Cone(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    Double_t rmin1line = Value(rmin1) * retlunit;
    Double_t rmax1line = Value(rmax1) * retlunit;
@@ -3116,13 +3230,13 @@ XMLNodePointer_t TGDMLParse::Cone(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    Double_t dphi = Value(deltaphi) * retaunit;
    Double_t ephi = sphi + dphi;
 
-   TGeoShape *cone = 0;
+   TGeoShape *cone = nullptr;
    if (dphi < 360.)
       cone = new TGeoConeSeg(NameShort(name), zline / 2, rmin1line, rmax1line, rmin2line, rmax2line, sphi, ephi);
    else
       cone = new TGeoCone(NameShort(name), zline / 2, rmin1line, rmax1line, rmin2line, rmax2line);
 
-   fsolmap[name.Data()] = cone;
+   fsolmap[local_name.Data()] = cone;
 
    return node;
 }
@@ -3138,6 +3252,8 @@ XMLNodePointer_t TGDMLParse::Trap(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString x1 = "0";
    TString x2 = "0";
    TString x3 = "0";
@@ -3152,7 +3268,7 @@ XMLNodePointer_t TGDMLParse::Trap(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3175,8 +3291,10 @@ XMLNodePointer_t TGDMLParse::Trap(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
          z = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "phi") {
          phi = gdml->GetAttrValue(attr);
       } else if (tempattr == "theta") {
@@ -3190,12 +3308,13 @@ XMLNodePointer_t TGDMLParse::Trap(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    Double_t x1line = Value(x1) * retlunit;
    Double_t x2line = Value(x2) * retlunit;
@@ -3212,7 +3331,7 @@ XMLNodePointer_t TGDMLParse::Trap(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    TGeoTrap *trap = new TGeoTrap(NameShort(name), zline / 2, thetaline, philine, y1line / 2, x1line / 2, x2line / 2,
                                  alpha1line, y2line / 2, x3line / 2, x4line / 2, alpha2line);
 
-   fsolmap[name.Data()] = trap;
+   fsolmap[local_name.Data()] = trap;
 
    return node;
 }
@@ -3227,6 +3346,7 @@ XMLNodePointer_t TGDMLParse::Trap(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
 XMLNodePointer_t TGDMLParse::Trd(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
+   bool unitless_l = true;
    TString x1 = "0";
    TString x2 = "0";
    TString y1 = "0";
@@ -3235,7 +3355,7 @@ XMLNodePointer_t TGDMLParse::Trd(TXMLEngine *gdml, XMLNodePointer_t node, XMLAtt
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3254,16 +3374,18 @@ XMLNodePointer_t TGDMLParse::Trd(TXMLEngine *gdml, XMLNodePointer_t node, XMLAtt
          z = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
 
    Double_t x1line = Value(x1) * retlunit;
    Double_t x2line = Value(x2) * retlunit;
@@ -3273,7 +3395,7 @@ XMLNodePointer_t TGDMLParse::Trd(TXMLEngine *gdml, XMLNodePointer_t node, XMLAtt
 
    TGeoTrd2 *trd = new TGeoTrd2(NameShort(name), x1line / 2, x2line / 2, y1line / 2, y2line / 2, zline / 2);
 
-   fsolmap[name.Data()] = trd;
+   fsolmap[local_name.Data()] = trd;
 
    return node;
 }
@@ -3290,6 +3412,8 @@ XMLNodePointer_t TGDMLParse::Polycone(TXMLEngine *gdml, XMLNodePointer_t node, X
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString rmin = "0";
    TString rmax = "0";
    TString z = "0";
@@ -3298,7 +3422,7 @@ XMLNodePointer_t TGDMLParse::Polycone(TXMLEngine *gdml, XMLNodePointer_t node, X
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3307,8 +3431,10 @@ XMLNodePointer_t TGDMLParse::Polycone(TXMLEngine *gdml, XMLNodePointer_t node, X
          name = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "startphi") {
          startphi = gdml->GetAttrValue(attr);
       } else if (tempattr == "deltaphi") {
@@ -3317,19 +3443,20 @@ XMLNodePointer_t TGDMLParse::Polycone(TXMLEngine *gdml, XMLNodePointer_t node, X
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    // START TO LOOK THRU CHILD (ZPLANE) NODES...
 
    XMLNodePointer_t child = gdml->GetChild(node);
    int numplanes = 0;
 
-   while (child != 0) {
+   while (child != nullptr) {
       numplanes = numplanes + 1;
       child = gdml->GetNext(child);
    }
@@ -3349,7 +3476,7 @@ XMLNodePointer_t TGDMLParse::Polycone(TXMLEngine *gdml, XMLNodePointer_t node, X
    child = gdml->GetChild(node);
    int planeno = 0;
 
-   while (child != 0) {
+   while (child != nullptr) {
       if (strcmp(gdml->GetNodeName(child), "zplane") == 0) {
          // removed original dec
          Double_t rminline = 0;
@@ -3358,7 +3485,7 @@ XMLNodePointer_t TGDMLParse::Polycone(TXMLEngine *gdml, XMLNodePointer_t node, X
 
          attr = gdml->GetFirstAttr(child);
 
-         while (attr != 0) {
+         while (attr != nullptr) {
             tempattr = gdml->GetAttrName(attr);
             tempattr.ToLower();
 
@@ -3393,7 +3520,7 @@ XMLNodePointer_t TGDMLParse::Polycone(TXMLEngine *gdml, XMLNodePointer_t node, X
       zno = zno + 1;
    }
 
-   fsolmap[name.Data()] = poly;
+   fsolmap[local_name.Data()] = poly;
    for (i = 0; i < numplanes; i++) {
       delete[] table[i];
    }
@@ -3414,6 +3541,8 @@ XMLNodePointer_t TGDMLParse::Polyhedra(TXMLEngine *gdml, XMLNodePointer_t node, 
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString rmin = "0";
    TString rmax = "0";
    TString z = "0";
@@ -3423,7 +3552,7 @@ XMLNodePointer_t TGDMLParse::Polyhedra(TXMLEngine *gdml, XMLNodePointer_t node, 
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3432,8 +3561,10 @@ XMLNodePointer_t TGDMLParse::Polyhedra(TXMLEngine *gdml, XMLNodePointer_t node, 
          name = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "startphi") {
          startphi = gdml->GetAttrValue(attr);
       } else if (tempattr == "deltaphi") {
@@ -3445,19 +3576,20 @@ XMLNodePointer_t TGDMLParse::Polyhedra(TXMLEngine *gdml, XMLNodePointer_t node, 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    // START TO LOOK THRU CHILD (ZPLANE) NODES...
 
    XMLNodePointer_t child = gdml->GetChild(node);
    int numplanes = 0;
 
-   while (child != 0) {
+   while (child != nullptr) {
       numplanes = numplanes + 1;
       child = gdml->GetNext(child);
    }
@@ -3477,7 +3609,7 @@ XMLNodePointer_t TGDMLParse::Polyhedra(TXMLEngine *gdml, XMLNodePointer_t node, 
    child = gdml->GetChild(node);
    int planeno = 0;
 
-   while (child != 0) {
+   while (child != nullptr) {
       if (strcmp(gdml->GetNodeName(child), "zplane") == 0) {
 
          Double_t rminline = 0;
@@ -3485,7 +3617,7 @@ XMLNodePointer_t TGDMLParse::Polyhedra(TXMLEngine *gdml, XMLNodePointer_t node, 
          Double_t zline = 0;
          attr = gdml->GetFirstAttr(child);
 
-         while (attr != 0) {
+         while (attr != nullptr) {
             tempattr = gdml->GetAttrName(attr);
             tempattr.ToLower();
 
@@ -3522,7 +3654,7 @@ XMLNodePointer_t TGDMLParse::Polyhedra(TXMLEngine *gdml, XMLNodePointer_t node, 
       zno = zno + 1;
    }
 
-   fsolmap[name.Data()] = polyg;
+   fsolmap[local_name.Data()] = polyg;
    for (i = 0; i < numplanes; i++) {
       delete[] table[i];
    }
@@ -3542,6 +3674,8 @@ XMLNodePointer_t TGDMLParse::Sphere(TXMLEngine *gdml, XMLNodePointer_t node, XML
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString rmin = "0";
    TString rmax = "0";
    TString startphi = "0";
@@ -3551,7 +3685,7 @@ XMLNodePointer_t TGDMLParse::Sphere(TXMLEngine *gdml, XMLNodePointer_t node, XML
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
 
@@ -3563,8 +3697,10 @@ XMLNodePointer_t TGDMLParse::Sphere(TXMLEngine *gdml, XMLNodePointer_t node, XML
          rmax = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "startphi") {
          startphi = gdml->GetAttrValue(attr);
       } else if (tempattr == "deltaphi") {
@@ -3578,12 +3714,13 @@ XMLNodePointer_t TGDMLParse::Sphere(TXMLEngine *gdml, XMLNodePointer_t node, XML
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    Double_t rminline = Value(rmin) * retlunit;
    Double_t rmaxline = Value(rmax) * retlunit;
@@ -3595,7 +3732,7 @@ XMLNodePointer_t TGDMLParse::Sphere(TXMLEngine *gdml, XMLNodePointer_t node, XML
    TGeoSphere *sphere =
       new TGeoSphere(NameShort(name), rminline, rmaxline, startthetaline, deltathetaline, startphiline, deltaphiline);
 
-   fsolmap[name.Data()] = sphere;
+   fsolmap[local_name.Data()] = sphere;
 
    return node;
 }
@@ -3611,6 +3748,8 @@ XMLNodePointer_t TGDMLParse::Torus(TXMLEngine *gdml, XMLNodePointer_t node, XMLA
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString rmin = "0";
    TString rmax = "0";
    TString rtor = "0";
@@ -3619,7 +3758,7 @@ XMLNodePointer_t TGDMLParse::Torus(TXMLEngine *gdml, XMLNodePointer_t node, XMLA
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3634,8 +3773,10 @@ XMLNodePointer_t TGDMLParse::Torus(TXMLEngine *gdml, XMLNodePointer_t node, XMLA
          rtor = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "startphi") {
          startphi = gdml->GetAttrValue(attr);
       } else if (tempattr == "deltaphi") {
@@ -3645,12 +3786,13 @@ XMLNodePointer_t TGDMLParse::Torus(TXMLEngine *gdml, XMLNodePointer_t node, XMLA
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    Double_t rminline = Value(rmin) * retlunit;
    Double_t rmaxline = Value(rmax) * retlunit;
@@ -3660,7 +3802,7 @@ XMLNodePointer_t TGDMLParse::Torus(TXMLEngine *gdml, XMLNodePointer_t node, XMLA
 
    TGeoTorus *torus = new TGeoTorus(NameShort(name), rtorline, rminline, rmaxline, startphiline, deltaphiline);
 
-   fsolmap[name.Data()] = torus;
+   fsolmap[local_name.Data()] = torus;
 
    return node;
 }
@@ -3676,6 +3818,8 @@ XMLNodePointer_t TGDMLParse::Hype(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString rmin = "0";
    TString rmax = "0";
    TString z = "0";
@@ -3684,7 +3828,7 @@ XMLNodePointer_t TGDMLParse::Hype(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
 
@@ -3698,8 +3842,10 @@ XMLNodePointer_t TGDMLParse::Hype(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
          z = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "inst") {
          inst = gdml->GetAttrValue(attr);
       } else if (tempattr == "outst") {
@@ -3709,12 +3855,13 @@ XMLNodePointer_t TGDMLParse::Hype(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    Double_t rminline = Value(rmin) * retlunit;
    Double_t rmaxline = Value(rmax) * retlunit;
@@ -3724,7 +3871,7 @@ XMLNodePointer_t TGDMLParse::Hype(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
 
    TGeoHype *hype = new TGeoHype(NameShort(name), rminline, instline, rmaxline, outstline, zline / 2);
 
-   fsolmap[name.Data()] = hype;
+   fsolmap[local_name.Data()] = hype;
 
    return node;
 }
@@ -3740,6 +3887,8 @@ XMLNodePointer_t TGDMLParse::Para(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString x = "0";
    TString y = "0";
    TString z = "0";
@@ -3749,7 +3898,7 @@ XMLNodePointer_t TGDMLParse::Para(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3764,8 +3913,10 @@ XMLNodePointer_t TGDMLParse::Para(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
          z = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "phi") {
          phi = gdml->GetAttrValue(attr);
       } else if (tempattr == "theta") {
@@ -3777,12 +3928,13 @@ XMLNodePointer_t TGDMLParse::Para(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    Double_t xline = Value(x) * retlunit;
    Double_t yline = Value(y) * retlunit;
@@ -3793,7 +3945,7 @@ XMLNodePointer_t TGDMLParse::Para(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
 
    TGeoPara *para = new TGeoPara(NameShort(name), xline / 2, yline / 2, zline / 2, alphaline, thetaline, philine);
 
-   fsolmap[name.Data()] = para;
+   fsolmap[local_name.Data()] = para;
 
    return node;
 }
@@ -3809,6 +3961,8 @@ XMLNodePointer_t TGDMLParse::TwistTrap(TXMLEngine *gdml, XMLNodePointer_t node, 
 {
    TString lunit = fDefault_lunit.c_str();
    TString aunit = fDefault_aunit.c_str();
+   bool unitless_l = true;
+   bool unitless_a = true;
    TString x1 = "0";
    TString x2 = "0";
    TString x3 = "0";
@@ -3824,7 +3978,7 @@ XMLNodePointer_t TGDMLParse::TwistTrap(TXMLEngine *gdml, XMLNodePointer_t node, 
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3847,8 +4001,10 @@ XMLNodePointer_t TGDMLParse::TwistTrap(TXMLEngine *gdml, XMLNodePointer_t node, 
          z = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       } else if (tempattr == "aunit") {
          aunit = gdml->GetAttrValue(attr);
+         unitless_a = false;
       } else if (tempattr == "phi") {
          phi = gdml->GetAttrValue(attr);
       } else if (tempattr == "theta") {
@@ -3865,12 +4021,13 @@ XMLNodePointer_t TGDMLParse::TwistTrap(TXMLEngine *gdml, XMLNodePointer_t node, 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
    Double_t retaunit = GetScaleVal(aunit);
+   fNunitless += int(unitless_l || unitless_a);
 
    Double_t x1line = Value(x1) * retlunit;
    Double_t x2line = Value(x2) * retlunit;
@@ -3888,7 +4045,7 @@ XMLNodePointer_t TGDMLParse::TwistTrap(TXMLEngine *gdml, XMLNodePointer_t node, 
    TGeoGtra *twtrap = new TGeoGtra(NameShort(name), zline / 2, thetaline, philine, twistline, y1line / 2, x1line / 2,
                                    x2line / 2, alpha1line, y2line / 2, x3line / 2, x4line / 2, alpha2line);
 
-   fsolmap[name.Data()] = twtrap;
+   fsolmap[local_name.Data()] = twtrap;
 
    return node;
 }
@@ -3903,13 +4060,14 @@ XMLNodePointer_t TGDMLParse::TwistTrap(TXMLEngine *gdml, XMLNodePointer_t node, 
 XMLNodePointer_t TGDMLParse::ElTube(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
+   bool unitless_l = true;
    TString xpos = "0";
    TString ypos = "0";
    TString zpos = "0";
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3924,16 +4082,18 @@ XMLNodePointer_t TGDMLParse::ElTube(TXMLEngine *gdml, XMLNodePointer_t node, XML
          zpos = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
 
    Double_t xline = Value(xpos) * retunit;
    Double_t yline = Value(ypos) * retunit;
@@ -3941,7 +4101,7 @@ XMLNodePointer_t TGDMLParse::ElTube(TXMLEngine *gdml, XMLNodePointer_t node, XML
 
    TGeoEltu *eltu = new TGeoEltu(NameShort(name), xline, yline, zline);
 
-   fsolmap[name.Data()] = eltu;
+   fsolmap[local_name.Data()] = eltu;
 
    return node;
 }
@@ -3955,11 +4115,12 @@ XMLNodePointer_t TGDMLParse::ElTube(TXMLEngine *gdml, XMLNodePointer_t node, XML
 XMLNodePointer_t TGDMLParse::Orb(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
+   bool unitless_l = true;
    TString r = "0";
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -3970,22 +4131,24 @@ XMLNodePointer_t TGDMLParse::Orb(TXMLEngine *gdml, XMLNodePointer_t node, XMLAtt
          r = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
 
    Double_t rline = Value(r) * retunit;
 
    TGeoSphere *orb = new TGeoSphere(NameShort(name), 0, rline, 0, 180, 0, 360);
 
-   fsolmap[name.Data()] = orb;
+   fsolmap[local_name.Data()] = orb;
 
    return node;
 }
@@ -4003,7 +4166,7 @@ XMLNodePointer_t TGDMLParse::Orb(TXMLEngine *gdml, XMLNodePointer_t node, XMLAtt
 XMLNodePointer_t TGDMLParse::Xtru(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
 {
    TString lunit = fDefault_lunit.c_str();
-   //   TString aunit = "rad";
+   bool unitless_l = true;
    TString x = "0";
    TString y = "0";
    TString zorder = "0";
@@ -4014,7 +4177,7 @@ XMLNodePointer_t TGDMLParse::Xtru(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    TString name = "";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -4023,16 +4186,18 @@ XMLNodePointer_t TGDMLParse::Xtru(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
          name = gdml->GetAttrValue(attr);
       } else if (tempattr == "lunit") {
          lunit = gdml->GetAttrValue(attr);
+         unitless_l = false;
       }
 
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    Double_t retlunit = GetScaleVal(lunit);
+   fNunitless += int(unitless_l);
 
    // START TO LOOK THRU CHILD NODES...
 
@@ -4040,7 +4205,7 @@ XMLNodePointer_t TGDMLParse::Xtru(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    int nosects = 0;
    int noverts = 0;
 
-   while (child != 0) {
+   while (child != nullptr) {
       tempattr = gdml->GetNodeName(child);
 
       if (tempattr == "twoDimVertex") {
@@ -4072,14 +4237,14 @@ XMLNodePointer_t TGDMLParse::Xtru(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
    int sect = 0;
    int vert = 0;
 
-   while (child != 0) {
+   while (child != nullptr) {
       if (strcmp(gdml->GetNodeName(child), "twoDimVertex") == 0) {
          Double_t xline = 0;
          Double_t yline = 0;
 
          attr = gdml->GetFirstAttr(child);
 
-         while (attr != 0) {
+         while (attr != nullptr) {
             tempattr = gdml->GetAttrName(attr);
 
             if (tempattr == "x") {
@@ -4106,7 +4271,7 @@ XMLNodePointer_t TGDMLParse::Xtru(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
 
          attr = gdml->GetFirstAttr(child);
 
-         while (attr != 0) {
+         while (attr != nullptr) {
             tempattr = gdml->GetAttrName(attr);
 
             if (tempattr == "zOrder") {
@@ -4145,7 +4310,7 @@ XMLNodePointer_t TGDMLParse::Xtru(TXMLEngine *gdml, XMLNodePointer_t node, XMLAt
       xtru->DefineSection((int)section[j][0], section[j][1], section[j][2], section[j][3], section[j][4]);
    }
 
-   fsolmap[name.Data()] = xtru;
+   fsolmap[local_name.Data()] = xtru;
    delete[] vertx;
    delete[] verty;
    for (i = 0; i < nosects; i++) {
@@ -4176,9 +4341,9 @@ XMLNodePointer_t TGDMLParse::Tessellated(TXMLEngine *gdml, XMLNodePointer_t node
       attr = gdml->GetNextAttr(attr);
    }
 
-   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
-      name = TString::Format("%s_%s", name.Data(), fCurrentFile);
-   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0)
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
 
    auto tsl = new TGeoTessellated(NameShort(name));
    TGeoTranslation *pos = nullptr;
@@ -4222,27 +4387,24 @@ XMLNodePointer_t TGDMLParse::Tessellated(TXMLEngine *gdml, XMLNodePointer_t node
 
             if (tempattr == "vertex1") {
                vname = gdml->GetAttrValue(attr);
-               if (fposmap.find(vname.Data()) != fposmap.end())
-                  pos = fposmap[vname.Data()];
-               else
+               pos = GetPosition(vname.Data());
+               if (!pos)
                   Fatal("Tessellated", "Vertex %s not defined", vname.Data());
                SetVertex(0, pos);
             }
 
             else if (tempattr == "vertex2") {
                vname = gdml->GetAttrValue(attr);
-               if (fposmap.find(vname.Data()) != fposmap.end())
-                  pos = fposmap[vname.Data()];
-               else
+               pos = GetPosition(vname.Data());
+               if (!pos)
                   Fatal("Tessellated", "Vertex %s not defined", vname.Data());
                SetVertex(1, pos);
             }
 
             else if (tempattr == "vertex3") {
                vname = gdml->GetAttrValue(attr);
-               if (fposmap.find(vname.Data()) != fposmap.end())
-                  pos = fposmap[vname.Data()];
-               else
+               pos = GetPosition(vname.Data());
+               if (!pos)
                   Fatal("Tessellated", "Vertex %s not defined", vname.Data());
                SetVertex(2, pos);
             }
@@ -4267,36 +4429,32 @@ XMLNodePointer_t TGDMLParse::Tessellated(TXMLEngine *gdml, XMLNodePointer_t node
 
             if (tempattr == "vertex1") {
                vname = gdml->GetAttrValue(attr);
-               if (fposmap.find(vname.Data()) != fposmap.end())
-                  pos = fposmap[vname.Data()];
-               else
+               pos = GetPosition(vname.Data());
+               if (!pos)
                   Fatal("Tessellated", "Vertex %s not defined", vname.Data());
                SetVertex(0, pos);
             }
 
             else if (tempattr == "vertex2") {
                vname = gdml->GetAttrValue(attr);
-               if (fposmap.find(vname.Data()) != fposmap.end())
-                  pos = fposmap[vname.Data()];
-               else
+               pos = GetPosition(vname.Data());
+               if (!pos)
                   Fatal("Tessellated", "Vertex %s not defined", vname.Data());
                SetVertex(1, pos);
             }
 
             else if (tempattr == "vertex3") {
                vname = gdml->GetAttrValue(attr);
-               if (fposmap.find(vname.Data()) != fposmap.end())
-                  pos = fposmap[vname.Data()];
-               else
+               pos = GetPosition(vname.Data());
+               if (!pos)
                   Fatal("Tessellated", "Vertex %s not defined", vname.Data());
                SetVertex(2, pos);
             }
 
             else if (tempattr == "vertex4") {
                vname = gdml->GetAttrValue(attr);
-               if (fposmap.find(vname.Data()) != fposmap.end())
-                  pos = fposmap[vname.Data()];
-               else
+               pos = GetPosition(vname.Data());
+               if (!pos)
                   Fatal("Tessellated", "Vertex %s not defined", vname.Data());
                SetVertex(3, pos);
             }
@@ -4315,9 +4473,72 @@ XMLNodePointer_t TGDMLParse::Tessellated(TXMLEngine *gdml, XMLNodePointer_t node
    }
    tsl->CloseShape(false);
 
-   fsolmap[name.Data()] = tsl;
+   fsolmap[local_name.Data()] = tsl;
 
    return node;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// In the solids section of the GDML file, a Scaled Solid may be
+/// declared when the scaledSolid keyword is found, this function
+/// is called. The scale transformation is used as internal matrix.
+
+XMLNodePointer_t TGDMLParse::ScaledSolid(TXMLEngine *gdml, XMLNodePointer_t node, XMLAttrPointer_t attr)
+{
+   TString tempattr, reftemp;
+   XMLAttrPointer_t childattr;
+
+   XMLNodePointer_t child = gdml->GetChild(node);
+   TString solidname = "";
+   TGeoShape *solid = nullptr;
+   TGeoScale *scl = nullptr;
+
+   TString name;
+   while (attr != nullptr) {
+      tempattr = gdml->GetAttrName(attr);
+      tempattr.ToLower();
+      if (tempattr == "name") {
+         name = gdml->GetAttrValue(attr);
+      }
+      attr = gdml->GetNextAttr(attr);
+   }
+   TString local_name = name;
+   if ((strcmp(fCurrentFile, fStartFile)) != 0) {
+      local_name = TString::Format("%s_%s", name.Data(), fCurrentFile);
+   }
+
+   while (child != nullptr) {
+      tempattr = gdml->GetNodeName(child);
+      tempattr.ToLower();
+      if (tempattr == "solidref") {
+         reftemp = gdml->GetAttr(child, "ref");
+         if ((strcmp(fCurrentFile, fStartFile)) != 0) {
+            reftemp = TString::Format("%s_%s", reftemp.Data(), fCurrentFile);
+         }
+         if (fsolmap.find(reftemp.Data()) != fsolmap.end()) {
+            solid = fsolmap[reftemp.Data()];
+         } else {
+            printf("Solid: %s, Not Yet Defined!\n", reftemp.Data());
+         }
+      } else if (tempattr == "scale") {
+         childattr = gdml->GetFirstAttr(child);
+         SclProcess(gdml, child, childattr);
+         reftemp = gdml->GetAttr(child, "name");
+         scl = GetScaleObj(reftemp.Data());
+      } else if (tempattr == "scaleref") {
+         reftemp = gdml->GetAttr(child, "ref");
+         scl = GetScaleObj(reftemp.Data());
+         if (!scl)
+            Fatal("ScaledSolid", "Solid's scale %s not found", reftemp.Data());
+      }
+
+      child = gdml->GetNext(child);
+   }
+
+   auto scaled = new TGeoScaledShape(NameShort(name), solid, scl);
+   fsolmap[local_name.Data()] = scaled;
+
+   return child;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -4347,7 +4568,7 @@ XMLNodePointer_t TGDMLParse::Reflection(TXMLEngine *gdml, XMLNodePointer_t node,
    TString solid = "0";
    TString tempattr;
 
-   while (attr != 0) {
+   while (attr != nullptr) {
 
       tempattr = gdml->GetAttrName(attr);
       tempattr.ToLower();
@@ -4422,7 +4643,6 @@ file.
 
 */
 
-ClassImp(TGDMLRefl);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// This constructor method stores the values brought in as params.

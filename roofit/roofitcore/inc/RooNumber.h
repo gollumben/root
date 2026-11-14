@@ -16,20 +16,15 @@
 #ifndef ROO_NUMBER
 #define ROO_NUMBER
 
-#include "Rtypes.h"
+#include <limits>
+#include <string>
 
 class RooNumber {
 public:
-
-  virtual ~RooNumber() {} ;
-
-  static Double_t infinity() ;
-  static Int_t isInfinite(Double_t x) ;
-
- private:
-  static Double_t _Infinity ;
-
-  ClassDef(RooNumber,0) // wrapper class for portable numerics
+   /// Return internal infinity representation.
+   constexpr static double infinity() { return std::numeric_limits<double>::infinity(); }
+   /// Return true if x is infinite by RooNumber internal specification.
+   constexpr static int isInfinite(double x) { return (x >= +infinity()) ? +1 : ((x <= -infinity()) ? -1 : 0); }
 };
 
 #endif

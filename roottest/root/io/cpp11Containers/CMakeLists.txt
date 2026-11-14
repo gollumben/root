@@ -1,0 +1,64 @@
+ROOTTEST_GENERATE_REFLEX_DICTIONARY(unorderedMap
+                                    unorderedMap.h
+                                    SELECTION unorderedMap_selection.xml
+                                    FIXTURES_SETUP root-io-cpp11Containers-unorderedMapDict-fixture)
+
+# Test temporarily disabled due to a performance regression in LLVM22 leading to sporadic failures.
+# ROOTTEST_ADD_TEST(unorderedMap
+#                   MACRO  execUnorderedMap.C
+#                   OUTREF execUnorderedMap.ref
+#                   FIXTURES_REQUIRED root-io-cpp11Containers-unorderedMapDict-fixture
+#                   FIXTURES_SETUP root-io-cpp11Containers-unorderedMap-fixture
+#                   LABELS longtest)
+
+# Copy of the test above, written as a compiled C++ program based on gtest. Useful for more fine-grained view on
+# potential test failures
+ROOTTEST_GENERATE_EXECUTABLE(
+    unorderedMapUnitTests
+    unorderedMapUnitTests.cxx
+    LIBRARIES Core RIO Tree TreePlayer Hist GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main ROOT::TestSupport
+    FIXTURES_REQUIRED root-io-cpp11Containers-unorderedMapDict-fixture
+    FIXTURES_SETUP root-io-cpp11Containers-unorderedMapUnitTests-fixture)
+if(MSVC)
+    set_source_files_properties(unorderedMapUnitTests.cxx COMPILE_FLAGS /bigobj)
+endif()
+
+ROOTTEST_ADD_TEST(unorderedMapUnitTests
+    EXEC ${CMAKE_CURRENT_BINARY_DIR}/unorderedMapUnitTests
+    FIXTURES_REQUIRED root-io-cpp11Containers-unorderedMapUnitTests-fixture)
+
+if(NOT 32BIT AND NOT MSVC)
+   ROOTTEST_GENERATE_REFLEX_DICTIONARY(forwardList
+                                       forwardList.h
+                                       SELECTION forwardList_selection.xml
+                                       FIXTURES_SETUP root-io-cpp11Containers-forwardListDict-fixture)
+
+   ROOTTEST_ADD_TEST(forwardList
+                     MACRO  execForwardList.C
+                     OUTREF execForwardList.ref
+                     FIXTURES_REQUIRED root-io-cpp11Containers-forwardListDict-fixture
+                     FIXTURES_SETUP root-io-cpp11Containers-forwardList-fixture)
+
+   ROOTTEST_GENERATE_REFLEX_DICTIONARY(unorderedSet
+                                       unorderedSet.h
+                                       SELECTION unorderedSet_selection.xml
+                                       FIXTURES_SETUP root-io-cpp11Containers-unorderedSetDict-fixture)
+
+   ROOTTEST_ADD_TEST(unorderedSet
+                     MACRO  execUnorderedSet.C
+                     OUTREF execUnorderedSet.ref
+                     FIXTURES_REQUIRED root-io-cpp11Containers-unorderedSetDict-fixture
+                                       root-io-cpp11Containers-forwardList-fixture
+                     FIXTURES_SETUP root-io-cpp11Containers-unorderedSet-fixture)
+
+# Test temporarily disabled due to a performance regression in LLVM22 leading to sporadic failures.
+#    ROOTTEST_ADD_TEST(Names
+#                      COPY_TO_BUILDDIR auxCode.h commonUtils.h
+#                      MACRO  execcpp11ContainersNames.C
+#                      OUTREF execcpp11ContainersNames.ref
+#                      FIXTURES_REQUIRED root-io-cpp11Containers-unorderedSet-fixture
+#                                        root-io-cpp11Containers-forwardList-fixture
+#                                        root-io-cpp11Containers-unorderedMap-fixture)
+endif()
+
+

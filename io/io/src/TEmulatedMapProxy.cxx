@@ -25,7 +25,7 @@
 
 /**
  \class TEmulatedMapProxy
- \ingroup IO
+ \ingroup io_other
 
 Streamer around a map container. For optimization reasons this functionality
 is separated from the TEmulatedProxy.
@@ -71,7 +71,7 @@ void* TEmulatedMapProxy::At(UInt_t idx)
    // Return the address of the value at index 'idx'.
    if ( fEnv && fEnv->fObject )   {
       PCont_t c = PCont_t(fEnv->fObject);
-      return idx<(c->size()/fValDiff) ? ((char*)&(*c->begin())) + idx*fValDiff : 0;
+      return (idx < (c->size() / fValDiff)) ? (c->data() + ElementOffset(idx)) : 0;
    }
    Fatal("TEmulatedMapProxy","At> Logic error - no proxy object set.");
    return 0;
@@ -100,7 +100,7 @@ void TEmulatedMapProxy::ReadMap(UInt_t nElements, TBuffer &b)
    char* addr = 0;
    char* temp = (char*)At(0);
    for ( idx = 0; idx < nElements; ++idx )  {
-      addr = temp + idx*fValDiff;
+      addr = temp + ElementOffset(idx);
       for ( loop=0; loop<2; loop++)  {
          addr += off[loop];
          helper = (StreamHelper*)addr;
@@ -141,10 +141,10 @@ void TEmulatedMapProxy::ReadMap(UInt_t nElements, TBuffer &b)
          case kIsPointer|kIsClass:
             helper->set(b.ReadObjectAny(v->fType));
             break;
-         case kIsPointer|kBIT_ISSTRING:
+         case 0U|kIsPointer|kBIT_ISSTRING:
             helper->read_std_string_pointer(b);
             break;
-         case kIsPointer|kBIT_ISTSTRING|kIsClass:
+         case 0U|kIsPointer|kBIT_ISTSTRING|kIsClass:
             helper->read_tstring_pointer(vsn3,b);
             break;
          }
@@ -161,7 +161,7 @@ void TEmulatedMapProxy::WriteMap(UInt_t nElements, TBuffer &b)
    char* addr = 0;
    char* temp = (char*)At(0);
    for (UInt_t loop, idx = 0; idx < nElements; ++idx )  {
-      addr = temp + idx*fValDiff;
+      addr = temp + ElementOffset(idx);
       for ( loop = 0; loop<2; ++loop )  {
          addr += off[loop];
          i = (StreamHelper*)addr;
@@ -200,10 +200,10 @@ void TEmulatedMapProxy::WriteMap(UInt_t nElements, TBuffer &b)
          case kIsPointer|kIsClass:
             b.WriteObjectAny(i->ptr(),v->fType);
             break;
-         case kBIT_ISSTRING|kIsPointer:
+         case 0U|kBIT_ISSTRING|kIsPointer:
             i->write_std_string_pointer(b);
             break;
-         case kBIT_ISTSTRING|kIsClass|kIsPointer:
+         case 0U|kBIT_ISTSTRING|kIsClass|kIsPointer:
             i->write_tstring_pointer(b);
             break;
          }

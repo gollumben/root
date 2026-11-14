@@ -12,11 +12,9 @@
 #ifndef ROOT_TGIdleHandler
 #define ROOT_TGIdleHandler
 
-
 #include "TObject.h"
 
 class TGWindow;
-
 
 class TGIdleHandler : public TObject {
 
@@ -25,11 +23,11 @@ private:
 
 public:
    TGIdleHandler(TGWindow *w);
-   virtual ~TGIdleHandler();
+   ~TGIdleHandler() override;
 
    virtual Bool_t HandleEvent();
 
-   ClassDef(TGIdleHandler,0)  // Idle event handler
+   ClassDefOverride(TGIdleHandler,0)  // Idle event handler
 };
 
 #endif

@@ -24,7 +24,7 @@
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/Token.h"
 #include "clang/Parse/Parser.h"
-#include "clang/Parse/ParseDiagnostic.h"
+#include "clang/Basic/DiagnosticParse.h"
 
 #include <cstdlib>
 
@@ -44,7 +44,7 @@ namespace {
       ~SkipToEOD() {
         // Can't use Preprocessor::DiscardUntilEndOfDirective, as we may
         // already be on an eod token
-        while (!m_Tok.isOneOf(tok::eod, tok::eof))
+        while (!m_Tok.isOneOf(tok::eod, tok::annot_repl_input_end))
           m_PP.LexUnexpandedToken(m_Tok);
       }
     };
@@ -73,7 +73,7 @@ namespace {
           SmallVector<Token, 1> StrToks(1, Tok);
           StringLiteralParser LitParse(StrToks, PP);
           if (!LitParse.hadError)
-            Literal = LitParse.GetString();
+            Literal = LitParse.GetString().str();
         } else {
           llvm::SmallString<64> Buffer;
           Literal = PP.getSpelling(Tok, Buffer).str();
@@ -162,7 +162,7 @@ namespace {
         // a call to interpreter parsing header file. It will suffer the same
         // issue as if we included the file within the pragma.
         if (m_Interp.loadLibrary(FI.FileName, true) != Interpreter::kSuccess) {
-          const clang::DirectoryLookup *CurDir = nullptr;
+          clang::ConstSearchDirIterator *CurDir = nullptr;
           if (PP.getHeaderSearchInfo().LookupFile(FI.FileName, FI.StartLoc,
               /*isAngled*/ false, /*fromDir*/ nullptr, /*CurDir*/ CurDir, /*Includers*/ {},
               /*SearchPath*/ nullptr, /*RelativePath*/ nullptr, /*RequestingModule*/ nullptr,

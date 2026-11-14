@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  :                                                                       *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Testing MethodDL with DNN for various optimizers                          *
@@ -22,7 +22,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef TMVA_TEST_DNN_TEST_METHOD_DL_OPTIMIZATION_H
@@ -49,12 +49,13 @@ void testMethodDL_DNN(TString architectureStr, TString optimizerStr)
    ROOT::EnableImplicitMT(1);
    TMVA::Config::Instance();
 
-   TFile *input(0);
-   // TString fname = "tmva_class_example.root";
-   TString fname = "http://root.cern.ch/files/tmva_class_example.root";
-   TFile::SetCacheFileDir(".");
-   TString fopt = "CACHEREAD";
-   input = TFile::Open(fname, fopt);
+   TFile *input(nullptr);
+   TString fname = gROOT->GetTutorialDir() + "/machine_learning/data/tmva_class_example.root";
+   input = TFile::Open(fname);
+   if (!input) {
+      std::cout << "ERROR: could not open input data file " << fname << std::endl;
+      exit(1);
+   }
 
    // Register the training and test trees
    TTree *signalTree = (TTree *)input->Get("TreeS");

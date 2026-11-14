@@ -13,12 +13,21 @@
 
 #include "ROOT/RDataFrame.hxx"
 #include "ROOT/RDataSource.hxx"
-#include "ROOT/RStringView.hxx"
+#include <string_view>
 
 #include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
+
+namespace ROOT::Internal::RDF {
+class R__CLING_PTRCHECK(off) RSqliteDSColumnReader final : public ROOT::Detail::RDF::RColumnReaderBase {
+   void *fValuePtr;
+   void *GetImpl(Long64_t) final { return fValuePtr; }
+
+public:
+   RSqliteDSColumnReader(void *valuePtr) : fValuePtr(valuePtr) {}
+};
+} // namespace ROOT::Internal::RDF
 
 namespace ROOT {
 
@@ -37,7 +46,7 @@ struct RSqliteDSDataSet;
 
 The RSqliteDS is able to feed an RDataFrame with data from a SQlite SELECT query. One can use it like
 
-    auto rdf = ROOT::RDF::MakeSqliteDataFrame("/path/to/file.sqlite", "select name from table");
+    auto rdf = ROOT::RDF::FromSqlite("/path/to/file.sqlite", "select name from table");
     auto h = rdf.Define("lName", "name.length()").Histo1D("lName");
 
 The data source has to provide column types for all the columns. Determining column types in SQlite is tricky
@@ -79,7 +88,6 @@ private:
    void SqliteError(int errcode);
 
    std::unique_ptr<Internal::RSqliteDSDataSet> fDataSet;
-   unsigned int fNSlots;
    ULong64_t fNRow;
    std::vector<std::string> fColumnNames;
    std::vector<ETypes> fColumnTypes;
@@ -99,21 +107,30 @@ private:
 
 public:
    RSqliteDS(const std::string &fileName, const std::string &query);
-   ~RSqliteDS();
+   // Rule of five
+   RSqliteDS(const RSqliteDS &) = delete;
+   RSqliteDS &operator=(const RSqliteDS &) = delete;
+   RSqliteDS(RSqliteDS &&) = delete;
+   RSqliteDS &operator=(RSqliteDS &&) = delete;
+   ~RSqliteDS() final;
+
    void SetNSlots(unsigned int nSlots) final;
    const std::vector<std::string> &GetColumnNames() const final;
    bool HasColumn(std::string_view colName) const final;
    std::string GetTypeName(std::string_view colName) const final;
    std::vector<std::pair<ULong64_t, ULong64_t>> GetEntryRanges() final;
    bool SetEntry(unsigned int slot, ULong64_t entry) final;
-   void Initialise() final;
+   void Initialize() final;
    std::string GetLabel() final;
+
+   std::unique_ptr<ROOT::Detail::RDF::RColumnReaderBase>
+   GetColumnReaders(unsigned int slot, std::string_view colName, const std::type_info &tid) final;
 
 protected:
    Record_t GetColumnReadersImpl(std::string_view name, const std::type_info &) final;
 };
 
-RDataFrame MakeSqliteDataFrame(std::string_view fileName, std::string_view query);
+RDataFrame FromSqlite(std::string_view fileName, std::string_view query);
 
 } // namespace RDF
 

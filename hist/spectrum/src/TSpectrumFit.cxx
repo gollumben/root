@@ -6,7 +6,7 @@
     \brief Advanced 1-dimensional spectra fitting functions
     \author Miroslav Morhac
 
- \legacy{TSpectrumFit}
+ \legacy{TSpectrumFit, For modeling a spectrum fitting and estimating the background one can use RooFit while for deconvolution and unfolding one can use TUnfold.}
 
  Class for fitting 1D spectra using AWMI (algorithm without matrix
  inversion) and conjugate gradient algorithms for symmetrical
@@ -29,7 +29,6 @@
 #include "TSpectrumFit.h"
 #include "TMath.h"
 
-ClassImp(TSpectrumFit);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor
@@ -46,16 +45,16 @@ TSpectrumFit::TSpectrumFit() :TNamed("SpectrumFit", "Miroslav Morhac peak fitter
    fFitTaylor = kFitTaylorOrderFirst;
    fAlpha =1;
    fChi = 0;
-   fPositionInit   = 0;
-   fPositionCalc   = 0;
-   fPositionErr   = 0;
-   fFixPosition   = 0;
-   fAmpInit   = 0;
-   fAmpCalc   = 0;
-   fAmpErr    = 0;
-   fFixAmp    = 0;
-   fArea      = 0;
-   fAreaErr   = 0;
+   fPositionInit   = nullptr;
+   fPositionCalc   = nullptr;
+   fPositionErr   = nullptr;
+   fFixPosition   = nullptr;
+   fAmpInit   = nullptr;
+   fAmpCalc   = nullptr;
+   fAmpErr    = nullptr;
+   fFixAmp    = nullptr;
+   fArea      = nullptr;
+   fAreaErr   = nullptr;
    fSigmaInit = 2;
    fSigmaCalc = 1;
    fSigmaErr  = 0;

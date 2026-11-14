@@ -10,9 +10,34 @@
 
 #include "ROOT/RDF/ActionHelpers.hxx"
 
+#include "ROOT/RDF/Utils.hxx" // CacheLineStep
+
+#include <RtypesCore.h>
+#include <cmath>
+#include <cstddef>
+#include <TStatistic.h>
+
 namespace ROOT {
 namespace Internal {
 namespace RDF {
+
+void ResetIfPossible(TStatistic *h)
+{
+   *h = TStatistic();
+}
+// cannot safely re-initialize variations of the result, hence error out
+void ResetIfPossible(...)
+{
+   throw std::runtime_error(
+      "A systematic variation was requested for a custom Fill action, but the type of the object to be filled does "
+      "not implement a Reset method, so we cannot safely re-initialize variations of the result. Aborting.");
+}
+
+void UnsetDirectoryIfPossible(TH1 *h)
+{
+   h->SetDirectory(nullptr);
+}
+void UnsetDirectoryIfPossible(...) {}
 
 CountHelper::CountHelper(const std::shared_ptr<ULong64_t> &resultCount, const unsigned int nSlots)
    : fResultCount(resultCount), fCounts(nSlots, 0)
@@ -37,17 +62,18 @@ ULong64_t &CountHelper::PartialUpdate(unsigned int slot)
    return fCounts[slot];
 }
 
-void FillHelper::UpdateMinMax(unsigned int slot, double v)
+void BufferedFillHelper::UpdateMinMax(unsigned int slot, double v)
 {
-   auto &thisMin = fMin[slot];
-   auto &thisMax = fMax[slot];
+   auto &thisMin = fMin[slot * CacheLineStep<BufEl_t>()];
+   auto &thisMax = fMax[slot * CacheLineStep<BufEl_t>()];
    thisMin = std::min(thisMin, v);
    thisMax = std::max(thisMax, v);
 }
 
-FillHelper::FillHelper(const std::shared_ptr<Hist_t> &h, const unsigned int nSlots)
+BufferedFillHelper::BufferedFillHelper(const std::shared_ptr<Hist_t> &h, const unsigned int nSlots)
    : fResultHist(h), fNSlots(nSlots), fBufSize(fgTotalBufSize / nSlots), fPartialHists(fNSlots),
-     fMin(nSlots, std::numeric_limits<BufEl_t>::max()), fMax(nSlots, std::numeric_limits<BufEl_t>::lowest())
+     fMin(nSlots * CacheLineStep<BufEl_t>(), std::numeric_limits<BufEl_t>::max()),
+     fMax(nSlots * CacheLineStep<BufEl_t>(), std::numeric_limits<BufEl_t>::lowest())
 {
    fBuffers.reserve(fNSlots);
    fWBuffers.reserve(fNSlots);
@@ -59,20 +85,20 @@ FillHelper::FillHelper(const std::shared_ptr<Hist_t> &h, const unsigned int nSlo
    }
 }
 
-void FillHelper::Exec(unsigned int slot, double v)
+void BufferedFillHelper::Exec(unsigned int slot, double v)
 {
    UpdateMinMax(slot, v);
    fBuffers[slot].emplace_back(v);
 }
 
-void FillHelper::Exec(unsigned int slot, double v, double w)
+void BufferedFillHelper::Exec(unsigned int slot, double v, double w)
 {
    UpdateMinMax(slot, v);
    fBuffers[slot].emplace_back(v);
    fWBuffers[slot].emplace_back(w);
 }
 
-Hist_t &FillHelper::PartialUpdate(unsigned int slot)
+Hist_t &BufferedFillHelper::PartialUpdate(unsigned int slot)
 {
    auto &partialHist = fPartialHists[slot];
    // TODO it is inefficient to re-create the partial histogram everytime the callback is called
@@ -83,7 +109,7 @@ Hist_t &FillHelper::PartialUpdate(unsigned int slot)
    return *partialHist;
 }
 
-void FillHelper::Finalize()
+void BufferedFillHelper::Finalize()
 {
    for (unsigned int i = 0; i < fNSlots; ++i) {
       if (!fWBuffers[i].empty() && fBuffers[i].size() != fWBuffers[i].size()) {
@@ -105,46 +131,34 @@ void FillHelper::Finalize()
    }
 }
 
-template void FillHelper::Exec(unsigned int, const std::vector<float> &);
-template void FillHelper::Exec(unsigned int, const std::vector<double> &);
-template void FillHelper::Exec(unsigned int, const std::vector<char> &);
-template void FillHelper::Exec(unsigned int, const std::vector<int> &);
-template void FillHelper::Exec(unsigned int, const std::vector<unsigned int> &);
-template void FillHelper::Exec(unsigned int, const std::vector<float> &, const std::vector<float> &);
-template void FillHelper::Exec(unsigned int, const std::vector<double> &, const std::vector<double> &);
-template void FillHelper::Exec(unsigned int, const std::vector<char> &, const std::vector<char> &);
-template void FillHelper::Exec(unsigned int, const std::vector<int> &, const std::vector<int> &);
-template void FillHelper::Exec(unsigned int, const std::vector<unsigned int> &, const std::vector<unsigned int> &);
-
-// TODO
-// template void MinHelper::Exec(unsigned int, const std::vector<float> &);
-// template void MinHelper::Exec(unsigned int, const std::vector<double> &);
-// template void MinHelper::Exec(unsigned int, const std::vector<char> &);
-// template void MinHelper::Exec(unsigned int, const std::vector<int> &);
-// template void MinHelper::Exec(unsigned int, const std::vector<unsigned int> &);
-
-// template void MaxHelper::Exec(unsigned int, const std::vector<float> &);
-// template void MaxHelper::Exec(unsigned int, const std::vector<double> &);
-// template void MaxHelper::Exec(unsigned int, const std::vector<char> &);
-// template void MaxHelper::Exec(unsigned int, const std::vector<int> &);
-// template void MaxHelper::Exec(unsigned int, const std::vector<unsigned int> &);
-
 MeanHelper::MeanHelper(const std::shared_ptr<double> &meanVPtr, const unsigned int nSlots)
-   : fResultMean(meanVPtr), fCounts(nSlots, 0), fSums(nSlots, 0), fPartialMeans(nSlots)
+   : fResultMean(meanVPtr), fCounts(nSlots, 0), fSums(nSlots, 0), fPartialMeans(nSlots), fCompensations(nSlots)
 {
 }
 
 void MeanHelper::Exec(unsigned int slot, double v)
 {
-   fSums[slot] += v;
    fCounts[slot]++;
+   // Kahan Sum:
+   double y = v - fCompensations[slot];
+   double t = fSums[slot] + y;
+   fCompensations[slot] = (t - fSums[slot]) - y;
+   fSums[slot] = t;
 }
 
 void MeanHelper::Finalize()
 {
    double sumOfSums = 0;
-   for (auto &s : fSums)
-      sumOfSums += s;
+   // Kahan Sum:
+   double compensation(0);
+   double y(0);
+   double t(0);
+   for (auto &m : fSums) {
+      y = m - compensation;
+      t = sumOfSums + y;
+      compensation = (t - sumOfSums) - y;
+      sumOfSums = t;
+   }
    ULong64_t sumOfCounts = 0;
    for (auto &c : fCounts)
       sumOfCounts += c;
@@ -156,12 +170,6 @@ double &MeanHelper::PartialUpdate(unsigned int slot)
    fPartialMeans[slot] = fSums[slot] / fCounts[slot];
    return fPartialMeans[slot];
 }
-
-template void MeanHelper::Exec(unsigned int, const std::vector<float> &);
-template void MeanHelper::Exec(unsigned int, const std::vector<double> &);
-template void MeanHelper::Exec(unsigned int, const std::vector<char> &);
-template void MeanHelper::Exec(unsigned int, const std::vector<int> &);
-template void MeanHelper::Exec(unsigned int, const std::vector<unsigned int> &);
 
 StdDevHelper::StdDevHelper(const std::shared_ptr<double> &meanVPtr, const unsigned int nSlots)
    : fNSlots(nSlots), fResultStdDev(meanVPtr), fCounts(nSlots, 0), fMeans(nSlots, 0), fDistancesfromMean(nSlots, 0)
@@ -214,11 +222,45 @@ void StdDevHelper::Finalize()
    *fResultStdDev = std::sqrt(variance);
 }
 
-template void StdDevHelper::Exec(unsigned int, const std::vector<float> &);
-template void StdDevHelper::Exec(unsigned int, const std::vector<double> &);
-template void StdDevHelper::Exec(unsigned int, const std::vector<char> &);
-template void StdDevHelper::Exec(unsigned int, const std::vector<int> &);
-template void StdDevHelper::Exec(unsigned int, const std::vector<unsigned int> &);
+MedianHelper::MedianHelper(const std::shared_ptr<double> &meanVPtr, const unsigned int nSlots)
+   : fResult(meanVPtr), fBuffers(nSlots, std::vector<double>())
+{
+}
+
+void MedianHelper::Exec(unsigned int slot, double v)
+{
+   fBuffers[slot].push_back(v);
+}
+
+void MedianHelper::Finalize()
+{
+   std::vector<double> fullBuffer;
+   std::size_t fullBufferSize = 0;
+   for (const auto &buffer : fBuffers) {
+      fullBufferSize += buffer.size();
+   }
+
+   if (fullBufferSize == 0) {
+      *fResult = std::numeric_limits<double>::signaling_NaN();
+      return;
+   }
+
+   fullBuffer.reserve(fullBufferSize);
+
+   for (const auto &buffer : fBuffers)
+      fullBuffer.insert(fullBuffer.end(), buffer.begin(), buffer.end());
+
+   const std::size_t k = fullBufferSize / 2;
+   std::nth_element(fullBuffer.begin(), fullBuffer.begin() + k, fullBuffer.end());
+   const double upper = fullBuffer[k];
+
+   if (fullBuffer.size() % 2) {
+      *fResult = upper;
+   } else {
+      const double lower = *std::max_element(fullBuffer.begin(), fullBuffer.begin() + k);
+      *fResult = 0.5 * (lower + upper);
+   }
+}
 
 // External templates are disabled for gcc5 since this version wrongly omits the C++11 ABI attribute
 #if __GNUC__ > 5
@@ -233,37 +275,6 @@ template class TakeHelper<float, float, std::vector<float>>;
 template class TakeHelper<double, double, std::vector<double>>;
 #endif
 
-void ValidateSnapshotOutput(const RSnapshotOptions &opts, const std::string &treeName, const std::string &fileName)
-{
-   TString fileMode = opts.fMode;
-   fileMode.ToLower();
-   if (fileMode != "update")
-      return;
-
-   // output file opened in "update" mode: must check whether output TTree is already present in file
-   std::unique_ptr<TFile> outFile{TFile::Open(fileName.c_str(), "update")};
-   if (!outFile || outFile->IsZombie())
-      throw std::invalid_argument("Snapshot: cannot open file \"" + fileName + "\" in update mode");
-
-   TObject *outTree = outFile->Get(treeName.c_str());
-   if (outTree == nullptr)
-      return;
-
-   // object called treeName is already present in the file
-   if (opts.fOverwriteIfExists) {
-      if (outTree->InheritsFrom("TTree")) {
-         static_cast<TTree *>(outTree)->Delete("all");
-      } else {
-         outFile->Delete(treeName.c_str());
-      }
-   } else {
-      const std::string msg = "Snapshot: tree \"" + treeName + "\" already present in file \"" + fileName +
-                              "\". If you want to delete the original tree and write another, please set "
-                              "RSnapshotOptions::fOverwriteIfExists to true.";
-      throw std::invalid_argument(msg);
-   }
-}
-
-} // end NS RDF
-} // end NS Internal
-} // end NS ROOT
+} // namespace RDF
+} // namespace Internal
+} // namespace ROOT

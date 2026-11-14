@@ -33,31 +33,26 @@
 // from the context. The definition of what is punctuation can be redefined.
 //
 
-
-#include "RooFit.h"
-
-#include "Riostream.h"
-#include <stdlib.h>
-
 #ifndef _WIN32
 #include <strings.h>
 #endif
 
 #include "RooStreamParser.h"
 #include "RooMsgService.h"
-#include "RooNumber.h"
+#include "RooFitImplHelpers.h"
 
+#include <cstdlib>
+#include <istream>
 
-using namespace std;
+using std::istream, std::endl;
 
-ClassImp(RooStreamParser);
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Construct parser on given input stream
 
 RooStreamParser::RooStreamParser(istream& is) :
-  _is(&is), _atEOL(kFALSE), _atEOF(kFALSE), _prefix(""), _punct("()[]<>|/\\:?.,=+-&^%$#@!`~")
+  _is(&is), _atEOL(false), _atEOF(false), _prefix(""), _punct("()[]<>|/\\:?.,=+-&^%$#@!`~")
 {
 }
 
@@ -67,25 +62,14 @@ RooStreamParser::RooStreamParser(istream& is) :
 /// prefix any parsing error messages
 
 RooStreamParser::RooStreamParser(istream& is, const TString& errorPrefix) :
-  _is(&is), _atEOL(kFALSE), _atEOF(kFALSE), _prefix(errorPrefix), _punct("()[]<>|/\\:?.,=+-&^%$#@!`~")
+  _is(&is), _atEOL(false), _atEOF(false), _prefix(errorPrefix), _punct("()[]<>|/\\:?.,=+-&^%$#@!`~")
 {
 }
-
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// Destructor
-
-RooStreamParser::~RooStreamParser()
-{
-}
-
-
 
 ////////////////////////////////////////////////////////////////////////////////
 /// If true, parser is at end of line in stream
 
-Bool_t RooStreamParser::atEOL()
+bool RooStreamParser::atEOL()
 {
   Int_t nc(_is->peek()) ;
   return (nc=='\n'||nc==-1) ;
@@ -106,14 +90,15 @@ void RooStreamParser::setPunctuation(const TString& punct)
 ////////////////////////////////////////////////////////////////////////////////
 /// Check if given char is considered punctuation
 
-Bool_t RooStreamParser::isPunctChar(char c) const
+bool RooStreamParser::isPunctChar(char c) const
 {
   const char* punct = _punct.Data() ;
-  for (int i=0 ; i<_punct.Length() ; i++)
-    if (punct[i] == c) {
-      return kTRUE ;
-    }
-  return kFALSE ;
+  for (int i = 0; i < _punct.Length(); i++) {
+     if (punct[i] == c) {
+        return true;
+     }
+  }
+  return false ;
 }
 
 
@@ -129,14 +114,19 @@ Bool_t RooStreamParser::isPunctChar(char c) const
 TString RooStreamParser::readToken()
 {
   // Smart tokenizer. Absorb white space and token must be either punctuation or alphanum
-  Bool_t first(kTRUE), quotedString(kFALSE), lineCont(kFALSE) ;
-  char buffer[64000], c(0), cnext = '\0', cprev = ' ';
-  Bool_t haveINF(kFALSE) ;
+  bool first(true);
+  bool quotedString(false);
+  bool lineCont(false);
+  char buffer[64000];
+  char c(0);
+  char cnext = '\0';
+  char cprev = ' ';
+  bool haveINF(false) ;
   Int_t bufptr(0) ;
 
   // Check for end of file
   if (_is->eof() || _is->fail()) {
-    _atEOF = kTRUE ;
+    _atEOF = true ;
     return TString("") ;
   }
 
@@ -146,16 +136,16 @@ TString RooStreamParser::readToken()
 
     // If new line starts with #, zap it
     while (_is->peek()=='#') {
-      zapToEnd(kFALSE) ;
+      zapToEnd(false) ;
       _is->get(c) ; // absorb newline
     }
   }
 
-  while(1) {
+  while(true) {
     // Buffer overflow protection
     if (bufptr >= 63999) {
-      oocoutW((TObject *)0, InputArguments)
-              << "RooStreamParser::readToken: token length exceeds buffer capacity, terminating token early" << endl;
+      oocoutW(nullptr, InputArguments)
+              << "RooStreamParser::readToken: token length exceeds buffer capacity, terminating token early" << std::endl;
       break;
     }
 
@@ -169,12 +159,11 @@ TString RooStreamParser::readToken()
 
     // Terminate as SPACE, unless we haven't seen any non-SPACE yet
     if (isspace(c)) {
-      if (first)
-        continue ;
-      else
-        if (!quotedString) {
-          break ;
-        }
+      if (first) {
+         continue;
+      } else if (!quotedString) {
+         break;
+      }
     }
 
     // If '-' or '/' see what the next character is
@@ -183,14 +172,15 @@ TString RooStreamParser::readToken()
 
 
       if (cnext=='I' || cnext=='i') {
-        char tmp1,tmp2 ;
-        _is->get(tmp1) ;
-        _is->get(tmp2) ;
-        _is->putback(tmp2) ;
-        _is->putback(tmp1) ;
-        haveINF = ((cnext=='I' && tmp1 == 'N' && tmp2 == 'F') || (cnext=='i' && tmp1 == 'n' && tmp2 == 'f')) ;
+          char tmp1;
+          char tmp2;
+          _is->get(tmp1);
+          _is->get(tmp2);
+          _is->putback(tmp2);
+          _is->putback(tmp1);
+          haveINF = ((cnext == 'I' && tmp1 == 'N' && tmp2 == 'F') || (cnext == 'i' && tmp1 == 'n' && tmp2 == 'f'));
       } else {
-        haveINF = kFALSE ;
+        haveINF = false ;
       }
 
       _is->putback(cnext) ;
@@ -199,23 +189,23 @@ TString RooStreamParser::readToken()
 
     // Check for line continuation marker
     if (c=='\\' && cnext=='\\') {
-      // Kill rest of line including endline marker
-      zapToEnd(kFALSE) ;
+      // Kill rest of line including std::endline marker
+      zapToEnd(false) ;
       _is->get(c) ;
-      lineCont=kTRUE ;
+      lineCont=true ;
       break ;
     }
 
     // Stop if begin of comments is encountered
     if (c=='/' && cnext=='/') {
-      zapToEnd(kFALSE) ;
+      zapToEnd(false) ;
       break ;
     }
 
     // Special handling of quoted strings
     if (c=='"') {
       if (first) {
-        quotedString=kTRUE ;
+        quotedString=true ;
       } else if (!quotedString) {
         // Terminate current token. Next token will be quoted string
         _is->putback('"') ;
@@ -245,24 +235,24 @@ TString RooStreamParser::readToken()
       // Terminate token on closing quote
       if (c=='"' && !first) {
         buffer[bufptr++]=c ;
-        quotedString=kFALSE ;
+        quotedString=false ;
         break ;
       }
     }
 
     // Store in buffer
     buffer[bufptr++]=c ;
-    first=kFALSE ;
+    first=false ;
     cprev=c ;
   }
 
   if (_is->eof() || _is->bad()) {
-    _atEOF = kTRUE ;
+    _atEOF = true ;
   }
 
   // Check if closing quote was encountered
   if (quotedString) {
-    oocoutW((TObject*)0,InputArguments) << "RooStreamParser::readToken: closing quote (\") missing" << endl ;
+    oocoutW(nullptr,InputArguments) << "RooStreamParser::readToken: closing quote (\") missing" << std::endl ;
   }
 
   // Absorb trailing white space or absorb rest of line if // is encountered
@@ -277,7 +267,7 @@ TString RooStreamParser::readToken()
       if (c=='/') {
         _is->get(c) ;
         if (_is->peek()=='/') {
-          zapToEnd(kFALSE) ;
+          zapToEnd(false) ;
         } else {
           _is->putback('/') ;
         }
@@ -308,7 +298,8 @@ TString RooStreamParser::readToken()
 
 TString RooStreamParser::readLine()
 {
-   char c, buffer[64000];
+   char c;
+   char buffer[64000];
    Int_t nfree(63999);
 
    if (_is->peek() == '\n')
@@ -328,37 +319,41 @@ TString RooStreamParser::readLine()
       if (nextpcontseq)
          nfree -= (nextpcontseq - pcontseq);
       pcontseq = nextpcontseq;
-  }
+   }
 
-  // Chop eventual comments
-  char *pcomment = strstr(buffer,"//") ;
-  if (pcomment) *pcomment=0 ;
+   // Chop eventual comments
+   char *pcomment = strstr(buffer, "//");
+   if (pcomment)
+      *pcomment = 0;
 
-  // Chop leading and trailing space
-  char *pstart=buffer ;
-  while (isspace(*pstart)) {
-    pstart++ ;
-  }
-  char *pend=buffer+strlen(buffer)-1 ;
-  if (pend>pstart)
-    while (isspace(*pend)) { *pend--=0 ; }
+   // Chop leading and trailing space
+   char *pstart = buffer;
+   while (isspace(*pstart)) {
+      pstart++;
+   }
+   char *pend = buffer + strlen(buffer) - 1;
+   if (pend > pstart) {
+      while (isspace(*pend)) {
+         *pend-- = 0;
+      }
+   }
 
-  if (_is->eof() || _is->fail()) {
-    _atEOF = kTRUE ;
-  }
+   if (_is->eof() || _is->fail()) {
+      _atEOF = true;
+   }
 
-  // Convert to TString
-  return TString(pstart) ;
+   // Convert to TString
+   return TString(pstart);
 }
 
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Eat all characters up to and including then end of the
-/// current line. If inclContLines is kTRUE, all continuation lines
+/// current line. If inclContLines is true, all continuation lines
 /// marked by the '\\' token are zapped as well
 
-void RooStreamParser::zapToEnd(Bool_t inclContLines)
+void RooStreamParser::zapToEnd(bool inclContLines)
 {
   // Skip over everything until the end of the current line
   if (_is->peek()!='\n') {
@@ -392,17 +387,17 @@ void RooStreamParser::zapToEnd(Bool_t inclContLines)
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Read the next token and return kTRUE if it is identical to the given 'expected' token.
+/// Read the next token and return true if it is identical to the given 'expected' token.
 
-Bool_t RooStreamParser::expectToken(const TString& expected, Bool_t zapOnError)
+bool RooStreamParser::expectToken(const TString& expected, bool zapOnError)
 {
   TString token(readToken()) ;
 
-  Bool_t error=token.CompareTo(expected) ;
+  bool error=token.CompareTo(expected) ;
   if (error && !_prefix.IsNull()) {
-    oocoutW((TObject*)0,InputArguments) << _prefix << ": parse error, expected '"
-					<< expected << "'" << ", got '" << token << "'" << endl ;
-    if (zapOnError) zapToEnd(kTRUE) ;
+    oocoutW(nullptr,InputArguments) << _prefix << ": parse error, expected '"
+               << expected << "'" << ", got '" << token << "'" << std::endl ;
+    if (zapOnError) zapToEnd(true) ;
   }
   return error ;
 }
@@ -410,41 +405,24 @@ Bool_t RooStreamParser::expectToken(const TString& expected, Bool_t zapOnError)
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Read the next token and convert it to a Double_t. Returns true
+/// Read the next token and convert it to a double. Returns true
 /// if an error occurred in reading or conversion
 
-Bool_t RooStreamParser::readDouble(Double_t& value, Bool_t /*zapOnError*/)
+bool RooStreamParser::readDouble(double& value, bool /*zapOnError*/)
 {
   TString token(readToken()) ;
-  if (token.IsNull()) return kTRUE ;
+  if (token.IsNull()) return true ;
   return convertToDouble(token,value) ;
 
 }
 
-
-
 ////////////////////////////////////////////////////////////////////////////////
-/// Convert given string to a double. Return true if the conversion fails.
+/// Convert given string to a double. Throws exceptions if the conversion fails.
 
-Bool_t RooStreamParser::convertToDouble(const TString& token, Double_t& value)
+bool RooStreamParser::convertToDouble(const TString &token, double &value)
 {
-  char* endptr = 0;
-  const char* data=token.Data() ;
-
-  // Handle +/- infinity cases, (token is guaranteed to be >1 char long)
-  if (!strcasecmp(data,"inf") || !strcasecmp(data+1,"inf")) {
-    value = (data[0]=='-') ? -RooNumber::infinity() : RooNumber::infinity() ;
-    return kFALSE ;
-  }
-
-  value = strtod(data,&endptr) ;
-  Bool_t error = (endptr-data!=token.Length()) ;
-
-  if (error && !_prefix.IsNull()) {
-    oocoutE((TObject*)0,InputArguments) << _prefix << ": parse error, cannot convert '"
-					<< token << "'" << " to double precision" <<  endl ;
-  }
-  return error ;
+   value = toDouble(token.Data());
+   return false;
 }
 
 
@@ -453,10 +431,10 @@ Bool_t RooStreamParser::convertToDouble(const TString& token, Double_t& value)
 /// Read a token and convert it to an Int_t. Returns true
 /// if an error occurred in reading or conversion
 
-Bool_t RooStreamParser::readInteger(Int_t& value, Bool_t /*zapOnError*/)
+bool RooStreamParser::readInteger(Int_t& value, bool /*zapOnError*/)
 {
   TString token(readToken()) ;
-  if (token.IsNull()) return kTRUE ;
+  if (token.IsNull()) return true ;
   return convertToInteger(token,value) ;
 }
 
@@ -466,16 +444,16 @@ Bool_t RooStreamParser::readInteger(Int_t& value, Bool_t /*zapOnError*/)
 /// Convert given string to an Int_t. Returns true if an error
 /// occurred in conversion
 
-Bool_t RooStreamParser::convertToInteger(const TString& token, Int_t& value)
+bool RooStreamParser::convertToInteger(const TString& token, Int_t& value)
 {
-  char* endptr = 0;
+  char* endptr = nullptr;
   const char* data=token.Data() ;
   value = strtol(data,&endptr,10) ;
-  Bool_t error = (endptr-data!=token.Length()) ;
+  bool error = (endptr-data!=token.Length()) ;
 
   if (error && !_prefix.IsNull()) {
-    oocoutE((TObject*)0,InputArguments)<< _prefix << ": parse error, cannot convert '"
-				       << token << "'" << " to integer" <<  endl ;
+    oocoutE(nullptr,InputArguments)<< _prefix << ": parse error, cannot convert '"
+                   << token << "'" << " to integer" <<  std::endl ;
   }
   return error ;
 }
@@ -487,10 +465,10 @@ Bool_t RooStreamParser::convertToInteger(const TString& token, Int_t& value)
 /// or conversion.  If a the read token is enclosed in quotation
 /// marks those are stripped in the returned value
 
-Bool_t RooStreamParser::readString(TString& value, Bool_t /*zapOnError*/)
+bool RooStreamParser::readString(TString& value, bool /*zapOnError*/)
 {
   TString token(readToken()) ;
-  if (token.IsNull()) return kTRUE ;
+  if (token.IsNull()) return true ;
   return convertToString(token,value) ;
 }
 
@@ -499,15 +477,16 @@ Bool_t RooStreamParser::readString(TString& value, Bool_t /*zapOnError*/)
 ////////////////////////////////////////////////////////////////////////////////
 /// Convert given token to a string (i.e. remove eventual quotation marks)
 
-Bool_t RooStreamParser::convertToString(const TString& token, TString& string)
+bool RooStreamParser::convertToString(const TString& token, TString& string)
 {
    // Transport to buffer
-   char buffer[64000], *ptr;
-   strncpy(buffer, token.Data(), 63999);
-   if (token.Length() >= 63999) {
-      oocoutW((TObject *)0, InputArguments) << "RooStreamParser::convertToString: token length exceeds 63999, truncated"
-                                            << endl;
-      buffer[63999] = 0;
+  char buffer[64000];
+  char *ptr;
+  strncpy(buffer, token.Data(), 63999);
+  if (token.Length() >= 63999) {
+    oocoutW(nullptr, InputArguments) << "RooStreamParser::convertToString: token length exceeds 63999, truncated"
+                                     << std::endl;
+    buffer[63999] = 0;
   }
   int len = strlen(buffer) ;
 
@@ -519,5 +498,5 @@ Bool_t RooStreamParser::convertToString(const TString& token, TString& string)
   ptr=(buffer[0]=='"') ? buffer+1 : buffer ;
 
   string = ptr ;
-  return kFALSE ;
+  return false ;
 }

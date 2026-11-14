@@ -88,9 +88,6 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#include <cstdlib>
-#include <iostream>
-#include <snprintf.h>
 #include <TSystem.h>
 #include <TFile.h>
 #include <TBenchmark.h>
@@ -119,6 +116,20 @@
 #include "TDecompBK.h"
 #include "TMatrixDEigen.h"
 #include "TMatrixDSymEigen.h"
+
+#include <cstdlib>
+#include <iostream>
+#include <cstdio>
+
+#ifdef __CLING__
+const auto tmp_vmatrix_file_name = "stress-vmatrix_interpreted.root";
+const auto tmp_vvector_file_name = "stress-vvector_interpreted.root";
+const auto tmp_vdecomp_file_name ="stress-vdecomp_interpreted.root";
+#else
+const auto tmp_vmatrix_file_name = "stress-vmatrix.root";
+const auto tmp_vvector_file_name = "stress-vvector.root";
+const auto tmp_vdecomp_file_name = "stress-vdecomp.root";
+#endif
 
 void stressLinear                  (Int_t maxSizeReq=100,Int_t verbose=0);
 void StatusPrint                   (Int_t id,const TString &title,Bool_t status);
@@ -169,7 +180,7 @@ void   stress_backward_io          ();
 void   cleanup                     ();
 
 //_____________________________batch only_____________________
-#ifndef __CINT__
+#ifndef __CLING__
 
 int main(int argc,const char *argv[])
 {
@@ -224,7 +235,7 @@ void stressLinear(Int_t maxSizeReq,Int_t verbose)
     mstress_binary_ebe_op(maxSize/2,maxSize);
     mstress_transposition(maxSize);
     mstress_special_creation(maxSize);
-#ifndef __CINT__
+#ifndef __CLING__
     mstress_matrix_promises(maxSize);
 #endif
     mstress_norms(maxSize,maxSize/2);
@@ -296,10 +307,6 @@ void stressLinear(Int_t maxSizeReq,Int_t verbose)
      TString sp = gSystem->GetFromPipe("uname -a");
      sp.Resize(60);
      printf("*  SYS: %s\n",sp.Data());
-     if (strstr(gSystem->GetBuildNode(),"Linux")) {
-        sp = gSystem->GetFromPipe("lsb_release -d -s");
-        printf("*  SYS: %s\n",sp.Data());
-     }
      if (strstr(gSystem->GetBuildNode(),"Darwin")) {
         sp  = gSystem->GetFromPipe("sw_vers -productVersion");
         sp += " Mac OS X ";
@@ -435,7 +442,7 @@ void mstress_allocation(Int_t msize)
 
 class FillMatrix : public TElementPosActionD {
    Int_t no_elems,no_cols;
-   void Operation(Double_t &element) const
+   void Operation(Double_t &element) const override
       { element = 4*TMath::Pi()/no_elems * (fI*no_cols+fJ); }
 public:
    FillMatrix() {}
@@ -456,7 +463,7 @@ void mstress_matrix_fill(Int_t rsize,Int_t csize)
   if (gVerbose)
     std::cout << "Creating m  with Apply function..." << std::endl;
   TMatrixD m(-1,rsize-2,1,csize);
-#ifndef __CINT__
+#ifndef __CLING__
   FillMatrix f(m);
   m.Apply(f);
 #else
@@ -609,7 +616,7 @@ void mstress_matrix_fill(Int_t rsize,Int_t csize)
 typedef  Double_t (*dfunc)(Double_t);
 class ApplyFunction : public TElementActionD {
    dfunc fFunc;
-   void Operation(Double_t &element) const { element = fFunc(Double_t(element)); }
+   void Operation(Double_t &element) const override { element = fFunc(Double_t(element)); }
 public:
    ApplyFunction(dfunc func) : fFunc(func) { }
 };
@@ -730,7 +737,7 @@ void mstress_element_op(Int_t rsize,Int_t csize)
   if (gVerbose)
     std::cout << "\nCheck out to see that sin^2(x) + cos^2(x) = 1" << std::endl;
   {
-#ifndef __CINT__
+#ifndef __CLING__
     FillMatrix f(m);
     m.Apply(f);
 #else
@@ -741,7 +748,7 @@ void mstress_element_op(Int_t rsize,Int_t csize)
   }
   m1 = m;
   {
-#ifndef __CINT__
+#ifndef __CLING__
     ApplyFunction s(&TMath::Sin);
     ApplyFunction c(&TMath::Cos);
     m.Apply(s);
@@ -925,15 +932,15 @@ void mstress_transposition(Int_t msize)
 //           Test special matrix creation
 //
 class MakeHilbert : public TElementPosActionD {
-  void Operation(Double_t &element) const { element = 1./(fI+fJ+1); }
+  void Operation(Double_t &element) const override { element = 1./(fI+fJ+1); }
 public:
   MakeHilbert() { }
 };
 
-#if !defined (__CINT__) || defined (__MAKECINT__)
+#ifndef __CLING__
 class TestUnit : public TElementPosActionD {
   mutable Int_t fIsUnit;
-  void Operation(Double_t &element) const
+  void Operation(Double_t &element) const override
       { if (fIsUnit)
           fIsUnit = ((fI==fJ) ? (element == 1.0) : (element == 0)); }
 public:
@@ -965,7 +972,7 @@ void mstress_special_creation(Int_t dim)
     TMatrixD m1(TMatrixD::kZero,m);
     ok &= ( !(m == m1) ) ? kTRUE : kFALSE;
     ok &= ( m != 0 ) ? kTRUE : kFALSE;
-#ifndef __CINT__
+#ifndef __CLING__
     MakeHilbert mh;
     m1.Apply(mh);
 #else
@@ -993,7 +1000,7 @@ void mstress_special_creation(Int_t dim)
     if (gVerbose)
       std::cout << "test creating unit matrices" << std::endl;
     TMatrixD m(dim,dim);
-#ifndef __CINT__
+#ifndef __CLING__
     {
       TestUnit test_unit;
       m.Apply(test_unit);
@@ -1003,7 +1010,7 @@ void mstress_special_creation(Int_t dim)
     ok &= ( !is_indeed_unit(m) ) ? kTRUE : kFALSE;
 #endif
     m.UnitMatrix();
-#ifndef __CINT__
+#ifndef __CLING__
     {
       TestUnit test_unit;
        m.Apply(test_unit);
@@ -1014,7 +1021,7 @@ void mstress_special_creation(Int_t dim)
 #endif
     m.ResizeTo(dim-1,dim);
     TMatrixD m2(TMatrixD::kUnit,m);
-#ifndef __CINT__
+#ifndef __CLING__
     {
       TestUnit test_unit;
       m2.Apply(test_unit);
@@ -1025,7 +1032,7 @@ void mstress_special_creation(Int_t dim)
 #endif
     m.ResizeTo(dim,dim-2);
     m.UnitMatrix();
-#ifndef __CINT__
+#ifndef __CLING__
     {
       TestUnit test_unit;
       m.Apply(test_unit);
@@ -1075,13 +1082,13 @@ void mstress_special_creation(Int_t dim)
   StatusPrint(6,"Haar/Hilbert Matrix",ok);
 }
 
-#ifndef __CINT__
+#ifndef __CLING__
 //
 //------------------------------------------------------------------------
 //           Test matrix promises
 //
 class hilbert_matrix_promise : public TMatrixDLazy {
-  void FillIn(TMatrixD &m) const { m = THilbertMatrixD(m.GetRowLwb(),m.GetRowUpb(),
+  void FillIn(TMatrixD &m) const override { m = THilbertMatrixD(m.GetRowLwb(),m.GetRowUpb(),
                                                    m.GetColLwb(),m.GetColUpb()); }
 
 public:
@@ -1529,7 +1536,7 @@ void mstress_mm_multiplications()
       ok &= VerifyMatrixIdentity(mm1,mm2,verbose,epsilon);
     }
 
-#ifndef __CINT__
+#ifndef __CLING__
     if (nr >= Int_t(1.0e+5/msize/msize)) {
 #else
     if (nr >= Int_t(1.0e+3/msize/msize)) {
@@ -1873,7 +1880,7 @@ void mstress_vm_multiplications()
       ok &= VerifyMatrixIdentity(mvb,mvm,verbose,epsilon);
     }
 
-#ifndef __CINT__
+#ifndef __CLING__
     if (nr >= Int_t(1.0e+5/msize/msize)) {
 #else
     if (nr >= Int_t(1.0e+3/msize/msize)) {
@@ -2003,7 +2010,7 @@ void mstress_inversion()
       ok &= VerifyMatrixIdentity(mmi,unit,verbose,epsilon);
     }
 
-#ifndef __CINT__
+#ifndef __CLING__
     if (nr >= Int_t(1.0e+5/msize/msize)) {
 #else
     if (nr >= Int_t(1.0e+3/msize/msize)) {
@@ -2079,7 +2086,7 @@ void mstress_matrix_io()
   Bool_t ok = kTRUE;
   const Double_t pattern = TMath::Pi();
 
-  TFile *f = new TFile("stress-vmatrix.root", "RECREATE");
+  TFile *f = new TFile(tmp_vmatrix_file_name, "RECREATE");
 
   Char_t name[80];
   Int_t iloop = gNrLoop;
@@ -2126,7 +2133,7 @@ void mstress_matrix_io()
 
   if (gVerbose)
     std::cout << "\nOpen database in read-only mode and read matrix" << std::endl;
-  TFile *f1 = new TFile("stress-vmatrix.root");
+  TFile *f1 = new TFile(tmp_vmatrix_file_name);
 
   iloop = gNrLoop;
   while (iloop >= 0) {
@@ -2864,7 +2871,7 @@ void spstress_mm_multiplications()
       ok &= VerifyMatrixIdentity(m,mp3,verbose,epsilon);
     }
 
-#ifndef __CINT__
+#ifndef __CLING__
     if (nr >= Int_t(1.0e+5/msize/msize)) {
 #else
     if (nr >= Int_t(1.0e+3/msize/msize)) {
@@ -2996,7 +3003,7 @@ void spstress_vm_multiplications()
       ok &= VerifyMatrixIdentity(mvb,mvm,verbose,epsilon);
     }
 
-#ifndef __CINT__
+#ifndef __CLING__
     if (nr >= Int_t(1.0e+5/msize/msize)) {
 #else
     if (nr >= Int_t(1.0e+3/msize/msize)) {
@@ -3114,7 +3121,7 @@ void spstress_matrix_io()
   Bool_t ok = kTRUE;
   const Double_t pattern = TMath::Pi();
 
-  TFile *f = new TFile("stress-vmatrix.root", "RECREATE");
+  TFile *f = new TFile(tmp_vmatrix_file_name, "RECREATE");
 
   Char_t name[80];
   Int_t iloop = gNrLoop;
@@ -3147,7 +3154,7 @@ void spstress_matrix_io()
 
   if (gVerbose)
     std::cout << "\nOpen database in read-only mode and read matrix" << std::endl;
-  TFile *f1 = new TFile("stress-vmatrix.root");
+  TFile *f1 = new TFile(tmp_vmatrix_file_name);
 
   iloop = gNrLoop;
   while (iloop >= 0) {
@@ -3256,14 +3263,14 @@ void vstress_allocation(Int_t msize)
 //                Test uniform element operations
 //
 class SinAction : public TElementActionD {
-  void Operation(Double_t &element) const { element = TMath::Sin(element); }
+  void Operation(Double_t &element) const override { element = TMath::Sin(element); }
   public:
     SinAction() { }
 };
 
 class CosAction : public TElementPosActionD {
   Double_t factor;
-  void Operation(Double_t &element) const { element = TMath::Cos(factor*fI); }
+  void Operation(Double_t &element) const override { element = TMath::Cos(factor*fI); }
   public:
     CosAction(Int_t no_elems): factor(2*TMath::Pi()/no_elems) { }
 };
@@ -3373,7 +3380,7 @@ void vstress_element_op(Int_t vsize)
       std::cout << "\nCheck out to see that sin^2(x) + cos^2(x) = 1" << std::endl;
     for (Int_t i = v.GetLwb(); i <= v.GetUpb(); i++)
       v(i) = 2*TMath::Pi()/v.GetNoElements()*i;
-#ifndef __CINT__
+#ifndef __CLING__
     SinAction s;
     v.Apply(s);
     CosAction c(v.GetNoElements());
@@ -3394,7 +3401,7 @@ void vstress_element_op(Int_t vsize)
 
   if (gVerbose)
     std::cout << "\nVerify constructor with initialization" << std::endl;
-#ifndef __CINT__
+#ifndef __CLING__
   TVectorD vi(0,4,0.0,1.0,2.0,3.0,4.0,"END");
 #else
   Double_t vval[] = {0.0,1.0,2.0,3.0,4.0};
@@ -3753,7 +3760,7 @@ void vstress_vector_io()
   Bool_t ok = kTRUE;
   const Double_t pattern = TMath::Pi();
 
-  TFile *f = new TFile("stress-vvector.root","RECREATE");
+  TFile *f = new TFile(tmp_vvector_file_name,"RECREATE");
 
   Char_t name[80];
   Int_t iloop = gNrLoop;
@@ -3790,7 +3797,7 @@ void vstress_vector_io()
 
   if (gVerbose)
     std::cout << "\nOpen database in read-only mode and read vector" << std::endl;
-  TFile *f1 = new TFile("stress-vvector.root");
+  TFile *f1 = new TFile(tmp_vvector_file_name);
 
   iloop = gNrLoop;
   while (iloop >= 0) {
@@ -3881,12 +3888,12 @@ Bool_t test_svd_expansion(const TMatrixD &A)
   return ok;
 }
 
-#ifndef __CINT__
+#ifndef __CLING__
 // Make a matrix from an array (read it row-by-row)
 class MakeMatrix : public TMatrixDLazy {
   const Double_t *array;
         Int_t     no_elems;
-  void FillIn(TMatrixD& m) const {
+  void FillIn(TMatrixD& m) const override {
     R__ASSERT( m.GetNrows() * m.GetNcols() == no_elems );
     const Double_t *ap = array;
           Double_t *mp = m.GetMatrixArray();
@@ -4116,7 +4123,7 @@ void astress_lineqn()
         ok &= VerifyVectorValue(b1,1.0,verbose,msize*EPSILON);
     }
 
-#ifndef __CINT__
+#ifndef __CLING__
     if (nr >= Int_t(1.0e+5/msize/msize)) {
 #else
     if (nr >= Int_t(1.0e+3/msize/msize)) {
@@ -4156,7 +4163,7 @@ void astress_pseudo()
 
   // Allocate and fill matrix A
   enum {nrows = 4, ncols = 3};
-#ifndef __CINT__
+#ifndef __CLING__
   const Double_t A_data [nrows*ncols] =
 #else
   const Double_t A_data [12] =
@@ -4279,7 +4286,7 @@ void astress_decomp_io(Int_t msize)
   if (gVerbose)
     std::cout << "\nWrite decomp m to database" << std::endl;
 
-  TFile *f = new TFile("stress-vdecomp.root", "RECREATE");
+  TFile *f = new TFile(tmp_vdecomp_file_name, "RECREATE");
 
   TDecompLU   lu(m,1.0e-20);
   TDecompQRH  qrh(m,1.0e-20);
@@ -4299,7 +4306,7 @@ void astress_decomp_io(Int_t msize)
 
   if (gVerbose)
     std::cout << "\nOpen database in read-only mode and read matrix" << std::endl;
-  TFile *f1 = new TFile("stress-vdecomp.root");
+  TFile *f1 = new TFile(tmp_vdecomp_file_name);
 
   if (gVerbose)
     std::cout << "\nRead decompositions should create same solutions" << std::endl;
@@ -4383,8 +4390,7 @@ void astress_decomp_io(Int_t msize)
 
 void stress_backward_io()
 {
-  TFile::SetCacheFileDir(".");
-  TFile *f = TFile::Open("http://root.cern.ch/files/linearIO.root","CACHEREAD");
+  TFile *f = TFile::Open("./linearIO.root");
 
   TMatrixF mf1 = THilbertMatrixF(-5,5,-5,5);
   mf1[1][2] = TMath::Pi();
@@ -4422,7 +4428,7 @@ void stress_backward_io()
 
 void cleanup()
 {
-  gSystem->Unlink("stress-vmatrix.root");
-  gSystem->Unlink("stress-vvector.root");
-  gSystem->Unlink("stress-vdecomp.root");
+  gSystem->Unlink(tmp_vmatrix_file_name);
+  gSystem->Unlink(tmp_vvector_file_name);
+  gSystem->Unlink(tmp_vdecomp_file_name);
 }

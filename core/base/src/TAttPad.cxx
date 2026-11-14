@@ -9,12 +9,11 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include "Strlen.h"
 #include "TAttPad.h"
 #include "TBuffer.h"
 #include "TStyle.h"
 
-ClassImp(TAttPad);
+#include <cstring>
 
 /** \class TAttPad
 \ingroup Base

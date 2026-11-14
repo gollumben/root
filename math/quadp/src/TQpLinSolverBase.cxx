@@ -50,7 +50,6 @@
 
 #include "TQpLinSolverBase.h"
 
-ClassImp(TQpLinSolverBase);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor
@@ -64,7 +63,7 @@ TQpLinSolverBase::TQpLinSolverBase()
    fNxlo = 0;
    fMcup = 0;
    fMclo = 0;
-   fFactory = 0;
+   fFactory = nullptr;
 }
 
 
@@ -307,7 +306,7 @@ void TQpLinSolverBase::SeparateVars(TVectorD &x_in,TVectorD &y_in,
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Assignment opeartor
+/// Assignment operator
 
 TQpLinSolverBase &TQpLinSolverBase::operator=(const TQpLinSolverBase &source)
 {

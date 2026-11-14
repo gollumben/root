@@ -25,15 +25,17 @@
 class TASPluginGS : public TASImagePlugin {
 
 private:
-   char  *fInterpreter;   ///< path to GhostScript interpreter
+   TString fGsExe;   ///< path to GhostScript interpreter
 
 public:
    TASPluginGS(const char *ext);
-   virtual ~TASPluginGS();
+   ~TASPluginGS() override;
 
-   ASImage *File2ASImage(const char *filename);
+   ULong_t Hash() const override { return fExtension.Hash(); }
 
-   ClassDef(TASPluginGS, 0)  // PS/EPS/PDF plugin based on GhostScript interpreter
+   ASImage *File2ASImage(const char *filename) override;
+
+   ClassDefOverride(TASPluginGS, 0)  // PS/EPS/PDF plugin based on GhostScript interpreter
 };
 
 #endif

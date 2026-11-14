@@ -82,15 +82,12 @@ GetPosition() to retrieve the position of the slider.
 #include <iostream>
 
 
-ClassImp(TGDoubleSlider);
-ClassImp(TGDoubleVSlider);
-ClassImp(TGDoubleHSlider);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Slider constructor.
 
 TGDoubleSlider::TGDoubleSlider(const TGWindow *p, UInt_t w, UInt_t h, UInt_t type, Int_t id,
-                               UInt_t options, ULong_t back,
+                               UInt_t options, Pixel_t back,
                                Bool_t reversed, Bool_t mark_ends)
    : TGFrame(p, w, h, options, back)
 {
@@ -211,13 +208,13 @@ void TGDoubleSlider::ChangeCursor(Event_t *event)
    // constrain to the slider width
    if (xy > hw/2-7 && xy < hw/2+7 && fMove != 3) {
       // if the mouse pointer is in the top resizing zone,
-      // and we are not already moving the the bottom side,
+      // and we are not already moving the bottom side,
       // set the cursor shape as TopSide
       if ((yx <= (relMax - relMin) / 4 + relMin) &&
           (yx >= relMin) && (fMove != 2))
          gVirtualX->SetCursor(fId, minCur);
       // if the mouse pointer is in the bottom resizing zone,
-      // and we are not already moving the the top side,
+      // and we are not already moving the top side,
       // set the cursor shape as BottomSide
       else if ((yx >= (relMax - relMin) / 4 * 3 + relMin) &&
                (yx <= relMax) && (fMove != 1))
@@ -624,35 +621,29 @@ void TGDoubleHSlider::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/
 {
    SaveUserColor(out, option);
 
-   out <<"   TGDoubleHSlider *";
-   out << GetName() << " = new TGDoubleHSlider(" << fParent->GetName()
-       << "," << GetWidth() << ",";
-   out << GetSString() << "," << WidgetId() << ",";
-   out << GetOptionString() << ",ucolor";
+   out << "   TGDoubleHSlider *" << GetName() << " = new TGDoubleHSlider(" << fParent->GetName() << "," << GetWidth()
+       << ", " << GetSString() << ", " << WidgetId() << ", " << GetOptionString() << ", ucolor";
    if (fMarkEnds) {
       if (fReversedScale)
-         out << ",kTRUE,kTRUE);" << std::endl;
+         out << ", kTRUE, kTRUE);\n";
       else
-         out << ",kFALSE,kTRUE);" << std::endl;
+         out << ", kFALSE, kTRUE);\n";
    } else if (fReversedScale) {
-      out << ",kTRUE);" << std::endl;
+      out << ", kTRUE);\n";
    } else {
-      out << ");" << std::endl;
+      out << ");\n";
    }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
    if (fVmin != 0 || fVmax != (Int_t)fWidth)
-      out << "   " << GetName() << "->SetRange(" << fVmin << "," << fVmax
-          << ");" << std::endl;
+      out << "   " << GetName() << "->SetRange(" << fVmin << "," << fVmax << ");\n";
 
-   if (fSmin != fWidth/8*3 || fSmax != fWidth/8*5)
-      out << "   " << GetName() << "->SetPosition(" << GetMinPosition()
-          << "," << GetMaxPosition() << ");" << std::endl;
+   if (fSmin != fWidth / 8 * 3 || fSmax != fWidth / 8 * 5)
+      out << "   " << GetName() << "->SetPosition(" << GetMinPosition() << "," << GetMaxPosition() << ");\n";
 
    if (fScale != 10)
-      out << "   " << GetName() << "->SetScale(" << fScale << ");" << std::endl;
-
+      out << "   " << GetName() << "->SetScale(" << fScale << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -662,35 +653,27 @@ void TGDoubleVSlider::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/
 {
    SaveUserColor(out, option);
 
-   out<<"   TGDoubleVSlider *";
-   out << GetName() << " = new TGDoubleVSlider("<< fParent->GetName()
-       << "," << GetHeight() << ",";
-   out << GetSString() << "," << WidgetId() << ",";
-   out << GetOptionString() << ",ucolor";
+   out << "   TGDoubleVSlider *" << GetName() << " = new TGDoubleVSlider(" << fParent->GetName() << "," << GetHeight()
+       << "," << GetSString() << "," << WidgetId() << "," << GetOptionString() << ", ucolor";
    if (fMarkEnds) {
       if (fReversedScale)
-         out << ",kTRUE,kTRUE);" << std::endl;
+         out << ",kTRUE,kTRUE);\n";
       else
-         out << ",kFALSE,kTRUE);" << std::endl;
+         out << ",kFALSE,kTRUE);\n";
    } else if (fReversedScale) {
-      out << ",kTRUE);" << std::endl;
+      out << ",kTRUE);\n";
    } else {
-      out << ");" << std::endl;
+      out << ");\n";
    }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
    if (fVmin != 0 || fVmax != (Int_t)fHeight)
-      out << "   " << GetName() <<"->SetRange(" << fVmin << "," << fVmax
-          << ");" << std::endl;
+      out << "   " << GetName() << "->SetRange(" << fVmin << "," << fVmax << ");\n";
 
-
-   if (fSmin != fHeight/8*3 || fSmax != fHeight/8*5)
-      out << "   " << GetName() << "->SetPosition(" << GetMinPosition()
-          << "," << GetMaxPosition() << ");" << std::endl;
-
+   if (fSmin != fHeight / 8 * 3 || fSmax != fHeight / 8 * 5)
+      out << "   " << GetName() << "->SetPosition(" << GetMinPosition() << "," << GetMaxPosition() << ");\n";
 
    if (fScale != 10)
-      out << "   " << GetName() << "->SetScale(" << fScale << ");" << std::endl;
-
+      out << "   " << GetName() << "->SetScale(" << fScale << ");\n";
 }

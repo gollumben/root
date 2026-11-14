@@ -25,6 +25,7 @@
 
 #include <cling/Interpreter/RuntimeOptions.h>
 #include "cling/Interpreter/Visibility.h"
+#include <cstddef>
 #include <new>
 
 namespace cling {
@@ -50,7 +51,7 @@ namespace cling {
       ///
       /// Use instead of SourceLocation() and SourceRange(). This might help,
       /// when clang emits diagnostics on artificially inserted AST node.
-      int InterpreterGeneratedCodeDiagnosticsMaybeIncorrect;
+      static int InterpreterGeneratedCodeDiagnosticsMaybeIncorrect;
 
 
       ///\brief Set the type of a void expression evaluated at the prompt.
@@ -171,16 +172,10 @@ namespace cling {
       ///\param[in] placement - where to copy
       ///\param[in] size - size of the array.
       ///
-      template <class T, class = T (*)() /*disable for arrays*/>
+      template <class T>
       void copyArray(T* src, void* placement, std::size_t size) {
         for (std::size_t i = 0; i < size; ++i)
           new ((void*)(((T*)placement) + i)) T(src[i]);
-      }
-
-      // "size" is the number of elements even for subarrays; flatten the type:
-      template <class T, std::size_t N>
-      void copyArray(const T (*src)[N], void* placement, std::size_t size) {
-        copyArray(src[0], placement, size);
       }
     } // end namespace internal
   } // end namespace runtime

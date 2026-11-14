@@ -40,7 +40,7 @@ protected:
 public:
 
    TGCommandPlugin(const TGWindow *p, UInt_t w, UInt_t h);
-   virtual ~TGCommandPlugin();
+   ~TGCommandPlugin() override;
 
    void           CheckRemote(const char * /*str*/);
    void           HandleArrows(Int_t keysym);
@@ -50,10 +50,10 @@ public:
    Bool_t         GetHistAdd() { return fHistAdd; }
    void           SetHistAdd(Bool_t add = kTRUE);
 
-   virtual Bool_t HandleTimer(TTimer *t);
+   Bool_t         HandleTimer(TTimer *t) override;
    void           ToggleTimer(Bool_t on);
 
-   ClassDef(TGCommandPlugin, 0) // Command (I/O redirection) plugin for the new ROOT Browser
+   ClassDefOverride(TGCommandPlugin, 0) // Command (I/O redirection) plugin for the new ROOT Browser
 };
 
 #endif

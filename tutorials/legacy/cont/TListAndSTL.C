@@ -1,6 +1,5 @@
 /// \file
 /// \ingroup tutorial_cont_legacy
-/// \notebook -nodraw
 /// This is an example of using TList with STL algoritms in CLING.
 ///
 /// #### Output produced by `.x TListAndSTL.C`
@@ -38,7 +37,7 @@ struct SEnumFunctor {
 
 // A functor for the find_if algorithm
 struct SFind {
-   // using this ugly constructor, since there is problems with std::bindX in CINT
+   // using this ugly constructor, since there were problems with std::bind from historical CINT times
 
    SFind(const TString &aStr): fToFind(aStr) {
 

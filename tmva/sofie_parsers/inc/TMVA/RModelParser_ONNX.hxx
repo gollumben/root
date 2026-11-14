@@ -1,66 +1,124 @@
 #ifndef TMVA_SOFIE_RMODELPARSER_ONNX
 #define TMVA_SOFIE_RMODELPARSER_ONNX
 
-
-
-#include "TMVA/SOFIE_common.hxx"
 #include "TMVA/RModel.hxx"
-#include "TMVA/OperatorList.hxx"
 
-#include <string>
-#include <fstream>
 #include <memory>
-#include <ctime>
+#include <functional>
+#include <unordered_map>
+#include <fstream>
 
-//forward delcaration
-namespace onnx{
-   class NodeProto;
-   class GraphProto;
-}
+namespace TMVA {
+namespace Experimental {
+namespace SOFIE {
 
-namespace TMVA{
-namespace Experimental{
-namespace SOFIE{
+// forward declaration of the messages defined in sofie_parsers/src/onnx.hxx
+namespace onnx {
+class NodeProto;
+class GraphProto;
+class ModelProto;
+class TensorProto;
+} // namespace onnx
 
-namespace INTERNAL{
+class RModelParser_ONNX;
 
-std::unique_ptr<ROperator> make_ROperator_Transpose(const onnx::NodeProto& nodeproto, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type);
-std::unique_ptr<ROperator> make_ROperator_Relu(const onnx::NodeProto& nodeproto, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type);
-std::unique_ptr<ROperator> make_ROperator_Selu(const onnx::NodeProto& nodeproto, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type);
-std::unique_ptr<ROperator> make_ROperator_Sigmoid(const onnx::NodeProto& nodeproto, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type);
-std::unique_ptr<ROperator> make_ROperator_Gemm(const onnx::NodeProto& nodeproto, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type);
-std::unique_ptr<ROperator> make_ROperator_Conv(const onnx::NodeProto& nodeproto, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type);
-std::unique_ptr<ROperator> make_ROperator_RNN(const onnx::NodeProto& nodeproto, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type);
-std::unique_ptr<ROperator> make_ROperator_LSTM(const onnx::NodeProto& nodeproto, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type);
+using ParserFuncSignature =
+   std::function<std::unique_ptr<ROperator>(RModelParser_ONNX & /*parser*/, const onnx::NodeProto & /*nodeproto*/)>;
+using ParserFuseFuncSignature =
+   std::function<std::unique_ptr<ROperator> (RModelParser_ONNX& /*parser*/, const onnx::NodeProto& /*firstnode*/, const onnx::NodeProto& /*secondnode*/)>;
 
-
-using factoryMethodMap = std::unordered_map<std::string, std::unique_ptr<ROperator> (*)(const onnx::NodeProto&, const onnx::GraphProto&, std::unordered_map<std::string, ETensorType>&)>;
-const factoryMethodMap mapOptypeOperator = {
-      {"Gemm", &make_ROperator_Gemm},
-      {"Transpose", &make_ROperator_Transpose},
-      {"Relu", &make_ROperator_Relu},
-      {"Conv", &make_ROperator_Conv},
-      {"RNN", &make_ROperator_RNN},
-      {"Selu", &make_ROperator_Selu},
-      {"Sigmoid", &make_ROperator_Sigmoid},
-      {"LSTM", &make_ROperator_LSTM}
-   };
-
-
-std::unique_ptr<ROperator> make_ROperator(size_t idx, const onnx::GraphProto& graphproto, std::unordered_map<std::string, ETensorType>& tensor_type);
-}//INTERNAL
-
-
-
-class RModelParser_ONNX{
+class RModelParser_ONNX {
 public:
-   RModel Parse(std::string filename);
+   struct OperatorsMapImpl;
+
+   enum EFusedOp { kMatMulAdd, kConvAdd, kConvTransAdd, kGemmRelu, kBatchnormRelu};
+
+private:
+
+   bool fVerbose = false;
+   // Registered operators
+   std::unique_ptr<OperatorsMapImpl> fOperatorsMapImpl;
+   // Type of the tensors
+   std::unordered_map<std::string, ETensorType> fTensorTypeMap;
+
+   // List of fused operators storing as key the second operator and a value a pair of fusion type and parent operator
+   std::map<int, std::pair<EFusedOp, int>> fFusedOperators;
+
+   //  weight data file
+   std::ifstream fDataFile;
+   // user-provided external data file name (see SetExternalDataFile), valid for the next Parse call
+   std::string fDataFileName;
+   // directory of the model being parsed, used to resolve relative external data locations
+   std::string fModelDirectory;
+   // default external data file name (<model file>.data), used when a tensor provides no location
+   std::string fDefaultDataFileName;
+   // name of the external data file fDataFile currently has open
+   std::string fOpenedDataFileName;
+
+
+public:
+   // Register an ONNX operator
+   void RegisterOperator(const std::string &name, ParserFuncSignature func);
+
+   // Check if the operator is registered
+   bool IsRegisteredOperator(const std::string &name);
+
+   // List of registered operators (in alphabetical order)
+   std::vector<std::string> GetRegisteredOperators();
+
+   // Set the type of the tensor
+   void RegisterTensorType(const std::string & /*name*/, ETensorType /*type*/);
+
+   // Check if the type of the tensor is registered
+   bool IsRegisteredTensorType(const std::string & /*name*/);
+
+   // check verbosity
+   bool Verbose() const {
+      return fVerbose;
+   }
+
+   // Get the type of the tensor
+   ETensorType GetTensorType(const std::string &name);
+
+   // Parse the index'th node from the ONNX graph
+   std::unique_ptr<ROperator> ParseOperator(const size_t /*index*/, const onnx::GraphProto & /*graphproto*/,
+                                            const std::vector<size_t> & /*nodes*/, const std::vector<int> & /* children */);
+
+   // check a graph for missing operators
+   void CheckGraph(const onnx::GraphProto & g, int & level, std::map<std::string, int> & missingOperators);
+
+   // parse the ONNX graph
+   void ParseONNXGraph(RModel & model, const onnx::GraphProto & g, std::string  name = "");
+
+   std::unique_ptr<onnx::ModelProto> LoadModel(const std::string &filename);
+   std::unique_ptr<onnx::ModelProto> LoadModel(std::istream &input);
+
+   std::shared_ptr<void> GetInitializedTensorData(onnx::TensorProto *tensorproto, size_t tensor_length, ETensorType type );
+
+   // reset the external-data reading state after parsing a model
+   void ResetExternalDataState();
+
+public:
+
+   RModelParser_ONNX() noexcept;
+
+   RModel Parse(std::string const &filename, bool verbose = false);
+   RModel Parse(std::istream &input, std::string const &name, bool verbose = false);
+
+   // check the model for missing operators - return false in case some operator implementation is missing
+   bool CheckModel(std::string filename, bool verbose = false);
+
+   //set external data full path (needed if external data are not stored in the default modelName.onnx.data)
+   // call this function before parsing
+   void SetExternalDataFile(const std::string & dataFileName) {
+      fDataFileName = dataFileName;
+   }
+
+   ~RModelParser_ONNX();
 };
 
+} // namespace SOFIE
+} // namespace Experimental
+} // namespace TMVA
 
-
-}//SOFIE
-}//Experimental
-}//TMVA
-
-#endif //TMVA_SOFIE_RMODELPARSER_ONNX
+#endif // TMVA_SOFIE_RMODELPARSER_ONNX

@@ -9,9 +9,9 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include <ROOT/REveUtil.hxx>
-#include <ROOT/REveElement.hxx>
 #include <ROOT/REveManager.hxx>
+#include <ROOT/REveElement.hxx>
+#include <ROOT/REveUtil.hxx>
 
 #include <ROOT/RLogger.hxx>
 
@@ -23,14 +23,64 @@
 
 #include "TColor.h"
 
+#include <chrono>
+#include <cstdio>
+
 #include "TROOT.h"
 #include "TInterpreter.h"
 
 #include <list>
 #include <algorithm>
 #include <string>
+#include <regex>
 
 using namespace ROOT::Experimental;
+
+////////////////////////////////////////////////////////////////////////////////
+/// Milliseconds from a monotonic clock, counted from first use. Not a wall
+/// clock. Time base of the streamed motion stamps, see REveTrans::SetMotion().
+
+double REveUtil::ServerTimeMs()
+{
+   using clock = std::chrono::steady_clock;
+   static const clock::time_point origin = clock::now();
+   return std::chrono::duration<double, std::milli>(clock::now() - origin).count();
+}
+
+namespace {
+// Width of the server_time value in characters: up to 12 integer digits of ms,
+// the point and three decimals.
+constexpr int kServerTimeWidth = 16;
+} // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+/// Append "server_time" to the JSON message `msg`, a non-empty object or array:
+/// as its last key, or as a last entry, a trailer. The value has a fixed width,
+/// padded with spaces, so StampServerTime() finds it from the end and sets it
+/// in place just before the message is sent. The client takes it as the server
+/// clock at send-out, see ServerTimeMs().
+
+void REveUtil::AppendServerTime(std::string &msg)
+{
+   const bool is_array = msg.back() == ']';
+   msg.pop_back();
+   msg += is_array ? ",{\"server_time\":" : ",\"server_time\":";
+   msg.append(kServerTimeWidth, ' ');
+   msg += is_array ? "}]" : "}";
+   StampServerTime(msg);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set the "server_time" that AppendServerTime() put at the end of `msg` to now.
+
+void REveUtil::StampServerTime(std::string &msg)
+{
+   const std::size_t tail = msg.back() == ']' ? 2 : 1;
+   char buf[kServerTimeWidth + 1];
+   snprintf(buf, sizeof(buf), "%*.3f", kServerTimeWidth, ServerTimeMs());
+   msg.replace(msg.size() - tail - kServerTimeWidth, kServerTimeWidth, buf, kServerTimeWidth);
+}
+
 namespace REX = ROOT::Experimental;
 
 
@@ -72,10 +122,10 @@ Bool_t REveUtil::CheckMacro(const char* mac)
    // list of global functions.
 
    TString foo(mac); ChompTailAndDir(foo);
-   if (gROOT->GetGlobalFunction(foo.Data(), 0, kFALSE) != 0)
+   if (gROOT->GetGlobalFunction(foo.Data(), nullptr, kFALSE) != nullptr)
       return kTRUE;
    else
-      return (gROOT->GetGlobalFunction(foo.Data(), 0, kTRUE) != 0);
+      return (gROOT->GetGlobalFunction(foo.Data(), nullptr, kTRUE) != nullptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -108,6 +158,25 @@ void REveUtil::LoadMacro(const char* mac)
    if (CheckMacro(mac) == kFALSE) {
       gROOT->LoadMacro(mac);
    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Input string verification and sanitization
+
+bool REveUtil::VerifyObjectFilterOrTableExpression(std::string_view expr)
+{
+   static const std::regex bad_re("[^\\w](?:gSystem|gROOT)[^\\w]", std::regex::optimize);
+   static const std::regex public_extra_re("(?:\\|\")", std::regex::optimize);
+
+   auto beg = expr.cbegin(), end = expr.cend();
+   if (std::regex_search(beg, end, bad_re))
+      return false;
+
+   const bool is_public = true; // to come from gEve
+   if (is_public && std::regex_search(beg, end, public_extra_re))
+      return false;
+
+   return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -213,7 +282,7 @@ void REveUtil::SetColorBrightness(Float_t value, Bool_t full_redraw)
 
    TObjArray *colors = (TObjArray*) gROOT->GetListOfColors();
 
-   if (fgDefaultColors == 0)
+   if (fgDefaultColors == nullptr)
    {
       const Int_t n_col = colors->GetEntriesFast();
       fgDefaultColors = new TObjArray(n_col);

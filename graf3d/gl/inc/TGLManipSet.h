@@ -21,30 +21,40 @@ class TGLManipSet : public TGLOverlayElement,
                     public TGLPShapeRef
 {
 public:
-   enum EManip { kTrans, kScale, kRotate, kEndType };
+   enum EManip { kTrans, kScale,
+// clang++ <v20 (-Wshadow) complains about shadowing GuiTypes.h global enum ECursor. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kRotate,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
+      kEndType };
 
 private:
-   TGLManipSet(const TGLManipSet&);            // Not implemented
-   TGLManipSet& operator=(const TGLManipSet&); // Not implemented
+   TGLManipSet(const TGLManipSet&) = delete;
+   TGLManipSet& operator=(const TGLManipSet&) = delete;
 
 protected:
-   TGLManip  *fManip[3]; //! manipulator store
-   EManip     fType;     //! current manipulator
+   TGLManip  *fManip[3]; ///<! manipulator store
+   EManip     fType;     ///<! current manipulator
 
-   Bool_t     fDrawBBox; //! also draw bounding-box around physical
+   Bool_t     fDrawBBox; ///<! also draw bounding-box around physical
 
 public:
    TGLManipSet();
-   virtual ~TGLManipSet();
+   ~TGLManipSet() override;
 
-   virtual void SetPShape(TGLPhysicalShape* shape);
+   void SetPShape(TGLPhysicalShape* shape) override;
 
-   virtual Bool_t MouseEnter(TGLOvlSelectRecord& selRec);
-   virtual Bool_t Handle(TGLRnrCtx& rnrCtx, TGLOvlSelectRecord& selRec,
-                         Event_t* event);
-   virtual void   MouseLeave();
+   Bool_t MouseEnter(TGLOvlSelectRecord& selRec) override;
+   Bool_t Handle(TGLRnrCtx& rnrCtx, TGLOvlSelectRecord& selRec,
+                         Event_t* event) override;
+   void   MouseLeave() override;
 
-   virtual void Render(TGLRnrCtx& rnrCtx);
+   void Render(TGLRnrCtx& rnrCtx) override;
 
    TGLManip* GetCurrentManip() const { return fManip[fType]; }
 
@@ -53,7 +63,7 @@ public:
    Bool_t GetDrawBBox()    const { return fDrawBBox; }
    void   SetDrawBBox(Bool_t bb) { fDrawBBox = bb; }
 
-   ClassDef(TGLManipSet, 0); // A collection of available manipulators.
+   ClassDefOverride(TGLManipSet, 0); // A collection of available manipulators.
 }; // endclass TGLManipSet
 
 

@@ -14,11 +14,11 @@
 #include <memory>
 
 namespace ROOT {
-namespace Experimental {
 
 class RLogChannel;
+
 /// Log channel for Browsable diagnostics.
-RLogChannel &BrowsableLog(); // implemented in RElement.cxx
+ROOT::RLogChannel &BrowsableLog(); // implemented in RElement.cxx
 
 namespace Browsable {
 
@@ -27,7 +27,6 @@ namespace Browsable {
 \brief Basic class for object holder of any kind. Could be used to transfer shared_ptr or unique_ptr or plain pointer
 \author Sergey Linev <S.Linev@gsi.de>
 \date 2019-10-19
-\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 */
 
 class RHolder {
@@ -54,6 +53,9 @@ public:
    /** Returns direct (temporary) object pointer */
    virtual const void *GetObject() const = 0;
 
+   /** Clear all pointers without performing cleanup */
+   virtual void Forget() {}
+
    template <class T>
    bool InheritsFrom() const
    {
@@ -63,7 +65,7 @@ public:
    template <class T>
    bool CanCastTo() const
    {
-      return const_cast<TClass *>(GetClass())->GetBaseClassOffset(TClass::GetClass<T>()) == 0;
+      return const_cast<TClass *>(GetClass())->GetBaseClassOffset(TClass::GetClass<T>()) >= 0;
    }
 
    /** Returns direct object pointer cast to provided class */
@@ -71,8 +73,9 @@ public:
    template<class T>
    const T *Get() const
    {
-      if (CanCastTo<T>())
-         return (const T *) GetObject();
+      auto offset = const_cast<TClass *>(GetClass())->GetBaseClassOffset(TClass::GetClass<T>());
+      if (offset >= 0)
+         return (const T *) ((char *) GetObject() + offset);
 
       return nullptr;
    }
@@ -80,18 +83,18 @@ public:
    /** Clone container. Trivial for shared_ptr and TObject holder, does not work for unique_ptr */
    auto Copy() const { return std::unique_ptr<RHolder>(DoCopy()); }
 
-
    /** Returns unique_ptr of contained object */
    template<class T>
    std::unique_ptr<T> get_unique()
    {
       // ensure that direct inheritance is used
-      if (!CanCastTo<T>())
+      auto offset = const_cast<TClass *>(GetClass())->GetBaseClassOffset(TClass::GetClass<T>());
+      if (offset < 0)
          return nullptr;
       auto pobj = TakeObject();
       if (pobj) {
          std::unique_ptr<T> unique;
-         unique.reset(static_cast<T *>(pobj));
+         unique.reset((T *)((char *) pobj + offset));
          return unique;
       }
       return nullptr;
@@ -116,15 +119,15 @@ public:
    template<class T>
    T *get_object()
    {
-      if (!CanCastTo<T>())
+      auto offset = const_cast<TClass *>(GetClass())->GetBaseClassOffset(TClass::GetClass<T>());
+      if (offset < 0)
          return nullptr;
 
-      return (T *) AccessObject();
+      return (T *) ((char *)AccessObject() + offset);
    }
 };
 
 } // namespace Browsable
-} // namespace Experimental
 } // namespace ROOT
 
 

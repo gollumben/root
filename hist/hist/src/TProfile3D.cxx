@@ -22,7 +22,6 @@
 
 Bool_t TProfile3D::fgApproximate = kFALSE;
 
-ClassImp(TProfile3D);
 
 /** \class TProfile3D
     \ingroup Histograms
@@ -73,7 +72,7 @@ ClassImp(TProfile3D);
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor for Profile3D histograms.
 
-TProfile3D::TProfile3D() : TH3D()
+TProfile3D::TProfile3D()
 {
    fTsumwt = fTsumwt2 = 0;
    fScaling = kFALSE;
@@ -154,14 +153,15 @@ void TProfile3D::BuildOptions(Double_t tmin, Double_t tmax, Option_t *option)
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy constructor.
 
-TProfile3D::TProfile3D(const TProfile3D &profile) : TH3D()
+TProfile3D::TProfile3D(const TProfile3D &profile3d) : TH3D()
 {
-   ((TProfile3D&)profile).Copy(*this);
+   profile3d.TProfile3D::Copy(*this);
 }
 
-TProfile3D &TProfile3D::operator=(const TProfile3D &profile)
+TProfile3D &TProfile3D::operator=(const TProfile3D &profile3d)
 {
-   ((TProfile3D &)profile).Copy(*this);
+   if (this != &profile3d)
+      profile3d.TProfile3D::Copy(*this);
    return *this;
 }
 
@@ -252,7 +252,7 @@ Int_t TProfile3D::BufferEmpty(Int_t action)
    if (nbentries < 0) {
       if (action == 0) return 0;
       nbentries  = -nbentries;
-      fBuffer=0;
+      fBuffer=nullptr;
       Reset("ICES"); // reset without deleting the functions
       fBuffer = buffer;
    }
@@ -276,9 +276,9 @@ Int_t TProfile3D::BufferEmpty(Int_t action)
          if (z > zmax) zmax = z;
      }
       if (fXaxis.GetXmax() <= fXaxis.GetXmin() || fYaxis.GetXmax() <= fYaxis.GetXmin() || fZaxis.GetXmax() <= fZaxis.GetXmin()) {
-         THLimitsFinder::GetLimitsFinder()->FindGoodLimits(this,xmin,xmax,ymin,ymax,zmin,zmax);
+         THLimitsFinder::GetLimitsFinder()->FindGoodLimitsXYZ(this, xmin, xmax, ymin, ymax, zmin, zmax);
       } else {
-         fBuffer = 0;
+         fBuffer = nullptr;
          Int_t keep = fBufferSize; fBufferSize = 0;
          if (xmin <  fXaxis.GetXmin()) ExtendAxis(xmin,&fXaxis);
          if (xmax >= fXaxis.GetXmax()) ExtendAxis(xmax,&fXaxis);
@@ -291,13 +291,13 @@ Int_t TProfile3D::BufferEmpty(Int_t action)
       }
    }
 
-   fBuffer = 0;
+   fBuffer = nullptr;
    for (Int_t i=0;i<nbentries;i++) {
       Fill(buffer[5*i+2],buffer[5*i+3],buffer[5*i+4],buffer[5*i+5],buffer[5*i+1]);
    }
    fBuffer = buffer;
 
-   if (action > 0) { delete [] fBuffer; fBuffer = 0; fBufferSize = 0;}
+   if (action > 0) { delete [] fBuffer; fBuffer = nullptr; fBufferSize = 0;}
    else {
       if (nbentries == (Int_t)fEntries) fBuffer[0] = -nbentries;
       else                              fBuffer[0] = 0;
@@ -325,7 +325,7 @@ Int_t TProfile3D::BufferFill(Double_t x, Double_t y, Double_t z, Double_t t, Dou
       nbentries  = -nbentries;
       fBuffer[0] =  nbentries;
       if (fEntries > 0) {
-         Double_t *buffer = fBuffer; fBuffer=0;
+         Double_t *buffer = fBuffer; fBuffer=nullptr;
          Reset("ICES"); // reset without deleting the functions
          fBuffer = buffer;
       }
@@ -344,12 +344,40 @@ Int_t TProfile3D::BufferFill(Double_t x, Double_t y, Double_t z, Double_t t, Dou
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Run a Chi2Test between a TProfile3D and another histogram.
+/// If the argument is also a TProfile3D, this calls TH1::Chi2Test() with the option "WW".
+/// \see TH1::Chi2Test()
+
+Double_t TProfile3D::Chi2Test(const TH1 *h2, Option_t *option, Double_t *res) const
+{
+   TString opt = option;
+   opt.ToUpper();
+
+   if (auto other = dynamic_cast<const TProfile3D *>(h2); other) {
+      if (fErrorMode != kERRORMEAN || other->fErrorMode != kERRORMEAN) {
+         Error("Chi2Test", "Chi2 tests need TProfiles in 'error of mean' mode.");
+         return 0;
+      }
+
+      opt += "WW";
+      opt.ReplaceAll("UU", "WW");
+      opt.ReplaceAll("UW", "WW");
+   } else if (!opt.Contains("WW")) {
+      Error("Chi2Test", "TProfiles need to be tested with the 'W' option. Either use option 'WW' or use "
+                        "histogram.Chi2Test(<profile>, 'UW')");
+      return 0;
+   }
+
+   return TH1::Chi2Test(h2, opt, res);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Copy a Profile3D histogram to a new profile2D histogram.
 
 void TProfile3D::Copy(TObject &obj) const
 {
    try {
-      TProfile3D & pobj = dynamic_cast<TProfile3D&>(obj);
+      TProfile3D &pobj = dynamic_cast<TProfile3D &>(obj);
 
       TH3D::Copy(pobj);
       fBinEntries.Copy(pobj.fBinEntries);
@@ -974,14 +1002,14 @@ TH3D *TProfile3D::ProjectionXYZ(const char *name, Option_t *option) const
    if (pname == "_px") {
       pname = GetName();  pname.Append("_pxyz");
    }
-   TH3D *h1 = 0 ;
+   TH3D *h1 = nullptr ;
    if (xbins->fN == 0 && ybins->fN == 0 && zbins->fN == 0)
       h1 = new TH3D(pname,GetTitle(),nx,fXaxis.GetXmin(),fXaxis.GetXmax(),ny,fYaxis.GetXmin(),fYaxis.GetXmax(),nz,fZaxis.GetXmin(),fZaxis.GetXmax());
    else if ( xbins->fN != 0 && ybins->fN != 0 && zbins->fN != 0)
       h1 = new TH3D(pname,GetTitle(),nx,xbins->GetArray(),ny,ybins->GetArray(), nz,zbins->GetArray() );
    else {
       Error("ProjectionXYZ","Histogram has an axis with variable bins and an axis with fixed bins. This case is not supported - return a null pointer");
-      return 0;
+      return nullptr;
    }
 
 
@@ -1065,8 +1093,8 @@ TProfile2D *TProfile3D::Project3DProfile(Option_t *option) const
 /// Called from TH3::Project3DProfile but re-implemented in case of the TPRofile3D
 /// since what is done is different.
 
-TProfile2D *TProfile3D::DoProjectProfile2D(const char* name, const char * title, const TAxis* projX, const TAxis* projY,
-                                           bool originalRange, bool useUF, bool useOF) const
+TProfile2D *TProfile3D::DoProjectProfile2D(const char *name, const char *title, const TAxis *projX, const TAxis *projY,
+                                           bool originalRange, bool useUF, bool useOF, bool useWidth) const
 {
    // Get the ranges where we will work.
    Int_t ixmin = projX->GetFirst();
@@ -1079,7 +1107,7 @@ TProfile2D *TProfile3D::DoProjectProfile2D(const char* name, const char * title,
    Int_t ny = iymax-iymin+1;
 
    // Create the projected profiles
-   TProfile2D *p2 = 0;
+   TProfile2D *p2 = nullptr;
    // Create always a new TProfile2D (not as in the case of TH3 projection)
 
    const TArrayD *xbins = projX->GetXbins();
@@ -1109,7 +1137,7 @@ TProfile2D *TProfile3D::DoProjectProfile2D(const char* name, const char * title,
    TH3D * h3dW = ProjectionXYZ("h3temp-W","W");
    TH3D * h3dN = ProjectionXYZ("h3temp-N","B");
 
-   h3dW->SetDirectory(0); h3dN->SetDirectory(0);
+   h3dW->SetDirectory(nullptr); h3dN->SetDirectory(nullptr);
 
    // Since no axis range is considered when doing the projection TProfile3D->TH3D
    // the resulting histogram will have the same axis as the parent one
@@ -1138,9 +1166,9 @@ TProfile2D *TProfile3D::DoProjectProfile2D(const char* name, const char * title,
    if (projY == GetXaxis() ) {  projY_hW =  h3dW->GetXaxis();  projY_hN =  h3dN->GetXaxis(); }
    if (projY == GetZaxis() ) {  projY_hW =  h3dW->GetZaxis();  projY_hN =  h3dN->GetZaxis(); }
 
-   TH2D * h2W = TH3::DoProject2D(*h3dW,"htemp-W","",projX_hW, projY_hW, true, originalRange, useUF, useOF);
-   TH2D * h2N = TH3::DoProject2D(*h3dN,"htemp-N","",projX_hN, projY_hN, useWeights, originalRange, useUF, useOF);
-   h2W->SetDirectory(0); h2N->SetDirectory(0);
+   TH2D * h2W = TH3::DoProject2D(*h3dW,"htemp-W","",projX_hW, projY_hW, true, originalRange, useUF, useOF, useWidth);
+   TH2D * h2N = TH3::DoProject2D(*h3dN,"htemp-N","",projX_hN, projY_hN, useWeights, originalRange, useUF, useOF, useWidth);
+   h2W->SetDirectory(nullptr); h2N->SetDirectory(nullptr);
 
 
    // fill the bin content
@@ -1214,59 +1242,99 @@ void TProfile3D::ExtendAxis(Double_t x, TAxis *axis)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out.
-///
-/// Note the following restrictions in the code generated:
-///  - variable bin size not implemented
-///  - SetErrorOption not implemented
 
 void TProfile3D::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
-   out <<"   "<<std::endl;
-   out <<"   "<<ClassName()<<" *";
+   TString hname = ProvideSaveName(option, kTRUE);
 
-   out << GetName() << " = new " << ClassName() << "(" << quote
-       << GetName() << quote << "," << quote<< GetTitle() << quote
-       << "," << GetXaxis()->GetNbins();
-   out << "," << GetXaxis()->GetXmin()
-       << "," << GetXaxis()->GetXmax();
-   out << "," << GetYaxis()->GetNbins();
-   out << "," << GetYaxis()->GetXmin()
-       << "," << GetYaxis()->GetXmax();
-   out << "," << GetZaxis()->GetNbins();
-   out << "," << GetZaxis()->GetXmin()
-       << "," << GetZaxis()->GetXmax();
-   out << "," << fTmin
-       << "," << fTmax;
-   out << ");" << std::endl;
+   TString sxaxis, syaxis, szaxis;
 
+   out << "   \n";
 
-   // save bin entries
-   Int_t bin;
-   for (bin=0;bin<fNcells;bin++) {
-      Double_t bi = GetBinEntries(bin);
-      if (bi) {
-         out<<"   "<<GetName()<<"->SetBinEntries("<<bin<<","<<bi<<");"<<std::endl;
+   // Check if custom X/Y/Z axes are configured.
+   if (GetXaxis()->GetXbins()->fN && GetXaxis()->GetXbins()->fArray && GetYaxis()->GetXbins()->fN &&
+       GetYaxis()->GetXbins()->fArray && GetZaxis()->GetXbins()->fN && GetZaxis()->GetXbins()->fArray) {
+      sxaxis = SavePrimitiveVector(out, hname + "_x", GetXaxis()->GetXbins()->fN, GetXaxis()->GetXbins()->fArray);
+      syaxis = SavePrimitiveVector(out, hname + "_y", GetYaxis()->GetXbins()->fN, GetYaxis()->GetXbins()->fArray);
+      szaxis = SavePrimitiveVector(out, hname + "_z", GetZaxis()->GetXbins()->fN, GetZaxis()->GetXbins()->fArray);
+   }
+
+   out << "   " << ClassName() << " *" << hname << " = new " << ClassName() << "(\"" << TString(GetName()).ReplaceSpecialCppChars() << "\", \""
+       << TString(GetTitle()).ReplaceSpecialCppChars() << "\", " << GetXaxis()->GetNbins() << ", ";
+   if (!sxaxis.IsNull())
+      out << sxaxis << ".data()";
+   else
+      out << GetXaxis()->GetXmin() << ", " << GetXaxis()->GetXmax();
+
+   out << ", " << GetYaxis()->GetNbins() << ", ";
+   if (!syaxis.IsNull())
+      out << syaxis << ".data()";
+   else
+      out << GetYaxis()->GetXmin() << ", " << GetYaxis()->GetXmax();
+
+   out << ", " << GetZaxis()->GetNbins() << ", ";
+   if (!szaxis.IsNull())
+      out << szaxis << ".data()";
+   else
+      out << GetZaxis()->GetXmin() << ", " << GetZaxis()->GetXmax();
+
+   out << ", \"" << TString(GetErrorOption()).ReplaceSpecialCppChars() << "\");\n";
+
+   Bool_t save_errors = fSumw2.fN > 0;
+   Int_t numentries = 0, numcontent = 0, numerrors = 0;
+
+   std::vector<Double_t> entries(fNcells), content(fNcells), errors(save_errors ? fNcells : 0);
+   for (Int_t bin = 0; bin < fNcells; bin++) {
+      entries[bin] = GetBinEntries(bin);
+      if (entries[bin])
+         numentries++;
+      content[bin] = fArray[bin];
+      if (content[bin])
+         numcontent++;
+      if (save_errors) {
+         errors[bin] = TMath::Sqrt(fSumw2.fArray[bin]);
+         if (errors[bin])
+            numerrors++;
       }
    }
-   //save bin contents
-   for (bin=0;bin<fNcells;bin++) {
-      Double_t bc = fArray[bin];
-      if (bc) {
-         out<<"   "<<GetName()<<"->SetBinContent("<<bin<<","<<bc<<");"<<std::endl;
+
+   if ((numentries < 100) && (numcontent < 100) && (numerrors < 100)) {
+      // in case of few non-empty bins store them as before
+      for (Int_t bin = 0; bin < fNcells; bin++) {
+         if (entries[bin])
+            out << "   " << hname << "->SetBinEntries(" << bin << "," << entries[bin] << ");\n";
       }
-   }
-   // save bin errors
-   if (fSumw2.fN) {
-      for (bin=0;bin<fNcells;bin++) {
-         Double_t be = TMath::Sqrt(fSumw2.fArray[bin]);
-         if (be) {
-            out<<"   "<<GetName()<<"->SetBinError("<<bin<<","<<be<<");"<<std::endl;
+      for (Int_t bin = 0; bin < fNcells; bin++) {
+         if (content[bin])
+            out << "   " << hname << "->SetBinContent(" << bin << "," << content[bin] << ");\n";
+      }
+      if (save_errors)
+         for (Int_t bin = 0; bin < fNcells; bin++) {
+            if (errors[bin])
+               out << "   " << hname << "->SetBinError(" << bin << "," << errors[bin] << ");\n";
          }
+   } else {
+      if (numentries > 0) {
+         TString vect = SavePrimitiveVector(out, hname, fNcells, entries.data());
+         out << "   for (Int_t bin = 0; bin < " << fNcells << "; bin++)\n";
+         out << "      if (" << vect << "[bin])\n";
+         out << "         " << hname << "->SetBinEntries(bin, " << vect << "[bin]);\n";
+      }
+      if (numcontent > 0) {
+         TString vect = SavePrimitiveVector(out, hname, fNcells, content.data());
+         out << "   for (Int_t bin = 0; bin < " << fNcells << "; bin++)\n";
+         out << "      if (" << vect << "[bin])\n";
+         out << "         " << hname << "->SetBinContent(bin, " << vect << "[bin]);\n";
+      }
+      if (numerrors > 0) {
+         TString vect = SavePrimitiveVector(out, hname, fNcells, errors.data());
+         out << "   for (Int_t bin = 0; bin < " << fNcells << "; bin++)\n";
+         out << "      if (" << vect << "[bin])\n";
+         out << "         " << hname << "->SetBinError(bin, " << vect << "[bin]);\n";
       }
    }
 
-   TH1::SavePrimitiveHelp(out, GetName(), option);
+   TH1::SavePrimitiveHelp(out, hname, option);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1323,19 +1391,19 @@ void TProfile3D::SetBinsLength(Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Set the buffer size in units of 8 bytes (double).
 
-void TProfile3D::SetBuffer(Int_t buffersize, Option_t *)
+void TProfile3D::SetBuffer(Int_t bufsize, Option_t *)
 {
    if (fBuffer) {
       BufferEmpty();
       delete [] fBuffer;
-      fBuffer = 0;
+      fBuffer = nullptr;
    }
-   if (buffersize <= 0) {
+   if (bufsize <= 0) {
       fBufferSize = 0;
       return;
    }
-   if (buffersize < 100) buffersize = 100;
-   fBufferSize = 1 + 5*buffersize;
+   if (bufsize < 100) bufsize = 100;
+   fBufferSize = 1 + 5*bufsize;
    fBuffer = new Double_t[fBufferSize];
    memset(fBuffer,0,sizeof(Double_t)*fBufferSize);
 }

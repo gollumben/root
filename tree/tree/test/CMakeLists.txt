@@ -11,11 +11,12 @@ ROOT_ADD_GTEST(testTOffsetGeneration TOffsetGeneration.cxx ElementStruct.cxx Ele
 )
 target_include_directories(testTOffsetGeneration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 ROOT_STANDARD_LIBRARY_PACKAGE(SillyStruct NO_INSTALL_HEADERS HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/SillyStruct.h SOURCES SillyStruct.cxx LINKDEF SillyStructLinkDef.h DEPENDENCIES RIO)
+ROOT_SET_OUTPUT_DIRECTORIES(SillyStruct)
 ROOT_ADD_GTEST(testBulkApi BulkApi.cxx LIBRARIES RIO Tree TreePlayer)
 #FIXME: tests are having timeout on 32bit CERN VM (in docker container everything is fine),
 # to be reverted after investigation.
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
-  ROOT_ADD_GTEST(testBulkApiMultiple BulkApiMultiple.cxx LIBRARIES RIO Tree TreePlayer)
+  ROOT_ADD_GTEST(testBulkApiMultiple BulkApiMultiple.cxx LIBRARIES RIO Tree TreePlayer TIMEOUT 3000)
   ROOT_ADD_GTEST(testBulkApiVarLength BulkApiVarLength.cxx LIBRARIES RIO Tree TreePlayer)
   ROOT_ADD_GTEST(testBulkApiSillyStruct BulkApiSillyStruct.cxx LIBRARIES RIO Tree TreePlayer SillyStruct)
 endif()
@@ -30,7 +31,17 @@ endif()
 ROOT_ADD_GTEST(testTChainSaveAsCxx TChainSaveAsCxx.cxx LIBRARIES RIO Tree)
 ROOT_ADD_GTEST(testTChainRegressions TChainRegressions.cxx LIBRARIES RIO Tree)
 ROOT_ADD_GTEST(testTTreeTruncatedDatatypes TTreeTruncatedDatatypes.cxx LIBRARIES RIO Tree)
-ROOT_ADD_GTEST(testTTreeRegressions TTreeRegressions.cxx LIBRARIES RIO Tree)
+ROOT_ADD_GTEST(testTTreeRegressions TTreeRegressions.cxx LIBRARIES RIO Tree Hist)
 ROOT_ADD_GTEST(entrylist_addsublist entrylist_addsublist.cxx LIBRARIES RIO Tree)
 ROOT_ADD_GTEST(chain_setentrylist chain_setentrylist.cxx LIBRARIES RIO Tree)
+ROOT_ADD_GTEST(entrylist_enter entrylist_enter.cxx LIBRARIES RIO Tree)
 ROOT_ADD_GTEST(entrylist_enterrange entrylist_enterrange.cxx LIBRARIES RIO Tree)
+ROOT_ADD_GTEST(friendinfo friendinfo.cxx LIBRARIES RIO Tree)
+ROOT_ADD_GTEST(testTTreeCompression TTreeCompression.cxx LIBRARIES RIO Tree MathCore)
+ROOT_ADD_GTEST(evolution evolution.cxx LIBRARIES RIO Tree)
+ROOT_GENERATE_DICTIONARY(EvolutionStruct ${CMAKE_CURRENT_SOURCE_DIR}/EvolutionStruct.hxx
+                         MODULE evolution
+                         LINKDEF EvolutionStructLinkDef.h
+                         OPTIONS -inlineInputHeader
+                         DEPENDENCIES RIO)
+

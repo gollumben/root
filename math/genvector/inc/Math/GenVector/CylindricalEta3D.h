@@ -24,7 +24,7 @@
 
 #include "Math/GenVector/etaMax.h"
 
-
+#include "TMath.h"
 #include <limits>
 #include <cmath>
 
@@ -40,6 +40,8 @@ namespace Math {
       Phi is restricted to be in the range [-PI,PI)
 
       @ingroup GenVector
+
+      @see GenVector
   */
 
 template <class T>
@@ -48,17 +50,20 @@ class CylindricalEta3D {
 public :
 
   typedef T Scalar;
+  static constexpr unsigned int Dimension = 3U;
 
   /**
      Default constructor with rho=eta=phi=0
    */
-  CylindricalEta3D() : fRho(0), fEta(0), fPhi(0) {  }
+  constexpr CylindricalEta3D() noexcept = default;
 
   /**
      Construct from rho eta and phi values
    */
-  CylindricalEta3D(Scalar rho, Scalar eta, Scalar phi) :
-             fRho(rho), fEta(eta), fPhi(phi) { Restrict(); }
+  constexpr CylindricalEta3D(Scalar rho, Scalar eta, Scalar phi) noexcept : fRho(rho), fEta(eta), fPhi(phi)
+  {
+     Restrict();
+  }
 
   /**
      Construct from any Vector or coordinate system implementing
@@ -77,25 +82,6 @@ public :
         fRho *= v.Z() / Z();
     }
   }
-
-   // for g++  3.2 and 3.4 on 32 bits found that the compiler generated copy ctor and assignment are much slower
-   // re-implement them ( there is no no need to have them with g++4)
-
-   /**
-      copy constructor
-   */
-   CylindricalEta3D(const CylindricalEta3D & v) :
-      fRho(v.Rho() ),  fEta(v.Eta() ),  fPhi(v.Phi() )  {   }
-
-   /**
-      assignment operator
-   */
-   CylindricalEta3D & operator= (const CylindricalEta3D & v) {
-      fRho = v.Rho();
-      fEta = v.Eta();
-      fPhi = v.Phi();
-      return *this;
-   }
 
    /**
       Set internal data based on an array of 3 Scalar numbers
@@ -122,7 +108,7 @@ public :
    {rho=fRho; eta=fEta; phi=fPhi;}
 
 private:
-   inline static Scalar pi() { return M_PI; }
+   inline static Scalar pi() { return TMath::Pi(); }
    inline void Restrict() {
       using std::floor;
       if (fPhi <= -pi() || fPhi > pi()) fPhi = fPhi - floor(fPhi / (2 * pi()) + .5) * 2 * pi();
@@ -229,7 +215,7 @@ public:
 
    /**
       Exact component-by-component equality
-      Note: Peculiar representaions of the zero vector such as (0,1,0) will
+      Note: Peculiar representations of the zero vector such as (0,1,0) will
       not test as equal to one another.
    */
    bool operator==(const CylindricalEta3D & rhs) const {
@@ -251,7 +237,7 @@ public:
 
    // (none)
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 
    // ====== Set member functions for coordinates in other systems =======
 
@@ -268,12 +254,10 @@ public:
 
 #endif
 
-
-private:
-   T fRho;
-   T fEta;
-   T fPhi;
-
+  private:
+     T fRho{0};
+     T fEta{0};
+     T fPhi{0};
 };
 
   } // end namespace Math
@@ -285,7 +269,7 @@ private:
 
 #include "Math/GenVector/Cartesian3D.h"
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 #include "Math/GenVector/GenVector_exception.h"
 #include "Math/GenVector/Polar3D.h"
 #endif
@@ -299,7 +283,7 @@ void CylindricalEta3D<T>::SetXYZ(Scalar xx, Scalar yy, Scalar zz) {
    *this = Cartesian3D<Scalar>(xx, yy, zz);
 }
 
-#if defined(__MAKECINT__) || defined(G__DICTIONARY)
+#if defined(__ROOTCLING__) || defined(G__DICTIONARY)
 
 
      // ====== Set member functions for coordinates in other systems =======

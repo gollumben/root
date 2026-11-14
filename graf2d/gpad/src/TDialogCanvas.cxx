@@ -14,7 +14,6 @@
 #include "TGroupButton.h"
 #include "TStyle.h"
 
-ClassImp(TDialogCanvas);
 
 /** \class TDialogCanvas
 \ingroup gpad
@@ -33,8 +32,6 @@ See examples in TAttLineCanvas, TAttFillCanvas, TAttTextCanvas, TAttMarkerCanvas
 
 TDialogCanvas::TDialogCanvas() : TCanvas()
 {
-   fRefObject = nullptr;
-   fRefPad    = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -44,8 +41,6 @@ TDialogCanvas::TDialogCanvas(const char *name, const char *title, Int_t ww, Int_
              : TCanvas(name,title,-ww,wh)
 {
    SetFillColor(36);
-   fRefObject = nullptr;
-   fRefPad    = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -55,8 +50,6 @@ TDialogCanvas::TDialogCanvas(const char *name, const char *title, Int_t wtopx, I
              : TCanvas(name,title,-wtopx,wtopy,ww,wh)
 {
    SetFillColor(36);
-   fRefObject = nullptr;
-   fRefPad    = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -133,6 +126,6 @@ void TDialogCanvas::Range(Double_t x1, Double_t y1, Double_t x2, Double_t y2)
 void TDialogCanvas::RecursiveRemove(TObject *obj)
 {
    TPad::RecursiveRemove(obj);
-   if (fRefObject == obj) fRefObject = 0;
-   if (fRefPad    == obj) fRefPad    = 0;
+   if (fRefObject == obj) fRefObject = nullptr;
+   if (fRefPad    == obj) fRefPad    = nullptr;
 }

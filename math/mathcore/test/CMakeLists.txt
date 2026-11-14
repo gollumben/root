@@ -6,7 +6,7 @@
 
 project(mathcore-tests)
 
-set(Libraries Core RIO Net Hist Graf Graf3d Gpad Tree
+set(Libraries Core RIO Net Hist Graf Graf3d Gpad Tree Minuit2
               Rint Postscript Matrix Physics MathCore Thread)
 
 set(TestSource
@@ -14,6 +14,7 @@ set(TestSource
     testTMath.cxx
     testBinarySearch.cxx
     testSortOrder.cxx
+    stressGoFTest.cxx
     stressTMath.cxx
     stressTF1.cxx
     testIntegration.cxx
@@ -31,24 +32,18 @@ set(TestSource
     testIntegrationMultiDim.cxx
     testAnalyticalIntegrals.cxx
     testTStatistic.cxx
+    fit/SparseDataComparer.cxx
+    fit/SparseFit3.cxx
+    fit/SparseFit4.cxx
+    fit/testBinnedFitExecPolicy.cxx
     fit/testFit.cxx
     fit/testGraphFit.cxx
-    fit/SparseDataComparer.cxx
-    fit/SparseFit4.cxx
-    fit/SparseFit3.cxx
-    fit/testBinnedFitExecPolicy.cxx
-    fit/testLogLExecPolicy.cxx )
+    fit/testLogLExecPolicy.cxx
+    fit/testMinim.cxx)
 
 if(mathmore)
-  list(APPEND TestSource stressGoFTest.cxx)
   list(APPEND Libraries MathMore)
 endif()
-
-if(minuit2)
-  list(APPEND TestSource fit/testMinim.cxx)
-  list(APPEND Libraries Minuit2)
-endif()
-
 
 #---Build and add all the defined test in the list---------------
 foreach(file ${TestSource})
@@ -64,10 +59,10 @@ ROOT_STANDARD_LIBRARY_PACKAGE(TrackMathCoreUnitDict
                               LINKDEF stress/TrackMathCoreLinkDef.h
                               DEPENDENCIES Core MathCore RIO GenVector Smatrix)
 
-if(MSVC)
+if(MSVC AND NOT CMAKE_GENERATOR MATCHES Ninja)
   add_custom_command(TARGET TrackMathCoreUnitDict POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/libTrackMathCoreUnitDict.dll
-                                     ${CMAKE_CURRENT_BINARY_DIR}/libTrackMathCoreUnitDict.dll)
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/libTrackMathCoreUnitDict.dll
+                                                  ${CMAKE_CURRENT_BINARY_DIR}/libTrackMathCoreUnitDict.dll)
 endif()
 
 ROOT_ADD_GTEST(stressMathCoreUnit stress/testSMatrix.cxx stress/testGenVector.cxx
@@ -75,26 +70,22 @@ ROOT_ADD_GTEST(stressMathCoreUnit stress/testSMatrix.cxx stress/testGenVector.cx
         stress/TestHelper.cxx
         LIBRARIES Core MathCore Hist RIO Tree GenVector)
 
-ROOT_ADD_GTEST(GradientUnit testGradient.cxx LIBRARIES Core MathCore Hist )
-
 ROOT_ADD_GTEST(GradientFittingUnit testGradientFitting.cxx LIBRARIES Core MathCore Hist)
-
-ROOT_ADD_GTEST(MulmodUnitOpt mulmod_opt.cxx)
+ROOT_ADD_GTEST(GradientUnit testGradient.cxx LIBRARIES Core MathCore Hist )
 ROOT_ADD_GTEST(MulmodUnitNoInt128 mulmod_noint128.cxx)
+ROOT_ADD_GTEST(MulmodUnitOpt mulmod_opt.cxx)
 ROOT_ADD_GTEST(RanluxLCGUnit ranlux_lcg.cxx)
-
-ROOT_ADD_GTEST(RanluxppEngineTests RanluxppEngine.cxx
-        LIBRARIES Core MathCore)
-
-if(veccore AND vc)
-  ROOT_ADD_GTEST(VectorizedTMathUnit testVectorizedTMath.cxx
-        LIBRARIES Core MathCore)
-endif()
-
+ROOT_ADD_GTEST(RanluxppEngineTests RanluxppEngine.cxx LIBRARIES Core MathCore)
+ROOT_ADD_GTEST(testDelaunay2D testDelaunay2D.cxx LIBRARIES Core MathCore)
+ROOT_ADD_GTEST(testFitter testFitter.cxx LIBRARIES Core MathCore Hist)
+ROOT_ADD_GTEST(testKNNDensity testKNNDensity.cxx LIBRARIES Core MathCore Hist)
+ROOT_ADD_GTEST(testKahan testKahan.cxx LIBRARIES Core MathCore)
+ROOT_ADD_GTEST(testLFSR testLFSR.cxx LIBRARIES Core MathCore)
 ROOT_ADD_GTEST(testRootFinder testRootFinder.cxx  LIBRARIES ${Libraries})
 
-ROOT_ADD_GTEST(testKahan testKahan.cxx
-      LIBRARIES Core MathCore)
+if(ROOT_HAVE_EXPERIMENTAL_SIMD)
+  ROOT_ADD_GTEST(VectorizedTMathUnit testVectorizedTMath.cxx LIBRARIES Core MathCore)
+endif()
 
 if(clad)
   ROOT_ADD_GTEST(CladDerivatorTests CladDerivatorTests.cxx LIBRARIES Core MathCore)

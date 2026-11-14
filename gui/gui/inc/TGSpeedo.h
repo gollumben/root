@@ -22,7 +22,16 @@
 class TGSpeedo : public TGFrame, public TGWidget {
 
 public:
-   enum EGlowColor { kNoglow, kGreen, kOrange, kRed };
+   enum EGlowColor { kNoglow,
+// clang++ <v20 (-Wshadow) complains about shadowing Rtypes.h global enum EColor. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kGreen, kOrange, kRed };
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
 
 protected:
    TImage          *fImage;               ///< image used as background
@@ -49,20 +58,20 @@ protected:
    Int_t            fBufferCount;         ///< circular buffer count
    std::vector<Float_t> fBuffer;          ///< circular buffer for mean calculation
 
-   virtual void     DoRedraw();
-           void     DrawNeedle();
-           void     DrawText();
-           void     Translate(Float_t val, Float_t angle, Int_t *x, Int_t *y);
+   void     DoRedraw() override;
+   void     DrawNeedle();
+   void     DrawText();
+   void     Translate(Float_t val, Float_t angle, Int_t *x, Int_t *y);
 
 public:
-   TGSpeedo(const TGWindow *p = 0, int id = -1);
+   TGSpeedo(const TGWindow *p = nullptr, int id = -1);
    TGSpeedo(const TGWindow *p, Float_t smin, Float_t smax,
             const char *lbl1 = "", const char *lbl2 = "",
             const char *dsp1 = "", const char *dsp2 = "", int id = -1);
-   virtual ~TGSpeedo();
+   ~TGSpeedo() override;
 
-   virtual TGDimension  GetDefaultSize() const;
-   virtual Bool_t       HandleButton(Event_t *event);
+   TGDimension          GetDefaultSize() const override;
+   Bool_t               HandleButton(Event_t *event) override;
 
    const TGPicture     *GetPicture() const { return fBase; }
    TImage              *GetImage() const { return fImage; }
@@ -99,7 +108,7 @@ public:
    void OdoClicked() { Emit("OdoClicked()"); }   // *SIGNAL*
    void LedClicked() { Emit("LedClicked()"); }   // *SIGNAL*
 
-   ClassDef(TGSpeedo,0)  // Base class for analog meter widget
+   ClassDefOverride(TGSpeedo,0)  // Base class for analog meter widget
 };
 
 #endif

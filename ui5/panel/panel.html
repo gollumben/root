@@ -2,9 +2,9 @@
 <!DOCTYPE html>
 <html lang="en">
    <head>
-      <meta charset="UTF-8">
-      <title>ROOT7 web panel</title>
-      <script type="text/javascript" src="jsrootsys/scripts/JSRoot.core.js"></script>
+      <meta charset="utf-8">
+      <title>ROOT web panel</title>
+      <!--jsroot_importmap-->
    </head>
 
    <style>
@@ -22,19 +22,17 @@
 
    <body>
       <div id="PanelDiv">
-         loading scripts...
       </div>
    </body>
 
-   <script type='text/javascript'>
+   <script type='module'>
 
-      JSROOT.connectWebWindow({
-         prereq_logdiv: "PanelDiv",
-         // openui5src: "jsroot",
-         // openui5src: "https://openui5.hana.ondemand.com/1.82.2/",
-         // openui5libs: "sap.ui.core, sap.ui.layout, sap.m",
+      import { connectWebWindow } from 'jsroot/webwindow';
+      import * as jsroot from 'jsroot/core';
+
+      connectWebWindow({
          first_recv: "SHOWPANEL:",
-         prereq2: "openui5" // components which can be loaded during connection establishing
+         ui5: true // components which can be loaded during connection establishing
       }).then(handle => {
 
          if (!handle || !sap) return false;
@@ -46,11 +44,11 @@
             let p = viewName.indexOf(".");
             if ((p > 1) && (p < viewName.length - 1)) {
                let tgtpath = "/currentdir/";
-               let pp = JSROOT.source_dir.indexOf("/jsrootsys/");
-               if (pp > 0) tgtpath = JSROOT.source_dir.substr(0,pp) + "currentdir/";
+               let pp = jsroot.source_dir.indexOf("/jsrootsys/");
+               if (pp > 0) tgtpath = jsroot.source_dir.slice(0, pp) + tgtpath;
                let _paths = {};
-               _paths[viewName.substr(0,p)] = tgtpath;
-               console.log('Register module path', viewName.substr(0,p), ' as ', tgtpath);
+               _paths[viewName.slice(0,p)] = tgtpath;
+               console.log(`Register module path ${viewName.slice(0,p)} as ${tgtpath}`);
                sap.ui.loader.config({ paths: _paths });
             }
          }
@@ -58,8 +56,8 @@
          sap.ui.require(["sap/ui/core/mvc/XMLView"], XMLView => {
             XMLView.create({
                id: "TopPanelId",
-               viewName: viewName,
-               viewData: { handle: handle }
+               viewName,
+               viewData: { handle, jsroot }
             }).then(oView => oView.placeAt("PanelDiv"));
 
          });

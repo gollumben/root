@@ -8,12 +8,13 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifdef __CINT__
+#ifdef __CLING__
 
 #pragma link off all globals;
 #pragma link off all classes;
 #pragma link off all functions;
 
+#pragma link C++ class TAnnotation+;
 #pragma link C++ class TAttCanvas+;
 #pragma link C++ class TButton+;
 #pragma link C++ class TCanvas-;
@@ -30,7 +31,8 @@
 #pragma link C++ class TSliderBox+;
 #pragma link C++ class TView+;
 #pragma link C++ class TViewer3DPad;
-#pragma link C++ class TPadPainter;
+#pragma link C++ class TPadPainterBase;
+#pragma link C++ class TPadPainterPS;
 #pragma link C++ class TRatioPlot+;
 
 #endif

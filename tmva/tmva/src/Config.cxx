@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : Config                                                                *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation                                                            *
@@ -39,7 +39,6 @@ Singleton class for global configuration settings used by TMVA.
 #include "Rtypes.h"
 #include "TString.h"
 
-ClassImp(TMVA::Config);
 
 std::atomic<TMVA::Config*> TMVA::Config::fgConfigPtr{ 0 };
 

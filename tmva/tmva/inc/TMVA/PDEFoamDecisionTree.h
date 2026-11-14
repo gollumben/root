@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Classes: PDEFoamDecisionTree                                                   *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Class for decision tree like PDEFoam.  It overrides                       *
@@ -24,7 +24,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_PDEFoamDecisionTree
@@ -44,7 +44,7 @@ namespace TMVA
 
    protected:
 
-      virtual void Explore(PDEFoamCell *Cell);     // Exploration of the cell
+      void Explore(PDEFoamCell *Cell) override;     // Exploration of the cell
 
       PDEFoamDecisionTree(const PDEFoamDecisionTree&); // Copy Constructor  NOT USED
 
@@ -54,7 +54,7 @@ namespace TMVA
       virtual ~PDEFoamDecisionTree();      // Default destructor
 
       // ---------- ROOT class definition
-      ClassDef(PDEFoamDecisionTree, 1) // Decision tree like PDEFoam
+      ClassDefOverride(PDEFoamDecisionTree, 1) // Decision tree like PDEFoam
          }; // end of PDEFoamDecisionTree
 
 }  // namespace TMVA

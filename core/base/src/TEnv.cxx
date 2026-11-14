@@ -16,10 +16,14 @@ The TEnv class reads config files, by default named `.rootrc`.
 Three types of config files are read: global, user and local files. The
 global file is `$ROOTSYS/etc/system<name>` (or `ROOTETCDIR/system<name>`)
 the user file is `$HOME/<name>` and the local file is `./<name>`.
+
 By setting the shell variable `ROOTENV_NO_HOME=1` the reading of
 the `$HOME/<name>` resource file will be skipped. This might be useful
 in case the home directory resides on an auto-mounted remote file
 system and one wants to avoid this file system from being mounted.
+
+By setting ROOTENV_USER_PATH=<path>, the user-level configuration can
+be read from a custom path instead of from $HOME.
 
 The format of the `.rootrc` file is similar to the `.Xdefaults` format:
 ~~~ {.cpp}
@@ -231,8 +235,8 @@ private:
    EEnvLevel fLevel;
 
 public:
-   TReadEnvParser(TEnv *e, FILE *f, EEnvLevel l) : TEnvParser(e, f), fLevel(l) { }
-   void KeyValue(const TString &name, const TString &value, const TString &type)
+   TReadEnvParser(TEnv *e, FILE *f, EEnvLevel l) : TEnvParser(e, f), fLevel(l) {}
+   void KeyValue(const TString &name, const TString &value, const TString &type) override
       { fEnv->SetValue(name, value, fLevel, type); }
 };
 
@@ -245,9 +249,9 @@ private:
    FILE *fOfp;
 
 public:
-   TWriteEnvParser(TEnv *e, FILE *f, FILE *of) : TEnvParser(e, f), fOfp(of) { }
-   void KeyValue(const TString &name, const TString &value, const TString &type);
-   void Char(Int_t c) { fputc(c, fOfp); }
+   TWriteEnvParser(TEnv *e, FILE *f, FILE *of) : TEnvParser(e, f), fOfp(of) {}
+   void KeyValue(const TString &name, const TString &value, const TString &type) override;
+   void Char(Int_t c) override { fputc(c, fOfp); }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -385,18 +389,33 @@ TString TEnvRec::ExpandValue(const char *value)
    return val;
 }
 
-ClassImp(TEnv);
+////////////////////////////////////////////////////////////////////////////////
+/// Returns the home directory or, if set, the value of the environment variable
+/// ROOTENV_USER_PATH.
+const char *TEnv::GetUserDirectory() const
+{
+   const auto customPath = gSystem->Getenv("ROOTENV_USER_PATH");
+   if (customPath)
+      return customPath;
+   return gSystem->HomeDirectory();
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a resource table and read the (possibly) three resource files,
-/// i.e.\ `$ROOTSYS/etc/system<name>` (or `ROOTETCDIR/system<name>`),
-/// `$HOME/<name>` and `$PWD/<name>`.
+/// i.e.\ `$ROOTSYS/etc/system<name>` or `ROOTETCDIR/system<name>`
+/// (kEnvGlobal), `$HOME/<name>` or (kEnvUser),  and `$PWD/<name>` (kEnvLocal).
 /// ROOT always reads ".rootrc" (in TROOT::InitSystem()). You can
 /// read additional user defined resource files by creating additional TEnv
 /// objects. By setting the shell variable ROOTENV_NO_HOME=1 the reading of
 /// the `$HOME/<name>` resource file will be skipped. This might be useful in
 /// case the home directory resides on an auto-mounted remote file system
 /// and one wants to avoid the file system from being mounted.
+/// In case the environment variable ROOTENV_USER_PATH is specified,
+/// and ROOTENV_NO_HOME is not set, then `$ROOTENV_USER_PATH/<name>`
+/// is considered instead of `$HOME/<name>`.
+/// If environment variables have to be avoided, a `rootlogon.C` script
+/// can be created where where the environment can be set through an
+/// invocation of TEnv::ReadFile.
 
 TEnv::TEnv(const char *name)
 {
@@ -410,17 +429,18 @@ TEnv::TEnv(const char *name)
 
       TString sname = "system";
       sname += name;
-      char *s = gSystem->ConcatFileName(TROOT::GetEtcDir(), sname);
+      const char *s = gSystem->PrependPathName(TROOT::GetEtcDir(), sname);
       ReadFile(s, kEnvGlobal);
-      delete [] s;
       if (!gSystem->Getenv("ROOTENV_NO_HOME")) {
-         s = gSystem->ConcatFileName(gSystem->HomeDirectory(), name);
-         ReadFile(s, kEnvUser);
-         delete [] s;
-         if (strcmp(gSystem->HomeDirectory(), gSystem->WorkingDirectory()))
+         TString temp(name);
+         gSystem->PrependPathName(GetUserDirectory(), temp);
+         ReadFile(temp.Data(), kEnvUser);
+         if (strcmp(GetUserDirectory(), gSystem->WorkingDirectory())) {
             ReadFile(name, kEnvLocal);
-      } else
+         }
+      } else {
          ReadFile(name, kEnvLocal);
+      }
    }
 }
 
@@ -581,7 +601,7 @@ void TEnv::PrintEnv(EEnvLevel level) const
 
    while ((er = (TEnvRec*) next()))
       if (er->fLevel == level || level == kEnvAll)
-         Printf("%-25s %-30s [%s]", Form("%s:", er->fName.Data()),
+         Printf("%-25s %-30s [%s]", TString::Format("%s:", er->fName.Data()).Data(),
                 er->fValue.Data(), lc[er->fLevel]);
 }
 
@@ -632,7 +652,7 @@ Int_t TEnv::WriteFile(const char *fname, EEnvLevel level)
       TEnvRec *er;
       while ((er = (TEnvRec*) next()))
          if (er->fLevel == level || level == kEnvAll)
-            fprintf(ofp, "%-40s %s\n", Form("%s:", er->fName.Data()),
+            fprintf(ofp, "%-40s %s\n", TString::Format("%s:", er->fName.Data()).Data(),
                     er->fValue.Data());
       fclose(ofp);
       return 0;
@@ -677,22 +697,19 @@ void TEnv::SaveLevel(EEnvLevel level)
    FILE     *ifp, *ofp;
 
    if (level == kEnvGlobal) {
-
       TString sname = "system";
       sname += fRcName;
-      char *s = gSystem->ConcatFileName(TROOT::GetEtcDir(), sname);
-      rootrcdir = s;
-      delete [] s;
+      rootrcdir = gSystem->PrependPathName(TROOT::GetEtcDir(), sname);
    } else if (level == kEnvUser) {
-      char *s = gSystem->ConcatFileName(gSystem->HomeDirectory(), fRcName);
-      rootrcdir = s;
-      delete [] s;
-   } else if (level == kEnvLocal)
+      TString sname = fRcName;
+      rootrcdir = gSystem->PrependPathName(GetUserDirectory(), sname);
+   } else if (level == kEnvLocal) {
       rootrcdir = fRcName;
-   else
+   } else {
       return;
+   }
 
-   if ((ofp = fopen(Form("%s.new", rootrcdir.Data()), "w"))) {
+   if ((ofp = fopen(TString::Format("%s.new", rootrcdir.Data()).Data(), "w"))) {
       ifp = fopen(rootrcdir.Data(), "r");
       if (ifp == nullptr) {     // try to create file
          ifp = fopen(rootrcdir.Data(), "w");
@@ -714,15 +731,15 @@ void TEnv::SaveLevel(EEnvLevel level)
                if (er->fLevel == kEnvChange) er->fLevel = level;
                if (er->fLevel == level) {
                   er->fModified = kFALSE;
-                  fprintf(ofp, "%-40s %s\n", Form("%s:", er->fName.Data()),
+                  fprintf(ofp, "%-40s %s\n", TString::Format("%s:", er->fName.Data()).Data(),
                           er->fValue.Data());
                }
             }
          }
          fclose(ifp);
          fclose(ofp);
-         gSystem->Rename(rootrcdir.Data(), Form("%s.bak", rootrcdir.Data()));
-         gSystem->Rename(Form("%s.new", rootrcdir.Data()), rootrcdir.Data());
+         gSystem->Rename(rootrcdir.Data(), TString::Format("%s.bak", rootrcdir.Data()).Data());
+         gSystem->Rename(TString::Format("%s.new", rootrcdir.Data()).Data(), rootrcdir.Data());
          return;
       }
       fclose(ofp);
@@ -775,7 +792,7 @@ void TEnv::SetValue(const char *name, EEnvLevel level)
 
 void TEnv::SetValue(const char *name, Int_t value)
 {
-   SetValue(name, Form("%d", value));
+   SetValue(name, TString::Format("%d", value).Data());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -783,7 +800,7 @@ void TEnv::SetValue(const char *name, Int_t value)
 
 void TEnv::SetValue(const char *name, Double_t value)
 {
-   SetValue(name, Form("%g", value));
+   SetValue(name, TString::Format("%g", value).Data());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -11,6 +11,7 @@
 #ifndef ROOT_RDF_RDEFINEPERSAMPLE
 #define ROOT_RDF_RDEFINEPERSAMPLE
 
+#include "ROOT/RDF/RLoopManager.hxx"
 #include "ROOT/RDF/RSampleInfo.hxx"
 #include "ROOT/RDF/Utils.hxx"
 #include <ROOT/RDF/RDefineBase.hxx>
@@ -37,14 +38,20 @@ class R__CLING_PTRCHECK(off) RDefinePerSample final : public RDefineBase {
    ValuesPerSlot_t fLastResults;
 
 public:
-   RDefinePerSample(std::string_view name, std::string_view type, F expression, unsigned int nSlots)
-      : RDefineBase(name, type, nSlots, /*defines*/ {}, /*DSValuePtrs*/ {}, /*ds*/ nullptr, /*columnNames*/ {}),
-        fExpression(std::move(expression)), fLastResults(nSlots * RDFInternal::CacheLineStep<RetType_t>())
+   RDefinePerSample(std::string_view name, std::string_view type, F expression, RLoopManager &lm)
+      : RDefineBase(name, type, RDFInternal::RColumnRegister{&lm}, lm, /*columnNames*/ {}),
+        fExpression(std::move(expression)),
+        fLastResults(lm.GetNSlots() * RDFInternal::CacheLineStep<RetType_t>())
    {
+      fLoopManager->Register(this);
+      auto callUpdate = [this](unsigned int slot, const ROOT::RDF::RSampleInfo &id) { this->Update(slot, id); };
+      fLoopManager->AddSampleCallback(this, std::move(callUpdate));
    }
 
    RDefinePerSample(const RDefinePerSample &) = delete;
    RDefinePerSample &operator=(const RDefinePerSample &) = delete;
+
+   ~RDefinePerSample() { fLoopManager->Deregister(this); }
 
    /// Return the (type-erased) address of the Define'd value for the given processing slot.
    void *GetValuePtr(unsigned int slot) final
@@ -63,10 +70,23 @@ public:
       fLastResults[slot * RDFInternal::CacheLineStep<RetType_t>()] = fExpression(slot, id);
    }
 
-   const std::type_info &GetTypeId() const { return typeid(RetType_t); }
+   const std::type_info &GetTypeId() const final { return typeid(RetType_t); }
 
    void InitSlot(TTreeReader *, unsigned int) final {}
-   void FinaliseSlot(unsigned int) final {}
+
+   void FinalizeSlot(unsigned int) final {}
+
+   // No-op for RDefinePerSample: it never depends on systematic variations
+   void MakeVariations(const std::vector<std::string> &) final {}
+
+   RDefineBase &GetVariedDefine(const std::string &) final
+   {
+      // RDefinePerSample cannot depend on varied columns, so we return itself.
+      // This supports the use case of a downstream defined variable that depends on variations and also on a column
+      // created via DefinePerSample. The request for an action depending on that defined variable will end up here when
+      // looking for a variation of the dependant column.
+      return *this;
+   }
 };
 
 } // namespace RDF

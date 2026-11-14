@@ -2,7 +2,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : CCPruner                                                              *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description: Cost Complexity Pruning                                           *
  *
@@ -16,7 +16,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #include "TMVA/CCPruner.h"
@@ -31,7 +31,7 @@
 #include <iostream>
 #include <fstream>
 #include <limits>
-#include <math.h>
+#include <cmath>
 
 /*! \class TMVA::CCPruner
 \ingroup TMVA

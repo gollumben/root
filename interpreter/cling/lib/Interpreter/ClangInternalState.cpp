@@ -120,7 +120,7 @@ namespace cling {
     if (llvm::sys::fs::createUniqueFile(TempPath.str(), fd, TempPath)
         != std::errc::no_such_file_or_directory) {
       OS.reset(new llvm::raw_fd_ostream(fd, /*shouldClose=*/true));
-      OSFile = TempPath.str();
+      OSFile = TempPath.str().str();
     }
 
     // Make sure the out stream file gets removed if we crash.
@@ -139,33 +139,39 @@ namespace cling {
                                             m_Module, m_CodeGen, name));
     std::string differences = "";
     // Ignore the builtins
-    llvm::SmallVector<llvm::StringRef, 1024> builtinNames;
+    llvm::SmallVector<std::string, 1024> builtinNames;
     const clang::Builtin::Context& BuiltinCtx = m_ASTContext.BuiltinInfo;
     for (auto i = clang::Builtin::NotBuiltin+1;
          i != clang::Builtin::FirstTSBuiltin; ++i) {
-      llvm::StringRef Name(BuiltinCtx.getName(i));
-      if (Name.startswith("__builtin"))
-        builtinNames.emplace_back(Name);
+      std::string Name = BuiltinCtx.getName(i);
+      if (Name.rfind("__builtin", 0) == 0)
+        builtinNames.emplace_back(std::move(Name));
     }
 
-    for (auto&& BuiltinInfo: m_ASTContext.getTargetInfo().getTargetBuiltins()) {
-      llvm::StringRef Name(BuiltinInfo.Name);
-      if (!Name.startswith("__builtin"))
-        builtinNames.emplace_back(Name);
+    for (const auto& Shard : m_ASTContext.getTargetInfo().getTargetBuiltins()) {
+      for (const auto& BuiltinInfo : Shard.Infos) {
+        std::string Name = BuiltinInfo.getName(Shard);
+        if (Name.rfind("__builtin", 0) != 0)
+          builtinNames.emplace_back(std::move(Name));
 #ifndef NDEBUG
-      else // Make sure it's already in the list
-        assert(std::find(builtinNames.begin(), builtinNames.end(),
-                         Name) == builtinNames.end() && "Not in list!");
+        else // Make sure it's already in the list
+          assert(std::find(builtinNames.begin(), builtinNames.end(), Name) ==
+                     builtinNames.end() &&
+                 "Not in list!");
 #endif
+      }
     }
 
     builtinNames.push_back(".*__builtin.*");
+    // Ignore TopLevelStmt for now, an invalid TopLevelStmt can still exist
+    // after a failed statement (introduced by llvm/llvm-project@4b70d17bcf)
+    builtinNames.push_back("StoredDeclsMap TopLevelStmt");
 
     differentContent(m_LookupTablesFile, m_DiffPair->m_LookupTablesFile,
                      "lookup tables", verbose, &builtinNames);
 
     // We create a virtual file for each input line in the format input_line_N.
-    llvm::SmallVector<llvm::StringRef, 2> input_lines;
+    llvm::SmallVector<std::string, 2> input_lines;
     input_lines.push_back("input_line_[0-9].*");
     differentContent(m_IncludedFilesFile, m_DiffPair->m_IncludedFilesFile,
                      "included files", verbose, &input_lines);
@@ -192,11 +198,11 @@ namespace cling {
                                             const std::string& file2,
                                             const char* type,
                                             bool verbose,
-            const llvm::SmallVectorImpl<llvm::StringRef>* ignores/*=0*/) const {
+            const llvm::SmallVectorImpl<std::string>* ignores/*=0*/) const {
 
     std::string diffCall = m_DiffCommand;
     if (ignores) {
-      for (const llvm::StringRef& ignore : *ignores) {
+      for (const std::string& ignore : *ignores) {
         diffCall += " --ignore-matching-lines=\".*";
         diffCall += ignore;
         diffCall += ".*\"";
@@ -253,27 +259,24 @@ namespace cling {
                                               const SourceManager& SM) {
     // FileInfos are stored as a mapping, and invalidating the cache
     // can change iteration order.
-    std::vector<std::string> ParsedOpen, Parsed, AST;
+    std::vector<std::string> Parsed, AST;
     for (clang::SourceManager::fileinfo_iterator I = SM.fileinfo_begin(),
            E = SM.fileinfo_end(); I != E; ++I) {
-      const clang::FileEntry *FE = I->first;
+      const clang::FileEntryRef FE = I->first;
       // Our error recovery purges the cache of the FileEntry, but keeps
       // the FileEntry's pointer so that if it was used by smb (like the
       // SourceManager) it wouldn't be dangling. In that case we shouldn't
       // print the FileName, because semantically it is not there.
       if (!I->second)
         continue;
-      std::string fileName(FE->getName());
+      std::string fileName(FE.getName());
       if (!(fileName.compare(0, 5, "/usr/") == 0 &&
             fileName.find("/bits/") != std::string::npos) &&
           fileName.compare("-")) {
-        if (I->second->getRawBuffer()) {
+        if (I->second->getBufferDataIfLoaded()) {
           // There is content - a memory buffer or a file.
           // We know it's a file because we started off the FileEntry.
-          if (FE->isOpen())
-            ParsedOpen.emplace_back(std::move(fileName));
-          else
-            Parsed.emplace_back(std::move(fileName));
+          Parsed.emplace_back(std::move(fileName));
         } else
          AST.emplace_back(std::move(fileName));
       }
@@ -286,7 +289,6 @@ namespace cling {
       for (auto&& FileName : Files)
         Out << " " << FileName << '\n';
     };
-    DumpFiles("Parsed and open", ParsedOpen);
     DumpFiles("Parsed", Parsed);
     DumpFiles("From AST file", AST);
   }
@@ -297,7 +299,17 @@ namespace cling {
     bool PrintInstantiation = false;
     std::string ErrMsg;
     clang::PrintingPolicy policy = C.getPrintingPolicy();
-    TU->print(Out, policy, Indentation, PrintInstantiation);
+    for (Decl* D : TU->decls()) {
+      if (auto* TLSD = dyn_cast<TopLevelStmtDecl>(D)) {
+        if (!TLSD->getStmt()) {
+          // Skip invalid TopLevelStmt. The change llvm/llvm-project@4b70d17bcf
+          // caused an invalid TopLevelStatement to be added to the AST, which
+          // can trigger assertions when dumping.
+          continue;
+        }
+      }
+      D->print(Out, policy, Indentation, PrintInstantiation);
+    }
     // TODO: For future when we relpace the bump allocation with slab.
     //
     //Out << "Allocated memory: " << C.getAllocatedMemory();
@@ -308,7 +320,7 @@ namespace cling {
   void ClangInternalState::printLLVMModule(llvm::raw_ostream& Out,
                                            const llvm::Module& M,
                                            CodeGenerator& CG) {
-    M.print(Out, /*AssemblyAnnotationWriter*/ 0);
+    M.print(Out, /*AssemblyAnnotationWriter*/ nullptr);
     CG.print(Out);
   }
 

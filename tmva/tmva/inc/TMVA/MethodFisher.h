@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodFisher                                                          *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Analysis of Fisher discriminant (Fisher or Mahalanobis approach)          *
@@ -28,7 +28,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodFisher
@@ -65,29 +65,29 @@ namespace TMVA {
 
       virtual ~MethodFisher( void );
 
-      virtual Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets );
+      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets ) override;
 
 
       // training method
-      void Train( void );
+      void Train( void ) override;
 
       using MethodBase::ReadWeightsFromStream;
 
       // write weights to stream
-      void AddWeightsXMLTo     ( void* parent ) const;
+      void AddWeightsXMLTo     ( void* parent ) const override;
 
       // read weights from stream
-      void ReadWeightsFromStream( std::istream & i );
-      void ReadWeightsFromXML   ( void* wghtnode );
+      void ReadWeightsFromStream( std::istream & i ) override;
+      void ReadWeightsFromXML   ( void* wghtnode ) override;
 
       // calculate the MVA value
-      Double_t GetMvaValue( Double_t* err = 0, Double_t* errUpper = 0 );
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
 
       enum EFisherMethod { kFisher, kMahalanobis };
       EFisherMethod GetFisherMethod( void ) { return fFisherMethod; }
 
       // ranking of input variables
-      const Ranking* CreateRanking();
+      const Ranking* CreateRanking() override;
 
       // nice output
       void PrintCoefficients( void );
@@ -96,16 +96,16 @@ namespace TMVA {
    protected:
 
       // make ROOT-independent C++ class for classifier response (classifier-specific implementation)
-      void MakeClassSpecific( std::ostream&, const TString& ) const;
+      void MakeClassSpecific( std::ostream&, const TString& ) const override;
 
       // get help message text
-      void GetHelpMessage() const;
+      void GetHelpMessage() const override;
 
    private:
 
       // the option handling methods
-      void DeclareOptions();
-      void ProcessOptions();
+      void DeclareOptions() override;
+      void ProcessOptions() override;
 
       // Initialization and allocation of matrices
       void InitMatrices( void );
@@ -132,26 +132,26 @@ namespace TMVA {
       TMatrixD *fMeanMatx;
 
       // method to be used
-      TString       fTheMethod;       // Fisher or Mahalanobis
-      EFisherMethod fFisherMethod;    // Fisher or Mahalanobis 
+      TString       fTheMethod;       ///< Fisher or Mahalanobis
+      EFisherMethod fFisherMethod;    ///< Fisher or Mahalanobis
 
       // covariance matrices
-      TMatrixD *fBetw;                // between-class matrix
-      TMatrixD *fWith;                // within-class matrix
-      TMatrixD *fCov;                 // full covariance matrix
+      TMatrixD *fBetw;                ///< between-class matrix
+      TMatrixD *fWith;                ///< within-class matrix
+      TMatrixD *fCov;                 ///< full covariance matrix
 
       // number of events (sumOfWeights)
-      Double_t fSumOfWeightsS;        // sum-of-weights for signal training events
-      Double_t fSumOfWeightsB;        // sum-of-weights for background training events
-      
-      std::vector<Double_t>* fDiscrimPow;  // discriminating power
-      std::vector<Double_t>* fFisherCoeff; // Fisher coefficients
-      Double_t fF0;                   // offset
+      Double_t fSumOfWeightsS;        ///< sum-of-weights for signal training events
+      Double_t fSumOfWeightsB;        ///< sum-of-weights for background training events
+
+      std::vector<Double_t>* fDiscrimPow;  ///< discriminating power
+      std::vector<Double_t>* fFisherCoeff; ///< Fisher coefficients
+      Double_t fF0;                   ///< offset
 
       // default initialisation called by all constructors
-      void Init( void );
+      void Init( void ) override;
 
-      ClassDef(MethodFisher,0); // Analysis of Fisher discriminant (Fisher or Mahalanobis approach) 
+      ClassDefOverride(MethodFisher,0); // Analysis of Fisher discriminant (Fisher or Mahalanobis approach)
    };
 
 } // namespace TMVA

@@ -43,14 +43,13 @@ This class handles GUI labels.
 const TGFont *TGLabel::fgDefaultFont = nullptr;
 const TGGC   *TGLabel::fgDefaultGC = nullptr;
 
-ClassImp(TGLabel);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a label GUI object. TGLabel will become the owner of the
 /// text and will delete it in its dtor.
 
 TGLabel::TGLabel(const TGWindow *p, TGString *text, GContext_t norm,
-                 FontStruct_t font, UInt_t options, ULong_t back) :
+                 FontStruct_t font, UInt_t options, Pixel_t back) :
     TGFrame(p, 1, 1, options, back)
 {
    fText        = text;
@@ -91,7 +90,7 @@ TGLabel::TGLabel(const TGWindow *p, TGString *text, GContext_t norm,
 /// Create a label GUI object.
 
 TGLabel::TGLabel(const TGWindow *p, const char *text, GContext_t norm,
-                 FontStruct_t font, UInt_t options, ULong_t back) :
+                 FontStruct_t font, UInt_t options, Pixel_t back) :
     TGFrame(p, 1, 1, options, back)
 {
    fText        = new TGString(!text && !p ? GetName() : text);
@@ -341,8 +340,8 @@ void TGLabel::SetTextFont(TGFont *font, Bool_t global)
    if (!global) {
       if (gc == &GetDefaultGC() ) { // create new GC
          gc = pool->GetGC((GCValues_t*)gc->GetAttributes(), kTRUE); // copy ctor.
+         fHasOwnFont = kTRUE;
       }
-      fHasOwnFont = kTRUE;
    }
    if (oldfont != fgDefaultFont) {
       fClient->FreeFont(oldfont);
@@ -367,8 +366,8 @@ void TGLabel::SetTextColor(Pixel_t color, Bool_t global)
    if (!global) {
       if (gc == &GetDefaultGC() ) {
          gc = pool->GetGC((GCValues_t*)gc->GetAttributes(), kTRUE); // copy
+         fHasOwnFont = kTRUE;
       }
-      fHasOwnFont = kTRUE;
    }
    if (gc) {
       gc->SetForeground(color);
@@ -458,8 +457,6 @@ Bool_t TGLabel::HasOwnFont() const
 
 void TGLabel::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
-
    // font + GC
    option = GetName()+5;         // unique digit id of the name
    TString parGC, parFont;
@@ -480,43 +477,29 @@ void TGLabel::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
       }
    }
 
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   // save options and color if necessary
+   auto extra_args = SaveCtorArgs(out);
 
    TString label = GetText()->GetString();
-   label.ReplaceAll("\"","\\\"");
-   label.ReplaceAll("\n","\\n");
 
-   out << "   TGLabel *";
-   out << GetName() << " = new TGLabel("<< fParent->GetName()
-       << "," << quote << label << quote;
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (!GetOptions()) {
-         if (fFont->GetFontStruct() == GetDefaultFontStruct()) {
-            if (fNormGC == GetDefaultGC()()) {
-               out <<");" << std::endl;
-            } else {
-               out << "," << parGC.Data() << ");" << std::endl;
-            }
-         } else {
-            out << "," << parGC.Data() << "," << parFont.Data() << ");" << std::endl;
-         }
-      } else {
-         out << "," << parGC.Data() << "," << parFont.Data() << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << parGC.Data() << "," << parFont.Data() << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
+   out << "   TGLabel *" << GetName() << " = new TGLabel("<< fParent->GetName()
+       << ", \"" << label.ReplaceSpecialCppChars() << "\"";
+   if ((extra_args.Length() > 0) || (fFont->GetFontStruct() != GetDefaultFontStruct()))
+      out << "," << parGC << "," << parFont << extra_args;
+   else if (fNormGC != GetDefaultGC()())
+      out << ", " << parGC;
+   out << ");\n";
+
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
    if (fDisabled)
-      out << "   " << GetName() << "->Disable();" << std::endl;
+      out << "   " << GetName() << "->Disable();\n";
 
-   out << "   " << GetName() << "->SetTextJustify(" <<  GetTextJustify() << ");" << std::endl;
-   out << "   " << GetName() << "->SetMargins(" << fMLeft << "," << fMRight << ",";
-   out << fMTop << "," << fMBottom << ");" << std::endl;
-   out << "   " << GetName() << "->SetWrapLength(" << fWrapLength << ");" << std::endl;
-
+   out << "   " << GetName() << "->SetTextJustify(" << GetTextJustify() << ");\n";
+   out << "   " << GetName() << "->SetMargins(" << fMLeft << "," << fMRight << "," << fMTop << "," << fMBottom
+       << ");\n";
+   out << "   " << GetName() << "->SetWrapLength(" << fWrapLength << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////

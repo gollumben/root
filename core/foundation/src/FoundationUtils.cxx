@@ -22,15 +22,26 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 
-#include <errno.h>
-#include <string.h>
+#include <cerrno>
+#include <cstring>
+
 #ifdef _WIN32
 #include <direct.h>
 #include <Windows4Root.h>
 #else
 #include <unistd.h>
 #endif // _WIN32
+
+#ifdef __FreeBSD__
+#include <sys/syslimits.h>
+#include <sys/param.h>
+#include <sys/user.h>
+#include <sys/types.h>
+#include <libutil.h>
+#include <libprocstat.h>
+#endif // __FreeBSD__
 
 namespace ROOT {
 namespace FoundationUtils {
@@ -42,7 +53,7 @@ std::string GetCurrentDir()
    char *result = currWorkDir;
 
    do {
-      if (result == 0) {
+      if (!result) {
          len = 2 * len;
          if (fixedLength != currWorkDir) {
             delete[] currWorkDir;
@@ -54,7 +65,7 @@ std::string GetCurrentDir()
 #else
       result = getcwd(currWorkDir, len);
 #endif
-   } while (result == 0 && errno == ERANGE);
+   } while (!result && errno == ERANGE);
 
    std::string output = currWorkDir;
    output += '/';
@@ -87,7 +98,7 @@ std::string MakePathRelative(const std::string &path, const std::string &base, b
       // For ROOT, convert module directories like core/base/inc/ to include/
       int posInc = result.find("/inc/");
       if (posInc != -1) {
-         result = /*std::string("include") +*/ result.substr(posInc + 5, -1);
+         result = /*std::string("include") +*/ result.substr(posInc + 5);
       }
    }
    return result;
@@ -102,17 +113,33 @@ const std::string& GetFallbackRootSys() {
    static std::string fallback;
    if (!fallback.empty())
       return fallback;
+
+#if defined(WIN32) || defined(__FreeBSD__)
+   auto parent_path = [](std::string path) {
+     return path.substr(0, path.find_last_of("/\\"));
+   };
+#endif
+
 #ifdef WIN32
    static char lpFilename[_MAX_PATH];
    if (::GetModuleFileNameA(
           NULL,                   // handle to module to find filename for
           lpFilename,             // pointer to buffer to receive module path
           sizeof(lpFilename))) {  // size of buffer, in characters
-      auto parent_path = [](std::string path) {
-         return path.substr(0, path.find_last_of("/\\"));
-      };
       fallback = parent_path(parent_path(lpFilename));
    }
+#elif defined __FreeBSD__
+  procstat* ps = procstat_open_sysctl();  //
+  kinfo_proc* kp = kinfo_getproc(getpid());
+
+  char lpFilename[PATH_MAX] = "";
+  if (kp!=NULL) {
+     procstat_getpathname(ps, kp, lpFilename, sizeof(lpFilename));
+      fallback = parent_path(parent_path({lpFilename}));
+  }
+
+  free(kp);
+  procstat_close(ps);
 #else
    // FIXME: We should not hardcode this path. We can use a similar to the
    // windows technique to get the path to the executable. The easiest way
@@ -124,7 +151,7 @@ const std::string& GetFallbackRootSys() {
 
 #ifdef ROOTPREFIX
 static bool IgnorePrefix() {
-   static bool ignorePrefix = ::getenv("ROOTIGNOREPREFIX");
+   static bool ignorePrefix = std::getenv("ROOTIGNOREPREFIX");
    return ignorePrefix;
 }
 #endif
@@ -138,32 +165,18 @@ const std::string& GetRootSys() {
 #endif
    static std::string rootsys;
    if (rootsys.empty()) {
-      if (const char* envValue = ::getenv("ROOTSYS")) {
+      if (const char* envValue = std::getenv("ROOTSYS")) {
          rootsys = envValue;
+#ifndef WIN32
          // We cannot use gSystem->UnixPathName.
          ConvertToUnixPath(rootsys);
+#endif
       }
    }
    // FIXME: Should this also call UnixPathName for consistency?
    if (rootsys.empty())
       rootsys = GetFallbackRootSys();
    return rootsys;
-}
-
-
-const std::string& GetIncludeDir() {
-#ifdef ROOTINCDIR
-   if (!IgnorePrefix()) {
-      const static std::string rootincdir = ROOTINCDIR;
-      return rootincdir;
-   }
-#endif
-   static std::string rootincdir;
-   if (rootincdir.empty()) {
-      const std::string& sep = GetPathSeparator();
-      rootincdir = GetRootSys() + sep + "include" + sep;
-   }
-   return rootincdir;
 }
 
 const std::string& GetEtcDir() {
@@ -175,7 +188,7 @@ const std::string& GetEtcDir() {
 #endif
 
    const static std::string rootetcdir =
-      GetRootSys() + GetPathSeparator() + "etc" + GetPathSeparator();;
+      GetRootSys() + GetPathSeparator() + "etc" + GetPathSeparator();
    return rootetcdir;
 }
 

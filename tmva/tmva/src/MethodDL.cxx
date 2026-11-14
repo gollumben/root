@@ -4,7 +4,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodDL                                                              *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Deep Neural Network Method                                                *
@@ -22,7 +22,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #include "TFormula.h"
@@ -56,7 +56,6 @@
 #include <chrono>
 
 REGISTER_METHOD(DL)
-ClassImp(TMVA::MethodDL);
 
 using namespace TMVA::DNN::CNN;
 using namespace TMVA::DNN;
@@ -467,11 +466,11 @@ void MethodDL::ParseInputLayout()
    // when we will support 3D convolutions we would need to add extra 1's
    if (inputShape.size() == 2) {
       // case of dense layer where only width is specified
-      inputShape.insert(inputShape.begin() + 1, {1,1});
+      inputShape = {inputShape[0], 1, 1, inputShape[1]};
    }
    else if (inputShape.size() == 3) {
       //e.g. case of RNN T,W -> T,1,W
-      inputShape.insert(inputShape.begin() + 2, 1);
+      inputShape = {inputShape[0], inputShape[1], 1, inputShape[2]};
    }
 
    this->SetInputShape(inputShape);
@@ -596,13 +595,11 @@ void MethodDL::ParseDenseLayer(DNN::TDeepNet<Architecture_t, Layer_t> &deepNet,
    TObjArray *subStrings = layerString.Tokenize(delim);
    TIter nextToken(subStrings);
    TObjString *token = (TObjString *)nextToken();
-   int idxToken = 0;
 
    // loop on the tokens
    // order of sepcifying width and activation function is not relevant
    // both  100|TANH and TANH|100 are valid cases
    for (; token != nullptr; token = (TObjString *)nextToken()) {
-      idxToken++;
       // try a match with the activation function
       TString strActFnc(token->GetString());
       // if first token defines the layer type- skip it
@@ -1424,15 +1421,13 @@ void MethodDL::TrainDeepNet()
             << optimParametersString()
             << " Learning rate = " << settings.learningRate << " regularization " << (char)settings.regularization
             << " minimum error = " << minValError << Endl;
-      if (!fInteractive) {
-         std::string separator(62, '-');
-         Log() << separator << Endl;
-         Log() << std::setw(10) << "Epoch"
-               << " | " << std::setw(12) << "Train Err." << std::setw(12) << "Val. Err." << std::setw(12)
-               << "t(s)/epoch" << std::setw(12) << "t(s)/Loss" << std::setw(12) << "nEvents/s" << std::setw(12)
-               << "Conv. Steps" << Endl;
-         Log() << separator << Endl;
-      }
+      std::string separator(62, '-');
+      Log() << separator << Endl;
+      Log() << std::setw(10) << "Epoch"
+            << " | " << std::setw(12) << "Train Err." << std::setw(12) << "Val. Err." << std::setw(12)
+            << "t(s)/epoch" << std::setw(12) << "t(s)/Loss" << std::setw(12) << "nEvents/s" << std::setw(12)
+            << "Conv. Steps" << Endl;
+      Log() << separator << Endl;
 
       // set up generator for shuffling the batches
       // if seed is zero we have always a different order in the batches
@@ -1660,11 +1655,6 @@ void MethodDL::TrainDeepNet()
 ////////////////////////////////////////////////////////////////////////////////
 void MethodDL::Train()
 {
-   if (fInteractive) {
-      Log() << kFATAL << "Not implemented yet" << Endl;
-      return;
-   }
-
    // using for training same scalar type defined for the prediction
    if (this->GetArchitectureString() == "GPU") {
 #ifdef R__HAS_TMVAGPU
@@ -1724,7 +1714,7 @@ void TMVA::MethodDL::FillInputTensor()
    size_t nVariables = GetEvent()->GetNVariables();
 
    // for Columnlayout tensor memory layout is   HWC while for rowwise is CHW
-   if (fXInput.GetLayout() == TMVA::Experimental::MemoryLayout::ColumnMajor) {
+   if (fXInput.GetLayout() == TMVA::DNN::MemoryLayout::ColumnMajor) {
       R__ASSERT(fXInput.GetShape().size() < 4);
       size_t nc, nhw = 0;
       if (fXInput.GetShape().size() == 2) {
@@ -2318,7 +2308,7 @@ void MethodDL::ReadWeightsFromXML(void * rootXML)
    fXInput = ArchitectureImpl_t::CreateTensor(fNet->GetBatchSize(), GetInputDepth(), GetInputHeight(), GetInputWidth() );
    if (batchDepth == 1 && GetInputHeight() == 1 && GetInputDepth() == 1)
       // make here a ColumnMajor tensor
-      fXInput = TensorImpl_t( fNet->GetBatchSize(), GetInputWidth(),TMVA::Experimental::MemoryLayout::ColumnMajor );
+      fXInput = TensorImpl_t(fNet->GetBatchSize(), GetInputWidth(), TMVA::DNN::MemoryLayout::ColumnMajor);
    fXInputBuffer =  HostBufferImpl_t( fXInput.GetSize());
 
    // create pointer to output matrix used for the predictions

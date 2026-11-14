@@ -1,108 +1,175 @@
 // Tests for the HistFactory
 // Authors: Stephan Hageboeck, CERN  01/2019
+//          Jonas Rembser, CERN  06/2023
 
-#include "RooStats/HistFactory/Measurement.h"
-#include "RooStats/HistFactory/MakeModelAndMeasurementsFast.h"
-#include "RooStats/HistFactory/Sample.h"
-#include "RooStats/ModelConfig.h"
+#include <RooStats/HistFactory/Measurement.h>
+#include <RooStats/HistFactory/MakeModelAndMeasurementsFast.h>
+#ifdef HISTFACTORY_XML
+#include <RooStats/HistFactory/ConfigParser.h>
+#endif
+#include <RooFit/ModelConfig.h>
 
-#include "RooWorkspace.h"
-#include "RooArgSet.h"
-#include "RooSimultaneous.h"
-#include "RooRealSumPdf.h"
-#include "RooRealVar.h"
-#include "RooHelpers.h"
-#include "RooFitResult.h"
-#include "RooPlot.h"
-#include "RunContext.h"
+#include <RooFit/Detail/NormalizationHelpers.h>
+#include <RooDataHist.h>
+#include <RooWorkspace.h>
+#include <RooArgSet.h>
+#include <RooSimultaneous.h>
+#include <RooRealSumPdf.h>
+#include <RooRealVar.h>
+#include <RooHelpers.h>
+#include <RooFitResult.h>
+#include <RooPlot.h>
+#include <RooFit/Evaluator.h>
 
-#include "TROOT.h"
-#include "TFile.h"
-#include "TCanvas.h"
-#include "gtest/gtest.h"
+#include <TROOT.h>
+#include <TFile.h>
+#include <TH1D.h>
+#include <TCanvas.h>
+#include <TSystem.h>
+#include <gtest/gtest.h>
 
+#include "../../roofitcore/test/gtest_wrapper.h"
+
+#include <cmath>
 #include <set>
 
-using namespace RooStats;
-using namespace RooStats::HistFactory;
+namespace {
+
+std::vector<double> getValues(RooAbsReal const &real, RooRealVar &obs, bool normalize)
+{
+   RooArgSet normSet{obs};
+
+   std::vector<double> out;
+   // We want to evaluate the function at the bin centers
+   std::vector<double> binCenters(obs.numBins());
+   for (int iBin = 0; iBin < obs.numBins(); ++iBin) {
+      obs.setBin(iBin);
+      binCenters[iBin] = obs.getVal();
+      out.push_back(normalize ? real.getVal(normSet) : real.getVal());
+   }
+
+   std::unique_ptr<RooAbsReal> clone;
+   if (normalize) {
+      clone = RooFit::Detail::compileForNormSet<RooAbsReal>(real, obs);
+   } else {
+      clone.reset(static_cast<RooAbsReal *>(real.cloneTree()));
+   }
+
+   RooFit::Evaluator evaluator(*clone);
+   evaluator.setInput(obs.GetName(), binCenters, false);
+   std::span<const double> results = evaluator.run();
+   // The scalar getVal() has to agree with the vectorized evaluation.
+   for (std::size_t i = 0; i < out.size(); ++i) {
+      EXPECT_NEAR(out[i], results[i], 1e-12 * std::abs(results[i])) << "bin " << i << ", normalize = " << normalize;
+   }
+   out.assign(results.begin(), results.end());
+   return out;
+}
+
+} // namespace
 
 TEST(Sample, CopyAssignment)
 {
-  Sample s("s");
-  {
-    Sample s1("s1");
-    auto hist1 = new TH1D("hist1", "hist1", 10, 0, 10);
-    s1.SetHisto(hist1);
-    s = s1;
-    //Now go out of scope. Should delete hist1, that's owned by s1.
-  }
-  
-  auto hist = s.GetHisto();
-  ASSERT_EQ(hist->GetNbinsX(), 10);
+   RooStats::HistFactory::Sample s("s");
+   {
+      RooStats::HistFactory::Sample s1("s1");
+      auto hist1 = new TH1D("hist1", "hist1", 10, 0, 10);
+      s1.SetHisto(hist1);
+      s = s1;
+      // Now go out of scope. Should delete hist1, that's owned by s1.
+   }
+
+   auto hist = s.GetHisto();
+   ASSERT_EQ(hist->GetNbinsX(), 10);
 }
 
+TEST(HistFactory, Read_ROOT6_16_Model)
+{
+   RooHelpers::LocalChangeMsgLevel chmsglvl{RooFit::WARNING, 0u, RooFit::NumericIntegration, true};
 
-TEST(HistFactory, Read_ROOT6_16_Model) {
-  std::string filename = "./ref_6.16_example_UsingC_channel1_meas_model.root";
-  std::unique_ptr<TFile> file(TFile::Open(filename.c_str()));
-  if (!file || !file->IsOpen()) {
-    filename = TROOT::GetRootSys() + "/roofit/histfactory/test/" + filename;
-    file.reset(TFile::Open(filename.c_str()));
-  }
+   std::string filename = "./ref_6.16_example_UsingC_channel1_meas_model.root";
+   std::unique_ptr<TFile> file(TFile::Open(filename.c_str()));
 
-  ASSERT_TRUE(file && file->IsOpen());
-  RooWorkspace* ws;
-  file->GetObject("channel1", ws);
-  ASSERT_NE(ws, nullptr);
+   ASSERT_TRUE(file && file->IsOpen());
+   RooWorkspace *ws;
+   file->GetObject("channel1", ws);
+   ASSERT_NE(ws, nullptr);
 
-  auto mc = dynamic_cast<RooStats::ModelConfig*>(ws->obj("ModelConfig"));
-  ASSERT_NE(mc, nullptr);
+   auto mc = dynamic_cast<RooStats::ModelConfig *>(ws->obj("ModelConfig"));
+   ASSERT_NE(mc, nullptr);
 
-  RooAbsPdf* pdf = mc->GetPdf();
-  ASSERT_NE(pdf, nullptr);
+   RooAbsPdf *pdf = mc->GetPdf();
+   ASSERT_NE(pdf, nullptr);
 
-  const RooArgSet* obs = mc->GetObservables();
-  ASSERT_NE(obs, nullptr);
+   const RooArgSet *obs = mc->GetObservables();
+   ASSERT_NE(obs, nullptr);
 
-  EXPECT_NEAR(pdf->getVal(), 0.17488817, 1.E-8);
-  EXPECT_NEAR(pdf->getVal(*obs), 0.95652174, 1.E-8);
+   EXPECT_NEAR(pdf->getVal(), 0.17488817, 1.E-8);
+   EXPECT_NEAR(pdf->getVal(*obs), 0.95652174, 1.E-8);
 }
 
+TEST(HistFactory, Read_ROOT6_16_Combined_Model)
+{
+   RooHelpers::LocalChangeMsgLevel chmsglvl{RooFit::WARNING, 0u, RooFit::NumericIntegration, true};
 
-TEST(HistFactory, Read_ROOT6_16_Combined_Model) {
-  std::string filename = "./ref_6.16_example_UsingC_combined_meas_model.root";
-  std::unique_ptr<TFile> file(TFile::Open(filename.c_str()));
-  if (!file || !file->IsOpen()) {
-    filename = TROOT::GetRootSys() + "/roofit/histfactory/test/" + filename;
-    file.reset(TFile::Open(filename.c_str()));
-  }
+   std::string filename = "./ref_6.16_example_UsingC_combined_meas_model.root";
+   std::unique_ptr<TFile> file(TFile::Open(filename.c_str()));
 
-  ASSERT_TRUE(file && file->IsOpen());
-  RooWorkspace* ws;
-  file->GetObject("combined", ws);
-  ASSERT_NE(ws, nullptr);
+   ASSERT_TRUE(file && file->IsOpen());
+   RooWorkspace *ws;
+   file->GetObject("combined", ws);
+   ASSERT_NE(ws, nullptr);
 
-  auto mc = dynamic_cast<RooStats::ModelConfig*>(ws->obj("ModelConfig"));
-  ASSERT_NE(mc, nullptr);
+   auto mc = dynamic_cast<RooStats::ModelConfig *>(ws->obj("ModelConfig"));
+   ASSERT_NE(mc, nullptr);
 
-  RooAbsPdf* pdf = mc->GetPdf();
-  ASSERT_NE(pdf, nullptr);
+   RooAbsPdf *pdf = mc->GetPdf();
+   ASSERT_NE(pdf, nullptr);
 
-  const RooArgSet* obs = mc->GetObservables();
-  ASSERT_NE(obs, nullptr);
+   const RooArgSet *obs = mc->GetObservables();
+   ASSERT_NE(obs, nullptr);
 
-  EXPECT_NEAR(pdf->getVal(), 0.17488817, 1.E-8);
-  EXPECT_NEAR(pdf->getVal(*obs), 0.95652174, 1.E-8);
+   EXPECT_NEAR(pdf->getVal(), 0.17488817, 1.E-8);
+   EXPECT_NEAR(pdf->getVal(*obs), 0.95652174, 1.E-8);
 }
-
 
 /// What kind of model is set up. Use this to instantiate
 /// a test suite.
-/// \note Make sure that equidistant bins have even numbers,
-/// so those tests can be found using `% 2 == kEquidistantBins`.
-enum MakeModelMode {kEquidistantBins=0, kCustomBins=1,
-  kEquidistantBins_histoSyst = 2, kCustomBins_histoSyst = 3,
-  kEquidistantBins_statSyst  = 4, kCustomBins_statSyst  = 5};
+enum class MakeModelMode {
+   OverallSyst,
+   HistoSyst,
+   StatSyst,
+   ShapeSyst
+};
+
+using HFTestParam = std::tuple<MakeModelMode, bool, RooFit::EvalBackend>;
+
+std::string getName(HFTestParam const &param, bool ignoreBackend = false)
+{
+   const MakeModelMode mode = std::get<0>(param);
+   const bool customBins = std::get<1>(param);
+   auto const &evalBackend = std::get<2>(param);
+
+   std::stringstream ss;
+
+   ss << (customBins ? "CustomBins" : "EquidistantBins");
+
+   if (mode == MakeModelMode::OverallSyst)
+      ss << "_OverallSyst";
+   if (mode == MakeModelMode::HistoSyst)
+      ss << "_HistoSyst";
+   if (mode == MakeModelMode::StatSyst)
+      ss << "_StatSyst";
+   if (mode == MakeModelMode::ShapeSyst)
+      ss << "_ShapeSyst";
+
+   if (!ignoreBackend) {
+      ss << "_Backend_" << evalBackend.name();
+   }
+
+   return ss.str();
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Fixture class to set up a toy hist factory model.
 /// In the SetUp() phase
@@ -110,508 +177,578 @@ enum MakeModelMode {kEquidistantBins=0, kCustomBins=1,
 /// equidistant or custom bins are used, and shape systematics are added.
 /// - A Measurement with the histograms in the file is created.
 /// - The corresponding workspace is created.
-class HFFixture : public testing::TestWithParam<MakeModelMode> {
+class HFFixture : public testing::TestWithParam<HFTestParam> {
 public:
-  std::string _inputFile{"TestMakeModel.root"};
-  static constexpr bool _verbose = false;
-  double _customBins[3] = {0., 1.8, 2.};
-  const double _targetMu = 2.;
-  const double _targetNominal[2] = {110., 120.};
-  const double _targetSysUp[2]   = {112., 140.};
-  const double _targetSysDo[2]   = {108., 100.};
-  std::unique_ptr<RooWorkspace> ws;
-  std::set<std::string> _systNames; // Systematics defined during set up
+   std::string _inputFile{"TestMakeModel.root"};
+   static constexpr bool _verbose = false;
+   double _customBins[3] = {0., 1.8, 2.};
+   const double _tgtMu = 2.;
+   const double _tgtNom[2] = {110., 120.};
+   const double _tgtSysUp[2] = {112., 140.};
+   const double _tgtSysDo[2] = {108., 100.};
+   const double _tgtShapeSystBkg1[2] = {0.15, 0.0};
+   const double _tgtShapeSystBkg2[2] = {0.0, 0.10};
+   std::unique_ptr<RooWorkspace> ws;
+   std::set<std::string> _systNames; // Systematics defined during set up
+   std::unique_ptr<RooStats::HistFactory::Measurement> _measurement;
+   std::string _name;
 
-  void SetUp() {
-    {
-      TFile example(_inputFile.c_str(), "RECREATE");
-      TH1F *data, *signal, *bkg1, *bkg2, *statUnc, *systUncUp, *systUncDo;
-      data = signal = bkg1 = bkg2 = statUnc = systUncUp = systUncDo = nullptr;
-      if (GetParam() % 2 == kEquidistantBins) {
-        data = new TH1F("data","data", 2,1,2);
-        signal = new TH1F("signal","signal histogram (pb)", 2,1,2);
-        bkg1 = new TH1F("background1","background 1 histogram (pb)", 2,1,2);
-        bkg2 = new TH1F("background2","background 2 histogram (pb)", 2,1,2);
-        statUnc = new TH1F("background1_statUncert", "statUncert", 2,1,2);
-        systUncUp = new TH1F("shapeUnc_sigUp", "signal shape uncert.", 2,1,2);
-        systUncDo = new TH1F("shapeUnc_sigDo", "signal shape uncert.", 2,1,2);
-      } else if (GetParam() % 2 == kCustomBins) {
-        data = new TH1F("data","data", 2, _customBins);
-        signal = new TH1F("signal","signal histogram (pb)", 2, _customBins);
-        bkg1 = new TH1F("background1","background 1 histogram (pb)", 2, _customBins);
-        bkg2 = new TH1F("background2","background 2 histogram (pb)", 2, _customBins);
-        statUnc = new TH1F("background1_statUncert", "statUncert", 2, _customBins);
-        systUncUp = new TH1F("shapeUnc_sigUp", "signal shape uncert.", 2, _customBins);
-        systUncDo = new TH1F("shapeUnc_sigDo", "signal shape uncert.", 2, _customBins);
-      } else {
-        // Harden the test and make clang-tidy happy:
-        FAIL() << "This should not be reachable.";
+   TH1D *createHisto(const char *name, const char *title, bool customBins)
+   {
+      if (customBins)
+         return new TH1D{name, title, 2, _customBins};
+      return new TH1D{name, title, 2, 1, 2};
+   }
+
+   void SetUp() override
+   {
+      using namespace RooStats::HistFactory;
+
+      _name = getName(GetParam());
+
+      const MakeModelMode makeModelMode = std::get<0>(GetParam());
+      const bool customBins = std::get<1>(GetParam());
+
+      {
+         TFile example(_inputFile.c_str(), "RECREATE");
+
+         TH1D *data = createHisto("data", "data", customBins);
+         TH1D *signal = createHisto("signal", "signal histogram (pb)", customBins);
+         TH1D *bkg1 = createHisto("background1", "background 1 histogram (pb)", customBins);
+         TH1D *bkg2 = createHisto("background2", "background 2 histogram (pb)", customBins);
+         TH1D *statUnc = createHisto("background1_statUncert", "statUncert", customBins);
+         TH1D *systUncUp = createHisto("histoUnc_sigUp", "signal shape uncert.", customBins);
+         TH1D *systUncDo = createHisto("histoUnc_sigDo", "signal shape uncert.", customBins);
+         TH1D *shapeSystBkg1 = createHisto("background1_shapeSyst", "background 1 shapeSyst", customBins);
+         TH1D *shapeSystBkg2 = createHisto("background2_shapeSyst", "background 2 shapeSyst", customBins);
+
+         bkg1->SetBinContent(1, 100);
+         bkg2->SetBinContent(2, 100);
+
+         for (unsigned int bin = 0; bin < 2; ++bin) {
+            signal->SetBinContent(bin + 1, _tgtNom[bin] - 100.);
+            systUncUp->SetBinContent(bin + 1, _tgtSysUp[bin] - 100.);
+            systUncDo->SetBinContent(bin + 1, _tgtSysDo[bin] - 100.);
+            shapeSystBkg1->SetBinContent(bin + 1, _tgtShapeSystBkg1[bin]);
+            shapeSystBkg2->SetBinContent(bin + 1, _tgtShapeSystBkg2[bin]);
+
+            if (makeModelMode == MakeModelMode::OverallSyst) {
+               data->SetBinContent(bin + 1, _tgtMu * signal->GetBinContent(bin + 1) + 100.);
+            } else if (makeModelMode == MakeModelMode::HistoSyst) {
+               // Set data such that alpha = -1., fit should pull parameter.
+               data->SetBinContent(bin + 1, _tgtMu * systUncDo->GetBinContent(bin + 1) + 100.);
+            } else if (makeModelMode == MakeModelMode::StatSyst) {
+               // Tighten the stat. errors of the model, and kick bin 0, so the gammas have to adapt
+               signal->SetBinError(bin + 1, 0.1 * std::sqrt(signal->GetBinContent(bin + 1)));
+               bkg1->SetBinError(bin + 1, 0.1 * std::sqrt(bkg1->GetBinContent(bin + 1)));
+               bkg2->SetBinError(bin + 1, 0.1 * std::sqrt(bkg2->GetBinContent(bin + 1)));
+
+               data->SetBinContent(bin + 1, _tgtMu * signal->GetBinContent(bin + 1) + 100. + (bin == 0 ? 50. : 0.));
+            } else if (makeModelMode == MakeModelMode::ShapeSyst) {
+               // Distort data such that the shape systematics will pull gamma
+               // down in one bin and up in the other.
+               data->SetBinContent(bin + 1, _tgtMu * signal->GetBinContent(bin + 1) + (bin == 0 ? 85. : 110));
+            }
+
+            // A small statistical uncertainty
+            statUnc->SetBinContent(bin + 1, .05); // 5% uncertainty
+         }
+
+         for (auto hist : {data, signal, bkg1, bkg2, statUnc, systUncUp, systUncDo, shapeSystBkg1, shapeSystBkg2}) {
+            example.WriteTObject(hist);
+         }
       }
 
-      bkg1->SetBinContent(1, 100);
-      bkg2->SetBinContent(2, 100);
+      // Create the measurement
+      _measurement = std::make_unique<RooStats::HistFactory::Measurement>("meas", "meas");
+      RooStats::HistFactory::Measurement &meas = *_measurement;
 
-      for (unsigned int bin=0; bin < 2; ++bin) {
-        signal->   SetBinContent(bin+1, _targetNominal[bin] - 100.);
-        systUncUp->SetBinContent(bin+1, _targetSysUp[bin]   - 100.);
-        systUncDo->SetBinContent(bin+1, _targetSysDo[bin]   - 100.);
-
-        if (GetParam() <= kCustomBins) {
-          data->SetBinContent(bin+1, _targetMu * signal->GetBinContent(bin+1) + 100.);
-        } else if (GetParam() <= kCustomBins_histoSyst) {
-          // Set data such that alpha = -1., fit should pull parameter.
-          data->SetBinContent(bin+1, _targetMu * systUncDo->GetBinContent(bin+1) + 100.);
-        } else if (GetParam() <= kCustomBins_statSyst) {
-          // Tighten the stat. errors of the model, and kick bin 0, so the gammas have to adapt
-          signal->SetBinError(bin+1, 0.1 * sqrt(signal->GetBinContent(bin+1)));
-          bkg1  ->SetBinError(bin+1, 0.1 * sqrt(bkg1  ->GetBinContent(bin+1)));
-          bkg2  ->SetBinError(bin+1, 0.1 * sqrt(bkg2  ->GetBinContent(bin+1)));
-
-          data->SetBinContent(bin+1, _targetMu * signal->GetBinContent(bin+1) + 100. + (bin == 0 ? 50. : 0.));
-        }
-
-        // A small statistical uncertainty
-        statUnc->SetBinContent(bin+1, .05);  // 5% uncertainty
+      meas.SetOutputFilePrefix("example_variableBins");
+      meas.SetPOI("SigXsecOverSM");
+      meas.AddConstantParam("Lumi");
+      if (makeModelMode == MakeModelMode::HistoSyst || makeModelMode == MakeModelMode::ShapeSyst) {
+         meas.AddConstantParam("gamma_stat_channel1_bin_0");
+         meas.AddConstantParam("gamma_stat_channel1_bin_1");
       }
 
+      meas.SetLumi(1.0);
+      meas.SetLumiRelErr(0.10);
 
-      for (auto hist : {data, signal, bkg1, bkg2, statUnc, systUncUp, systUncDo}) {
-        example.WriteTObject(hist);
+      // Create a channel
+      RooStats::HistFactory::Channel chan("channel1");
+      chan.SetData("data", _inputFile);
+      chan.SetStatErrorConfig(0.005, "Poisson");
+      _systNames.insert("gamma_stat_channel1_bin_0");
+      _systNames.insert("gamma_stat_channel1_bin_1");
+
+      // Now, create some samples
+
+      // Create the signal sample
+      RooStats::HistFactory::Sample signal("signal", "signal", _inputFile);
+
+      signal.AddNormFactor("SigXsecOverSM", 1, 0, 3);
+      if (makeModelMode == MakeModelMode::HistoSyst) {
+         signal.AddHistoSys("SignalShape", "histoUnc_sigDo", _inputFile, "", "histoUnc_sigUp", _inputFile, "");
+         _systNames.insert("alpha_SignalShape");
       }
-    }
+      chan.AddSample(signal);
 
+      // Background 1
+      RooStats::HistFactory::Sample background1("background1", "background1", _inputFile);
+      background1.ActivateStatError("background1_statUncert", _inputFile);
+      if (makeModelMode == MakeModelMode::OverallSyst) {
+         background1.AddOverallSys("syst2", 0.95, 1.05);
+         background1.AddOverallSys("syst3", 0.99, 1.01);
+         _systNames.insert("alpha_syst2");
+         _systNames.insert("alpha_syst3");
+      }
+      if (makeModelMode == MakeModelMode::ShapeSyst) {
+         background1.AddShapeSys("background1Shape", Constraint::Gaussian, "background1_shapeSyst", _inputFile);
+         meas.AddConstantParam("gamma_background1Shape_bin_1");
+         _systNames.insert("gamma_background1Shape_bin_0");
+         _systNames.insert("gamma_background1Shape_bin_1");
+      }
+      chan.AddSample(background1);
 
-    // Create the measurement
-    Measurement meas("meas", "meas");
+      // Background 2
+      RooStats::HistFactory::Sample background2("background2", "background2", _inputFile);
+      background2.ActivateStatError();
+      if (makeModelMode == MakeModelMode::OverallSyst) {
+         background2.AddOverallSys("syst3", 0.99, 1.01);
+         background2.AddOverallSys("syst4", 0.95, 1.05);
+         _systNames.insert("alpha_syst3");
+         _systNames.insert("alpha_syst4");
+      }
+      if (makeModelMode == MakeModelMode::ShapeSyst) {
+         background2.AddShapeSys("background2Shape", Constraint::Poisson, "background2_shapeSyst", _inputFile);
+         meas.AddConstantParam("gamma_background2Shape_bin_0");
+         _systNames.insert("gamma_background2Shape_bin_0");
+         _systNames.insert("gamma_background2Shape_bin_1");
+      }
+      chan.AddSample(background2);
 
-    meas.SetOutputFilePrefix( "example_variableBins" );
-    meas.SetPOI( "SigXsecOverSM" );
-    meas.AddConstantParam("alpha_syst1");
-    meas.AddConstantParam("Lumi");
-    if (GetParam() == kEquidistantBins_histoSyst || GetParam() == kCustomBins_histoSyst) {
-      // We are testing the shape systematics. Switch off the normalisation
-      // systematics for the background here:
-      meas.AddConstantParam("alpha_syst2");
-      meas.AddConstantParam("alpha_syst4");
-      meas.AddConstantParam("gamma_stat_channel1_bin_0");
-      meas.AddConstantParam("gamma_stat_channel1_bin_1");
-    } else if (GetParam() == kEquidistantBins_statSyst || GetParam() == kCustomBins_statSyst) {
-      // Fix all systematics but the gamma parameters
-      // Cannot set the POI constant here, happens in the fit test.
-      meas.AddConstantParam("alpha_syst2");
-      meas.AddConstantParam("alpha_syst3");
-      meas.AddConstantParam("alpha_syst4");
-      meas.AddConstantParam("alpha_SignalShape");
-    }
+      // Done with this channel
+      // Add it to the measurement:
+      meas.AddChannel(chan);
 
-    meas.SetExportOnly(true);
+      if (!_verbose) {
+         RooMsgService::instance().getStream(1).minLevel = RooFit::PROGRESS;
+         RooMsgService::instance().getStream(2).minLevel = RooFit::WARNING;
+      }
+      RooHelpers::HijackMessageStream hijackW(RooFit::WARNING, RooFit::HistFactory);
 
-    meas.SetLumi( 1.0 );
-    meas.SetLumiRelErr( 0.10 );
+      // Collect the histograms from their files,
+      meas.CollectHistograms();
 
+      // Now, create the measurement
+      ws = std::unique_ptr<RooWorkspace>(MakeModelAndMeasurementFast(meas));
 
-    // Create a channel
-    Channel chan( "channel1" );
-    chan.SetData( "data", _inputFile);
-    chan.SetStatErrorConfig( 0.005, "Poisson" );
-    _systNames.insert("gamma_stat_channel1_bin_0");
-    _systNames.insert("gamma_stat_channel1_bin_1");
+      EXPECT_TRUE(hijackW.str().empty()) << "Warnings logged for HistFactory:\n" << hijackW.str();
+   }
 
-
-
-    // Now, create some samples
-
-    // Create the signal sample
-    Sample signal( "signal", "signal", _inputFile);
-    signal.AddOverallSys( "syst1",  0.95, 1.05 );
-    _systNames.insert("alpha_syst1");
-
-    signal.AddNormFactor( "SigXsecOverSM", 1, 0, 3 );
-    if (GetParam() >= kEquidistantBins_histoSyst) {
-      signal.AddHistoSys("SignalShape",
-          "shapeUnc_sigDo", _inputFile, "",
-          "shapeUnc_sigUp", _inputFile, "");
-      _systNames.insert("alpha_SignalShape");
-    }
-    chan.AddSample( signal );
-
-    // Background 1
-    Sample background1( "background1", "background1", _inputFile);
-    background1.ActivateStatError( "background1_statUncert", _inputFile);
-    background1.AddOverallSys( "syst2", 0.95, 1.05  );
-    background1.AddOverallSys( "syst3", 0.99, 1.01  );
-    _systNames.insert("alpha_syst2");
-    _systNames.insert("alpha_syst3");
-    chan.AddSample( background1 );
-
-    // Background 2
-    Sample background2( "background2", "background2", _inputFile);
-    background2.ActivateStatError();
-    background2.AddOverallSys( "syst3", 0.99, 1.01  );
-    background2.AddOverallSys( "syst4", 0.95, 1.05  );
-    _systNames.insert("alpha_syst3");
-    _systNames.insert("alpha_syst4");
-    chan.AddSample( background2 );
-
-
-    // Done with this channel
-    // Add it to the measurement:
-    meas.AddChannel( chan );
-
-    if (!_verbose) {
-      RooMsgService::instance().getStream(1).minLevel = RooFit::PROGRESS;
-      RooMsgService::instance().getStream(2).minLevel = RooFit::WARNING;
-    }
-    RooHelpers::HijackMessageStream hijackW(RooFit::WARNING, RooFit::HistFactory);
-
-    // Collect the histograms from their files,
-    meas.CollectHistograms();
-
-    // Now, create the measurement
-    ws.reset( MakeModelAndMeasurementFast(meas) );
-
-    EXPECT_TRUE(hijackW.str().empty()) << "Warnings logged for HistFactory:\n" << hijackW.str();
-  }
-
-  void TearDown() {
-
-  }
+   void TearDown() override {}
 };
 
+class HFFixtureEval : public HFFixture {};
+
+class HFFixtureFit : public HFFixture {};
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Test that the model consists of what is expected
-TEST_P(HFFixture, ModelProperties) {
-  auto simPdf = dynamic_cast<RooSimultaneous*>(ws->pdf("simPdf"));
-  ASSERT_NE(simPdf, nullptr);
+TEST_P(HFFixture, ModelProperties)
+{
+   const MakeModelMode makeModelMode = std::get<0>(GetParam());
+   const bool customBins = std::get<1>(GetParam());
 
-  auto channelPdf = dynamic_cast<RooRealSumPdf*>(ws->pdf("channel1_model"));
-  ASSERT_NE(channelPdf, nullptr);
+   auto simPdf = dynamic_cast<RooSimultaneous *>(ws->pdf("simPdf"));
+   ASSERT_NE(simPdf, nullptr);
 
-  auto obs = dynamic_cast<RooRealVar*>(ws->var("obs_x_channel1"));
+   auto channelPdf = dynamic_cast<RooRealSumPdf *>(ws->pdf("channel1_model"));
+   ASSERT_NE(channelPdf, nullptr);
 
-  // Nice to inspect the model if needed:
-  if (false)
-    channelPdf->graphVizTree("/tmp/graphVizTree.dot");
+   auto obs = dynamic_cast<RooRealVar *>(ws->var("obs_x_channel1"));
 
-  // Check bin widths
-  ASSERT_NE(obs, nullptr);
-  if (GetParam() % 2 == kEquidistantBins) {
-    EXPECT_DOUBLE_EQ(obs->getBinWidth(0), 0.5);
-    EXPECT_DOUBLE_EQ(obs->getBinWidth(1), 0.5);
-    EXPECT_EQ(obs->numBins(), 2);
-  } else if (GetParam() % 2 == kCustomBins) {
-    EXPECT_DOUBLE_EQ(obs->getBinWidth(0), _customBins[1] - _customBins[0]);
-    EXPECT_DOUBLE_EQ(obs->getBinWidth(1), _customBins[2] - _customBins[1]);
-    EXPECT_EQ(obs->numBins(), 2);
-  }
+   // Nice to inspect the model if needed:
+   // channelPdf->graphVizTree("graphVizTree.dot");
 
-  RooStats::ModelConfig* mc = dynamic_cast<RooStats::ModelConfig*>(ws->obj("ModelConfig"));
-  ASSERT_NE(mc, nullptr);
+   // Check bin widths
+   ASSERT_NE(obs, nullptr);
+   if (!customBins) {
+      EXPECT_DOUBLE_EQ(obs->getBinWidth(0), 0.5);
+      EXPECT_DOUBLE_EQ(obs->getBinWidth(1), 0.5);
+      EXPECT_EQ(obs->numBins(), 2);
+   } else {
+      EXPECT_DOUBLE_EQ(obs->getBinWidth(0), _customBins[1] - _customBins[0]);
+      EXPECT_DOUBLE_EQ(obs->getBinWidth(1), _customBins[2] - _customBins[1]);
+      EXPECT_EQ(obs->numBins(), 2);
+   }
 
+   auto mc = dynamic_cast<RooStats::ModelConfig *>(ws->obj("ModelConfig"));
+   ASSERT_NE(mc, nullptr);
 
-  // Check that parameters are in the model
-  for (const auto& systName : _systNames) {
-    auto& var = *ws->var(systName.c_str());
+   // Check that parameters are in the model
+   for (const auto &systName : _systNames) {
+      auto &var = *ws->var(systName);
 
-    EXPECT_TRUE(channelPdf->dependsOnValue(var)) << "Expect channel pdf to depend on " << systName;
-    if (!var.isConstant()) {
-      EXPECT_NE(mc->GetNuisanceParameters()->find(systName.c_str()), nullptr) << systName << " should be in list of nuisance parameters.";
-    }
-  }
+      EXPECT_TRUE(channelPdf->dependsOnValue(var)) << "Expect channel pdf to depend on " << systName;
+      if (!var.isConstant()) {
+         EXPECT_NE(mc->GetNuisanceParameters()->find(systName.c_str()), nullptr)
+            << systName << " should be in list of nuisance parameters.";
+      }
+   }
 
-  // Check that sub models depend on their systematic uncertainties.
-  for (auto& subModelName : std::initializer_list<std::string>{"signal_channel1_shapes", "background1_channel1_shapes", "background2_channel1_shapes"}) {
-    auto subModel = ws->function(subModelName.c_str());
-    ASSERT_NE(subModel, nullptr) << "Unable to retrieve sub model with name " << subModelName;
-    if (subModelName.find("signal") != std::string::npos) {
-      EXPECT_FALSE(subModel->dependsOn(*ws->var("gamma_stat_channel1_bin_0")));
-      EXPECT_FALSE(subModel->dependsOn(*ws->var("gamma_stat_channel1_bin_1")));
-    } else {
-        EXPECT_TRUE(subModel->dependsOn(*ws->var("gamma_stat_channel1_bin_0")));
-        EXPECT_TRUE(subModel->dependsOn(*ws->var("gamma_stat_channel1_bin_1")));
-    }
-  }
+   // Check that sub models depend on their systematic uncertainties.
+   for (auto &subModelName : std::initializer_list<std::string>{"signal_channel1_shapes", "background1_channel1_shapes",
+                                                                "background2_channel1_shapes"}) {
+      auto subModel = ws->function(subModelName);
+      ASSERT_NE(subModel, nullptr) << "Unable to retrieve sub model with name " << subModelName;
+      if (subModelName.find("signal") != std::string::npos) {
+         EXPECT_FALSE(subModel->dependsOn(*ws->var("gamma_stat_channel1_bin_0")));
+         EXPECT_FALSE(subModel->dependsOn(*ws->var("gamma_stat_channel1_bin_1")));
+      } else {
+         EXPECT_TRUE(subModel->dependsOn(*ws->var("gamma_stat_channel1_bin_0")));
+         EXPECT_TRUE(subModel->dependsOn(*ws->var("gamma_stat_channel1_bin_1")));
+      }
+   }
 
-  EXPECT_TRUE (ws->function("signal_channel1_scaleFactors")->dependsOn(*ws->var("SigXsecOverSM")));
-  EXPECT_TRUE (ws->function("signal_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst1")));
-  EXPECT_FALSE(ws->function("signal_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst2")));
-  EXPECT_FALSE(ws->function("signal_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst3")));
-  EXPECT_FALSE(ws->function("signal_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst4")));
+   EXPECT_TRUE(ws->function("signal_channel1_scaleFactors")->dependsOn(*ws->var("SigXsecOverSM")));
+   EXPECT_FALSE(ws->function("background1_channel1_scaleFactors")->dependsOn(*ws->var("SigXsecOverSM")));
+   EXPECT_FALSE(ws->function("background2_channel1_scaleFactors")->dependsOn(*ws->var("SigXsecOverSM")));
 
-  EXPECT_FALSE(ws->function("background1_channel1_scaleFactors")->dependsOn(*ws->var("SigXsecOverSM")));
-  EXPECT_FALSE(ws->function("background1_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst1")));
-  EXPECT_TRUE (ws->function("background1_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst2")));
-  EXPECT_TRUE (ws->function("background1_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst3")));
-  EXPECT_FALSE(ws->function("background1_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst4")));
+   if (makeModelMode == MakeModelMode::OverallSyst) {
+      EXPECT_FALSE(ws->function("signal_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst2")));
+      EXPECT_FALSE(ws->function("signal_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst3")));
+      EXPECT_FALSE(ws->function("signal_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst4")));
 
-  EXPECT_FALSE(ws->function("background2_channel1_scaleFactors")->dependsOn(*ws->var("SigXsecOverSM")));
-  EXPECT_FALSE(ws->function("background2_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst1")));
-  EXPECT_FALSE(ws->function("background2_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst2")));
-  EXPECT_TRUE (ws->function("background2_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst3")));
-  EXPECT_TRUE (ws->function("background2_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst4")));
+      EXPECT_TRUE(ws->function("background1_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst2")));
+      EXPECT_TRUE(ws->function("background1_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst3")));
+      EXPECT_FALSE(ws->function("background1_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst4")));
 
-  EXPECT_EQ(*mc->GetParametersOfInterest()->begin(), ws->var("SigXsecOverSM"));
+      EXPECT_FALSE(ws->function("background2_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst2")));
+      EXPECT_TRUE(ws->function("background2_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst3")));
+      EXPECT_TRUE(ws->function("background2_channel1_scaleFactors")->dependsOn(*ws->var("alpha_syst4")));
+   }
+
+   EXPECT_EQ(*mc->GetParametersOfInterest()->begin(), ws->var("SigXsecOverSM"));
 }
-
 
 /// Test that the values returned are as expected.
-TEST_P(HFFixture, Evaluation) {
-  auto simPdf = dynamic_cast<RooSimultaneous*>(ws->pdf("simPdf"));
-  ASSERT_NE(simPdf, nullptr);
+TEST_P(HFFixtureEval, Evaluation)
+{
+   const double defaultEps = 1e-9;
+   const double systEps = 1e-6;
 
-  auto channelPdf = dynamic_cast<RooRealSumPdf*>(ws->pdf("channel1_model"));
-  ASSERT_NE(channelPdf, nullptr);
+   const MakeModelMode makeModelMode = std::get<0>(GetParam());
 
-  auto obs = dynamic_cast<RooRealVar*>(ws->var("obs_x_channel1"));
+   RooHelpers::HijackMessageStream evalMessages(RooFit::INFO, RooFit::FastEvaluations);
 
-  RooStats::ModelConfig* mc = dynamic_cast<RooStats::ModelConfig*>(ws->obj("ModelConfig"));
-  ASSERT_NE(mc, nullptr);
+   auto simPdf = dynamic_cast<RooSimultaneous *>(ws->pdf("simPdf"));
+   ASSERT_NE(simPdf, nullptr);
 
-  // Test evaluating the model:
-  double normResults[2] = {0., 0.};
-  for (unsigned int i=0; i < 2; ++i) {
-    obs->setBin(i);
-    EXPECT_NEAR(channelPdf->getVal(),
-        _targetNominal[i]/obs->getBinWidth(i), 1.E-9);
-    EXPECT_NEAR(channelPdf->getVal(mc->GetObservables()),
-        _targetNominal[i]/obs->getBinWidth(i)/(_targetNominal[0]+_targetNominal[1]), 1.E-9);
-    normResults[i] = channelPdf->getVal(mc->GetObservables());
-  }
-  EXPECT_NEAR(normResults[0] * obs->getBinWidth(0) + normResults[1] * obs->getBinWidth(1), 1, 1.E-9) << "Integral over PDF range should be 1.";
+   auto channelPdf = dynamic_cast<RooRealSumPdf *>(ws->pdf("channel1_model"));
+   ASSERT_NE(channelPdf, nullptr);
 
+   auto obs = dynamic_cast<RooRealVar *>(ws->var("obs_x_channel1"));
 
-  // Test that shape uncertainties have an effect:
-  if (GetParam() >= kEquidistantBins_histoSyst) {
-    auto var = ws->var("alpha_SignalShape");
-    ASSERT_NE(var, nullptr);
+   auto mc = dynamic_cast<RooStats::ModelConfig *>(ws->obj("ModelConfig"));
+   ASSERT_NE(mc, nullptr);
 
-    // Test syst up:
-    var->setVal(1.);
-    for (unsigned int i=0; i < 2; ++i) {
-      obs->setBin(i);
-      EXPECT_NEAR(channelPdf->getVal(),
-          _targetSysUp[i]/obs->getBinWidth(i), 1.E-6);
-      EXPECT_NEAR(channelPdf->getVal(mc->GetObservables()),
-          _targetSysUp[i]/obs->getBinWidth(i)/(_targetSysUp[0]+_targetSysUp[1]), 1.E-6);
-    }
+   // Test evaluating the model:
+   std::vector<double> normResults = getValues(*channelPdf, *obs, true);
+   std::vector<double> unnormResults = getValues(*channelPdf, *obs, false);
 
-    // Test syst down:
-    var->setVal(-1.);
-    for (unsigned int i=0; i < 2; ++i) {
-      obs->setBin(i);
-      EXPECT_NEAR(channelPdf->getVal(),
-          _targetSysDo[i]/obs->getBinWidth(i), 1.E-6);
-      EXPECT_NEAR(channelPdf->getVal(mc->GetObservables()),
-          _targetSysDo[i]/obs->getBinWidth(i)/(_targetSysDo[0]+_targetSysDo[1]), 1.E-6);
-    }
-  }
+   for (int i = 0; i < obs->numBins(); ++i) {
+      EXPECT_NEAR(unnormResults[i], _tgtNom[i] / obs->getBinWidth(i), defaultEps);
+      EXPECT_NEAR(normResults[i], _tgtNom[i] / obs->getBinWidth(i) / (_tgtNom[0] + _tgtNom[1]), defaultEps);
+   }
+   EXPECT_NEAR(normResults[0] * obs->getBinWidth(0) + normResults[1] * obs->getBinWidth(1), 1, defaultEps)
+      << "Integral over PDF range should be 1.";
+
+   // Test that shape uncertainties have an effect:
+   if (makeModelMode == MakeModelMode::HistoSyst) {
+      auto var = ws->var("alpha_SignalShape");
+      ASSERT_NE(var, nullptr);
+
+      // Test syst up:
+      var->setVal(1.);
+      std::vector<double> normResultsSyst = getValues(*channelPdf, *obs, true);
+      std::vector<double> unnormResultsSyst = getValues(*channelPdf, *obs, false);
+      for (int i = 0; i < obs->numBins(); ++i) {
+         EXPECT_NEAR(unnormResultsSyst[i], _tgtSysUp[i] / obs->getBinWidth(i), systEps);
+         EXPECT_NEAR(normResultsSyst[i], _tgtSysUp[i] / obs->getBinWidth(i) / (_tgtSysUp[0] + _tgtSysUp[1]), systEps);
+      }
+
+      // Test syst down:
+      var->setVal(-1.);
+      normResultsSyst = getValues(*channelPdf, *obs, true);
+      unnormResultsSyst = getValues(*channelPdf, *obs, false);
+      for (int i = 0; i < obs->numBins(); ++i) {
+         EXPECT_NEAR(unnormResultsSyst[i], _tgtSysDo[i] / obs->getBinWidth(i), systEps);
+         EXPECT_NEAR(normResultsSyst[i], _tgtSysDo[i] / obs->getBinWidth(i) / (_tgtSysDo[0] + _tgtSysDo[1]), systEps);
+      }
+   }
+
+   EXPECT_TRUE(evalMessages.str().empty()) << "RooFit issued " << evalMessages.str().substr(0, 1000) << " [...]";
 }
-
-
-/// Test that the values returned are as expected.
-TEST_P(HFFixture, BatchEvaluation) {
-  RooHelpers::HijackMessageStream evalMessages(RooFit::INFO, RooFit::FastEvaluations);
-
-  auto simPdf = dynamic_cast<RooSimultaneous*>(ws->pdf("simPdf"));
-  ASSERT_NE(simPdf, nullptr);
-
-  auto channelPdf = dynamic_cast<RooRealSumPdf*>(ws->pdf("channel1_model"));
-  ASSERT_NE(channelPdf, nullptr);
-
-  auto obs = dynamic_cast<RooRealVar*>(ws->var("obs_x_channel1"));
-
-  RooStats::ModelConfig* mc = dynamic_cast<RooStats::ModelConfig*>(ws->obj("ModelConfig"));
-  ASSERT_NE(mc, nullptr);
-
-  // Test evaluating the model:
-  RooBatchCompute::RunContext evalDataOrig;
-  auto batch = evalDataOrig.makeBatch(obs, 2);
-  obs->setBin(0);
-  batch[0] = obs->getVal();
-  obs->setBin(1);
-  batch[1] = obs->getVal();
-
-  RooBatchCompute::RunContext evalData1;
-  evalData1.spans = evalDataOrig.spans;
-  auto results = channelPdf->getValues(evalData1, nullptr);
-  RooBatchCompute::RunContext evalData2;
-  evalData2.spans = evalDataOrig.spans;
-  auto normResults = channelPdf->getValues(evalData2, mc->GetObservables());
-
-  for (unsigned int i=0; i < 2; ++i) {
-    obs->setBin(i);
-    EXPECT_NEAR(results[i],
-        _targetNominal[i]/obs->getBinWidth(i), 1.E-9);
-    EXPECT_NEAR(normResults[i],
-        _targetNominal[i]/obs->getBinWidth(i)/(_targetNominal[0]+_targetNominal[1]), 1.E-9);
-  }
-  EXPECT_NEAR(normResults[0] * obs->getBinWidth(0) + normResults[1] * obs->getBinWidth(1), 1, 1.E-9) << "Integral over PDF range should be 1.";
-
-
-  // Test that shape uncertainties have an effect:
-  if (GetParam() >= kEquidistantBins_histoSyst) {
-    auto var = ws->var("alpha_SignalShape");
-    ASSERT_NE(var, nullptr);
-
-    // Test syst up:
-    var->setVal(1.);
-    RooBatchCompute::RunContext evalData3;
-    evalData3.spans = evalDataOrig.spans;
-    auto resultsSyst = channelPdf->getValues(evalData3, nullptr);
-    RooBatchCompute::RunContext evalData4;
-    evalData4.spans = evalDataOrig.spans;
-    auto normResultsSyst = channelPdf->getValues(evalData4, mc->GetObservables());
-    for (unsigned int i=0; i < 2; ++i) {
-      EXPECT_NEAR(resultsSyst[i],
-          _targetSysUp[i]/obs->getBinWidth(i), 1.E-6);
-      EXPECT_NEAR(normResultsSyst[i],
-          _targetSysUp[i]/obs->getBinWidth(i)/(_targetSysUp[0]+_targetSysUp[1]), 1.E-6);
-    }
-
-    // Test syst down:
-    var->setVal(-1.);
-    RooBatchCompute::RunContext evalData5;
-    evalData5.spans = evalDataOrig.spans;
-    resultsSyst = channelPdf->getValues(evalData5, nullptr);
-    RooBatchCompute::RunContext evalData6;
-    evalData6.spans = evalDataOrig.spans;
-    normResultsSyst = channelPdf->getValues(evalData6, mc->GetObservables());
-    for (unsigned int i=0; i < 2; ++i) {
-      obs->setBin(i);
-      EXPECT_NEAR(resultsSyst[i],
-          _targetSysDo[i]/obs->getBinWidth(i), 1.E-6);
-      EXPECT_NEAR(normResultsSyst[i],
-          _targetSysDo[i]/obs->getBinWidth(i)/(_targetSysDo[0]+_targetSysDo[1]), 1.E-6);
-    }
-  }
-
-  EXPECT_TRUE(evalMessages.str().empty()) << "RooFit issued " << evalMessages.str().substr(0, 1000) << " [...]";
-}
-
 
 /// Fit the model to data, and check parameters.
-TEST_P(HFFixture, Fit) {
-  constexpr bool createPlot = false;
-  constexpr bool verbose = false;
+TEST_P(HFFixtureFit, Fit)
+{
+   const MakeModelMode makeModelMode = std::get<0>(GetParam());
+   RooFit::EvalBackend evalBackend = std::get<2>(GetParam());
 
-  auto simPdf = dynamic_cast<RooSimultaneous*>(ws->pdf("simPdf"));
-  ASSERT_NE(simPdf, nullptr);
+   constexpr bool verbose = false;
 
-  auto channelPdf = dynamic_cast<RooRealSumPdf*>(ws->pdf("channel1_model"));
-  ASSERT_NE(channelPdf, nullptr);
+   auto simPdf = dynamic_cast<RooSimultaneous *>(ws->pdf("simPdf"));
+   ASSERT_NE(simPdf, nullptr);
 
-  // Test fitting the model to data
-  RooAbsData* data = dynamic_cast<RooAbsData*>(ws->data("obsData"));
-  ASSERT_NE(data, nullptr);
+   auto channelPdf = dynamic_cast<RooRealSumPdf *>(ws->pdf("channel1_model"));
+   ASSERT_NE(channelPdf, nullptr);
 
-  RooStats::ModelConfig* mc = dynamic_cast<RooStats::ModelConfig*>(ws->obj("ModelConfig"));
-  ASSERT_NE(mc, nullptr);
+   // Test fitting the model to data
+   RooAbsData *data = dynamic_cast<RooAbsData *>(ws->data("obsData"));
+   ASSERT_NE(data, nullptr);
 
-  for (bool batchFit : {true, false}) {
-    for (bool constTermOptimisation : {true, false}) { // This tests both correct pre-caching of constant terms and (if false) that all evaluateSpan() are correct.
-      SCOPED_TRACE(batchFit ? "Batch fit" : "Normal fit");
-      SCOPED_TRACE(constTermOptimisation ? "const term optimisation" : "No const term optimisation");
+   auto mc = dynamic_cast<RooStats::ModelConfig *>(ws->obj("ModelConfig"));
+   ASSERT_NE(mc, nullptr);
 
-      // Stop if one of the previous runs had a failure to keep the terminal clean.
-      if (HasFailure())
-        break;
+   std::unique_ptr<RooArgSet> pars(simPdf->getParameters(*data));
+   // Kick parameters:
+   for (auto par : *pars) {
+      auto real = dynamic_cast<RooAbsRealLValue *>(par);
+      if (real && !real->isConstant())
+         real->setVal(real->getVal() * 0.95);
+   }
+   if (makeModelMode == MakeModelMode::StatSyst) {
+      auto poi = dynamic_cast<RooRealVar *>(pars->find("SigXsecOverSM"));
+      ASSERT_NE(poi, nullptr);
+      poi->setVal(2.);
+      poi->setConstant();
+   }
 
-      std::unique_ptr<RooArgSet> pars( simPdf->getParameters(*data) );
-      // Kick parameters:
-      for (auto par : *pars) {
-        auto real = dynamic_cast<RooAbsRealLValue*>(par);
-        if (real && !real->isConstant())
-          real->setVal(real->getVal() * 0.95);
+   using namespace RooFit;
+   std::unique_ptr<RooFitResult> fitResult{simPdf->fitTo(
+      *data, evalBackend, GlobalObservables(*mc->GetGlobalObservables()), Save(), PrintLevel(verbose ? 1 : -1))};
+   ASSERT_NE(fitResult, nullptr);
+   if (verbose)
+      fitResult->Print("v");
+   EXPECT_EQ(fitResult->status(), 0);
+
+   auto checkParam = [&](const std::string &param, double target, double absPrecision = 1.e-2) {
+      auto par = dynamic_cast<RooRealVar *>(fitResult->floatParsFinal().find(param.c_str()));
+      if (!par) {
+         // Parameter was constant in this fit
+         par = dynamic_cast<RooRealVar *>(fitResult->constPars().find(param.c_str()));
+         ASSERT_NE(par, nullptr) << param;
+         EXPECT_DOUBLE_EQ(par->getVal(), target) << "Constant parameter " << param << " is off target.";
+      } else {
+         EXPECT_NEAR(par->getVal(), target, par->getError())
+            << "Parameter " << param << " close to target " << target << " within uncertainty";
+         EXPECT_NEAR(par->getVal(), target, absPrecision) << "Parameter " << param << " close to target " << target;
       }
-      if (GetParam() >= kEquidistantBins_statSyst) {
-        auto poi = dynamic_cast<RooRealVar*>(pars->find("SigXsecOverSM"));
-        ASSERT_NE(poi, nullptr);
-        poi->setVal(2.);
-        poi->setConstant();
-      }
+   };
 
-      auto fitResult = simPdf->fitTo(*data,
-          RooFit::BatchMode(batchFit),
-          RooFit::Optimize(constTermOptimisation),
-          RooFit::GlobalObservables(*mc->GetGlobalObservables()),
-          RooFit::Save(),
-          RooFit::PrintLevel(verbose ? 1 : -1));
-      ASSERT_NE(fitResult, nullptr);
-      if (verbose)
-        fitResult->Print();
-      EXPECT_EQ(fitResult->status(), 0);
+   if (makeModelMode == MakeModelMode::OverallSyst) {
+      // Model is set up such that background scale factors should be close to 1, and signal == 2
+      checkParam("SigXsecOverSM", 2.);
+      checkParam("alpha_syst2", 0.);
+      checkParam("alpha_syst3", 0.);
+      checkParam("alpha_syst4", 0.);
+      checkParam("gamma_stat_channel1_bin_0", 1.);
+      checkParam("gamma_stat_channel1_bin_1", 1.);
+   } else if (makeModelMode == MakeModelMode::HistoSyst) {
+      // Model is set up with a -1 sigma pull on the signal shape parameter.
+      checkParam("SigXsecOverSM", 2., 1.1E-1); // Higher tolerance: Expect a pull due to shape syst.
+      checkParam("gamma_stat_channel1_bin_0", 1.);
+      checkParam("gamma_stat_channel1_bin_1", 1.);
+      checkParam("alpha_SignalShape", -0.9, 5.E-2); // Pull slightly lower than 1 because of constraint term
+   } else if (makeModelMode == MakeModelMode::StatSyst) {
+      // Model is set up with a -1 sigma pull on the signal shape parameter.
+      checkParam("SigXsecOverSM", 2., 1.1E-1);       // Higher tolerance: Expect a pull due to shape syst.
+      checkParam("gamma_stat_channel1_bin_0", 1.09); // This should be pulled
+      checkParam("gamma_stat_channel1_bin_1", 1.);
+   } else if (makeModelMode == MakeModelMode::ShapeSyst) {
+      // This should be pulled down
+      checkParam("gamma_background1Shape_bin_0", 0.8866, 0.03);
+      // This should be pulled up, but not so much because the free signal
+      // strength will fit the excess in this bin.
+      checkParam("gamma_background2Shape_bin_1", 1.0250, 0.03);
+   }
 
+   if (false) {
+      auto obs = dynamic_cast<RooRealVar *>(ws->var("obs_x_channel1"));
+      auto frame = obs->frame();
+      data->plotOn(frame);
+      channelPdf->plotOn(frame);
+      channelPdf->plotOn(frame, RooFit::Components("signal_channel1_shapes"), RooFit::LineColor(kRed));
+      TCanvas canv;
+      frame->Draw();
+      canv.Draw();
+      canv.SaveAs(("HFTest" + _name + ".png").c_str());
 
-      auto checkParam = [fitResult](const std::string& param, double target, double absPrecision) {
-        auto par = dynamic_cast<RooRealVar*>(fitResult->floatParsFinal().find(param.c_str()));
-        if (!par) {
-          // Parameter was constant in this fit
-          par = dynamic_cast<RooRealVar*>(fitResult->constPars().find(param.c_str()));
-          ASSERT_NE(par, nullptr);
-          EXPECT_DOUBLE_EQ(par->getVal(), target) << "Constant parameter " << param << " is off target.";
-        } else {
-          EXPECT_NEAR(par->getVal(), target, par->getError()) << "Parameter " << param << " close to target " << target << " within uncertainty";
-          EXPECT_NEAR(par->getVal(), target, absPrecision) << "Parameter " << param << " close to target " << target;
-        }
-      };
-
-      if (GetParam() <= kCustomBins) {
-        // Model is set up such that background scale factors should be close to 1, and signal == 2
-        checkParam("SigXsecOverSM", 2., 1.E-2);
-        checkParam("alpha_syst2", 0., 1.E-2);
-        checkParam("alpha_syst3", 0., 1.E-2);
-        checkParam("alpha_syst4", 0., 1.E-2);
-        checkParam("gamma_stat_channel1_bin_0", 1., 1.E-2);
-        checkParam("gamma_stat_channel1_bin_1", 1., 1.E-2);
-      } else if (GetParam() <= kCustomBins_histoSyst) {
-        // Model is set up with a -1 sigma pull on the signal shape parameter.
-        checkParam("SigXsecOverSM", 2., 1.E-1); // Higher tolerance: Expect a pull due to shape syst.
-        checkParam("alpha_syst2", 0., 1.E-2);
-        checkParam("alpha_syst3", 0., 3.E-2); // Micro pull due to shape syst.
-        checkParam("alpha_syst4", 0., 1.E-2);
-        checkParam("gamma_stat_channel1_bin_0", 1., 1.E-2);
-        checkParam("gamma_stat_channel1_bin_1", 1., 1.E-2);
-        checkParam("alpha_SignalShape", -0.9, 5.E-2); // Pull slightly lower than 1 because of constraint term
-      } else if (GetParam() <= kCustomBins_statSyst) {
-        // Model is set up with a -1 sigma pull on the signal shape parameter.
-        checkParam("SigXsecOverSM", 2., 1.E-1); // Higher tolerance: Expect a pull due to shape syst.
-        checkParam("alpha_syst2", 0., 1.E-2);
-        checkParam("alpha_syst3", 0., 1.E-2);
-        checkParam("alpha_syst4", 0., 1.E-2);
-        checkParam("gamma_stat_channel1_bin_0", 1.09, 1.E-2); // This should be pulled
-        checkParam("gamma_stat_channel1_bin_1", 1., 1.E-2);
-        checkParam("alpha_SignalShape", 0., 1.E-2);
-      }
-    }
-  }
-
-
-  if (createPlot) {
-    auto obs = dynamic_cast<RooRealVar*>(ws->var("obs_x_channel1"));
-    auto frame = obs->frame();
-    data->plotOn(frame);
-    channelPdf->plotOn(frame);
-    channelPdf->plotOn(frame, RooFit::Components("signal_channel1_shapes"), RooFit::LineColor(kRed));
-    TCanvas canv;
-    frame->Draw();
-    canv.Draw();
-    canv.SaveAs(("/tmp/HFTest" + std::to_string(GetParam()) + ".png").c_str());
-
-    channelPdf->graphVizTree(("/tmp/HFTest" + std::to_string(GetParam()) + ".dot").c_str());
-  }
+      channelPdf->graphVizTree(("HFTest" + _name + ".dot").c_str());
+   }
 }
 
+std::string getNameFromInfo(testing::TestParamInfo<HFFixture::ParamType> const &paramInfo)
+{
+   return getName(paramInfo.param, false);
+}
 
-INSTANTIATE_TEST_SUITE_P(MakeModelWithNormSysts,
-    HFFixture,
-    testing::Values(kEquidistantBins, kCustomBins));
+INSTANTIATE_TEST_SUITE_P(
+   HistFactory, HFFixture,
+   testing::Combine(testing::Values(MakeModelMode::OverallSyst, MakeModelMode::HistoSyst, MakeModelMode::StatSyst,
+                                    MakeModelMode::ShapeSyst),
+                    testing::Values(false, true),                 // non-uniform bins or not
+                    testing::Values(RooFit::EvalBackend::Cpu())), // dummy because no NLL is created
+   [](testing::TestParamInfo<HFFixture::ParamType> const &paramInfo) { return getName(paramInfo.param, true); });
 
-INSTANTIATE_TEST_SUITE_P(MakeModelWithHistoSysts,
-    HFFixture,
-    testing::Values(kEquidistantBins_histoSyst, kCustomBins_histoSyst));
+INSTANTIATE_TEST_SUITE_P(HistFactory, HFFixtureEval,
+                         testing::Combine(testing::Values(MakeModelMode::OverallSyst, MakeModelMode::HistoSyst,
+                                                          MakeModelMode::StatSyst, MakeModelMode::ShapeSyst),
+                                          testing::Values(false, true), // non-uniform bins or not
+                                          testing::Values(ROOFIT_EVAL_BACKENDS)),
+                         getNameFromInfo);
 
-INSTANTIATE_TEST_SUITE_P(MakeModelWithHistoAndStatSysts,
-    HFFixture,
-    testing::Values(kEquidistantBins_statSyst, kCustomBins_statSyst));
+INSTANTIATE_TEST_SUITE_P(HistFactory, HFFixtureFit,
+                         testing::Combine(testing::Values(MakeModelMode::OverallSyst, MakeModelMode::HistoSyst,
+                                                          MakeModelMode::StatSyst, MakeModelMode::ShapeSyst),
+                                          testing::Values(false, true), // non-uniform bins or not
+                                          testing::Values(ROOFIT_EVAL_BACKENDS_WITH_CODEGEN)),
+                         getNameFromInfo);
 
+// Issue #20697: Sample::AddShapeFactor() now allows to set the initial value
+// and the range of the ShapeFactor gammas (just like AddNormFactor() does for
+// the NormFactors). This is important e.g. for ABCD estimates, where the
+// hard-coded default range can cause convergence problems.
+//
+// These settings need to survive being persisted, so this test checks that the
+// value and range make it through:
+//   1. a ROOT file round trip (Measurement::writeToFile),
+//   2. an XML file round trip (Measurement::PrintXML / ConfigParser), and
+//   3. into the actual gamma parameters of the generated workspace.
+TEST(HistFactory, ShapeFactorValueAndRange)
+{
+   using namespace RooStats::HistFactory;
+   RooHelpers::LocalChangeMsgLevel changeMsgLvl(RooFit::WARNING);
+
+   // Deliberately use non-default values and a range that differs from the
+   // hard-coded default of [0, 1000].
+   const double sfVal = 2.0;
+   const double sfLow = 0.1;
+   const double sfHigh = 12.0;
+
+   const std::string inputFileName = "TestShapeFactorRange_input.root";
+   {
+      TFile f(inputFileName.c_str(), "RECREATE");
+      auto *data = new TH1D("data", "data", 2, 1, 2);
+      auto *signal = new TH1D("signal", "signal", 2, 1, 2);
+      auto *bkg = new TH1D("background", "background", 2, 1, 2);
+      data->SetBinContent(1, 220);
+      data->SetBinContent(2, 230);
+      signal->SetBinContent(1, 10);
+      signal->SetBinContent(2, 20);
+      bkg->SetBinContent(1, 200);
+      bkg->SetBinContent(2, 200);
+      for (auto *h : {data, signal, bkg})
+         f.WriteTObject(h);
+   }
+
+   auto makeMeasurement = [&]() {
+      Measurement meas("meas", "meas");
+      meas.SetOutputFilePrefix("TestShapeFactorRange");
+      meas.SetPOI("SigXsecOverSM");
+      meas.AddConstantParam("Lumi");
+      meas.SetLumi(1.0);
+      meas.SetLumiRelErr(0.10);
+
+      Channel chan("channel1");
+      chan.SetData("data", inputFileName);
+
+      Sample sig("signal", "signal", inputFileName);
+      sig.AddNormFactor("SigXsecOverSM", 1, 0, 3);
+      chan.AddSample(sig);
+
+      // The new overload under test: ShapeFactor with custom value and range.
+      Sample bkg("background", "background", inputFileName);
+      bkg.AddShapeFactor("bkgShape", sfVal, sfLow, sfHigh);
+      chan.AddSample(bkg);
+
+      meas.AddChannel(chan);
+      meas.CollectHistograms();
+      return meas;
+   };
+
+   // Fetch the (single) ShapeFactor stored in a measurement.
+   auto getShapeFactor = [](Measurement &meas) -> ShapeFactor & {
+      Channel &chan = meas.GetChannel("channel1");
+      for (Sample &sample : chan.GetSamples()) {
+         if (!sample.GetShapeFactorList().empty())
+            return sample.GetShapeFactorList().front();
+      }
+      throw std::runtime_error("ShapeFactor not found in measurement");
+   };
+
+   auto checkShapeFactor = [&](Measurement &meas, const char *context) {
+      ShapeFactor &sf = getShapeFactor(meas);
+      EXPECT_DOUBLE_EQ(sf.GetVal(), sfVal) << context;
+      EXPECT_DOUBLE_EQ(sf.GetLow(), sfLow) << context;
+      EXPECT_DOUBLE_EQ(sf.GetHigh(), sfHigh) << context;
+   };
+
+   // 0. Sanity check on the in-memory measurement.
+   {
+      Measurement meas = makeMeasurement();
+      checkShapeFactor(meas, "in-memory measurement");
+   }
+
+   // 1. ROOT file round trip.
+   {
+      Measurement meas = makeMeasurement();
+      const std::string rootFileName = "TestShapeFactorRange_meas.root";
+      {
+         TFile outFile(rootFileName.c_str(), "RECREATE");
+         meas.writeToFile(&outFile);
+      }
+      TFile inFile(rootFileName.c_str(), "READ");
+      std::unique_ptr<Measurement> measFromFile{inFile.Get<Measurement>("meas")};
+      ASSERT_NE(measFromFile, nullptr);
+      checkShapeFactor(*measFromFile, "ROOT file round trip");
+   }
+
+   // 2. XML file round trip.
+   //    The ConfigParser is only built with the xml build option, so this part
+   //    of the test is skipped when ROOT is built without XML support.
+#ifdef HISTFACTORY_XML
+   {
+      Measurement meas = makeMeasurement();
+      const std::string xmlDir = "TestShapeFactorRangeXML";
+      meas.PrintXML(xmlDir);
+
+      // The generated XML files refer to the DTD by relative path, so it has to
+      // be available next to them for the validating parser to find it.
+      gSystem->CopyFile(TString::Format("%s/HistFactorySchema.dtd", TROOT::GetEtcDir().Data()),
+                        TString::Format("%s/HistFactorySchema.dtd", xmlDir.c_str()), true);
+
+      ConfigParser parser;
+      std::vector<Measurement> measFromXML = parser.GetMeasurementsFromXML(xmlDir + "/meas.xml");
+      ASSERT_EQ(measFromXML.size(), 1u);
+      checkShapeFactor(measFromXML.front(), "XML file round trip");
+   }
+#endif
+
+   // 3. End to end: the gamma parameters of the workspace pick up the requested
+   //    value and range.
+   {
+      Measurement meas = makeMeasurement();
+      std::unique_ptr<RooWorkspace> ws{MakeModelAndMeasurementFast(meas)};
+      ASSERT_NE(ws, nullptr);
+      for (const char *name : {"gamma_bkgShape_bin_0", "gamma_bkgShape_bin_1"}) {
+         auto *gamma = ws->var(name);
+         ASSERT_NE(gamma, nullptr) << name;
+         EXPECT_DOUBLE_EQ(gamma->getVal(), sfVal) << name;
+         EXPECT_DOUBLE_EQ(gamma->getMin(), sfLow) << name;
+         EXPECT_DOUBLE_EQ(gamma->getMax(), sfHigh) << name;
+      }
+   }
+}

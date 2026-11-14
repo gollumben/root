@@ -17,7 +17,6 @@
 GUI editor for TEveJetCone.
 */
 
-ClassImp(TEveJetConeEditor);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -25,7 +24,7 @@ ClassImp(TEveJetConeEditor);
 TEveJetConeEditor::TEveJetConeEditor(const TGWindow *p, Int_t width, Int_t height,
                                      UInt_t options, Pixel_t back) :
    TGedFrame(p, width, height, options | kVerticalFrame, back),
-   fM(0)
+   fM(nullptr)
    // Initialize widget pointers to 0
 {
    MakeTitle("TEveJetCone");

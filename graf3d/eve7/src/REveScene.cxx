@@ -15,6 +15,7 @@
 #include <ROOT/REveTrans.hxx>
 #include <ROOT/REveRenderData.hxx>
 #include <ROOT/REveClient.hxx>
+#include <ROOT/REveUtil.hxx>
 #include <ROOT/RWebWindow.hxx>
 
 #include <cassert>
@@ -54,6 +55,15 @@ REveScene::~REveScene()
    REX::gEve->GetViewers()->SceneDestructing(this);
    REX::gEve->GetScenes()->RemoveElement(this);
 }
+//------------------------------------------------------------------------------
+
+int REveScene::WriteCoreJson(nlohmann::json &j, Int_t rnr_offset)
+{
+   j["Mandatory"] = fMandatory;
+   j["IsOverlay"] = fIsOverlay;
+
+   return REveElement::WriteCoreJson(j, rnr_offset);
+}
 
 //------------------------------------------------------------------------------
 
@@ -70,8 +80,6 @@ void REveScene::AddSubscriber(std::unique_ptr<REveClient> &&sub)
 
 void REveScene::RemoveSubscriber(unsigned id)
 {
-   assert(fAcceptingChanges == kFALSE);
-
    auto pred = [&](std::unique_ptr<REveClient> &client) {
       return client->fId == id;
    };
@@ -99,9 +107,11 @@ void REveScene::BeginAcceptingChanges()
 
    if (HasSubscribers()) {
       fAcceptingChanges = kTRUE;
+      /*
       for (auto &&client : fSubscribers) {
          REX::gEve->SceneSubscriberProcessingChanges(client->fId);
       }
+      */
    }
 }
 
@@ -124,15 +134,6 @@ void REveScene::EndAcceptingChanges()
    fAcceptingChanges = kFALSE;
 }
 
-void REveScene::ProcessChanges()
-{
-   if (IsChanged())
-   {
-      StreamRepresentationChanges();
-      SendChangesToSubscribers();
-   }
-}
-
 void REveScene::StreamElements()
 {
    fOutputJson.clear();
@@ -147,7 +148,7 @@ void REveScene::StreamElements()
    jhdr["content"]  = "REveScene::StreamElements";
    jhdr["fSceneId"] = fElementId;
 
-   if (fCommands.size() > 0) {
+   if (!fCommands.empty()) {
       jhdr["commands"] = nlohmann::json::array();
       for (auto &&cmd : fCommands) {
          nlohmann::json jcmd = {};
@@ -181,6 +182,7 @@ void REveScene::StreamElements()
    jarr.front()["fTotalBinarySize"] = fTotalBinarySize;
 
    fOutputJson = jarr.dump();
+   REveUtil::AppendServerTime(fOutputJson); // stamped again just before each send
 }
 
 void REveScene::StreamJsonRecurse(REveElement *el, nlohmann::json &jarr)
@@ -228,6 +230,38 @@ void REveScene::StreamJsonRecurse(REveElement *el, nlohmann::json &jarr)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Move every element whose only pending change is kCBTrans from the change
+/// list into `arr`, for REveManager::SendMotionChanges(). The remaining
+/// elements are streamed as ordinary, acknowledged scene changes.
+
+void REveScene::StreamMotionChanges(nlohmann::json &arr)
+{
+   if (fChangedElements.empty())
+      return;
+
+   List_t keep;
+
+   for (auto &el : fChangedElements) {
+      if (el->GetChangeBits() != REveElement::kCBTrans) {
+         keep.push_back(el);
+         continue;
+      }
+
+      nlohmann::json jobj = {};
+      // clang-format off
+      jobj["fElementId"] = el->GetElementId();
+      jobj["fSceneId"]   = GetElementId();
+      // clang-format on
+      el->WriteTransJson(jobj);
+      arr.push_back(jobj);
+
+      el->ClearStamps();
+   }
+
+   fChangedElements.swap(keep);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 //
 /// Prepare data for sending element changes
 //
@@ -235,9 +269,6 @@ void REveScene::StreamJsonRecurse(REveElement *el, nlohmann::json &jarr)
 
 void REveScene::StreamRepresentationChanges()
 {
-   fOutputJson.clear();
-   fOutputBinary.clear();
-
    fElsWithBinaryData.clear();
    fTotalBinarySize = 0;
 
@@ -286,13 +317,12 @@ void REveScene::StreamRepresentationChanges()
           jobj["fRnrChildren"] = el->GetRnrChildren();
         }
 
-        if (bits & kCBColorSelection)
-        {
-          el->WriteCoreJson(jobj, -1);
+        if (bits & kCBCoreJson) {
+           el->WriteCoreJson(jobj, -1);
         }
 
-        if (bits & kCBTransBBox)
-        {
+        if (bits & kCBTrans) {
+           el->WriteTransJson(jobj);
         }
       }
 
@@ -319,6 +349,7 @@ void REveScene::StreamRepresentationChanges()
 
    nlohmann::json msg = { {"header", jhdr}, {"arr", jarr}};
    fOutputJson = msg.dump();
+   REveUtil::AppendServerTime(fOutputJson); // stamped again just before each send
 
    if (gDebug > 0)
       Info("REveScene::StreamRepresentationChanges", "class: %s  changes %s ...", GetCName(),  msg.dump(1).c_str() );
@@ -327,9 +358,12 @@ void REveScene::StreamRepresentationChanges()
 void REveScene::SendChangesToSubscribers()
 {
    for (auto && client : fSubscribers) {
-      if (gDebug > 0)
-         printf("   sending json, len = %d --> to conn_id = %d\n", (int) fOutputJson.size(), client->fId);
-      client->fWebWindow->Send(client->fId, fOutputJson);
+      if (!fOutputJson.empty()) {
+         REveUtil::StampServerTime(fOutputJson);
+         if (gDebug > 0)
+            printf("   sending json, len = %d --> to conn_id = %d\n", (int) fOutputJson.size(), client->fId);
+         client->fWebWindow->Send(client->fId, fOutputJson);
+      }
       if (fTotalBinarySize) {
          if (gDebug > 0)
             printf("   sending binary, len = %d --> to conn_id = %d\n", fTotalBinarySize, client->fId);
@@ -337,6 +371,20 @@ void REveScene::SendChangesToSubscribers()
       }
       REX::gEve->SceneSubscriberWaitingResponse(client->fId);
    }
+   ClearOutput();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Drop the output of the last StreamElements() or
+/// StreamRepresentationChanges() once it has been sent, so that the next
+/// SendChangesToSubscribers() does not send it again. REveManager calls this
+/// after streaming a scene directly to one new connection.
+
+void REveScene::ClearOutput()
+{
+   fOutputJson.clear();
+   fOutputBinary.clear();
+   fTotalBinarySize = 0;
 }
 
 Bool_t REveScene::IsChanged() const
@@ -347,126 +395,6 @@ Bool_t REveScene::IsChanged() const
 
    return ! (fChangedElements.empty() && fRemovedElements.empty());
 }
-
-
-/*
-////////////////////////////////////////////////////////////////////////////////
-/// Repaint the scene.
-
-void REveScene::Repaint(Bool_t dropLogicals)
-{
-   if (dropLogicals) fGLScene->SetSmartRefresh(kFALSE);
-   fGLScene->PadPaint(fPad);
-   if (dropLogicals) fGLScene->SetSmartRefresh(kTRUE);
-   fChanged = kFALSE;
-
-   // Hack to propagate selection state to physical shapes.
-   //
-   // Should actually be published in PadPaint() following a direct
-   // AddObject() call, but would need some other stuff for that.
-   // Optionally, this could be exported via the TAtt3D and everything
-   // would be sweet.
-
-   TGLScene::LogicalShapeMap_t& logs = fGLScene->RefLogicalShapes();
-   REveElement* elm;
-   for (TGLScene::LogicalShapeMapIt_t li = logs.begin(); li != logs.end(); ++li)
-   {
-      elm = dynamic_cast<REveElement*>(li->first);
-      if (elm && li->second->Ref() == 1)
-      {
-         TGLPhysicalShape* pshp = const_cast<TGLPhysicalShape*>(li->second->GetFirstPhysical());
-         pshp->Select(elm->GetSelectedLevel());
-      }
-   }
-
-   // Fix positions for hierarchical scenes.
-   if (fHierarchical)
-   {
-      RetransHierarchically();
-   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Entry point for hierarchical transformation update.
-/// Calls the recursive variant on all children.
-
-void REveScene::RetransHierarchically()
-{
-   fGLScene->BeginUpdate();
-
-   RetransHierarchicallyRecurse(this, RefMainTrans());
-
-   fGLScene->EndUpdate();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Set transformation matrix for physical shape of element el in
-/// the GL-scene and recursively descend into children (if enabled).
-
-void REveScene::RetransHierarchicallyRecurse(REveElement* el, const REveTrans& tp)
-{
-   static const REveException eh("REveScene::RetransHierarchicallyRecurse ");
-
-   REveTrans t(tp);
-   if (el->HasMainTrans())
-      t *= el->RefMainTrans();
-
-   if (el->GetRnrSelf() && el != this)
-   {
-      fGLScene->UpdatePhysioLogical(el->GetRenderObject(eh), t.Array(), 0);
-   }
-
-   if (el->GetRnrChildren())
-   {
-      for (auto &c: el->RefChildren())
-      {
-         if (c->GetRnrAnything())
-            RetransHierarchicallyRecurse(c, t);
-      }
-   }
-}
-*/
-
-
-/*
-////////////////////////////////////////////////////////////////////////////////
-/// Paint the scene. Iterate over children and calls PadPaint().
-
-void REveScene::Paint(Option_t* option)
-{
-   if (GetRnrState())
-   {
-      for (auto &c: fChildren)
-      {
-         // c->PadPaint(option);
-      }
-   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Remove element from the scene.
-/// It is not an error if the element is not found in the scene.
-
-void REveScene::DestroyElementRenderers(REveElement* element)
-{
-   static const REveException eh("REveScene::DestroyElementRenderers ");
-
-   fGLScene->BeginUpdate();
-   Bool_t changed = fGLScene->DestroyLogical(element->GetRenderObject(eh), kFALSE);
-   fGLScene->EndUpdate(changed, changed);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Remove element represented by object rnrObj from the scene.
-/// It is not an error if the element is not found in the scene.
-
-void REveScene::DestroyElementRenderers(TObject* rnrObj)
-{
-   fGLScene->BeginUpdate();
-   Bool_t changed = fGLScene->DestroyLogical(rnrObj, kFALSE);
-   fGLScene->EndUpdate(changed, changed);
-}
-*/
 
 
 /** \class REveSceneList
@@ -499,61 +427,23 @@ void REveSceneList::DestroyScenes()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set accept changes flag on all scenes.
+/// Loop-wrapers over Scene children, element type checked on insertion.
 
-void REveSceneList::AcceptChanges(bool on)
+void REveSceneList::BeginAcceptingChanges()
 {
    for (auto &c: fChildren)
    {
-      REveScene *s = (REveScene *)c;
-      if (on)
-         s->BeginAcceptingChanges();
-      else
-         s->EndAcceptingChanges();
+      static_cast<REveScene*>(c)->BeginAcceptingChanges();
    }
 }
-/*
-////////////////////////////////////////////////////////////////////////////////
-/// Repaint scenes that are tagged as changed.
 
-void REveSceneList::RepaintChangedScenes(Bool_t dropLogicals)
+void REveSceneList::EndAcceptingChanges()
 {
    for (auto &c: fChildren)
    {
-      REveScene* s = (REveScene*) c;
-      if (s->IsChanged())
-      {
-         s->Repaint(dropLogicals);
-      }
+      static_cast<REveScene*>(c)->EndAcceptingChanges();
    }
 }
-
-////////////////////////////////////////////////////////////////////////////////
-/// Repaint all scenes.
-
-void REveSceneList::RepaintAllScenes(Bool_t dropLogicals)
-{
-   for (auto &c: fChildren)
-   {
-      ((REveScene *)c)->Repaint(dropLogicals);
-   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Loop over all scenes and remove all instances of element from them.
-
-void REveSceneList::DestroyElementRenderers(REveElement* element)
-{
-   static const REveException eh("REveSceneList::DestroyElementRenderers ");
-
-   TObject* obj = element->GetRenderObject(eh);
-   for (auto &c: fChildren)
-   {
-      ((REveScene *)c)->DestroyElementRenderers(obj);
-   }
-}
-
-*/
 
 bool REveSceneList::AnyChanges() const
 {
@@ -563,22 +453,4 @@ bool REveSceneList::AnyChanges() const
       return true;
    }
    return false;
-}
-
-
-////////////////////////////////////////////////////////////////////////////////
-//
-// Send an update of element representations
-//
-////////////////////////////////////////////////////////////////////////////////
-
-void REveSceneList::ProcessSceneChanges()
-{
-   if (gDebug > 0)
-      ::Info("REveSceneList::ProcessSceneChanges","processing");
-
-   for (auto &el : fChildren)
-   {
-      ((REveScene*) el)->ProcessChanges();
-   }
 }

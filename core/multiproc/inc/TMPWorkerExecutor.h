@@ -16,6 +16,7 @@
 #include "MPSendRecv.h"
 #include "PoolUtils.h"
 #include "TMPWorker.h"
+
 #include <string>
 #include <vector>
 
@@ -169,17 +170,16 @@ class TMPWorkerExecutor<F, T, void> : public TMPWorker {
 public:
    TMPWorkerExecutor(F func, const std::vector<T> &args) : TMPWorker(), fFunc(func), fArgs(std::move(args)) {}
    ~TMPWorkerExecutor() {}
-   void HandleInput(MPCodeBufPair &msg) ///< Execute instructions received from a TProcessExecutor client
+   void HandleInput(MPCodeBufPair &msg) override ///< Execute instructions received from a TProcessExecutor client
    {
       unsigned code = msg.first;
       TSocket *s = GetSocket();
-      std::string reply = "S" + std::to_string(GetNWorker());
       if (code == MPCode::kExecFuncWithArg) {
          unsigned n;
          msg.second->ReadUInt(n);
          MPSend(s, MPCode::kFuncResult, fFunc(fArgs[n]));
       } else {
-         reply += ": unknown code received: " + std::to_string(code);
+         std::string reply = "S" + std::to_string(GetNWorker()) + ": unknown code received: " + std::to_string(code);
          MPSend(s, MPCode::kError, reply.c_str());
       }
    }
@@ -201,7 +201,7 @@ class TMPWorkerExecutor<F, void, void> : public TMPWorker {
 public:
    explicit TMPWorkerExecutor(F func) : TMPWorker(), fFunc(func) {}
    ~TMPWorkerExecutor() {}
-   void HandleInput(MPCodeBufPair &msg)
+   void HandleInput(MPCodeBufPair &msg) override
    {
       unsigned code = msg.first;
       TSocket *s = GetSocket();

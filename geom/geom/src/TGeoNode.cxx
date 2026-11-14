@@ -69,38 +69,43 @@ painting a node on a pad will take the corresponding volume attributes.
 */
 
 #include <iostream>
+#include <mutex>
+#include <vector>
+#include <utility>
 
-#include "TBrowser.h"
-#include "TObjArray.h"
-#include "TStyle.h"
+#include <TBrowser.h>
+#include <TObjArray.h>
+#include <TStyle.h>
+#include <TMath.h>
+#include <TStopwatch.h>
+#ifdef R__USE_IMT
+#include <ROOT/TThreadExecutor.hxx>
+#endif
 
+#include "TGeoNode.h"
 #include "TGeoManager.h"
 #include "TGeoMatrix.h"
 #include "TGeoShape.h"
 #include "TGeoVolume.h"
 #include "TVirtualGeoPainter.h"
+#include "TVirtualGeoChecker.h"
 #include "TGeoVoxelFinder.h"
-#include "TGeoNode.h"
-#include "TMath.h"
-#include "TStopwatch.h"
 #include "TGeoExtension.h"
 
 // statics and globals
-
-ClassImp(TGeoNode);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor
 
 TGeoNode::TGeoNode()
 {
-   fVolume       = 0;
-   fMother       = 0;
-   fNumber       = 0;
-   fNovlp        = 0;
-   fOverlaps     = 0;
-   fUserExtension = 0;
-   fFWExtension = 0;
+   fVolume = nullptr;
+   fMother = nullptr;
+   fNumber = 0;
+   fNovlp = 0;
+   fOverlaps = nullptr;
+   fUserExtension = nullptr;
+   fFWExtension = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -112,15 +117,16 @@ TGeoNode::TGeoNode(const TGeoVolume *vol)
       Error("ctor", "volume not specified");
       return;
    }
-   fVolume       = (TGeoVolume*)vol;
-   if (fVolume->IsAdded()) fVolume->SetReplicated();
+   fVolume = (TGeoVolume *)vol;
+   if (fVolume->IsAdded())
+      fVolume->SetReplicated();
    fVolume->SetAdded();
-   fMother       = 0;
-   fNumber       = 0;
-   fNovlp        = 0;
-   fOverlaps     = 0;
-   fUserExtension = 0;
-   fFWExtension = 0;
+   fMother = nullptr;
+   fNumber = 0;
+   fNovlp = 0;
+   fOverlaps = nullptr;
+   fUserExtension = nullptr;
+   fFWExtension = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -128,9 +134,16 @@ TGeoNode::TGeoNode(const TGeoVolume *vol)
 
 TGeoNode::~TGeoNode()
 {
-   if (fOverlaps) delete [] fOverlaps;
-   if (fUserExtension) {fUserExtension->Release(); fUserExtension=0;}
-   if (fFWExtension) {fFWExtension->Release(); fFWExtension=0;}
+   if (fOverlaps)
+      delete[] fOverlaps;
+   if (fUserExtension) {
+      fUserExtension->Release();
+      fUserExtension = nullptr;
+   }
+   if (fFWExtension) {
+      fFWExtension->Release();
+      fFWExtension = nullptr;
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -138,11 +151,13 @@ TGeoNode::~TGeoNode()
 
 void TGeoNode::Browse(TBrowser *b)
 {
-   if (!b) return;
-   if (!GetNdaughters()) return;
+   if (!b)
+      return;
+   if (!GetNdaughters())
+      return;
    TGeoNode *daughter;
    TString title;
-   for (Int_t i=0; i<GetNdaughters(); i++) {
+   for (Int_t i = 0; i < GetNdaughters(); i++) {
       daughter = GetDaughter(i);
       b->Add(daughter, daughter->GetName(), daughter->IsVisible());
    }
@@ -162,44 +177,38 @@ Int_t TGeoNode::CountDaughters(Bool_t unique_volumes)
          counter++;
          fVolume->SelectVolume(kFALSE);
       }
-   } else counter++;
+   } else
+      counter++;
    icall++;
    Int_t nd = fVolume->GetNdaughters();
    // Count daughters recursively
-   for (Int_t i=0; i<nd; i++) counter += GetDaughter(i)->CountDaughters(unique_volumes);
+   for (Int_t i = 0; i < nd; i++)
+      counter += GetDaughter(i)->CountDaughters(unique_volumes);
    icall--;
    // Un-mark volumes
-   if (icall == 0) fVolume->SelectVolume(kTRUE);
+   if (icall == 0)
+      fVolume->SelectVolume(kTRUE);
    return counter;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Check overlaps bigger than OVLP hierarchically, starting with this node.
+/// npoints are sampled in the volume(s)
 
-void TGeoNode::CheckOverlaps(Double_t ovlp, Option_t *option)
+void TGeoNode::CheckOverlapsBySampling(Double_t ovlp, Int_t npoints)
 {
    Int_t icheck = 0;
-   Int_t ncheck = 0;
-   TStopwatch *timer;
-   Int_t i;
-   Bool_t sampling = kFALSE;
-   TString opt(option);
-   opt.ToLower();
-   if (opt.Contains("s")) sampling = kTRUE;
-
    TGeoManager *geom = fVolume->GetGeoManager();
-   ncheck = CountDaughters(kFALSE);
-   timer = new TStopwatch();
+   Int_t ncheck = CountDaughters(kFALSE);
    geom->ClearOverlaps();
    geom->SetCheckingOverlaps(kTRUE);
-   Info("CheckOverlaps", "Checking overlaps for %s and daughters within %g", fVolume->GetName(),ovlp);
-   if (sampling) {
-      Info("CheckOverlaps", "Checking overlaps by sampling <%s> for %s and daughters", option, fVolume->GetName());
-      Info("CheckOverlaps", "=== NOTE: Extrusions NOT checked with sampling option ! ===");
-   }
-   timer->Start();
-   geom->GetGeomPainter()->OpProgress(fVolume->GetName(),icheck,ncheck,timer,kFALSE);
-   fVolume->CheckOverlaps(ovlp,option);
+   Info("CheckOverlaps", "[LEGACY] Checking overlaps by sampling %d points for %s and daughters", npoints,
+        fVolume->GetName());
+   Info("CheckOverlaps", "=== NOTE: Many overlaps may be missed. Extrusions NOT checked with sampling option ! ===");
+   TStopwatch timer;
+   timer.Start();
+   geom->GetGeomChecker()->OpProgress(fVolume->GetName(), icheck, ncheck, &timer, kFALSE);
+   fVolume->CheckOverlapsBySampling(ovlp, npoints);
    icheck++;
    TGeoIterator next(fVolume);
    TGeoNode *node;
@@ -207,14 +216,14 @@ void TGeoNode::CheckOverlaps(Double_t ovlp, Option_t *option)
    TObjArray *overlaps = geom->GetListOfOverlaps();
    Int_t novlps;
    TString msg;
-   while ((node=next())) {
+   while ((node = next())) {
       next.GetPath(path);
       icheck++;
       if (!node->GetVolume()->IsSelected()) {
          msg = TString::Format("found %d overlaps", overlaps->GetEntriesFast());
-         geom->GetGeomPainter()->OpProgress(node->GetVolume()->GetName(),icheck,ncheck,timer,kFALSE, msg);
+         geom->GetGeomChecker()->OpProgress(node->GetVolume()->GetName(), icheck, ncheck, &timer, kFALSE, msg);
          node->GetVolume()->SelectVolume(kFALSE);
-         node->GetVolume()->CheckOverlaps(ovlp,option);
+         node->GetVolume()->CheckOverlapsBySampling(ovlp, npoints);
       }
    }
    fVolume->SelectVolume(kTRUE);
@@ -222,13 +231,142 @@ void TGeoNode::CheckOverlaps(Double_t ovlp, Option_t *option)
    geom->SortOverlaps();
    novlps = overlaps->GetEntriesFast();
    TNamed *obj;
-   for (i=0; i<novlps; i++) {
-      obj = (TNamed*)overlaps->At(i);
-      obj->SetName(TString::Format("ov%05d",i));
+   for (auto i = 0; i < novlps; i++) {
+      obj = (TNamed *)overlaps->At(i);
+      obj->SetName(TString::Format("ov%05d", i));
    }
-   geom->GetGeomPainter()->OpProgress("Check overlaps:",icheck,ncheck,timer,kTRUE);
-   Info("CheckOverlaps", "Number of illegal overlaps/extrusions : %d\n", novlps);
-   delete timer;
+   geom->GetGeomChecker()->OpProgress("Check overlaps:", icheck, ncheck, &timer, kTRUE);
+   timer.Stop();
+   Info("CheckOverlaps", "Number of illegal overlaps/extrusions : %d found in %g [sec]", novlps, timer.RealTime());
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Check overlaps bigger than OVLP hierarchically, starting with this node.
+
+void TGeoNode::CheckOverlaps(Double_t ovlp, Option_t *option)
+{
+   TString opt(option);
+   opt.ToLower();
+   if (opt.Contains("s")) {
+      Info("CheckOverlaps", "Option 's' deprecated. Use CheckOverlapsBySampling() instead.");
+      return;
+   }
+
+   TStopwatch timer;
+   timer.Start();
+   TGeoManager *geom = fVolume->GetGeoManager();
+   geom->ClearOverlaps();
+   // Voxels may be marked to be rebuilt
+   geom->RebuildVoxels();
+   geom->SetCheckingOverlaps(kTRUE);
+
+   Info("CheckOverlaps", "Checking overlaps for %s and daughters within %g", fVolume->GetName(), ovlp);
+
+   auto checker = geom->GetGeomChecker();
+
+   // -------- Stage 1: enumerate candidates (main thread)
+   std::vector<TGeoOverlapCandidate> candidates;
+   candidates.reserve(2048);
+
+   Int_t ncand = checker->EnumerateOverlapCandidates(fVolume, ovlp, option, candidates);
+   TGeoIterator next(fVolume);
+   TGeoNode *node = nullptr;
+   while ((node = next())) {
+      if (!node->GetVolume()->IsSelected()) {
+         node->GetVolume()->SelectVolume(kFALSE);
+         ncand += checker->EnumerateOverlapCandidates(node->GetVolume(), ovlp, option, candidates);
+      }
+   }
+   timer.Stop();
+   Info("CheckOverlaps", "--- found %d candidates in %g [sec]", ncand, timer.RealTime());
+
+   Info("CheckOverlaps", "--- filling points to be checked...");
+   timer.Start();
+   checker->BuildMeshPointsCache(candidates);
+   timer.Stop();
+   Info("CheckOverlaps", "--- points filled in: %g [sec]", timer.RealTime());
+
+   fVolume->SelectVolume(kTRUE);
+
+   // -------- Stage 2: compute (parallel)
+   std::vector<TGeoOverlapResult> results;
+   results.reserve(256);
+
+#ifdef R__USE_IMT
+   // parallelized version
+   const size_t chunkSize = 1024; // tune: 256..4096
+   auto makeChunks = [&](size_t n) {
+      std::vector<std::pair<size_t, size_t>> chunks;
+      chunks.reserve((n + chunkSize - 1) / chunkSize);
+      for (size_t b = 0; b < n; b += chunkSize)
+         chunks.emplace_back(b, std::min(n, b + chunkSize));
+      return chunks;
+   };
+
+   auto chunks = makeChunks(candidates.size());
+   std::mutex resultsMutex;
+
+   // Policy: if ROOT IMT is enabled, follow the number of threads defined via:
+   //         ROOT::EnableImplicitMT()
+   ROOT::TThreadExecutor pool(ROOT::GetThreadPoolSize());
+   auto nthreads = pool.GetPoolSize();
+   if (!ROOT::IsImplicitMTEnabled())
+      Info("CheckOverlaps", "--- checking candidates with %u threads (use ROOT::EnableImplicitMT(N) to change)...",
+           nthreads);
+   else
+      Info("CheckOverlaps", "--- checking candidates with %u threads...", nthreads);
+
+   // Make sure TGeoManager MT mode follows, otherwise TGeo is thread unsafe
+   if (nthreads > 1)
+      geom->SetMaxThreads(nthreads);
+
+   timer.Start();
+   pool.Foreach(
+      [&](const std::pair<size_t, size_t> &range) {
+         // Make sure this manager has a navigator for the current worker.
+         if (!geom->GetCurrentNavigator())
+            geom->AddNavigator();
+
+         std::vector<TGeoOverlapResult> local;
+         local.reserve(32);
+
+         for (size_t i = range.first; i < range.second; ++i) {
+            TGeoOverlapResult r;
+            if (checker->ComputeOverlap(candidates[i], r))
+               local.emplace_back(std::move(r));
+         }
+
+         if (!local.empty()) {
+            std::lock_guard<std::mutex> lock(resultsMutex);
+            results.insert(results.end(), std::make_move_iterator(local.begin()), std::make_move_iterator(local.end()));
+         }
+      },
+      chunks);
+#else
+   // serial version
+   Info("CheckOverlaps", "--- checking candidates with on a single thread (IMT not configured)...");
+   timer.Start();
+   for (size_t i = 0; i < candidates.size(); ++i) {
+      TGeoOverlapResult r;
+      if (checker->ComputeOverlap(candidates[i], r))
+         results.emplace_back(std::move(r));
+   }
+#endif
+
+   // -------- Stage 3: materialize overlaps (main thread)
+   for (const auto &r : results)
+      checker->MaterializeOverlap(r);
+
+   geom->SetCheckingOverlaps(kFALSE);
+   geom->SortOverlaps();
+
+   // Rename overlaps as before
+   TObjArray *overlaps = geom->GetListOfOverlaps();
+   const Int_t novlps = overlaps->GetEntriesFast();
+   for (Int_t i = 0; i < novlps; i++)
+      ((TNamed *)overlaps->At(i))->SetName(TString::Format("ov%05d", i));
+   timer.Stop();
+   Info("CheckOverlaps", "Number of illegal overlaps/extrusions : %d found in %g [sec]", novlps, timer.RealTime());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -237,10 +375,13 @@ void TGeoNode::CheckOverlaps(Double_t ovlp, Option_t *option)
 Int_t TGeoNode::DistancetoPrimitive(Int_t px, Int_t py)
 {
    Int_t dist = 9999;
-   if (!fVolume) return dist;
-   if (gGeoManager != fVolume->GetGeoManager()) gGeoManager = fVolume->GetGeoManager();
+   if (!fVolume)
+      return dist;
+   if (gGeoManager != fVolume->GetGeoManager())
+      gGeoManager = fVolume->GetGeoManager();
    TVirtualGeoPainter *painter = gGeoManager->GetPainter();
-   if (!painter) return dist;
+   if (!painter)
+      return dist;
    dist = painter->DistanceToPrimitiveVol(fVolume, px, py);
    return dist;
 }
@@ -250,9 +391,11 @@ Int_t TGeoNode::DistancetoPrimitive(Int_t px, Int_t py)
 
 void TGeoNode::ExecuteEvent(Int_t event, Int_t px, Int_t py)
 {
-   if (!fVolume) return;
+   if (!fVolume)
+      return;
    TVirtualGeoPainter *painter = fVolume->GetGeoManager()->GetPainter();
-   if (!painter) return;
+   if (!painter)
+      return;
    painter->ExecuteVolumeEvent(fVolume, event, px, py);
 }
 
@@ -261,10 +404,12 @@ void TGeoNode::ExecuteEvent(Int_t event, Int_t px, Int_t py)
 
 char *TGeoNode::GetObjectInfo(Int_t px, Int_t py) const
 {
-   if (!fVolume) return 0;
+   if (!fVolume)
+      return nullptr;
    TVirtualGeoPainter *painter = fVolume->GetGeoManager()->GetPainter();
-   if (!painter) return 0;
-   return (char*)painter->GetVolumeInfo(fVolume, px, py);
+   if (!painter)
+      return nullptr;
+   return (char *)painter->GetVolumeInfo(fVolume, px, py);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -272,7 +417,8 @@ char *TGeoNode::GetObjectInfo(Int_t px, Int_t py) const
 
 Bool_t TGeoNode::IsOnScreen() const
 {
-   if (fVolume->TestAttBit(TGeoAtt::kVisOnScreen)) return kTRUE;
+   if (fVolume->TestAttBit(TGeoAtt::kVisOnScreen))
+      return kTRUE;
    return kFALSE;
 }
 
@@ -282,18 +428,22 @@ Bool_t TGeoNode::IsOnScreen() const
 void TGeoNode::InspectNode() const
 {
    printf("== Inspecting node %s ", GetName());
-   if (fMother) printf("mother volume %s. ", fMother->GetName());
-   if (IsOverlapping()) printf("(Node is MANY)\n");
-   else printf("\n");
+   if (fMother)
+      printf("mother volume %s. ", fMother->GetName());
+   if (IsOverlapping())
+      printf("(Node is MANY)\n");
+   else
+      printf("\n");
    if (fOverlaps && fMother) {
       printf("   possibly overlapping with : ");
-      for (Int_t i=0; i<fNovlp; i++)
+      for (Int_t i = 0; i < fNovlp; i++)
          printf(" %s ", fMother->GetNode(fOverlaps[i])->GetName());
       printf("\n");
    }
    printf("Transformation matrix:\n");
    TGeoMatrix *matrix = GetMatrix();
-   if (GetMatrix()) matrix->Print();
+   if (GetMatrix())
+      matrix->Print();
    fVolume->Print();
 }
 
@@ -304,8 +454,10 @@ void TGeoNode::CheckShapes()
 {
    fVolume->CheckShapes();
    Int_t nd = GetNdaughters();
-   if (!nd) return;
-   for (Int_t i=0; i<nd; i++) fVolume->GetNode(i)->CheckShapes();
+   if (!nd)
+      return;
+   for (Int_t i = 0; i < nd; i++)
+      fVolume->GetNode(i)->CheckShapes();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -334,17 +486,23 @@ void TGeoNode::Draw(Option_t *option)
 
 void TGeoNode::DrawOverlaps()
 {
-   if (!fNovlp) {printf("node %s is ONLY\n", GetName()); return;}
-   if (!fOverlaps) {printf("node %s no overlaps\n", GetName()); return;}
+   if (!fNovlp) {
+      printf("node %s is ONLY\n", GetName());
+      return;
+   }
+   if (!fOverlaps) {
+      printf("node %s no overlaps\n", GetName());
+      return;
+   }
    TGeoNode *node;
    Int_t i;
    Int_t nd = fMother->GetNdaughters();
-   for (i=0; i<nd; i++) {
+   for (i = 0; i < nd; i++) {
       node = fMother->GetNode(i);
       node->GetVolume()->SetVisibility(kFALSE);
    }
    fVolume->SetVisibility(kTRUE);
-   for (i=0; i<fNovlp; i++) {
+   for (i = 0; i < fNovlp; i++) {
       node = fMother->GetNode(fOverlaps[i]);
       node->GetVolume()->SetVisibility(kTRUE);
    }
@@ -358,18 +516,18 @@ void TGeoNode::DrawOverlaps()
 void TGeoNode::FillIdArray(Int_t &ifree, Int_t &nodeid, Int_t *array) const
 {
    Int_t nd = GetNdaughters();
-   if (!nd) return;
+   if (!nd)
+      return;
    TGeoNode *daughter;
    Int_t istart = ifree; // start index for daughters
    ifree += nd;
-   for (Int_t id=0; id<nd; id++) {
+   for (Int_t id = 0; id < nd; id++) {
       daughter = GetDaughter(id);
-      array[istart+id] = ifree;
+      array[istart + id] = ifree;
       array[ifree++] = ++nodeid;
       daughter->FillIdArray(ifree, nodeid, array);
    }
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Search for a node within the branch of this one.
@@ -377,21 +535,22 @@ void TGeoNode::FillIdArray(Int_t &ifree, Int_t &nodeid, Int_t *array) const
 Int_t TGeoNode::FindNode(const TGeoNode *node, Int_t level)
 {
    Int_t nd = GetNdaughters();
-   if (!nd) return -1;
+   if (!nd)
+      return -1;
    TIter next(fVolume->GetNodes());
    TGeoNode *daughter;
-   while ((daughter=(TGeoNode*)next())) {
-      if (daughter==node) {
-         gGeoManager->GetListOfNodes()->AddAt(daughter,level+1);
-         return (level+1);
+   while ((daughter = (TGeoNode *)next())) {
+      if (daughter == node) {
+         gGeoManager->GetListOfNodes()->AddAt(daughter, level + 1);
+         return (level + 1);
       }
    }
    next.Reset();
    Int_t new_level;
-   while ((daughter=(TGeoNode*)next())) {
-      new_level = daughter->FindNode(node, level+1);
-      if (new_level>=0) {
-         gGeoManager->GetListOfNodes()->AddAt(daughter, level+1);
+   while ((daughter = (TGeoNode *)next())) {
+      new_level = daughter->FindNode(node, level + 1);
+      if (new_level >= 0) {
+         gGeoManager->GetListOfNodes()->AddAt(daughter, level + 1);
          return new_level;
       }
    }
@@ -403,47 +562,51 @@ Int_t TGeoNode::FindNode(const TGeoNode *node, Int_t level)
 
 void TGeoNode::SaveAttributes(std::ostream &out)
 {
-   if (IsVisStreamed()) return;
+   if (IsVisStreamed())
+      return;
    SetVisStreamed(kTRUE);
-   char quote='"';
+   char quote = '"';
    Bool_t voldef = kFALSE;
    if ((fVolume->IsVisTouched()) && (!fVolume->IsVisStreamed())) {
       fVolume->SetVisStreamed(kTRUE);
-      out << "   vol = gGeoManager->GetVolume("<<quote<<fVolume->GetName()<<quote<<");"<<std::endl;
+      out << "   vol = gGeoManager->GetVolume(" << quote << fVolume->GetName() << quote << ");" << std::endl;
       voldef = kTRUE;
       if (!fVolume->IsVisDaughters())
-         out << "   vol->SetVisDaughters(kFALSE);"<<std::endl;
+         out << "   vol->SetVisDaughters(kFALSE);" << std::endl;
       if (fVolume->IsVisible()) {
-/*
-         if (fVolume->GetLineColor() != gStyle->GetLineColor())
-            out<<"   vol->SetLineColor("<<fVolume->GetLineColor()<<");"<<std::endl;
-         if (fVolume->GetLineStyle() != gStyle->GetLineStyle())
-            out<<"   vol->SetLineStyle("<<fVolume->GetLineStyle()<<");"<<std::endl;
-         if (fVolume->GetLineWidth() != gStyle->GetLineWidth())
-            out<<"   vol->SetLineWidth("<<fVolume->GetLineWidth()<<");"<<std::endl;
-*/
+         /*
+                  if (fVolume->GetLineColor() != gStyle->GetLineColor())
+                     out<<"   vol->SetLineColor("<<fVolume->GetLineColor()<<");"<<std::endl;
+                  if (fVolume->GetLineStyle() != gStyle->GetLineStyle())
+                     out<<"   vol->SetLineStyle("<<fVolume->GetLineStyle()<<");"<<std::endl;
+                  if (fVolume->GetLineWidth() != gStyle->GetLineWidth())
+                     out<<"   vol->SetLineWidth("<<fVolume->GetLineWidth()<<");"<<std::endl;
+         */
       } else {
-         out <<"   vol->SetVisibility(kFALSE);"<<std::endl;
+         out << "   vol->SetVisibility(kFALSE);" << std::endl;
       }
    }
-   if (!IsVisDaughters()) return;
+   if (!IsVisDaughters())
+      return;
    Int_t nd = GetNdaughters();
-   if (!nd) return;
+   if (!nd)
+      return;
    TGeoNode *node;
-   for (Int_t i=0; i<nd; i++) {
+   for (Int_t i = 0; i < nd; i++) {
       node = GetDaughter(i);
-      if (node->IsVisStreamed()) continue;
+      if (node->IsVisStreamed())
+         continue;
       if (node->IsVisTouched()) {
          if (!voldef)
-            out << "   vol = gGeoManager->GetVolume("<<quote<<fVolume->GetName()<<quote<<");"<<std::endl;
-         out<<"   node = vol->GetNode("<<i<<");"<<std::endl;
+            out << "   vol = gGeoManager->GetVolume(" << quote << fVolume->GetName() << quote << ");" << std::endl;
+         out << "   node = vol->GetNode(" << i << ");" << std::endl;
          if (!node->IsVisDaughters()) {
-            out<<"   node->VisibleDaughters(kFALSE);"<<std::endl;
+            out << "   node->VisibleDaughters(kFALSE);" << std::endl;
             node->SetVisStreamed(kTRUE);
             continue;
          }
          if (!node->IsVisible())
-            out<<"   node->SetVisibility(kFALSE);"<<std::endl;
+            out << "   node->SetVisibility(kFALSE);" << std::endl;
       }
       node->SaveAttributes(out);
       node->SetVisStreamed(kTRUE);
@@ -460,9 +623,12 @@ void TGeoNode::SaveAttributes(std::ostream &out)
 
 void TGeoNode::SetUserExtension(TGeoExtension *ext)
 {
-   if (fUserExtension) fUserExtension->Release();
-   fUserExtension = 0;
-   if (ext) fUserExtension = ext->Grab();
+   TGeoExtension *tmp = fUserExtension;
+   fUserExtension = nullptr;
+   if (ext)
+      fUserExtension = ext->Grab();
+   if (tmp)
+      tmp->Release();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -475,9 +641,12 @@ void TGeoNode::SetUserExtension(TGeoExtension *ext)
 
 void TGeoNode::SetFWExtension(TGeoExtension *ext)
 {
-   if (fFWExtension) fFWExtension->Release();
-   fFWExtension = 0;
-   if (ext) fFWExtension = ext->Grab();
+   TGeoExtension *tmp = fFWExtension;
+   fFWExtension = nullptr;
+   if (ext)
+      fFWExtension = ext->Grab();
+   if (tmp)
+      tmp->Release();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -487,8 +656,9 @@ void TGeoNode::SetFWExtension(TGeoExtension *ext)
 
 TGeoExtension *TGeoNode::GrabUserExtension() const
 {
-   if (fUserExtension) return fUserExtension->Grab();
-   return 0;
+   if (fUserExtension)
+      return fUserExtension->Grab();
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -498,8 +668,9 @@ TGeoExtension *TGeoNode::GrabUserExtension() const
 
 TGeoExtension *TGeoNode::GrabFWExtension() const
 {
-   if (fFWExtension) return fFWExtension->Grab();
-   return 0;
+   if (fFWExtension)
+      return fFWExtension->Grab();
+   return nullptr;
 }
 ////////////////////////////////////////////////////////////////////////////////
 /// Check the overlab between the bounding box of the node overlaps with the one
@@ -507,8 +678,11 @@ TGeoExtension *TGeoNode::GrabFWExtension() const
 
 Bool_t TGeoNode::MayOverlap(Int_t iother) const
 {
-   if (!fOverlaps) return kFALSE;
-   for (Int_t i=0; i<fNovlp; i++) if (fOverlaps[i]==iother) return kTRUE;
+   if (!fOverlaps)
+      return kFALSE;
+   for (Int_t i = 0; i < fNovlp; i++)
+      if (fOverlaps[i] == iother)
+         return kTRUE;
    return kFALSE;
 }
 
@@ -547,9 +721,7 @@ void TGeoNode::LocalToMasterVect(const Double_t *local, Double_t *master) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Print the path (A/B/C/...) to this node on stdout
 
-void TGeoNode::ls(Option_t * /*option*/) const
-{
-}
+void TGeoNode::ls(Option_t * /*option*/) const {}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Paint this node and its content according to visualization settings.
@@ -557,7 +729,8 @@ void TGeoNode::ls(Option_t * /*option*/) const
 void TGeoNode::Paint(Option_t *option)
 {
    TVirtualGeoPainter *painter = gGeoManager->GetGeomPainter();
-   if (!painter) return;
+   if (!painter)
+      return;
    painter->PaintNode(this, option);
 }
 
@@ -601,10 +774,12 @@ void TGeoNode::PrintCandidates() const
       return;
    }
    TString overlap = "ONLY";
-   for (Int_t id=0; id<ncheck; id++) {
+   for (Int_t id = 0; id < ncheck; id++) {
       node = fVolume->GetNode(check_list[id]);
-      if (node->IsOverlapping()) overlap = "MANY";
-      else overlap = "ONLY";
+      if (node->IsOverlapping())
+         overlap = "MANY";
+      else
+         overlap = "ONLY";
       printf("%i %s %s\n", check_list[id], node->GetName(), overlap.Data());
    }
    PrintOverlaps();
@@ -615,10 +790,13 @@ void TGeoNode::PrintCandidates() const
 
 void TGeoNode::PrintOverlaps() const
 {
-   if (!fOverlaps) {printf("node %s no overlaps\n", GetName()); return;}
+   if (!fOverlaps) {
+      printf("node %s no overlaps\n", GetName());
+      return;
+   }
    printf("Overlaps for node %s :\n", GetName());
    TGeoNode *node;
-   for (Int_t i=0; i<fNovlp; i++) {
+   for (Int_t i = 0; i < fNovlp; i++) {
       node = fMother->GetNode(fOverlaps[i]);
       printf("   %s\n", node->GetName());
    }
@@ -630,8 +808,8 @@ void TGeoNode::PrintOverlaps() const
 Double_t TGeoNode::Safety(const Double_t *point, Bool_t in) const
 {
    Double_t local[3];
-   GetMatrix()->MasterToLocal(point,local);
-   return fVolume->GetShape()->Safety(local,in);
+   GetMatrix()->MasterToLocal(point, local);
+   return fVolume->GetShape()->Safety(local, in);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -642,7 +820,7 @@ void TGeoNode::CopyOverlaps(Int_t *src, Int_t novlp)
    Int_t *ovlps = nullptr;
    if (src && (novlp > 0)) {
       ovlps = new Int_t[novlp];
-      memcpy(ovlps, src, novlp*sizeof(Int_t));
+      memcpy(ovlps, src, novlp * sizeof(Int_t));
    }
    SetOverlaps(ovlps, novlp);
 }
@@ -652,7 +830,8 @@ void TGeoNode::CopyOverlaps(Int_t *src, Int_t novlp)
 
 void TGeoNode::SetOverlaps(Int_t *ovlp, Int_t novlp)
 {
-   if (fOverlaps) delete [] fOverlaps;
+   if (fOverlaps)
+      delete[] fOverlaps;
    fOverlaps = ovlp;
    fNovlp = novlp;
 }
@@ -662,9 +841,11 @@ void TGeoNode::SetOverlaps(Int_t *ovlp, Int_t novlp)
 
 void TGeoNode::SetVisibility(Bool_t vis)
 {
-   if (gGeoManager->IsClosed()) SetVisTouched(kTRUE);
+   if (gGeoManager->IsClosed())
+      SetVisTouched(kTRUE);
    TGeoAtt::SetVisibility(vis);
-   if (vis && !fVolume->IsVisible()) fVolume->SetVisibility(vis);
+   if (vis && !fVolume->IsVisible())
+      fVolume->SetVisibility(vis);
    gGeoManager->ModifiedPad();
 }
 
@@ -673,7 +854,8 @@ void TGeoNode::SetVisibility(Bool_t vis)
 
 void TGeoNode::VisibleDaughters(Bool_t vis)
 {
-   if (gGeoManager->IsClosed()) SetVisTouched(kTRUE);
+   if (gGeoManager->IsClosed())
+      SetVisTouched(kTRUE);
    SetVisDaughters(vis);
    gGeoManager->ModifiedPad();
 }
@@ -683,32 +865,28 @@ void TGeoNode::VisibleDaughters(Bool_t vis)
 A node containing local transformation.
 */
 
-ClassImp(TGeoNodeMatrix);
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor
 
 TGeoNodeMatrix::TGeoNodeMatrix()
 {
-   fMatrix       = 0;
+   fMatrix = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
-TGeoNodeMatrix::TGeoNodeMatrix(const TGeoVolume *vol, const TGeoMatrix *matrix) :
-             TGeoNode(vol)
+TGeoNodeMatrix::TGeoNodeMatrix(const TGeoVolume *vol, const TGeoMatrix *matrix) : TGeoNode(vol)
 {
-   fMatrix = (TGeoMatrix*)matrix;
-   if (!fMatrix) fMatrix = gGeoIdentity;
+   fMatrix = (TGeoMatrix *)matrix;
+   if (!fMatrix)
+      fMatrix = gGeoIdentity;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Destructor
 
-TGeoNodeMatrix::~TGeoNodeMatrix()
-{
-}
+TGeoNodeMatrix::~TGeoNodeMatrix() {}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// return the total size in bytes of this node
@@ -716,7 +894,7 @@ TGeoNodeMatrix::~TGeoNodeMatrix()
 Int_t TGeoNodeMatrix::GetByteCount() const
 {
    Int_t count = 40 + 4; // TGeoNode + fMatrix
-//   if (fMatrix) count += fMatrix->GetByteCount();
+                         //   if (fMatrix) count += fMatrix->GetByteCount();
    return count;
 }
 
@@ -728,11 +906,15 @@ Int_t TGeoNodeMatrix::GetByteCount() const
 Int_t TGeoNodeMatrix::GetOptimalVoxels() const
 {
    Bool_t type = fVolume->GetShape()->IsCylType();
-   if (!type) return 0;
-   if (!fMatrix->IsRotAboutZ()) return 0;
+   if (!type)
+      return 0;
+   if (!fMatrix->IsRotAboutZ())
+      return 0;
    const Double_t *transl = fMatrix->GetTranslation();
-   if (TMath::Abs(transl[0])>1E-10) return 0;
-   if (TMath::Abs(transl[1])>1E-10) return 0;
+   if (TMath::Abs(transl[0]) > 1E-10)
+      return 0;
+   if (TMath::Abs(transl[1]) > 1E-10)
+      return 0;
    return 1;
 }
 
@@ -752,8 +934,10 @@ TGeoNode *TGeoNodeMatrix::MakeCopyNode() const
    node->CopyOverlaps(fOverlaps, fNovlp);
 
    // copy VC
-   if (IsVirtual()) node->SetVirtual();
-   if (IsOverlapping()) node->SetOverlapping(); // <--- ADDED
+   if (IsVirtual())
+      node->SetVirtual();
+   if (IsOverlapping())
+      node->SetOverlapping(); // <--- ADDED
    // Copy extensions
    node->SetUserExtension(fUserExtension);
    node->SetFWExtension(fFWExtension);
@@ -766,16 +950,15 @@ TGeoNode *TGeoNodeMatrix::MakeCopyNode() const
 
 void TGeoNodeMatrix::SetMatrix(const TGeoMatrix *matrix)
 {
-   fMatrix = (TGeoMatrix*)matrix;
-   if (!fMatrix) fMatrix = gGeoIdentity;
+   fMatrix = (TGeoMatrix *)matrix;
+   if (!fMatrix)
+      fMatrix = gGeoIdentity;
 }
 
 /** \class TGeoNodeOffset
 \ingroup Geometry_classes
 Node containing an offset.
 */
-
-ClassImp(TGeoNodeOffset);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor
@@ -785,34 +968,31 @@ TGeoNodeOffset::TGeoNodeOffset()
    TObject::SetBit(kGeoNodeOffset);
    fOffset = 0;
    fIndex = 0;
-   fFinder = 0;
+   fFinder = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor. Null pointer to matrix means identity transformation
 
-TGeoNodeOffset::TGeoNodeOffset(const TGeoVolume *vol, Int_t index, Double_t offset) :
-           TGeoNode(vol)
+TGeoNodeOffset::TGeoNodeOffset(const TGeoVolume *vol, Int_t index, Double_t offset) : TGeoNode(vol)
 {
    TObject::SetBit(kGeoNodeOffset);
    fOffset = offset;
    fIndex = index;
-   fFinder = 0;
+   fFinder = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Destructor
 
-TGeoNodeOffset::~TGeoNodeOffset()
-{
-}
+TGeoNodeOffset::~TGeoNodeOffset() {}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Get the index of this offset.
 
 Int_t TGeoNodeOffset::GetIndex() const
 {
-   return (fIndex+fFinder->GetDivIndex());
+   return (fIndex + fFinder->GetDivIndex());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -827,7 +1007,8 @@ TGeoNode *TGeoNodeOffset::MakeCopyNode() const
    node->SetMotherVolume(fMother);
    // set the copy number
    node->SetNumber(fNumber);
-   if (IsVirtual()) node->SetVirtual();
+   if (IsVirtual())
+      node->SetVirtual();
    // set the finder
    node->SetFinder(GetFinder());
    // set extensions
@@ -921,9 +1102,6 @@ We want to find out a volume named "MyVol" in the hierarchy of TOP volume.
 \ingroup Geometry_classes
 */
 
-ClassImp(TGeoIteratorPlugin);
-ClassImp(TGeoIterator);
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Geometry iterator for a branch starting with a TOP node.
 
@@ -937,7 +1115,7 @@ TGeoIterator::TGeoIterator(TGeoVolume *top)
    fArray = new Int_t[30];
    fMatrix = new TGeoHMatrix();
    fTopName = fTop->GetName();
-   fPlugin = 0;
+   fPlugin = nullptr;
    fPluginAutoexec = kFALSE;
 }
 
@@ -951,12 +1129,14 @@ TGeoIterator::TGeoIterator(const TGeoIterator &iter)
    fMustResume = kFALSE;
    fMustStop = kFALSE;
    fType = iter.GetType();
-   fArray = new Int_t[30+ 30*Int_t(fLevel/30)];
-   for (Int_t i=0; i<fLevel+1; i++) fArray[i] = iter.GetIndex(i);
+   fArray = new Int_t[30 + 30 * Int_t(fLevel / 30)];
+   for (Int_t i = 0; i < fLevel + 1; i++)
+      fArray[i] = iter.GetIndex(i);
    fMatrix = new TGeoHMatrix(*iter.GetCurrentMatrix());
    fTopName = fTop->GetName();
    fPlugin = iter.fPlugin;
-   fPluginAutoexec = iter.fPluginAutoexec;;
+   fPluginAutoexec = iter.fPluginAutoexec;
+   ;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -964,7 +1144,8 @@ TGeoIterator::TGeoIterator(const TGeoIterator &iter)
 
 TGeoIterator::~TGeoIterator()
 {
-   if (fArray) delete [] fArray;
+   if (fArray)
+      delete[] fArray;
    delete fMatrix;
 }
 
@@ -973,20 +1154,25 @@ TGeoIterator::~TGeoIterator()
 
 TGeoIterator &TGeoIterator::operator=(const TGeoIterator &iter)
 {
-   if (&iter == this) return *this;
+   if (&iter == this)
+      return *this;
    fTop = iter.GetTopVolume();
    fLevel = iter.GetLevel();
    fMustResume = kFALSE;
    fMustStop = kFALSE;
    fType = iter.GetType();
-   if (fArray) delete [] fArray;
-   fArray = new Int_t[30+ 30*Int_t(fLevel/30)];
-   for (Int_t i=0; i<fLevel+1; i++) fArray[i] = iter.GetIndex(i);
-   if (!fMatrix) fMatrix = new TGeoHMatrix();
+   if (fArray)
+      delete[] fArray;
+   fArray = new Int_t[30 + 30 * Int_t(fLevel / 30)];
+   for (Int_t i = 0; i < fLevel + 1; i++)
+      fArray[i] = iter.GetIndex(i);
+   if (!fMatrix)
+      fMatrix = new TGeoHMatrix();
    *fMatrix = *iter.GetCurrentMatrix();
    fTopName = fTop->GetName();
    fPlugin = iter.fPlugin;
-   fPluginAutoexec = iter.fPluginAutoexec;;
+   fPluginAutoexec = iter.fPluginAutoexec;
+   ;
    return *this;
 }
 
@@ -995,78 +1181,89 @@ TGeoIterator &TGeoIterator::operator=(const TGeoIterator &iter)
 
 TGeoNode *TGeoIterator::Next()
 {
-   if (fMustStop) return 0;
-   TGeoNode *mother = 0;
-   TGeoNode *next = 0;
+   if (fMustStop)
+      return nullptr;
+   TGeoNode *mother = nullptr;
+   TGeoNode *next = nullptr;
    Int_t i;
    Int_t nd = fTop->GetNdaughters();
    if (!nd) {
       fMustStop = kTRUE;
-      return 0;
+      return nullptr;
    }
    if (!fLevel) {
       fArray[++fLevel] = 0;
       next = fTop->GetNode(0);
-      if (fPlugin && fPluginAutoexec) fPlugin->ProcessNode();
+      if (fPlugin && fPluginAutoexec)
+         fPlugin->ProcessNode();
       return next;
    }
    next = fTop->GetNode(fArray[1]);
    // Move to current node
-   for (i=2; i<fLevel+1; i++) {
+   for (i = 2; i < fLevel + 1; i++) {
       mother = next;
       next = mother->GetDaughter(fArray[i]);
    }
    if (fMustResume) {
       fMustResume = kFALSE;
-      if (fPlugin && fPluginAutoexec) fPlugin->ProcessNode();
+      if (fPlugin && fPluginAutoexec)
+         fPlugin->ProcessNode();
       return next;
    }
 
    switch (fType) {
-      case 0:  // default next daughter behavior
-         nd = next->GetNdaughters();
-         if (nd) {
-            // First daughter next
-            fLevel++;
-            if ((fLevel%30)==0) IncreaseArray();
-            fArray[fLevel] = 0;
-            if (fPlugin && fPluginAutoexec) fPlugin->ProcessNode();
-            return next->GetDaughter(0);
-         }
-         // cd up and pick next
-         while (next) {
-            next = GetNode(fLevel-1);
-            if (!next) {
-               nd = fTop->GetNdaughters();
-               if (fArray[fLevel]<nd-1) {
-                  fArray[fLevel]++;
-                  if (fPlugin && fPluginAutoexec) fPlugin->ProcessNode();
-                  return fTop->GetNode(fArray[fLevel]);
-               }
-               fMustStop = kTRUE;
-               return 0;
-            } else {
-               nd = next->GetNdaughters();
-               if (fArray[fLevel]<nd-1) {
-                  fArray[fLevel]++;
-                  if (fPlugin && fPluginAutoexec) fPlugin->ProcessNode();
-                  return next->GetDaughter(fArray[fLevel]);
-               }
+   case 0: // default next daughter behavior
+      nd = next->GetNdaughters();
+      if (nd) {
+         // First daughter next
+         fLevel++;
+         if ((fLevel % 30) == 0)
+            IncreaseArray();
+         fArray[fLevel] = 0;
+         if (fPlugin && fPluginAutoexec)
+            fPlugin->ProcessNode();
+         return next->GetDaughter(0);
+      }
+      // cd up and pick next
+      while (next) {
+         next = GetNode(fLevel - 1);
+         if (!next) {
+            nd = fTop->GetNdaughters();
+            if (fArray[fLevel] < nd - 1) {
+               fArray[fLevel]++;
+               if (fPlugin && fPluginAutoexec)
+                  fPlugin->ProcessNode();
+               return fTop->GetNode(fArray[fLevel]);
             }
-            fLevel--;
+            fMustStop = kTRUE;
+            return nullptr;
+         } else {
+            nd = next->GetNdaughters();
+            if (fArray[fLevel] < nd - 1) {
+               fArray[fLevel]++;
+               if (fPlugin && fPluginAutoexec)
+                  fPlugin->ProcessNode();
+               return next->GetDaughter(fArray[fLevel]);
+            }
          }
-         break;
-      case 1:  // one level search
-         if (mother) nd = mother->GetNdaughters();
-         if (fArray[fLevel]<nd-1) {
-            fArray[fLevel]++;
-            if (fPlugin && fPluginAutoexec) fPlugin->ProcessNode();
-            if (!mother) return fTop->GetNode(fArray[fLevel]);
-            else return mother->GetDaughter(fArray[fLevel]);
-         }
+         fLevel--;
+      }
+      break;
+   case 1: // one level search
+      if (mother)
+         nd = mother->GetNdaughters();
+      if (fArray[fLevel] < nd - 1) {
+         fArray[fLevel]++;
+         if (fPlugin && fPluginAutoexec)
+            fPlugin->ProcessNode();
+         if (!mother)
+            return fTop->GetNode(fArray[fLevel]);
+         else
+            return mother->GetDaughter(fArray[fLevel]);
+      }
    }
    fMustStop = kTRUE;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1083,10 +1280,11 @@ TGeoNode *TGeoIterator::operator()()
 const TGeoMatrix *TGeoIterator::GetCurrentMatrix() const
 {
    fMatrix->Clear();
-   if (!fLevel) return fMatrix;
+   if (!fLevel)
+      return fMatrix;
    TGeoNode *node = fTop->GetNode(fArray[1]);
    fMatrix->Multiply(node->GetMatrix());
-   for (Int_t i=2; i<fLevel+1; i++) {
+   for (Int_t i = 2; i < fLevel + 1; i++) {
       node = node->GetDaughter(fArray[i]);
       fMatrix->Multiply(node->GetMatrix());
    }
@@ -1098,9 +1296,11 @@ const TGeoMatrix *TGeoIterator::GetCurrentMatrix() const
 
 TGeoNode *TGeoIterator::GetNode(Int_t level) const
 {
-   if (!level || level>fLevel) return 0;
+   if (!level || level > fLevel)
+      return nullptr;
    TGeoNode *node = fTop->GetNode(fArray[1]);
-   for (Int_t i=2; i<level+1; i++) node = node->GetDaughter(fArray[i]);
+   for (Int_t i = 2; i < level + 1; i++)
+      node = node->GetDaughter(fArray[i]);
    return node;
 }
 
@@ -1110,11 +1310,12 @@ TGeoNode *TGeoIterator::GetNode(Int_t level) const
 void TGeoIterator::GetPath(TString &path) const
 {
    path = fTopName;
-   if (!fLevel) return;
+   if (!fLevel)
+      return;
    TGeoNode *node = fTop->GetNode(fArray[1]);
    path += "/";
    path += node->GetName();
-   for (Int_t i=2; i<fLevel+1; i++) {
+   for (Int_t i = 2; i < fLevel + 1; i++) {
       node = node->GetDaughter(fArray[i]);
       path += "/";
       path += node->GetName();
@@ -1126,9 +1327,9 @@ void TGeoIterator::GetPath(TString &path) const
 
 void TGeoIterator::IncreaseArray()
 {
-   Int_t *array = new Int_t[fLevel+30];
-   memcpy(array, fArray, fLevel*sizeof(Int_t));
-   delete [] fArray;
+   Int_t *array = new Int_t[fLevel + 30];
+   memcpy(array, fArray, fLevel * sizeof(Int_t));
+   delete[] fArray;
    fArray = array;
 }
 
@@ -1137,7 +1338,8 @@ void TGeoIterator::IncreaseArray()
 
 void TGeoIterator::Reset(TGeoVolume *top)
 {
-   if (top) fTop = top;
+   if (top)
+      fTop = top;
    fLevel = 0;
    fMustResume = kFALSE;
    fMustStop = kFALSE;
@@ -1159,34 +1361,35 @@ void TGeoIterator::Skip()
 {
    fMustResume = kTRUE;
    TGeoNode *next = GetNode(fLevel);
-   if (!next) return;
+   if (!next)
+      return;
    Int_t nd;
    switch (fType) {
-      case 0:  // default next daughter behavior
-         // cd up and pick next
-         while (next) {
-            next = GetNode(fLevel-1);
-            nd = (next==0)?fTop->GetNdaughters():next->GetNdaughters();
-            if (fArray[fLevel]<nd-1) {
-               ++fArray[fLevel];
-               return;
-            }
-            fLevel--;
-            if (!fLevel) {
-               fMustStop = kTRUE;
-               return;
-            }
-         }
-         break;
-      case 1:  // one level search
-         next = GetNode(fLevel-1);
-         nd = (next==0)?fTop->GetNdaughters():next->GetNdaughters();
-         if (fArray[fLevel]<nd-1) {
+   case 0: // default next daughter behavior
+      // cd up and pick next
+      while (next) {
+         next = GetNode(fLevel - 1);
+         nd = (next == nullptr) ? fTop->GetNdaughters() : next->GetNdaughters();
+         if (fArray[fLevel] < nd - 1) {
             ++fArray[fLevel];
             return;
          }
-         fMustStop = kTRUE;
-         break;
+         fLevel--;
+         if (!fLevel) {
+            fMustStop = kTRUE;
+            return;
+         }
+      }
+      break;
+   case 1: // one level search
+      next = GetNode(fLevel - 1);
+      nd = (next == nullptr) ? fTop->GetNdaughters() : next->GetNdaughters();
+      if (fArray[fLevel] < nd - 1) {
+         ++fArray[fLevel];
+         return;
+      }
+      fMustStop = kTRUE;
+      break;
    }
 }
 
@@ -1196,5 +1399,6 @@ void TGeoIterator::Skip()
 void TGeoIterator::SetUserPlugin(TGeoIteratorPlugin *plugin)
 {
    fPlugin = plugin;
-   if (plugin) plugin->SetIterator(this);
+   if (plugin)
+      plugin->SetIterator(this);
 }

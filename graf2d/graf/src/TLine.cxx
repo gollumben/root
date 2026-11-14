@@ -9,7 +9,7 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include <stdlib.h>
+#include <cstdlib>
 
 #include <iostream>
 #include "TROOT.h"
@@ -17,11 +17,11 @@
 #include "TLine.h"
 #include "TVirtualPad.h"
 #include "TClass.h"
-#include "TVirtualX.h"
+#include "TLineInteractive.h"
+#include "TCanvasImp.h"
 #include "TMath.h"
 #include "TPoint.h"
 
-ClassImp(TLine);
 
 /** \class TLine
 \ingroup BasicGraphics
@@ -88,6 +88,7 @@ void TLine::Copy(TObject &obj) const
 
 Int_t TLine::DistancetoPrimitive(Int_t px, Int_t py)
 {
+   if (!gPad) return 9999;
    if (!TestBit(kLineNDC)) return DistancetoLine(px,py,gPad->XtoPad(fX1),gPad->YtoPad(fY1),gPad->XtoPad(fX2),gPad->YtoPad(fY2));
    Double_t x1 = gPad->GetX1() + fX1*(gPad->GetX2()-gPad->GetX1());
    Double_t y1 = gPad->GetY1() + fY1*(gPad->GetY2()-gPad->GetY1());
@@ -130,247 +131,108 @@ TLine *TLine::DrawLineNDC(Double_t x1, Double_t y1, Double_t x2, Double_t  y2)
 
 void TLine::ExecuteEvent(Int_t event, Int_t px, Int_t py)
 {
-   if (!gPad) return;
+   if (!gPad || !gPad->IsEditable()) return;
 
-   Int_t kMaxDiff = 20;
-   static Int_t d1,d2,px1,px2,py1,py2;
-   static Int_t pxold, pyold, px1old, py1old, px2old, py2old;
-   static Double_t oldX1, oldY1, oldX2, oldY2;
-   static Bool_t p1, p2, pL, ndcsav;
-   Double_t dpx,dpy,xp1,yp1;
-   Int_t dx, dy;
+   auto &parent = *gPad;
 
-   Bool_t opaque  = gPad->OpaqueMoving();
+   Bool_t opaque  = parent.OpaqueMoving();
 
-   if (!gPad->IsEditable()) return;
+   auto inter = parent.GetInteractive<TLineInteractive>(this);
 
    switch (event) {
 
    case kArrowKeyPress:
    case kButton1Down:
-      oldX1 = GetX1();
-      oldY1 = GetY1();
-      oldX2 = GetX2();
-      oldY2 = GetY2();
-      ndcsav = TestBit(kLineNDC);
-      if (!opaque) {
-         gVirtualX->SetLineColor(-1);
-         TAttLine::Modify();  //Change line attributes only if necessary
-      }
-
+      // create interactive object and assign it
+      inter = parent.MakeInteractive<TLineInteractive>(this, GetX1(), GetY1(), GetX2(), GetY2(), TestBit(kLineNDC));
       // No break !!!
 
    case kMouseMotion:
-
-      if (TestBit(kLineNDC)) {
-         px1 = gPad->UtoPixel(GetX1());
-         py1 = gPad->VtoPixel(GetY1());
-         px2 = gPad->UtoPixel(GetX2());
-         py2 = gPad->VtoPixel(GetY2());
-      } else {
-         px1 = gPad->XtoAbsPixel(gPad->XtoPad(GetX1()));
-         py1 = gPad->YtoAbsPixel(gPad->YtoPad(GetY1()));
-         px2 = gPad->XtoAbsPixel(gPad->XtoPad(GetX2()));
-         py2 = gPad->YtoAbsPixel(gPad->YtoPad(GetY2()));
-      }
-      p1 = p2 = pL = kFALSE;
-
-      d1  = abs(px1 - px) + abs(py1-py); //simply take sum of pixels differences
-      if (d1 < kMaxDiff) { //*-*================>OK take point number 1
-         px1old = px1; py1old = py1;
-         p1 = kTRUE;
-         gPad->SetCursor(kPointer);
-         return;
-      }
-      d2  = abs(px2 - px) + abs(py2-py); //simply take sum of pixels differences
-      if (d2 < kMaxDiff) { //*-*================>OK take point number 2
-         px2old = px2; py2old = py2;
-         p2 = kTRUE;
-         gPad->SetCursor(kPointer);
-         return;
-      }
-
-      pL = kTRUE;
-      pxold = px; pyold = py;
-      gPad->SetCursor(kMove);
-
+      if (inter)
+         inter->SelectPoint(parent, px, py);
       break;
 
    case kArrowKeyRelease:
    case kButton1Motion:
-
-      if (p1) {
-         if (!opaque) {
-            gVirtualX->DrawLine(px1old, py1old, px2, py2);
-            gVirtualX->DrawLine(px, py, px2, py2);
-         } else {
-            if (ndcsav) {
-               SetNDC(kFALSE);
-               SetX2(gPad->GetX1() + oldX2*(gPad->GetX2()-gPad->GetX1()));
-               SetY2(gPad->GetY1() + oldY2*(gPad->GetY2()-gPad->GetY1()));
-            }
-            SetX1(gPad->AbsPixeltoX(px));
-            SetY1(gPad->AbsPixeltoY(py));
-         }
-         px1old = px;
-         py1old = py;
+      if (!inter)
+         return;
+      inter->ChangeCoordinate(parent, px, py, TestBit(kVertical), TestBit(kHorizontal));
+      if (!opaque) {
+         TAttLine::ModifyOn(parent);
+         inter->PaintLine(parent);
+      } else {
+         inter->Apply(this);
+         char guide = inter->GetGuideChar();
+         if (guide)
+            parent.ShowGuidelines(this, event, guide, true);
+         parent.Modified();
       }
-      if (p2) {
-         if (!opaque) {
-            gVirtualX->DrawLine(px1, py1, px2old, py2old);
-            gVirtualX->DrawLine(px1, py1, px, py);
-         } else {
-            if (ndcsav) {
-               SetNDC(kFALSE);
-               SetX1(gPad->GetX1() + oldX1*(gPad->GetX2()-gPad->GetX1()));
-               SetY1(gPad->GetY1() + oldY1*(gPad->GetY2()-gPad->GetY1()));
-            }
-            SetX2(gPad->AbsPixeltoX(px));
-            SetY2(gPad->AbsPixeltoY(py));
-         }
-         px2old = px;
-         py2old = py;
-      }
-      if (pL) {
-         if (!opaque) gVirtualX->DrawLine(px1, py1, px2, py2);
-         dx = px-pxold;  dy = py-pyold;
-         px1 += dx; py1 += dy; px2 += dx; py2 += dy;
-         if (!opaque) gVirtualX->DrawLine(px1, py1, px2, py2);
-         pxold = px;
-         pyold = py;
-         if (opaque) {
-            if (ndcsav) SetNDC(kFALSE);
-            SetX1(gPad->AbsPixeltoX(px1));
-            SetY1(gPad->AbsPixeltoY(py1));
-            SetX2(gPad->AbsPixeltoX(px2));
-            SetY2(gPad->AbsPixeltoY(py2));
-         }
-      }
-      if (opaque) {
-         if (p1) {
-            //check in which corner the BBox is edited
-            if (GetX1() > GetX2()) {
-               if (GetY1() > GetY2())
-                  gPad->ShowGuidelines(this, event, '2', true);
-               else
-                  gPad->ShowGuidelines(this, event, '3', true);
-            } else {
-               if (GetY1() > GetY2())
-                  gPad->ShowGuidelines(this, event, '1', true);
-               else
-                  gPad->ShowGuidelines(this, event, '4', true);
-            }
-         }
-         if (p2) {
-            //check in which corner the BBox is edited
-            if (GetX1() > GetX2()) {
-               if (GetY1() > GetY2())
-                  gPad->ShowGuidelines(this, event, '4', true);
-               else
-                  gPad->ShowGuidelines(this, event, '1', true);
-            } else {
-               if (GetY1() > GetY2())
-                  gPad->ShowGuidelines(this, event, '3', true);
-               else
-                  gPad->ShowGuidelines(this, event, '2', true);
-            }
-         }
-         if (pL) {
-            gPad->ShowGuidelines(this, event, 'i', true);
-         }
-         gPad->Modified(kTRUE);
-         gPad->Update();
-      }
+      parent.UpdateAsync();
       break;
 
    case kButton1Up:
-
       if (gROOT->IsEscaped()) {
          gROOT->SetEscape(kFALSE);
-         if (opaque) {
-            SetX1(oldX1);
-            SetY1(oldY1);
-            SetX2(oldX2);
-            SetY2(oldY2);
-            gPad->Modified(kTRUE);
-            gPad->Update();
+         if (opaque && inter) {
+            inter->Apply(this, kFALSE);
+            parent.Modified();
+            parent.ShowGuidelines(this, event);
          }
-         break;
+      } else if (opaque) {
+         parent.ShowGuidelines(this, event);
+      } else if (inter) {
+         inter->Apply(this);
+         parent.Modified();
       }
-      if (opaque) {
-         if (ndcsav && !TestBit(kLineNDC)) {
-            SetX1((GetX1() - gPad->GetX1())/(gPad->GetX2()-gPad->GetX1()));
-            SetX2((GetX2() - gPad->GetX1())/(gPad->GetX2()-gPad->GetX1()));
-            SetY1((GetY1() - gPad->GetY1())/(gPad->GetY2()-gPad->GetY1()));
-            SetY2((GetY2() - gPad->GetY1())/(gPad->GetY2()-gPad->GetY1()));
-            SetNDC();
-         }
-         gPad->ShowGuidelines(this, event);
-      } else {
-         if (TestBit(kLineNDC)) {
-            dpx  = gPad->GetX2() - gPad->GetX1();
-            dpy  = gPad->GetY2() - gPad->GetY1();
-            xp1  = gPad->GetX1();
-            yp1  = gPad->GetY1();
-            if (p1) {
-               SetX1((gPad->AbsPixeltoX(px)-xp1)/dpx);
-               SetY1((gPad->AbsPixeltoY(py)-yp1)/dpy);
-            }
-            if (p2) {
-               SetX2((gPad->AbsPixeltoX(px)-xp1)/dpx);
-               SetY2((gPad->AbsPixeltoY(py)-yp1)/dpy);
-            }
-            if (pL) {
-               SetX1((gPad->AbsPixeltoX(px1)-xp1)/dpx);
-               SetY1((gPad->AbsPixeltoY(py1)-yp1)/dpy);
-               SetX2((gPad->AbsPixeltoX(px2)-xp1)/dpx);
-               SetY2((gPad->AbsPixeltoY(py2)-yp1)/dpy);
-            }
-         } else {
-            if (p1) {
-               SetX1(gPad->PadtoX(gPad->AbsPixeltoX(px)));
-               SetY1(gPad->PadtoY(gPad->AbsPixeltoY(py)));
-            }
-            if (p2) {
-               SetX2(gPad->PadtoX(gPad->AbsPixeltoX(px)));
-               SetY2(gPad->PadtoY(gPad->AbsPixeltoY(py)));
-            }
-            if (pL) {
-               SetX1(gPad->PadtoX(gPad->AbsPixeltoX(px1)));
-               SetY1(gPad->PadtoY(gPad->AbsPixeltoY(py1)));
-               SetX2(gPad->PadtoX(gPad->AbsPixeltoX(px2)));
-               SetY2(gPad->PadtoY(gPad->AbsPixeltoY(py2)));
-            }
-         }
-         if (TestBit(kVertical)) {
-            if (p1) SetX2(GetX1());
-            if (p2) SetX1(GetX2());
-         }
-         if (TestBit(kHorizontal)) {
-            if (p1) SetY2(GetY1());
-            if (p2) SetY1(GetY2());
-         }
-         gPad->Modified(kTRUE);
-         gPad->Update();
-         if (!opaque) gVirtualX->SetLineColor(-1);
-      }
+      parent.UpdateAsync();
+      parent.FreeInteractive(this);
       break;
 
    case kButton1Locate:
-
+      // Sergey: code is never used, has to be removed in ROOT7
       ExecuteEvent(kButton1Down, px, py);
-      while (1) {
+      while (true) {
          px = py = 0;
-         event = gVirtualX->RequestLocator(1,1,px,py);
+         event = parent.GetCanvasImp()->RequestLocator(px, py);
 
          ExecuteEvent(kButton1Motion, px, py);
 
-         if (event != -1) {                     // button is released
+         if (event != -1) { // button is released
             ExecuteEvent(kButton1Up, px, py);
             return;
          }
       }
    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Get the slope of this TLine
+
+Double_t TLine::GetSlope() const
+{
+   Double_t m = 0;
+   if (fX2 == fX1) {
+      Error("GetSlope", "This line is vertical. The slope in undefined");
+      m = TMath::Infinity();
+   } else {
+      m = (fY2-fY1)/(fX2-fX1);
+   }
+   return m;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Get the Y-Intercept of this TLine
+
+Double_t TLine::GetYIntercept() const
+{
+   Double_t b = 0;
+   if (fX2 == fX1) {
+      Error("GetYIntercept", "This line is vertical. The Y-Intercept in undefined");
+      b = TMath::Infinity();
+   } else {
+      b = (fY1*fX2-fY2*fX1)/(fX2-fX1);
+   }
+   return b;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -387,6 +249,7 @@ void TLine::ls(Option_t *) const
 
 void TLine::Paint(Option_t *)
 {
+   if (!gPad) return;
    if (TestBit(kLineNDC)) PaintLineNDC(fX1,fY1,fX2,fY2);
    else                   PaintLine(gPad->XtoPad(fX1),gPad->YtoPad(fY1),gPad->XtoPad(fX2),gPad->YtoPad(fY2));
 }
@@ -396,6 +259,7 @@ void TLine::Paint(Option_t *)
 
 void TLine::PaintLine(Double_t x1, Double_t y1, Double_t x2, Double_t y2)
 {
+   if (!gPad) return;
    TAttLine::Modify();  //Change line attributes only if necessary
    gPad->PaintLine(x1,y1,x2,y2);
 }
@@ -405,6 +269,7 @@ void TLine::PaintLine(Double_t x1, Double_t y1, Double_t x2, Double_t y2)
 
 void TLine::PaintLineNDC(Double_t u1, Double_t v1, Double_t u2, Double_t v2)
 {
+   if (!gPad) return;
    TAttLine::Modify();  //Change line attributes only if necessary
    gPad->PaintLineNDC(u1,v1,u2,v2);
 }
@@ -424,21 +289,22 @@ void TLine::Print(Option_t *) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out
 
-void TLine::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
+void TLine::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   if (gROOT->ClassSaved(TLine::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TLine *";
-   }
-   out<<"line = new TLine("<<fX1<<","<<fY1<<","<<fX2<<","<<fY2<<");"<<std::endl;
+   SavePrimitiveConstructor(out, Class(), "line", TString::Format("%g, %g, %g, %g", fX1, fY1, fX2, fY2), kFALSE);
 
-   SaveLineAttributes(out,"line",1,1,1);
+   SaveLineAttributes(out, "line", 1, 1, 1);
 
    if (TestBit(kLineNDC))
-      out<<"   line->SetNDC();"<<std::endl;
+      out << "   line->SetNDC();\n";
 
-   out<<"   line->Draw();"<<std::endl;
+   if (TestBit(kVertical))
+      out << "   line->SetBit(TLine::kVertical);\n";
+
+   if (TestBit(kHorizontal))
+      out << "   line->SetBit(TLine::kHorizontal);\n";
+
+   SavePrimitiveDraw(out, "line", option);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -462,8 +328,7 @@ Bool_t TLine::IsVertical()
 
 void TLine::SetNDC(Bool_t isNDC)
 {
-   ResetBit(kLineNDC);
-   if (isNDC) SetBit(kLineNDC);
+   SetBit(kLineNDC, isNDC);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -474,7 +339,7 @@ void TLine::SetNDC(Bool_t isNDC)
 void TLine::SetHorizontal(Bool_t set /*= kTRUE*/)
 {
    SetBit(kHorizontal, set);
-   if (set) {
+   if (set && gPad) {
       SetVertical(kFALSE);
       Int_t px1 = gPad->XtoAbsPixel(fX1);
       Int_t px2 = gPad->XtoAbsPixel(fX2);
@@ -495,7 +360,7 @@ void TLine::SetHorizontal(Bool_t set /*= kTRUE*/)
 void TLine::SetVertical(Bool_t set /*= kTRUE*/)
 {
    SetBit(kVertical, set);
-   if (set) {
+   if (set && gPad) {
       SetHorizontal(kFALSE);
       Int_t px1 = gPad->XtoAbsPixel(fX1);
       Int_t px2 = gPad->XtoAbsPixel(fX2);
@@ -539,59 +404,24 @@ void TLine::Streamer(TBuffer &R__b)
 
 Rectangle_t TLine::GetBBox()
 {
-   Rectangle_t BBox;
-   Int_t px1, py1, px2, py2;
-   px1 = gPad->XtoPixel(fX1);
-   px2 = gPad->XtoPixel(fX2);
-   py1 = gPad->YtoPixel(fY1);
-   py2 = gPad->YtoPixel(fY2);
+   Rectangle_t bbox{0, 0, 0, 0};
+   if (gPad) {
+      Int_t px1 = TestBit(kLineNDC) ? gPad->UtoPixel(fX1) : gPad->XtoPixel(fX1);
+      Int_t px2 = TestBit(kLineNDC) ? gPad->UtoPixel(fX2) : gPad->XtoPixel(fX2);
+      Int_t py1 = TestBit(kLineNDC) ? gPad->VtoPixel(fY1) : gPad->YtoPixel(fY1);
+      Int_t py2 = TestBit(kLineNDC) ? gPad->VtoPixel(fY2) : gPad->YtoPixel(fY2);
 
-   Int_t tmp;
-   if (px1>px2) { tmp = px1; px1 = px2; px2 = tmp;}
-   if (py1>py2) { tmp = py1; py1 = py2; py2 = tmp;}
+      if (px1 > px2)
+         std::swap(px1, px2);
+      if (py1 > py2)
+         std::swap(py1, py2);
 
-   BBox.fX = px1;
-   BBox.fY = py1;
-   BBox.fWidth = px2-px1;
-   BBox.fHeight = py2-py1;
-
-   return (BBox);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Return the center of the BoundingBox as TPoint in pixels
-
-TPoint TLine::GetBBoxCenter()
-{
-   TPoint p;
-   p.SetX(gPad->XtoPixel(TMath::Min(fX1,fX2)+0.5*(TMath::Max(fX1, fX2)-TMath::Min(fX1, fX2))));
-   p.SetY(gPad->YtoPixel(TMath::Min(fY1,fY2)+0.5*(TMath::Max(fY1, fY2)-TMath::Min(fY1, fY2))));
-   return(p);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Set center of the BoundingBox
-
-void TLine::SetBBoxCenter(const TPoint &p)
-{
-   Double_t w = TMath::Max(fX1, fX2)-TMath::Min(fX1, fX2);
-   Double_t h = TMath::Max(fY1, fY2)-TMath::Min(fY1, fY2);
-   if (fX2>fX1) {
-      this->SetX1(gPad->PixeltoX(p.GetX())-0.5*w);
-      this->SetX2(gPad->PixeltoX(p.GetX())+0.5*w);
+      bbox.fX = px1;
+      bbox.fY = py1;
+      bbox.fWidth = px2 - px1;
+      bbox.fHeight = py2 - py1;
    }
-   else {
-      this->SetX2(gPad->PixeltoX(p.GetX())-0.5*w);
-      this->SetX1(gPad->PixeltoX(p.GetX())+0.5*w);
-   }
-   if (fY2>fY1) {
-      this->SetY1(gPad->PixeltoY(p.GetY()-gPad->VtoPixel(0))-0.5*h);
-      this->SetY2(gPad->PixeltoY(p.GetY()-gPad->VtoPixel(0))+0.5*h);
-   }
-   else {
-      this->SetY2(gPad->PixeltoY(p.GetY()-gPad->VtoPixel(0))-0.5*h);
-      this->SetY1(gPad->PixeltoY(p.GetY()-gPad->VtoPixel(0))+0.5*h);
-   }
+   return bbox;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -599,15 +429,10 @@ void TLine::SetBBoxCenter(const TPoint &p)
 
 void TLine::SetBBoxCenterX(const Int_t x)
 {
-   Double_t w = TMath::Max(fX1, fX2)-TMath::Min(fX1, fX2);
-   if (fX2>fX1) {
-      this->SetX1(gPad->PixeltoX(x)-0.5*w);
-      this->SetX2(gPad->PixeltoX(x)+0.5*w);
-   }
-   else {
-      this->SetX2(gPad->PixeltoX(x)-0.5*w);
-      this->SetX1(gPad->PixeltoX(x)+0.5*w);
-   }
+   Double_t w2 = 0.5 * (fX2 - fX1);
+   Double_t midx = GetXCoord(x, TestBit(kLineNDC));
+   SetX1(midx - w2);
+   SetX2(midx + w2);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -615,15 +440,10 @@ void TLine::SetBBoxCenterX(const Int_t x)
 
 void TLine::SetBBoxCenterY(const Int_t y)
 {
-   Double_t h = TMath::Max(fY1, fY2)-TMath::Min(fY1, fY2);
-   if (fY2>fY1) {
-      this->SetY1(gPad->PixeltoY(y-gPad->VtoPixel(0))-0.5*h);
-      this->SetY2(gPad->PixeltoY(y-gPad->VtoPixel(0))+0.5*h);
-   }
-   else {
-      this->SetY2(gPad->PixeltoY(y-gPad->VtoPixel(0))-0.5*h);
-      this->SetY1(gPad->PixeltoY(y-gPad->VtoPixel(0))+0.5*h);
-   }
+   Double_t h2 = 0.5 * (fY2 - fY1);
+   Double_t midy = GetYCoord(y, TestBit(kLineNDC));
+   SetY1(midy - h2);
+   SetY2(midy + h2);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -632,10 +452,11 @@ void TLine::SetBBoxCenterY(const Int_t y)
 
 void TLine::SetBBoxX1(const Int_t x)
 {
-   if (fX2>fX1)
-      this->SetX1(gPad->PixeltoX(x));
+   auto xx = GetXCoord(x, TestBit(kLineNDC));
+   if (fX2 > fX1)
+      SetX1(xx);
    else
-      this->SetX2(gPad->PixeltoX(x));
+      SetX2(xx);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -644,10 +465,11 @@ void TLine::SetBBoxX1(const Int_t x)
 
 void TLine::SetBBoxX2(const Int_t x)
 {
-   if (fX2>fX1)
-      this->SetX2(gPad->PixeltoX(x));
+   auto xx = GetXCoord(x, TestBit(kLineNDC));
+   if (fX2 > fX1)
+      SetX2(xx);
    else
-      this->SetX1(gPad->PixeltoX(x));
+      SetX1(xx);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -655,10 +477,11 @@ void TLine::SetBBoxX2(const Int_t x)
 
 void TLine::SetBBoxY1(const Int_t y)
 {
-   if (fY2>fY1)
-      this->SetY2(gPad->PixeltoY(y - gPad->VtoPixel(0)));
+   auto yy = GetYCoord(y, TestBit(kLineNDC));
+   if (fY2 > fY1)
+      SetY2(yy);
    else
-      this->SetY1(gPad->PixeltoY(y - gPad->VtoPixel(0)));
+      SetY1(yy);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -667,8 +490,9 @@ void TLine::SetBBoxY1(const Int_t y)
 
 void TLine::SetBBoxY2(const Int_t y)
 {
-   if (fY2>fY1)
-      this->SetY1(gPad->PixeltoY(y - gPad->VtoPixel(0)));
+   auto yy = GetYCoord(y, TestBit(kLineNDC));
+   if (fY2 > fY1)
+      SetY1(yy);
    else
-      this->SetY2(gPad->PixeltoY(y - gPad->VtoPixel(0)));
+      SetY2(yy);
 }

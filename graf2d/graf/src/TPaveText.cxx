@@ -15,7 +15,7 @@
 #include <iostream>
 #include <fstream>
 
-#include "TBufferFile.h"
+#include "TBuffer.h"
 #include "TROOT.h"
 #include "TStyle.h"
 #include "TPaveText.h"
@@ -26,8 +26,6 @@
 #include "TError.h"
 #include "TColor.h"
 #include "TLine.h"
-
-ClassImp(TPaveText);
 
 
 /** \class TPaveText
@@ -50,7 +48,7 @@ of a line.
 
 Example:
 Begin_Macro(source)
-../../../tutorials/graphics/pavetext.C
+../../../tutorials/visualisation/graphics/pavetext.C
 End_Macro
 
 GetListOfLines can also be used to retrieve all the lines in the TPaveText as
@@ -72,7 +70,7 @@ End_Macro
 
 TPaveText::TPaveText(): TPave(), TAttText()
 {
-   fLines   = 0;
+   fLines   = nullptr;
    fMargin  = 0.05;
    fLongest = 0;
 }
@@ -90,6 +88,8 @@ TPaveText::TPaveText(): TPave(), TAttText()
 ///  If none of these four above options is specified the default the
 ///  option "BR" will be used to draw the border. To produces a pave
 ///  without any border it is enough to specify the option "NB" (no border).
+///  If you want to remove the border or shadow of an already existing TPaveText,
+///  then use the function TPave::SetBorderSize.
 ///
 ///  - option = "NDC" x1,y1,x2,y2 are given in NDC
 ///  - option = "ARC" corners are rounded
@@ -115,24 +115,22 @@ TPaveText::TPaveText(Double_t x1, Double_t y1,Double_t x2, Double_t  y2, Option_
 
 TPaveText::~TPaveText()
 {
-   if (!TestBit(kNotDeleted)) return;
+   if (ROOT::Detail::HasBeenDeleted(this)) return;
    if (fLines) fLines->Delete();
    delete fLines;
-   fLines = 0;
+   fLines = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// pavetext copy constructor.
 
-TPaveText::TPaveText(const TPaveText &pavetext) : TPave(), TAttText()
+TPaveText::TPaveText(const TPaveText &pavetext) : TPave(pavetext), TAttText(pavetext)
 {
-   TBufferFile b(TBuffer::kWrite);
-   TPaveText *p = (TPaveText*)(&pavetext);
-   p->Streamer(b);
-   b.SetReadMode();
-   b.SetBufferOffset(0);
-   fLines = 0;
-   Streamer(b);
+   fLabel = pavetext.fLabel;
+   fLongest = pavetext.fLongest;
+   fMargin = pavetext.fMargin;
+   if (pavetext.fLines)
+      fLines = (TList *) pavetext.fLines->Clone();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -140,13 +138,19 @@ TPaveText::TPaveText(const TPaveText &pavetext) : TPave(), TAttText()
 
 TPaveText& TPaveText::operator=(const TPaveText& pt)
 {
-   if(this!=&pt) {
+   if(this != &pt) {
       TPave::operator=(pt);
       TAttText::operator=(pt);
-      fLabel=pt.fLabel;
-      fLongest=pt.fLongest;
-      fMargin=pt.fMargin;
-      fLines=pt.fLines;
+      fLabel = pt.fLabel;
+      fLongest = pt.fLongest;
+      fMargin = pt.fMargin;
+      if (fLines) {
+         fLines->Delete();
+         delete fLines;
+         fLines = nullptr;
+      }
+      if (pt.fLines)
+         fLines = (TList *)pt.fLines->Clone();
    }
    return *this;
 }
@@ -156,7 +160,8 @@ TPaveText& TPaveText::operator=(const TPaveText& pt)
 
 TBox *TPaveText::AddBox(Double_t x1, Double_t y1, Double_t x2, Double_t y2)
 {
-   if (!gPad->IsEditable()) return 0;
+   if (!gPad->IsEditable())
+      return nullptr;
    TBox *newbox = new TBox(x1,y1,x2,y2);
 
    if (!fLines) fLines = new TList;
@@ -169,7 +174,8 @@ TBox *TPaveText::AddBox(Double_t x1, Double_t y1, Double_t x2, Double_t y2)
 
 TLine *TPaveText::AddLine(Double_t x1, Double_t y1, Double_t x2, Double_t y2)
 {
-   if (!gPad->IsEditable()) return 0;
+   if (!gPad->IsEditable())
+      return nullptr;
    TLine *newline = new TLine(x1,y1,x2,y2);
 
    if (!fLines) fLines = new TList;
@@ -187,7 +193,7 @@ TText *TPaveText::AddText(Double_t x1, Double_t y1, const char *text)
    newtext->SetTextColor(0);
    newtext->SetTextFont(0);
    newtext->SetTextSize(0);
-   Int_t nch = strlen(text);
+   Int_t nch = text ? strlen(text) : 0;
    if (nch > fLongest) fLongest = nch;
 
    if (!fLines) fLines = new TList;
@@ -262,39 +268,45 @@ void TPaveText::EditText()
    if (!obj->InheritsFrom(TText::Class())) return;
    TText *text = (TText*)obj;
    gROOT->SetSelectedPrimitive(text);
-   gROOT->ProcessLine(Form("((TCanvas*)0x%zx)->SetSelected((TObject*)0x%zx)",
+   gROOT->ProcessLine(TString::Format("((TCanvas*)0x%zx)->SetSelected((TObject*)0x%zx)",
                            (size_t)gPad->GetCanvas(), (size_t)text));
-   gROOT->ProcessLine(Form("((TCanvas*)0x%zx)->Selected((TVirtualPad*)0x%zx,(TObject*)0x%zx,1)",
+   gROOT->ProcessLine(TString::Format("((TCanvas*)0x%zx)->Selected((TVirtualPad*)0x%zx,(TObject*)0x%zx,1)",
                            (size_t)gPad->GetCanvas(), (size_t)gPad, (size_t)text));
    text->SetTextAttributes();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Get Pointer to line number in this pavetext.
+/// Ignore any TLine or TBox, they are not accounted
 
 TText *TPaveText::GetLine(Int_t number) const
 {
-   TText *line;
    TIter next(fLines);
    Int_t nlines = 0;
-   while ((line = (TText*) next())) {
-      if (nlines == number) return line;
-      nlines++;
+   while (auto obj = next()) {
+      if (!obj->InheritsFrom(TText::Class()))
+         continue;
+
+      if (nlines++ == number)
+         return (TText *) obj;
    }
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Get Pointer to first containing string text in this pavetext.
+/// Ignore any TLine or TBox, they are not accounted
 
 TText *TPaveText::GetLineWith(const char *text) const
 {
-   TText *line;
+   if (!text)
+      return nullptr;
    TIter next(fLines);
-   while ((line = (TText*) next())) {
-      if (strstr(line->GetTitle(),text)) return line;
+   while (auto obj = next()) {
+      if (obj->InheritsFrom(TText::Class()) && strstr(obj->GetTitle(), text))
+         return (TText *) obj;
    }
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -302,9 +314,9 @@ TText *TPaveText::GetLineWith(const char *text) const
 
 TObject *TPaveText::GetObject(Double_t &ymouse, Double_t &yobj) const
 {
-   if (!fLines) return 0;
+   if (!fLines) return nullptr;
    Int_t nlines = GetSize();
-   if (nlines == 0) return 0;
+   if (nlines == 0) return nullptr;
 
    // Evaluate text size as a function of the number of lines
 
@@ -317,29 +329,26 @@ TObject *TPaveText::GetObject(Double_t &ymouse, Double_t &yobj) const
    // Iterate over all lines
    // Copy pavetext attributes to line attributes if line attributes not set
    dy = fY2 - fY1;
-   TObject *line;
-   TText *linet;
-   TLine *linel;
-   TBox  *lineb;
    TIter next(fLines);
-   while ((line = (TObject*) next())) {
-   // Next primitive is a line
+   while (auto line = next()) {
+      // Next primitive is a line
       if (line->IsA() == TLine::Class()) {
-         linel = (TLine*)line;
+         auto linel = (TLine *)line;
          y1 = linel->GetY1();   if (y1 == 0) y1 = ytext; else y1 = fY1 + y1*dy;
          if (TMath::Abs(y1-ymouse) < 0.2*yspace) {yobj = y1; return line;}
          continue;
       }
-   // Next primitive is a box
+      // Next primitive is a box
       if (line->IsA() == TBox::Class()) {
-         lineb = (TBox*)line;
-         y1 = lineb->GetY1();   if (y1 == 0) y1 = ytext; else y1 = fY1 + y1*dy;
+         auto lineb = (TBox *)line;
+         y1 = lineb->GetY1();
+         if (y1 == 0) y1 = ytext; else y1 = fY1 + y1*dy;
          if (TMath::Abs(y1-ymouse) < 0.4*yspace) {yobj = y1; return line;}
          continue;
       }
-   // Next primitive is a text
+      // Next primitive is a text
       if (line->InheritsFrom(TText::Class())) {
-         linet = (TText*)line;
+         auto linet = (TText *)line;
          ytext -= yspace;
          Double_t yl     = linet->GetY();
          if (yl > 0 && yl <1) {
@@ -353,7 +362,7 @@ TObject *TPaveText::GetObject(Double_t &ymouse, Double_t &yobj) const
          if (TMath::Abs(y-ymouse) < 0.5*yspace) {yobj = y; return line;}
       }
    }
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -363,8 +372,7 @@ Int_t TPaveText::GetSize() const
 {
    Int_t nlines = 0;
    TIter next(fLines);
-   TObject *line;
-   while ((line = (TObject*) next())) {
+   while (auto line = next()) {
       if (line->InheritsFrom(TText::Class())) nlines++;
    }
    return nlines;
@@ -568,12 +576,12 @@ void TPaveText::PaintPrimitives(Int_t mode)
       x2 = fX2 - 0.25*dx;
       y1 = fY2 - 0.02*dy;
       y2 = fY2 + 0.02*dy;
-      TPaveLabel *title = new TPaveLabel(x1,y1,x2,y2,fLabel.Data(),GetDrawOption());
-      title->SetFillColor(GetFillColor());
-      title->SetTextColor(GetTextColor());
-      title->SetTextFont(GetTextFont());
-      title->Paint();
-      delete title;
+      TString opt = GetDrawOption(); opt.ReplaceAll("NDC", "");
+      TPaveLabel title(x1,y1,x2,y2,fLabel.Data(),opt.Data());
+      title.SetFillColor(GetFillColor());
+      title.SetTextColor(GetTextColor());
+      title.SetTextFont(GetTextFont());
+      title.Paint();
    }
 }
 
@@ -597,7 +605,6 @@ void TPaveText::ReadFile(const char *filename, Option_t *option, Int_t nlines, I
 {
    Int_t ival;
    Float_t val;
-   TText *lastline = 0;
    TString opt = option;
    if (!opt.Contains("+")) {
       Clear();
@@ -605,25 +612,24 @@ void TPaveText::ReadFile(const char *filename, Option_t *option, Int_t nlines, I
    }
    SetTextAlign(12);
    // Get file name
-   Int_t nch = strlen(filename);
-   if (nch == 0) return;
+   TString fname = filename;
+   if (fname.EndsWith(";"))
+      fname.Resize(fname.Length() - 1);
+   if (fname.Length() == 0)
+      return;
 
-   char *fname = StrDup(filename);
-   if (fname[nch-1] == ';') { nch--; fname[nch]=0;}
-
-   std::ifstream file(fname,std::ios::in);
+   std::ifstream file(fname.Data(),std::ios::in);
    if (!file.good()) {
-      Error("ReadFile", "illegal file name");
-      delete [] fname;
+      Error("ReadFile", "illegal file name %s", fname.Data());
       return;
    }
 
    const int linesize = 255;
    char currentline[linesize];
-   char *ss, *sclose, *s= 0;
+   char *ss, *sclose, *s = nullptr;
 
    Int_t kline = 0;
-   while (1) {
+   while (true) {
       file.getline(currentline,linesize);
       if (file.eof())break;
       if (kline >= fromline && kline < fromline+nlines) {
@@ -633,7 +639,7 @@ void TPaveText::ReadFile(const char *filename, Option_t *option, Int_t nlines, I
             sclose = strstr(ss,")");
             if (!sclose) continue;
             *sclose = 0;
-            lastline = (TText*)fLines->Last();
+            TText *lastline = (TText*)fLines->Last();
             if (!lastline) continue;
             if (strstr(ss,"Color(")) {
                sscanf(ss+6,"%d",&ival);
@@ -666,169 +672,57 @@ void TPaveText::ReadFile(const char *filename, Option_t *option, Int_t nlines, I
       kline++;
    }
    file.close();
-   delete [] fname;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Save lines of this pavetext as C++ statements on output stream out
 
-void TPaveText::SaveLines(std::ostream &out, const char *name, Bool_t saved)
+void TPaveText::SaveLines(std::ostream &out, const char *name, Bool_t)
 {
    if (!fLines) return;
    Int_t nlines = GetSize();
    if (nlines == 0) return;
 
-   // Iterate over all lines
-   char quote = '"';
-   TObject *line;
-   TText *linet;
-   TLatex *latex;
-   TLine *linel;
-   TBox  *lineb;
-   TIter next(fLines);
-   Bool_t savedlt = kFALSE;
-   Bool_t savedt = kFALSE;
-   Bool_t savedl = kFALSE;
-   Bool_t savedb = kFALSE;
+   if (!name || !*name)
+      name = "pt";
 
-   while ((line = (TObject*) next())) {
-   // Next primitive is a line
+   static int linecnt = 0;
+
+   // Iterate over all lines
+   TIter next(fLines);
+
+   while (auto line = next()) {
       if (line->IsA() == TLine::Class()) {
-         linel = (TLine*)line;
-         if (saved || savedl) {
-            out<<"   ";
-         } else {
-            out<<"   TLine *";
-            savedl = kTRUE;
-         }
-         out<<name<<"_Line = "<<name<<"->AddLine("
-            <<linel->GetX1()<<","<<linel->GetY1()<<","<<linel->GetX2()<<","<<linel->GetY2()<<");"<<std::endl;
-         if (linel->GetLineColor() != 1) {
-            if (linel->GetLineColor() > 228) {
-               TColor::SaveColor(out, linel->GetLineColor());
-               out<<"   "<<name<<"_Line->SetLineColor(ci);" << std::endl;
-            } else
-               out<<"   "<<name<<"_Line->SetLineColor("<<linel->GetLineColor()<<");"<<std::endl;
-         }
-         if (linel->GetLineStyle() != 1) {
-            out<<"   "<<name<<"_Line->SetLineStyle("<<linel->GetLineStyle()<<");"<<std::endl;
-         }
-         if (linel->GetLineWidth() != 1) {
-            out<<"   "<<name<<"_Line->SetLineWidth("<<linel->GetLineWidth()<<");"<<std::endl;
-         }
-         continue;
-      }
-   // Next primitive is a box
-      if (line->IsA() == TBox::Class()) {
-         lineb = (TBox*)line;
-         if (saved || savedb) {
-            out<<"   ";
-         } else {
-            out<<"   TBox *";
-            savedb = kTRUE;
-         }
-         out<<name<<"_Box = "<<name<<"->AddBox("
-            <<lineb->GetX1()<<","<<lineb->GetY1()<<","<<lineb->GetX2()<<","<<lineb->GetY2()<<");"<<std::endl;
-         if (lineb->GetFillColor() != 18) {
-            if (lineb->GetFillColor() > 228) {
-               TColor::SaveColor(out, lineb->GetFillColor());
-               out<<"   "<<name<<"_Box->SetFillColor(ci);" << std::endl;
-            } else
-               out<<"   "<<name<<"_Box->SetFillColor("<<lineb->GetFillColor()<<");"<<std::endl;
-         }
-         if (lineb->GetFillStyle() != 1001) {
-            out<<"   "<<name<<"_Box->SetFillStyle("<<lineb->GetFillStyle()<<");"<<std::endl;
-         }
-         if (lineb->GetLineColor() != 1) {
-            if (lineb->GetLineColor() > 228) {
-               TColor::SaveColor(out, lineb->GetLineColor());
-               out<<"   "<<name<<"_Box->SetLineColor(ci);" << std::endl;
-            } else
-               out<<"   "<<name<<"_Box->SetLineColor("<<lineb->GetLineColor()<<");"<<std::endl;
-         }
-         if (lineb->GetLineStyle() != 1) {
-            out<<"   "<<name<<"_Box->SetLineStyle("<<lineb->GetLineStyle()<<");"<<std::endl;
-         }
-         if (lineb->GetLineWidth() != 1) {
-            out<<"   "<<name<<"_Box->SetLineWidth("<<lineb->GetLineWidth()<<");"<<std::endl;
-         }
-         continue;
-      }
-   // Next primitive is a text
-      if (line->IsA() == TText::Class()) {
-         linet = (TText*)line;
-         if (saved || savedt) {
-            out<<"   ";
-         } else {
-            out<<"   TText *";
-            savedt = kTRUE;
-         }
-         if (!linet->GetX() && !linet->GetY()) {
-            TString s = linet->GetTitle();
-            s.ReplaceAll("\"","\\\"");
-            out<<name<<"_Text = "<<name<<"->AddText("
-               <<quote<<s.Data()<<quote<<");"<<std::endl;
-         } else {
-            out<<name<<"_Text = "<<name<<"->AddText("
-               <<linet->GetX()<<","<<linet->GetY()<<","<<quote<<linet->GetTitle()<<quote<<");"<<std::endl;
-         }
-         if (linet->GetTextColor()) {
-            if (linet->GetTextColor() > 228) {
-               TColor::SaveColor(out, linet->GetTextColor());
-               out<<"   "<<name<<"_Text->SetTextColor(ci);" << std::endl;
-            } else
-               out<<"   "<<name<<"_Text->SetTextColor("<<linet->GetTextColor()<<");"<<std::endl;
-         }
-         if (linet->GetTextFont()) {
-            out<<"   "<<name<<"_Text->SetTextFont("<<linet->GetTextFont()<<");"<<std::endl;
-         }
-         if (linet->GetTextSize()) {
-            out<<"   "<<name<<"_Text->SetTextSize("<<linet->GetTextSize()<<");"<<std::endl;
-         }
-         if (linet->GetTextAngle() != GetTextAngle()) {
-            out<<"   "<<name<<"_Text->SetTextAngle("<<linet->GetTextAngle()<<");"<<std::endl;
-         }
-         if (linet->GetTextAlign()) {
-            out<<"   "<<name<<"_Text->SetTextAlign("<<linet->GetTextAlign()<<");"<<std::endl;
-         }
-      }
-   // Next primitive is a Latex text
-      if (line->IsA() == TLatex::Class()) {
-         latex = (TLatex*)line;
-         if (saved || savedlt) {
-            out<<"   ";
-         } else {
-            out<<"   TText *";
-            savedlt = kTRUE;
-         }
-         if (!latex->GetX() && !latex->GetY()) {
-            TString sl = latex->GetTitle();
-            sl.ReplaceAll("\"","\\\"");
-            out<<name<<"_LaTex = "<<name<<"->AddText("
-               <<quote<<sl.Data()<<quote<<");"<<std::endl;
-         } else {
-            out<<name<<"_LaTex = "<<name<<"->AddText("
-               <<latex->GetX()<<","<<latex->GetY()<<","<<quote<<latex->GetTitle()<<quote<<");"<<std::endl;
-         }
-         if (latex->GetTextColor()) {
-            if (latex->GetTextColor() > 228) {
-               TColor::SaveColor(out, latex->GetTextColor());
-               out<<"   "<<name<<"_LaTex->SetTextColor(ci);" << std::endl;
-            } else
-               out<<"   "<<name<<"_LaTex->SetTextColor("<<latex->GetTextColor()<<");"<<std::endl;
-         }
-         if (latex->GetTextFont()) {
-            out<<"   "<<name<<"_LaTex->SetTextFont("<<latex->GetTextFont()<<");"<<std::endl;
-         }
-         if (latex->GetTextSize()) {
-            out<<"   "<<name<<"_LaTex->SetTextSize("<<latex->GetTextSize()<<");"<<std::endl;
-         }
-         if (latex->GetTextAngle() != GetTextAngle()) {
-            out<<"   "<<name<<"_LaTex->SetTextAngle("<<latex->GetTextAngle()<<");"<<std::endl;
-         }
-         if (latex->GetTextAlign()) {
-            out<<"   "<<name<<"_LaTex->SetTextAlign("<<latex->GetTextAlign()<<");"<<std::endl;
-         }
+         // Next primitive is a line
+         auto linel = static_cast<TLine *>(line);
+         auto line_name = TString::Format("%s_line%d", name, linecnt++);
+         out << "   TLine *" << line_name << " = " << name << "->AddLine(" << linel->GetX1() << "," << linel->GetY1()
+             << "," << linel->GetX2() << "," << linel->GetY2() << ");" << std::endl;
+         linel->SaveLineAttributes(out, line_name.Data(), 1, 1, 1);
+      } else if (line->IsA() == TBox::Class()) {
+         // Next primitive is a box
+         auto lineb = static_cast<TBox *>(line);
+         auto box_name = TString::Format("%s_box%d", name, linecnt++);
+         out << "   TBox *" << box_name << " = " << name << "->AddBox(" << lineb->GetX1() << "," << lineb->GetY1()
+             << "," << lineb->GetX2() << "," << lineb->GetY2() << ");" << std::endl;
+         lineb->SaveFillAttributes(out, box_name.Data(), -1, -1);
+         lineb->SaveLineAttributes(out, box_name.Data(), 1, 1, 1);
+      } else if (line->IsA() == TText::Class() || line->IsA() == TLatex::Class()) {
+         // Next primitive is a text
+         auto linet = static_cast<TText *>(line);
+         auto text_name = TString::Format("%s_text%d", name, linecnt++);
+
+         TString s = linet->GetTitle();
+         s.ReplaceSpecialCppChars();
+
+         out << "   TText *" << text_name << " = ";
+
+         if (!linet->GetX() && !linet->GetY())
+            out << name << "->AddText(\"" << s << "\");" << std::endl;
+         else
+            out << name << "->AddText(" << linet->GetX() << ", " << linet->GetY() << ", \"" << s << "\");" << std::endl;
+
+         linet->SaveTextAttributes(out, text_name.Data(), 0, GetTextAngle(), 0, 0, 0);
       }
    }
 }
@@ -836,37 +730,21 @@ void TPaveText::SaveLines(std::ostream &out, const char *name, Bool_t saved)
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out
 
-void TPaveText::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
+void TPaveText::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   char quote = '"';
-   Bool_t saved = gROOT->ClassSaved(TPaveText::Class());
-   out<<"   "<<std::endl;
-   if (saved) {
-      out<<"   ";
-   } else {
-      out<<"   "<<ClassName()<<" *";
-   }
-   if (fOption.Contains("NDC")) {
-      out<<"pt = new "<<ClassName()<<"("<<fX1NDC<<","<<fY1NDC<<","<<fX2NDC<<","<<fY2NDC
-      <<","<<quote<<fOption<<quote<<");"<<std::endl;
-   } else {
-      out<<"pt = new "<<ClassName()<<"("<<gPad->PadtoX(fX1)<<","<<gPad->PadtoY(fY1)<<","<<gPad->PadtoX(fX2)<<","<<gPad->PadtoY(fY2)
-      <<","<<quote<<fOption<<quote<<");"<<std::endl;
-   }
-   if (strcmp(GetName(),"TPave")) {
-      out<<"   pt->SetName("<<quote<<GetName()<<quote<<");"<<std::endl;
-   }
-   if (fLabel.Length() > 0) {
-      out<<"   pt->SetLabel("<<quote<<fLabel<<quote<<");"<<std::endl;
-   }
-   if (fBorderSize != 4) {
-      out<<"   pt->SetBorderSize("<<fBorderSize<<");"<<std::endl;
-   }
-   SaveFillAttributes(out,"pt",19,1001);
-   SaveLineAttributes(out,"pt",1,1,1);
-   SaveTextAttributes(out,"pt",22,0,1,62,0);
-   SaveLines(out,"pt",saved);
-   out<<"   pt->Draw();"<<std::endl;
+   SavePrimitiveConstructor(out, Class(), "pt", GetSavePaveArgs());
+
+   if (strcmp(GetName(), "TPave"))
+      out << "   pt->SetName(\"" << GetName() << "\");\n";
+   if (fLabel.Length() > 0)
+      out << "   pt->SetLabel(\"" << TString(fLabel).ReplaceSpecialCppChars() << "\");\n";
+   if (fBorderSize != 4)
+      out << "   pt->SetBorderSize(" << fBorderSize << ");\n";
+   SaveFillAttributes(out, "pt", -1, -1);
+   SaveLineAttributes(out, "pt", 1, 1, 1);
+   SaveTextAttributes(out, "pt", 22, 0, 1, 62, 0);
+   SaveLines(out, "pt", kTRUE);
+   SavePrimitiveDraw(out, "pt", option);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -877,12 +755,12 @@ void TPaveText::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
 
 void TPaveText::SetAllWith(const char *text, Option_t *option, Double_t value)
 {
-   TString opt=option;
+   TString opt = option;
    opt.ToLower();
-   TText *line;
    TIter next(fLines);
-   while ((line = (TText*) next())) {
-      if (strstr(line->GetTitle(),text)) {
+   while (auto obj = next()) {
+      auto line = dynamic_cast<TText *> (obj);
+      if (line && strstr(line->GetTitle(),text)) {
          if (opt == "align") line->SetTextAlign(Int_t(value));
          if (opt == "color") line->SetTextColor(Int_t(value));
          if (opt == "font")  line->SetTextFont(Int_t(value));

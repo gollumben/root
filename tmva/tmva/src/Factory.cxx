@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : Factory                                                               *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation (see header for description)                               *
@@ -33,7 +33,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::Factory
@@ -71,31 +71,27 @@ evaluation phases.
 #include "TMVA/ResultsClassification.h"
 #include "TMVA/ResultsRegression.h"
 #include "TMVA/ResultsMulticlass.h"
-#include <list>
-#include <bitset>
-#include <set>
 
 #include "TMVA/Types.h"
 
 #include "TROOT.h"
 #include "TFile.h"
-#include "TLeaf.h"
-#include "TEventList.h"
 #include "TH2.h"
 #include "TGraph.h"
 #include "TStyle.h"
-#include "TMatrixF.h"
-#include "TMatrixDSym.h"
-#include "TMultiGraph.h"
 #include "TPrincipal.h"
 #include "TMath.h"
 #include "TSystem.h"
 #include "TCanvas.h"
+#include "TMultiGraph.h"
+
+#include <bitset>
+#include <list>
+#include <set>
 
 const Int_t MinNoTrainingEvents = 10;
 // const Int_t  MinNoTestEvents     = 1;
 
-ClassImp(TMVA::Factory);
 
 #define READXML kTRUE
 
@@ -346,10 +342,17 @@ void TMVA::Factory::SetVerbose(Bool_t v)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Book a classifier or regression method.
+/// Books an MVA classifier or regression method. The option configuration
+/// string is custom for each MVA. The TString field `theNameAppendix` serves to
+/// define (and distinguish) several instances of a given MVA, e.g., when one
+/// wants to compare the performance of various configurations
+///
+/// The method is identified by `theMethodName`, which can be provided either as:
+///   - a string containing the method's name, or
+///   - a `TMVA::Types::EMVA` enum value (automatically converted to the corresponding method name).
 
-TMVA::MethodBase *
-TMVA::Factory::BookMethod(TMVA::DataLoader *loader, TString theMethodName, TString methodTitle, TString theOption)
+TMVA::MethodBase *TMVA::Factory::BookMethod(TMVA::DataLoader *loader, TMVA::Factory::MethodName theMethodName,
+                                            TString methodTitle, TString theOption)
 {
    if (fModelPersistence)
       gSystem->MakeDirectory(loader->GetName()); // creating directory for DataLoader output
@@ -403,7 +406,7 @@ TMVA::Factory::BookMethod(TMVA::DataLoader *loader, TString theMethodName, TStri
    // initialize methods
    IMethod *im;
    if (!boostNum) {
-      im = ClassifierFactory::Instance().Create(theMethodName.Data(), fJobName, methodTitle, loader->GetDataSetInfo(),
+      im = ClassifierFactory::Instance().Create(theMethodName.tString().Data(), fJobName, methodTitle, loader->GetDataSetInfo(),
                                                 theOption);
    } else {
       // boosted classifier, requires a specific definition, making it transparent for the user
@@ -417,7 +420,7 @@ TMVA::Factory::BookMethod(TMVA::DataLoader *loader, TString theMethodName, TStri
       if (fModelPersistence)
          methBoost->SetWeightFileDir(fileDir);
       methBoost->SetModelPersistence(fModelPersistence);
-      methBoost->SetBoostedMethodName(theMethodName);                            // DSMTEST divided into two lines
+      methBoost->SetBoostedMethodName(theMethodName.tString());                            // DSMTEST divided into two lines
       methBoost->fDataSetManager = loader->GetDataSetInfo().GetDataSetManager(); // DSMTEST
       methBoost->SetFile(fgTargetFile);
       methBoost->SetSilentFile(IsSilentFile());
@@ -475,18 +478,6 @@ TMVA::Factory::BookMethod(TMVA::DataLoader *loader, TString theMethodName, TStri
    }
    fMethodsMap[datasetname]->push_back(method);
    return method;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Books MVA method. The option configuration string is custom for each MVA
-/// the TString field "theNameAppendix" serves to define (and distinguish)
-/// several instances of a given MVA, eg, when one wants to compare the
-/// performance of various configurations
-
-TMVA::MethodBase *
-TMVA::Factory::BookMethod(TMVA::DataLoader *loader, Types::EMVA theMethod, TString methodTitle, TString theOption)
-{
-   return BookMethod(loader, Types::Instance().GetMethodName(theMethod), methodTitle, theOption);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -967,7 +958,7 @@ TGraph *TMVA::Factory::GetROCCurve(TString datasetname, TString theMethodName, B
    if (setTitles) {
       graph->GetYaxis()->SetTitle("Background rejection (Specificity)");
       graph->GetXaxis()->SetTitle("Signal efficiency (Sensitivity)");
-      graph->SetTitle(Form("Signal efficiency vs. Background rejection (%s)", theMethodName.Data()));
+      graph->SetTitle(TString::Format("Signal efficiency vs. Background rejection (%s)", theMethodName.Data()).Data());
    }
 
    return graph;
@@ -1081,8 +1072,8 @@ TCanvas *TMVA::Factory::GetROCCurve(TString datasetname, UInt_t iClass, Types::E
       return 0;
    }
 
-   TString name = Form("ROCCurve %s class %i", datasetname.Data(), iClass);
-   TCanvas *canvas = new TCanvas(name, "ROC Curve", 200, 10, 700, 500);
+   TString name = TString::Format("ROCCurve %s class %i", datasetname.Data(), iClass);
+   TCanvas *canvas = new TCanvas(name.Data(), "ROC Curve", 200, 10, 700, 500);
    canvas->SetGrid();
 
    TMultiGraph *multigraph = this->GetROCCurveAsMultiGraph(datasetname, iClass, type);
@@ -1093,14 +1084,14 @@ TCanvas *TMVA::Factory::GetROCCurve(TString datasetname, UInt_t iClass, Types::E
       multigraph->GetYaxis()->SetTitle("Background rejection (Specificity)");
       multigraph->GetXaxis()->SetTitle("Signal efficiency (Sensitivity)");
 
-      TString titleString = Form("Signal efficiency vs. Background rejection");
+      TString titleString = TString::Format("Signal efficiency vs. Background rejection");
       if (this->fAnalysisType == Types::kMulticlass) {
-         titleString = Form("%s (Class=%i)", titleString.Data(), iClass);
+         titleString = TString::Format("%s (Class=%i)", titleString.Data(), iClass);
       }
 
       // Workaround for TMultigraph not drawing title correctly.
-      multigraph->GetHistogram()->SetTitle(titleString);
-      multigraph->SetTitle(titleString);
+      multigraph->GetHistogram()->SetTitle(titleString.Data());
+      multigraph->SetTitle(titleString.Data());
 
       canvas->BuildLegend(0.15, 0.15, 0.35, 0.3, "MVA Method");
    }
@@ -1670,11 +1661,10 @@ void TMVA::Factory::EvaluateAllMethods(void)
                TPrincipal *tpBkg = new TPrincipal(nmeth + nvar, "");
 
                //              set required tree branch references
-               Int_t ivar = 0;
                std::vector<TString> *theVars = new std::vector<TString>;
                std::vector<ResultsClassification *> mvaRes;
                for (MVector::iterator itrMethod = methodsNoCuts.begin(); itrMethod != methodsNoCuts.end();
-                    ++itrMethod, ++ivar) {
+                    ++itrMethod) {
                   MethodBase *m = dynamic_cast<MethodBase *>(*itrMethod);
                   if (m == 0)
                      continue;
@@ -1914,15 +1904,15 @@ void TMVA::Factory::EvaluateAllMethods(void)
 
          //    TString header = "DataSet Name     MVA Method     ";
          //    for (UInt_t icls = 0; icls < theMethod->fDataSetInfo.GetNClasses(); ++icls) {
-         //       header += Form("%-12s ", theMethod->fDataSetInfo.GetClassInfo(icls)->GetName());
+         //       header += TString::Format("%-12s ", theMethod->fDataSetInfo.GetClassInfo(icls)->GetName());
          //    }
 
          //    Log() << kINFO << header << Endl;
          //    Log() << kINFO << hLine << Endl;
          //    for (Int_t i = 0; i < nmeth_used[0]; i++) {
-         //       TString res = Form("[%-14s] %-15s", theMethod->fDataSetInfo.GetName(), (const char *)mname[0][i]);
+         //       TString res = TString::Format("[%-14s] %-15s", theMethod->fDataSetInfo.GetName(), mname[0][i].Data());
          //       for (UInt_t icls = 0; icls < theMethod->fDataSetInfo.GetNClasses(); ++icls) {
-         //          res += Form("%#1.3f        ", (multiclass_testEff[i][icls]) * (multiclass_testPur[i][icls]));
+         //          res += TString::Format("%#1.3f        ", (multiclass_testEff[i][icls]) * (multiclass_testPur[i][icls]));
          //       }
          //       Log() << kINFO << res << Endl;
          //    }
@@ -1933,10 +1923,10 @@ void TMVA::Factory::EvaluateAllMethods(void)
 
          // --- 1 vs Rest ROC AUC, signal efficiency @ given background efficiency
          // --------------------------------------------------------------------
-         TString header1 = Form("%-15s%-15s%-15s%-15s%-15s%-15s", "Dataset", "MVA Method", "ROC AUC", "Sig eff@B=0.01",
-                                "Sig eff@B=0.10", "Sig eff@B=0.30");
-         TString header2 = Form("%-15s%-15s%-15s%-15s%-15s%-15s", "Name:", "/ Class:", "test  (train)", "test  (train)",
-                                "test  (train)", "test  (train)");
+         TString header1 = TString::Format("%-15s%-15s%-15s%-15s%-15s%-15s", "Dataset", "MVA Method", "ROC AUC", "Sig eff@B=0.01",
+                                           "Sig eff@B=0.10", "Sig eff@B=0.30");
+         TString header2 = TString::Format("%-15s%-15s%-15s%-15s%-15s%-15s", "Name:", "/ Class:", "test  (train)", "test  (train)",
+                                           "test  (train)", "test  (train)");
          Log() << kINFO << Endl;
          Log() << kINFO << "1-vs-rest performance metrics per class" << Endl;
          Log() << kINFO << hLine << Endl;
@@ -1964,7 +1954,7 @@ void TMVA::Factory::EvaluateAllMethods(void)
                }
 
                Log() << kINFO << Endl;
-               TString row = Form("%-15s%-15s", datasetName.Data(), mvaName.Data());
+               TString row = TString::Format("%-15s%-15s", datasetName.Data(), mvaName.Data());
                Log() << kINFO << row << Endl;
                Log() << kINFO << "------------------------------" << Endl;
 
@@ -1983,11 +1973,11 @@ void TMVA::Factory::EvaluateAllMethods(void)
                   const Double_t effB01Test = rocCurveTest->GetEffSForEffB(0.01);
                   const Double_t effB10Test = rocCurveTest->GetEffSForEffB(0.10);
                   const Double_t effB30Test = rocCurveTest->GetEffSForEffB(0.30);
-                  const TString rocaucCmp = Form("%5.3f (%5.3f)", rocaucTest, rocaucTrain);
-                  const TString effB01Cmp = Form("%5.3f (%5.3f)", effB01Test, effB01Train);
-                  const TString effB10Cmp = Form("%5.3f (%5.3f)", effB10Test, effB10Train);
-                  const TString effB30Cmp = Form("%5.3f (%5.3f)", effB30Test, effB30Train);
-                  row = Form("%-15s%-15s%-15s%-15s%-15s%-15s", "", className.Data(), rocaucCmp.Data(), effB01Cmp.Data(),
+                  const TString rocaucCmp = TString::Format("%5.3f (%5.3f)", rocaucTest, rocaucTrain);
+                  const TString effB01Cmp = TString::Format("%5.3f (%5.3f)", effB01Test, effB01Train);
+                  const TString effB10Cmp = TString::Format("%5.3f (%5.3f)", effB10Test, effB10Train);
+                  const TString effB30Cmp = TString::Format("%5.3f (%5.3f)", effB30Test, effB30Train);
+                  row = TString::Format("%-15s%-15s%-15s%-15s%-15s%-15s", "", className.Data(), rocaucCmp.Data(), effB01Cmp.Data(),
                              effB10Cmp.Data(), effB30Cmp.Data());
                   Log() << kINFO << row << Endl;
 
@@ -2009,27 +1999,27 @@ void TMVA::Factory::EvaluateAllMethods(void)
 
             // TODO: Ensure matrices are same size.
 
-            TString header = Form(" %-14s", " ");
-            TString headerInfo = Form(" %-14s", " ");
-            ;
+            TString header = TString::Format(" %-14s", " ");
+            TString headerInfo = TString::Format(" %-14s", " ");
+
             for (UInt_t iCol = 0; iCol < numClasses; ++iCol) {
-               header += Form(" %-14s", classnames[iCol].Data());
-               headerInfo += Form(" %-14s", " test (train)");
+               header += TString::Format(" %-14s", classnames[iCol].Data());
+               headerInfo += TString::Format(" %-14s", " test (train)");
             }
             stream << kINFO << header << Endl;
             stream << kINFO << headerInfo << Endl;
 
             for (UInt_t iRow = 0; iRow < numClasses; ++iRow) {
-               stream << kINFO << Form(" %-14s", classnames[iRow].Data());
+               stream << kINFO << TString::Format(" %-14s", classnames[iRow].Data());
 
                for (UInt_t iCol = 0; iCol < numClasses; ++iCol) {
                   if (iCol == iRow) {
-                     stream << kINFO << Form(" %-14s", "-");
+                     stream << kINFO << TString::Format(" %-14s", "-");
                   } else {
                      Double_t trainValue = matTraining[iRow][iCol];
                      Double_t testValue = matTesting[iRow][iCol];
-                     TString entry = Form("%-5.3f (%-5.3f)", testValue, trainValue);
-                     stream << kINFO << Form(" %-14s", entry.Data());
+                     TString entry = TString::Format("%-5.3f (%-5.3f)", testValue, trainValue);
+                     stream << kINFO << TString::Format(" %-14s", entry.Data());
                   }
                }
                stream << kINFO << Endl;
@@ -2320,7 +2310,7 @@ TH1F *TMVA::Factory::EvaluateImportanceAll(DataLoader *loader, Types::EMVA theMe
       SROC = ROC[x];
       for (uint32_t i = 0; i < VIBITS; ++i) {
          if (x & (uint64_t(1) << i)) {
-            y = x & ~(1 << i);
+            y = x & ~(uint64_t(1) << i);
             std::bitset<VIBITS> ybitset(y);
             // need at least one variable
             // NOTE: if sub-seed is zero then is the special case
@@ -2419,7 +2409,7 @@ TH1F *TMVA::Factory::EvaluateImportanceShort(DataLoader *loader, Types::EMVA the
    // removing global result because it is requiring a lot of RAM for all seeds
 
    for (uint32_t i = 0; i < VIBITS; ++i) {
-      if (x & (1 << i)) {
+      if (x & (uint64_t(1) << i)) {
          y = x & ~(uint64_t(1) << i);
          std::bitset<VIBITS> ybitset(y);
          // need at least one variable
@@ -2486,7 +2476,6 @@ TH1F *TMVA::Factory::EvaluateImportanceRandom(DataLoader *loader, UInt_t nseeds,
 
    // vector to save importances
    std::vector<Double_t> importances(nbits);
-   Double_t importances_norm = 0;
    for (int i = 0; i < nbits; i++)
       importances[i] = 0;
 
@@ -2535,7 +2524,7 @@ TH1F *TMVA::Factory::EvaluateImportanceRandom(DataLoader *loader, UInt_t nseeds,
 
       for (uint32_t i = 0; i < 32; ++i) {
          if (x & (uint64_t(1) << i)) {
-            y = x & ~(1 << i);
+            y = x & ~(uint64_t(1) << i);
             std::bitset<32> ybitset(y);
             // need at least one variable
             // NOTE: if sub-seed is zero then is the special case
@@ -2543,7 +2532,6 @@ TH1F *TMVA::Factory::EvaluateImportanceRandom(DataLoader *loader, UInt_t nseeds,
             Double_t ny = log(x - y) / 0.693147;
             if (y == 0) {
                importances[ny] = SROC - 0.5;
-               importances_norm += importances[ny];
                //  std::cout << "SubSeed: " << y << " y:" << ybitset << "ROC " << 0.5 << std::endl;
                continue;
             }
@@ -2630,7 +2618,7 @@ TH1F *TMVA::Factory::GetImportance(const int nbits, std::vector<Double_t> import
    vih1->GetYaxis()->SetTitleOffset(1.24);
 
    vih1->GetYaxis()->SetRangeUser(-7, 50);
-   vih1->SetDirectory(0);
+   vih1->SetDirectory(nullptr);
 
    //   vih1->Draw("B");
    return vih1;

@@ -21,6 +21,9 @@ if (uring)
 endif ()
 
 ROOT_LINKER_LIBRARY(RIO
+  src/InternalIOUtils.cxx
+  src/RConcurrentHashColl.cxx
+  src/RFile.cxx
   src/RRawFile.cxx
   ${rawfile_local_sources}
   src/TArchiveFile.cxx
@@ -58,32 +61,30 @@ ROOT_LINKER_LIBRARY(RIO
   $<TARGET_OBJECTS:RootPcmObjs>
   LIBRARIES
     ${CMAKE_DL_LIBS}
+    Thread
   DEPENDENCIES
     Core
-    Thread
 )
 
-target_include_directories(RIO PRIVATE ${CMAKE_SOURCE_DIR}/core/clib/res)
+target_include_directories(RIO PRIVATE ${CMAKE_SOURCE_DIR}/builtins/clib/res)
+# PUBLIC so that dependent libraries e.g. ROOTDataFrame may find the internal header too
+target_include_directories(RIO PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/res>)
 target_link_libraries(RIO PUBLIC ${ROOT_ATOMIC_LIBS})
-
-if(builtin_nlohmannjson)
-   target_include_directories(RIO PRIVATE ${CMAKE_SOURCE_DIR}/builtins)
-else()
-   target_link_libraries(RIO PRIVATE nlohmann_json::nlohmann_json)
-endif()
-
-if(root7)
-  set(RIO_EXTRA_HEADERS ROOT/RFile.hxx)
-  target_sources(RIO PRIVATE v7/src/RFile.cxx)
-endif()
+target_link_libraries(RIO PRIVATE nlohmann_json::nlohmann_json)
 
 if(uring)
-  target_link_libraries(RIO PUBLIC ${LIBURING_LIBRARY})
-  target_include_directories(RIO PRIVATE ${LIBURING_INCLUDE_DIR})
+  target_link_libraries(RIO PUBLIC uring::uring)
 endif()
 
+# keep include directory for ROOT/RSha256.hxx private
+set_source_files_properties(src/RConcurrentHashColl.cxx
+  PROPERTIES COMPILE_FLAGS -I${CMAKE_SOURCE_DIR}/core/foundation/res)
+
 ROOT_GENERATE_DICTIONARY(G__RIO
+  ROOT/RConcurrentHashColl.hxx
+  ROOT/RFile.hxx
   ROOT/RRawFile.hxx
+  ROOT/RRawFileTFile.hxx
   ${rawfile_local_headers}
   ROOT/TBufferMerger.hxx
   TArchiveFile.h
@@ -115,7 +116,6 @@ ROOT_GENERATE_DICTIONARY(G__RIO
   TVirtualCollectionIterators.h
   TStreamerInfo.h
   TZIPFile.h
-  ${RIO_EXTRA_HEADERS}
   STAGE1
   MODULE
     RIO
@@ -133,7 +133,7 @@ ROOT_GENERATE_DICTIONARY(G__RIO
 # the many scope-local vars to share their stack space / become
 # registers, thanks to the optimizer.
 if(MSVC)
-  set_source_files_properties(src/TStreamerInfoReadBuffer.cxx COMPILE_FLAGS "/O2")
+  set_source_files_properties(src/TStreamerInfoReadBuffer.cxx COMPILE_FLAGS $<IF:$<CONFIG:Debug>,"/Od","/O2">)
 else()
   set_source_files_properties(src/TStreamerInfoReadBuffer.cxx COMPILE_FLAGS "-O3")
 endif()

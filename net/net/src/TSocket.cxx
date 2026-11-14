@@ -9,16 +9,17 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// TSocket                                                              //
-//                                                                      //
-// This class implements client sockets. A socket is an endpoint for    //
-// communication between two machines.                                  //
-// The actual work is done via the TSystem class (either TUnixSystem    //
-// or TWinNTSystem).                                                    //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
+/**
+\file TSocket.cxx
+\class TSocket
+\brief This class implements client sockets.
+\note This class deals with sockets: the user is entirely responsible for the security of their usage, for example, but
+not limited to, the management of the connections to said sockets.
+
+A socket is an endpoint for communication between two machines. The actual work is done via the TSystem class (either
+TUnixSystem or TWinNTSystem).
+
+**/
 
 #include "Bytes.h"
 #include "Compression.h"
@@ -32,10 +33,10 @@
 #include "TString.h"
 #include "TSystem.h"
 #include "TUrl.h"
-#include "TVirtualAuth.h"
 #include "TStreamerInfo.h"
 #include "TProcessID.h"
 
+#include <limits>
 
 ULong64_t TSocket::fgBytesSent = 0;
 ULong64_t TSocket::fgBytesRecv = 0;
@@ -53,16 +54,12 @@ ULong64_t TSocket::fgBytesRecv = 0;
 // 10: added support for authenticated socket via TSocket::CreateAuthSocket(...)
 // 11: modified SSH protocol + support for server 'no authentication' mode
 // 12: add random tags to avoid reply attacks (password+token)
-// 13: authentication re-organization; cleanup in PROOF
+// 13: LEGACY: authentication re-organization; cleanup in PROOF
 // 14: support for SSH authentication via SSH tunnel
 // 15: cope with fixes in TUrl::GetFile
 // 16: add env setup message exchange
 //
 Int_t TSocket::fgClientProtocol = 17;  // increase when client protocol changes
-
-TVirtualMutex *gSocketAuthMutex = 0;
-
-ClassImp(TSocket);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a socket. Connect to the named service at address addr.
@@ -81,13 +78,10 @@ TSocket::TSocket(TInetAddress addr, const char *service, Int_t tcpwindowsize)
    R__ASSERT(gSystem);
 
    fService = service;
-   fSecContext = 0;
    fRemoteProtocol= -1;
    fServType = kSOCKD;
    if (fService.Contains("root"))
       fServType = kROOTD;
-   if (fService.Contains("proof"))
-      fServType = kPROOFD;
    fAddress = addr;
    fAddress.fPort = gSystem->GetServiceByName(service);
    fBytesSent = 0;
@@ -126,13 +120,10 @@ TSocket::TSocket(TInetAddress addr, Int_t port, Int_t tcpwindowsize)
    R__ASSERT(gSystem);
 
    fService = gSystem->GetServiceByPort(port);
-   fSecContext = 0;
    fRemoteProtocol= -1;
    fServType = kSOCKD;
    if (fService.Contains("root"))
       fServType = kROOTD;
-   if (fService.Contains("proof"))
-      fServType = kPROOFD;
    fAddress = addr;
    fAddress.fPort = port;
    SetTitle(fService);
@@ -169,13 +160,10 @@ TSocket::TSocket(const char *host, const char *service, Int_t tcpwindowsize)
    R__ASSERT(gSystem);
 
    fService = service;
-   fSecContext = 0;
    fRemoteProtocol= -1;
    fServType = kSOCKD;
    if (fService.Contains("root"))
       fServType = kROOTD;
-   if (fService.Contains("proof"))
-      fServType = kPROOFD;
    fAddress = gSystem->GetHostByName(host);
    fAddress.fPort = gSystem->GetServiceByName(service);
    SetName(fAddress.GetHostName());
@@ -196,9 +184,17 @@ TSocket::TSocket(const char *host, const char *service, Int_t tcpwindowsize)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Create a socket; see CreateAuthSocket for the form of url.
+/// Create a socket. The url parameter has the form
+///
+///     [sockd://]host[:port][/service]
+///
+/// where
+///       [port] = is the remote port number
+///    [service] = service name used to determine the port
+///                (for backward compatibility, specification of
+///                 port as priority)
+///
 /// Connect to the specified port # on the remote host.
-/// If user is specified in url, try authentication as user.
 /// Use tcpwindowsize to specify the size of the receive buffer, it has
 /// to be specified here to make sure the window scale option is set (for
 /// tcpwindowsize > 65KB and for platforms supporting window scaling).
@@ -217,13 +213,10 @@ TSocket::TSocket(const char *url, Int_t port, Int_t tcpwindowsize)
    TString host(TUrl(fUrl).GetHost());
 
    fService = gSystem->GetServiceByPort(port);
-   fSecContext = 0;
    fRemoteProtocol= -1;
    fServType = kSOCKD;
    if (fUrl.Contains("root"))
       fServType = kROOTD;
-   if (fUrl.Contains("proof"))
-      fServType = kPROOFD;
    fAddress = gSystem->GetHostByName(host);
    fAddress.fPort = port;
    SetName(fAddress.GetHostName());
@@ -259,7 +252,6 @@ TSocket::TSocket(const char *sockpath) : TNamed(sockpath, ""),
    fUrl = sockpath;
 
    fService = "unix";
-   fSecContext = 0;
    fRemoteProtocol= -1;
    fServType = kSOCKD;
    fAddress.fPort = -1;
@@ -287,7 +279,6 @@ TSocket::TSocket(Int_t desc) : TNamed("", ""), fCompress(ROOT::RCompressionSetti
    R__ASSERT(gROOT);
    R__ASSERT(gSystem);
 
-   fSecContext     = 0;
    fRemoteProtocol = 0;
    fService        = (char *)kSOCKD;
    fServType       = kSOCKD;
@@ -320,7 +311,6 @@ TSocket::TSocket(Int_t desc, const char *sockpath) : TNamed(sockpath, ""),
    fUrl = sockpath;
 
    fService = "unix";
-   fSecContext = 0;
    fRemoteProtocol= -1;
    fServType = kSOCKD;
    fAddress.fPort = -1;
@@ -353,7 +343,6 @@ TSocket::TSocket(const TSocket &s) : TNamed(s)
    fBytesSent      = s.fBytesSent;
    fBytesRecv      = s.fBytesRecv;
    fCompress       = s.fCompress;
-   fSecContext     = s.fSecContext;
    fRemoteProtocol = s.fRemoteProtocol;
    fServType       = s.fServType;
    fTcpWindowSize  = s.fTcpWindowSize;
@@ -438,7 +427,7 @@ Int_t TSocket::GetLocalPort()
 /// The argument 'timeout' specifies a maximum time to wait in millisec.
 /// Default no timeout.
 /// Returns 1 if a change of status of interest has been detected within
-/// timeout; 0 in case of timeout; < 0 if an error occured.
+/// timeout; 0 in case of timeout; < 0 if an error occurred.
 
 Int_t TSocket::Select(Int_t interest, Long_t timeout)
 {
@@ -523,7 +512,7 @@ Int_t TSocket::Send(const TMessage &mess)
 {
    TSystem::ResetErrno();
 
-   if (!IsValid()) return -1;
+   if (fSocket < 0) return -1;
 
    if (mess.IsReading()) {
       Error("Send", "cannot send a message used for reading");
@@ -813,59 +802,74 @@ Int_t TSocket::Recv(Int_t &status, Int_t &kind)
 /// Returns length of message in bytes (can be 0 if other side of connection
 /// is closed) or -1 in case of error or -4 in case a non-blocking socket
 /// would block (i.e. there is nothing to be read) or -5 if pipe broken
-/// or reset by peer (EPIPE || ECONNRESET). In those case mess == 0.
+/// or reset by peer (EPIPE || ECONNRESET). In those case mess == nullptr.
 
 Int_t TSocket::Recv(TMessage *&mess)
 {
    TSystem::ResetErrno();
 
    if (!IsValid()) {
-      mess = 0;
+      mess = nullptr;
       return -1;
    }
 
-oncemore:
-   ResetBit(TSocket::kBrokenConn);
    Int_t  n;
-   UInt_t len;
-   if ((n = gSystem->RecvRaw(fSocket, &len, sizeof(UInt_t), 0)) <= 0) {
-      if (n == 0 || n == -5) {
-         // Connection closed, reset or broken
-         MarkBrokenConnection();
+   while (1) {
+      ResetBit(TSocket::kBrokenConn);
+      UInt_t len;
+      if ((n = gSystem->RecvRaw(fSocket, &len, sizeof(UInt_t), 0)) <= 0) {
+         if (n == 0 || n == -5) {
+            // Connection closed, reset or broken
+            MarkBrokenConnection();
+         }
+         mess = nullptr;
+         return n;
       }
-      mess = 0;
-      return n;
-   }
-   len = net2host(len);  //from network to host byte order
+      len = net2host(len);  //from network to host byte order
 
-   ResetBit(TSocket::kBrokenConn);
-   char *buf = new char[len+sizeof(UInt_t)];
-   if ((n = gSystem->RecvRaw(fSocket, buf+sizeof(UInt_t), len, 0)) <= 0) {
-      if (n == 0 || n == -5) {
-         // Connection closed, reset or broken
-         MarkBrokenConnection();
+      if (len > (std::numeric_limits<decltype(len)>::max() - sizeof(decltype(len)))) {
+         Error("Recv", "Buffer length is %u and %u+sizeof(UInt_t) cannot be represented as an UInt_t.", len, len);
+         return -1;
       }
-      delete [] buf;
-      mess = 0;
-      return n;
+
+      ResetBit(TSocket::kBrokenConn);
+      char *buf = new char[len+sizeof(UInt_t)];
+      if ((n = gSystem->RecvRaw(fSocket, buf+sizeof(UInt_t), len, 0)) <= 0) {
+         if (n == 0 || n == -5) {
+            // Connection closed, reset or broken
+            MarkBrokenConnection();
+         }
+         delete [] buf;
+         mess = nullptr;
+         return n;
+      }
+
+      fBytesRecv  += n + sizeof(UInt_t);
+      fgBytesRecv += n + sizeof(UInt_t);
+
+      // `buf` becomes owned by the TMessage.
+      mess = new TMessage(buf, len+sizeof(UInt_t));
+
+      // receive any streamer infos
+      bool streamerInfoReceived = RecvStreamerInfos(mess);
+      if (streamerInfoReceived) {
+         // do another loop. No need to delete `mess` because RecvStreamerInfos already did it.
+         continue;
+      }
+
+      // receive any process ids
+      bool processIdReceived = RecvProcessIDs(mess);
+      if (processIdReceived) {
+         // do another loop. No need to delete `mess` because RecvProcessIDs already did it.
+         continue;
+      }
+
+      break;
    }
-
-   fBytesRecv  += n + sizeof(UInt_t);
-   fgBytesRecv += n + sizeof(UInt_t);
-
-   mess = new TMessage(buf, len+sizeof(UInt_t));
-
-   // receive any streamer infos
-   if (RecvStreamerInfos(mess))
-      goto oncemore;
-
-   // receive any process ids
-   if (RecvProcessIDs(mess))
-      goto oncemore;
 
    if (mess->What() & kMESS_ACK) {
       ResetBit(TSocket::kBrokenConn);
-      char ok[2] = { 'o', 'k' };
+      const char ok[2] = { 'o', 'k' };
       Int_t n2 = 0;
       if ((n2 = gSystem->SendRaw(fSocket, ok, sizeof(ok), 0)) < 0) {
          if (n2 == -5) {
@@ -873,7 +877,7 @@ oncemore:
             MarkBrokenConnection();
          }
          delete mess;
-         mess = 0;
+         mess = nullptr;
          return n2;
       }
       mess->SetWhat(mess->What() & ~kMESS_ACK);
@@ -1098,369 +1102,6 @@ void TSocket::SetCompressionLevel(Int_t level)
 void TSocket::SetCompressionSettings(Int_t settings)
 {
    fCompress = settings;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Authenticated the socket with specified user.
-
-Bool_t TSocket::Authenticate(const char *user)
-{
-   Bool_t rc = kFALSE;
-
-   // Parse protocol name, for PROOF, send message with server role
-   TString sproto = TUrl(fUrl).GetProtocol();
-   if (sproto.Contains("sockd")) {
-      fServType = kSOCKD;
-   } else if (sproto.Contains("rootd")) {
-      fServType = kROOTD;
-   } else if (sproto.Contains("proofd")) {
-      fServType = kPROOFD;
-      // Parse options
-      TString opt(TUrl(fUrl).GetOptions());
-      //First letter in Opt describes type of proofserv to invoke
-      if (!strncasecmp(opt, "S", 1)) {
-         if (Send("slave") < 0) return rc;
-      } else if (!strncasecmp(opt, "M", 1)) {
-         if (Send("master") < 0) return rc;
-      } else {
-         Warning("Authenticate",
-                 "called by TSlave: unknown option '%c' %s",
-                 opt[0], " - assuming Slave");
-         if (Send("slave") < 0) return rc;
-      }
-   }
-   if (gDebug > 2)
-      Info("Authenticate","Local protocol: %s",sproto.Data());
-
-   // Get server protocol level
-   Int_t kind = kROOTD_PROTOCOL;
-   // Warning: for backward compatibility reasons here we have to
-   // send exactly 4 bytes: for fgClientClientProtocol > 99
-   // the space in the format must be dropped
-   if (fRemoteProtocol == -1) {
-      if (Send(Form(" %d", fgClientProtocol), kROOTD_PROTOCOL) < 0) {
-         return rc;
-      }
-      if (Recv(fRemoteProtocol, kind) < 0) {
-         return rc;
-      }
-      //
-      // If we are talking to an old rootd server we get a fatal
-      // error here and we need to reopen the connection,
-      // communicating first the size of the parallel socket
-      if (kind == kROOTD_ERR) {
-         fRemoteProtocol = 9;
-         return kFALSE;
-      }
-   }
-
-   // Find out whether authentication is required
-   Bool_t runauth = kTRUE;
-   if (fRemoteProtocol > 1000) {
-      // Authentication not required by the remote server
-      runauth = kFALSE;
-      fRemoteProtocol %= 1000;
-   }
-
-   // If authentication is required, we need to find out which library
-   // has to be loaded (preparation for near future, 9/7/05)
-   TString host = GetInetAddress().GetHostName();
-   if (runauth) {
-
-      // Default (future)
-      TString alib = "Xrd";
-      if (fRemoteProtocol < 100) {
-         // Standard Authentication lib
-         alib = "Root";
-      }
-
-      // Load the plugin
-      TPluginHandler *h =
-         gROOT->GetPluginManager()->FindHandler("TVirtualAuth", alib);
-      if (!h || h->LoadPlugin() != 0) {
-         Error("Authenticate",
-               "could not load properly %s authentication plugin", alib.Data());
-         return rc;
-      }
-
-      // Get an instance of the interface class
-      TVirtualAuth *auth = (TVirtualAuth *)(h->ExecPlugin(0));
-      if (!auth) {
-         Error("Authenticate", "could not instantiate the interface class");
-         return rc;
-      }
-      if (gDebug > 1)
-         Info("Authenticate", "class for '%s' authentication loaded", alib.Data());
-
-      Option_t *opts = (gROOT->IsProofServ()) ? "P" : "";
-      if (!(auth->Authenticate(this, host, user, opts))) {
-         Error("Authenticate",
-               "authentication attempt failed for %s@%s", user, host.Data());
-      } else {
-         rc = kTRUE;
-      }
-   } else {
-
-      // Communicate who we are and our target user
-      UserGroup_t *u = gSystem->GetUserInfo();
-      if (u) {
-         if (Send(Form("%s %s", u->fUser.Data(), user), kROOTD_USER) < 0)
-            Warning("Authenticate", "problem sending kROOTD_USER (%s,%s)", u->fUser.Data(), user);
-         delete u;
-      } else
-         if (Send(Form("-1 %s", user), kROOTD_USER) < 0)
-            Warning("Authenticate", "problem sending kROOTD_USER (-1,%s)", user);
-
-      rc = kFALSE;
-
-      // Receive confirmation that everything went well
-      Int_t stat;
-      if (Recv(stat, kind) > 0) {
-
-         if (kind == kROOTD_ERR) {
-            if (gDebug > 0)
-               TSocket::NetError("TSocket::Authenticate", stat);
-         } else if (kind == kROOTD_AUTH) {
-
-            // Authentication was not required: create inactive
-            // security context for consistency
-            fSecContext = new TSecContext(user, host, 0, -4, 0, 0);
-            if (gDebug > 3)
-               Info("Authenticate", "no authentication required remotely");
-
-            // Set return flag;
-            rc = 1;
-         } else {
-            if (gDebug > 0)
-               Info("Authenticate", "expected message type %d, received %d",
-                    kROOTD_AUTH, kind);
-         }
-      } else {
-         if (gDebug > 0)
-            Info("Authenticate", "error receiving message");
-      }
-
-   }
-
-   return rc;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Creates a socket or a parallel socket and authenticates to the
-/// remote server.
-///
-/// url: [[proto][p][auth]://][user@]host[:port][/service][?options]
-///
-/// where  proto = "sockd", "rootd", "proofd"
-///                indicates the type of remote server;
-///                if missing "sockd" is assumed ("sockd" indicates
-///                any remote server session using TServerSocket)
-///          [p] = for parallel sockets (forced internally for
-///                rootd; ignored for proofd)
-///       [auth] = "up" or "k" to force UsrPwd or Krb5 authentication
-///       [port] = is the remote port number
-///    [service] = service name used to determine the port
-///                (for backward compatibility, specification of
-///                 port as priority)
-///     options  = "m" or "s", when proto=proofd indicates whether
-///                we are master or slave (used internally by
-///                TSlave)
-///
-/// An already opened connection can be used by passing its socket
-/// in opensock.
-///
-/// If 'err' is defined, '*err' on return from a failed call contains an error
-/// code (see NetErrors.h).
-///
-/// Example:
-///
-///   TSocket::CreateAuthSocket("pk://qwerty@machine.fq.dn:5052",3)
-///
-///   creates an authenticated parallel socket of size 3 to a sockd
-///   server running on remote machine machine.fq.dn on port 5052;
-///   authentication will attempt protocol Kerberos first.
-///
-/// NB: may hang if the remote server is not of the correct type;
-///     at present TSocket has no way to find out the type of the
-///     remote server automatically
-///
-/// Returns pointer to an authenticated socket or 0 if creation or
-/// authentication is unsuccessful.
-
-TSocket *TSocket::CreateAuthSocket(const char *url, Int_t size, Int_t tcpwindowsize,
-                                   TSocket *opensock, Int_t *err)
-{
-   R__LOCKGUARD2(gSocketAuthMutex);
-
-   // Url to be passed to chosen constructor
-   TString eurl(url);
-
-   // Parse protocol, if any
-   Bool_t parallel = kFALSE;
-   TString proto(TUrl(url).GetProtocol());
-   TString protosave = proto;
-
-   // Get rid of authentication suffix
-   TString asfx = "";
-   if (proto.EndsWith("up") || proto.EndsWith("ug")) {
-      asfx = proto;
-      asfx.Remove(0,proto.Length()-2);
-      proto.Resize(proto.Length()-2);
-   } else if (proto.EndsWith("s") || proto.EndsWith("k") ||
-              proto.EndsWith("g") || proto.EndsWith("h")) {
-      asfx = proto;
-      asfx.Remove(0,proto.Length()-1);
-      proto.Resize(proto.Length()-1);
-   }
-
-   // Find out if parallel (ignore if proofd, force if rootd)
-   if (((proto.EndsWith("p") || size > 1) &&
-               !proto.BeginsWith("proof")) ||
-         proto.BeginsWith("root") ) {
-      parallel = kTRUE;
-      if (proto.EndsWith("p"))
-         proto.Resize(proto.Length()-1);
-   }
-
-   // Force "sockd" if the rest is not recognized
-   if (!proto.BeginsWith("sock") && !proto.BeginsWith("proof") &&
-       !proto.BeginsWith("root"))
-      proto = "sockd";
-
-   // Substitute this for original proto in eurl
-   protosave += "://";
-   proto += asfx;
-   proto += "://";
-   eurl.ReplaceAll(protosave,proto);
-
-   // Create the socket now
-
-   TSocket *sock = 0;
-   if (!parallel) {
-
-      // Simple socket
-      if (opensock && opensock->IsValid())
-         sock = opensock;
-      else
-         sock = new TSocket(eurl, TUrl(url).GetPort(), tcpwindowsize);
-
-      // Authenticate now
-      if (sock && sock->IsValid()) {
-         if (!sock->Authenticate(TUrl(url).GetUser())) {
-            // Nothing to do except setting the error code (if required) and sock to NULL
-            if (err) {
-               *err = (Int_t)kErrAuthNotOK;
-               if (sock->TestBit(TSocket::kBrokenConn)) *err = (Int_t)kErrConnectionRefused;
-            }
-            sock->Close();
-            delete sock;
-            sock = 0;
-         }
-      }
-
-   } else {
-
-      // Tell TPSocket that we want authentication, which has to
-      // be done using the original socket before creation of set
-      // of parallel sockets
-      if (eurl.Contains("?"))
-         eurl.Resize(eurl.Index("?"));
-      eurl += "?A";
-
-      // Parallel socket
-      if (opensock && opensock->IsValid())
-         sock = new TPSocket(eurl, TUrl(url).GetPort(), size, opensock);
-      else
-         sock = new TPSocket(eurl, TUrl(url).GetPort(), size, tcpwindowsize);
-
-      // Cleanup if failure ...
-      if (sock && !sock->IsAuthenticated()) {
-         // Nothing to do except setting the error code (if required) and sock to NULL
-         if (err) {
-            *err = (Int_t)kErrAuthNotOK;
-            if (sock->TestBit(TSocket::kBrokenConn)) *err = (Int_t)kErrConnectionRefused;
-         }
-         if (sock->IsValid())
-            // And except when the sock is valid; this typically
-            // happens when talking to a old server, because the
-            // the parallel socket system is open before authentication
-            delete sock;
-         sock = 0;
-      }
-   }
-
-   return sock;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Creates a socket or a parallel socket and authenticates to the
-/// remote server specified in 'url' on remote 'port' as 'user'.
-///
-/// url: [[proto][p][auth]://]host[/?options]
-///
-/// where  proto = "sockd", "rootd", "proofd"
-///                indicates the type of remote server
-///                if missing "sockd" is assumed ("sockd" indicates
-///                any remote server session using TServerSocket)
-///          [p] = for parallel sockets (forced internally for
-///                rootd)
-///       [auth] = "up" or "k" to force UsrPwd or Krb5 authentication
-///    [options] = "m" or "s", when proto=proofd indicates whether
-///                we are master or slave (used internally by TSlave)
-///
-/// An already opened connection can be used by passing its socket
-/// in opensock.
-///
-/// If 'err' is defined, '*err' on return from a failed call contains an error
-/// code (see NetErrors.h).
-///
-/// Example:
-///
-///   TSocket::CreateAuthSocket("qwerty","pk://machine.fq.dn:5052",3)
-///
-///   creates an authenticated parallel socket of size 3 to a sockd
-///   server running on remote machine machine.fq.dn on port 5052;
-///   authentication will attempt protocol Kerberos first.
-///
-/// NB: may hang if the remote server is not of the correct type;
-///     at present TSocket has no way to find out the type of the
-///     remote server automatically
-///
-/// Returns pointer to an authenticated socket or 0 if creation or
-/// authentication is unsuccessful.
-
-TSocket *TSocket::CreateAuthSocket(const char *user, const char *url,
-                                   Int_t port, Int_t size, Int_t tcpwindowsize,
-                                   TSocket *opensock, Int_t *err)
-{
-   R__LOCKGUARD2(gSocketAuthMutex);
-
-   // Extended url to be passed to base call
-   TString eurl;
-
-   // Add protocol, if any
-   if (TString(TUrl(url).GetProtocol()).Length() > 0) {
-      eurl += TString(TUrl(url).GetProtocol());
-      eurl += TString("://");
-   }
-   // Add user, if any
-   if (!user || strlen(user) > 0) {
-      eurl += TString(user);
-      eurl += TString("@");
-   }
-   // Add host
-   eurl += TString(TUrl(url).GetHost());
-   // Add port
-   eurl += TString(":");
-   eurl += (port > 0 ? port : 0);
-   // Add options, if any
-   if (TString(TUrl(url).GetOptions()).Length() > 0) {
-      eurl += TString("/?");
-      eurl += TString(TUrl(url).GetOptions());
-   }
-
-   // Create the socket and return it
-   return TSocket::CreateAuthSocket(eurl,size,tcpwindowsize,opensock,err);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

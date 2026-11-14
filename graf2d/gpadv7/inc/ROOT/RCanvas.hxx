@@ -31,7 +31,7 @@ class RChangeAttrRequest : public RDrawableRequest {
    RChangeAttrRequest& operator=(const RChangeAttrRequest &) = delete;
 public:
    RChangeAttrRequest() = default; // for I/O
-   virtual ~RChangeAttrRequest() = default;
+   ~RChangeAttrRequest() override = default;
    std::unique_ptr<RDrawableReply> Process() override;
    bool NeedCanvasUpdate() const override { return fNeedUpdate; }
 };
@@ -69,6 +69,9 @@ private:
    /// indicate if Show() method was called before
    bool fShown{false}; ///<!
 
+   /// indicate if Update() method was called before
+   bool fUpdated{false}; ///<!
+
    /// Disable copy construction for now.
    RCanvas(const RCanvas &) = delete;
 
@@ -84,7 +87,7 @@ public:
    /// Create a temporary RCanvas; for long-lived ones please use Create().
    RCanvas() : RPadBase("canvas") {}
 
-   ~RCanvas() = default;
+   ~RCanvas() override = default;
 
    const RCanvas *GetCanvas() const override { return this; }
 
@@ -113,11 +116,21 @@ public:
    /// Display the canvas.
    void Show(const std::string &where = "");
 
+   /// returns true if Show() method was called
    bool IsShown() const { return fShown; }
+
+   /// clear IsShown() flag
    void ClearShown() { fShown = false; }
 
    /// Returns window name used to display canvas
    std::string GetWindowAddr() const;
+
+   /// Returns window URL which can be used for connection
+   std::string GetWindowUrl(bool remote);
+
+   Internal::RVirtualCanvasPainter *GetPainter();
+
+   std::shared_ptr<RWebWindow> GetWindow();
 
    /// Hide all canvas displays
    void Hide();
@@ -153,6 +166,12 @@ public:
    /// update drawing
    void Update(bool async = false, CanvasCallback_t callback = nullptr);
 
+   /// returns true if Update() method was called
+   bool IsUpdated() const { return fUpdated; }
+
+   /// clear IsUpdated() flag
+   void ClearUpdated() { fUpdated = false; }
+
    /// Run canvas functionality for given time (in seconds)
    void Run(double tm = 0.);
 
@@ -161,6 +180,8 @@ public:
 
    /// Provide JSON which can be used for offline display
    std::string CreateJSON();
+
+   std::string GetUID() const;
 
    /// Get the canvas's title.
    const std::string &GetTitle() const { return fTitle; }
@@ -173,6 +194,8 @@ public:
    }
 
    void ResolveSharedPtrs();
+
+   void ClearOnClose(const std::shared_ptr<void> &handle);
 
    static const std::vector<std::shared_ptr<RCanvas>> GetCanvases();
 

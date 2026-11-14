@@ -28,7 +28,7 @@
 class TGlobal : public TDictionary {
 
 private:
-   DataMemberInfo_t  *fInfo;      //!pointer to CINT data member info
+   DataMemberInfo_t  *fInfo;      ///<!pointer to CINT data member info
 
 public:
    TGlobal(DataMemberInfo_t *info = nullptr);
@@ -43,10 +43,10 @@ public:
    virtual const char *GetTypeName() const;
    virtual const char *GetFullTypeName() const;
    virtual Bool_t IsValid();
-   virtual Long_t Property() const;
+   Long_t Property() const override;
    virtual bool   Update(DataMemberInfo_t *info);
 
-   ClassDef(TGlobal,2)  //Global variable class
+   ClassDefOverride(TGlobal,2)  //Global variable class
 };
 
 // Class to map the "funcky" globals and be able to add them to the list of globals.

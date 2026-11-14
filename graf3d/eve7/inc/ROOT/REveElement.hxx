@@ -15,14 +15,16 @@
 #include <ROOT/REveTypes.hxx>
 #include <ROOT/REveVector.hxx>
 #include <ROOT/REveProjectionBases.hxx>
+#include "TString.h"
 
+#include <algorithm>
 #include <memory>
+#include <list>
+#include <ostream>
+#include <set>
+#include <string>
 
-#ifdef NLOHMANN_JSON_PROVIDES_FWD_HPP
-#include <nlohmann/json_fwd.hpp>
-#else
 #include <nlohmann/json.hpp>
-#endif
 
 class TGeoMatrix;
 
@@ -76,10 +78,10 @@ protected:
    List_t           fChildren;             //  List of children.
    TClass          *fChildClass {nullptr}; //  Class of acceptable children, others are rejected.
    REveCompound    *fCompound   {nullptr}; //  Compound this object belongs to.
-   REveElement     *fVizModel   {nullptr}; //! Element used as model from VizDB.
+   REveElement     *fVizModel   {nullptr}; ///<! Element used as model from VizDB.
    TString          fVizTag;               //  Tag used to query VizDB for model element.
 
-   Int_t            fDenyDestroy{0};          //! Deny-destroy count.
+   Int_t            fDenyDestroy{0};          ///<! Deny-destroy count.
    Bool_t           fDestroyOnZeroRefCnt{kTRUE};  //  Auto-destruct when ref-count reaches zero.
 
    Bool_t           fRnrSelf{kTRUE};                 //  Render this element.
@@ -91,11 +93,44 @@ protected:
    Char_t           fMainTransparency{0};      //  Main-transparency variable.
    Color_t          fDefaultColor{kPink};  //  Default color for sub-classes that enable it.
    Color_t         *fMainColorPtr{nullptr};//  Pointer to main-color variable.
+
    std::unique_ptr<REveTrans> fMainTrans;   //  Pointer to main transformation matrix.
 
-   void            *fUserData{nullptr};     //! Externally assigned and controlled user data.
+   void            *fUserData{nullptr};     ///<! Externally assigned and controlled user data.
 
-   std::unique_ptr<REveRenderData> fRenderData;//! Vertex / normal / triangle index information for rendering.
+   std::unique_ptr<REveRenderData> fRenderData;///<! Vertex / normal / triangle index information for rendering.
+
+public:
+   enum EBBoxState : UChar_t {
+      kBBoxInvalid,   // Not computed since the last change.
+      kBBoxNone,      // No geometry of its own.
+      kBBoxSet,       // fBBoxMin and fBBoxMax hold the box.
+      kBBoxNotInWorld // Screen-space or overlay content: not bounded, not culled.
+   };
+
+protected:
+   REveVector fBBoxMin;                 ///<! Bounding box in the element's own frame.
+   REveVector fBBoxMax;                 ///<!
+   EBBoxState fBBoxState{kBBoxInvalid}; ///<!
+
+   void BBoxInit();
+   void BBoxZero(Float_t epsilon = 0, Float_t x = 0, Float_t y = 0, Float_t z = 0);
+   void BBoxClear() { fBBoxState = kBBoxInvalid; }
+   void BBoxNotInWorld() { fBBoxState = kBBoxNotInWorld; }
+   void BBoxCheckPoint(const REveVector &v)
+   {
+      fBBoxMin.SetMin(v);
+      fBBoxMax.SetMax(v);
+   }
+   void BBoxCheckPoint(Float_t x, Float_t y, Float_t z) { BBoxCheckPoint(REveVector(x, y, z)); }
+   void BBoxCheckPoint(const Float_t *p) { BBoxCheckPoint(p[0], p[1], p[2]); }
+   /// Grow the box to hold the axis-aligned box with centre `c` and half sizes `h`.
+   void BBoxCheckBox(const REveVector &c, const REveVector &h)
+   {
+      BBoxCheckPoint(c - h);
+      BBoxCheckPoint(c + h);
+   }
+   void AssertBBoxExtents(Float_t epsilon = 0.005);
 
    virtual void PreDeleteElement();
    virtual void RemoveElementsInternal();
@@ -153,6 +188,8 @@ public:
 
    virtual void AddAunt(REveAunt *au);
    virtual void RemoveAunt(REveAunt *au);
+   /// Called by an aunt that holds this element when the aunt has changed.
+   virtual void AuntChanged(REveAunt * /*au*/) {}
    virtual void CheckReferenceCount(const std::string &from = "<unknown>");
 
    AuntList_t       &RefAunts()       { return fAunts; }
@@ -190,7 +227,7 @@ public:
 
    TClass *IsA() const;
 
-   virtual void ExportToCINT(const char *var_name); // *MENU*
+   virtual void ExportToInterpreter(const char *var_name); // *MENU*
 
    virtual Bool_t AcceptElement(REveElement *el);
 
@@ -253,9 +290,20 @@ public:
 
    virtual void SetTransMatrix(Double_t *carr);
    virtual void SetTransMatrix(const TGeoMatrix &mat);
+   Int_t        ComposeSceneTrans(REveTrans &t) const;
 
+   // clang-format off
    virtual Int_t WriteCoreJson(nlohmann::json &cj, Int_t rnr_offset);
+   virtual void  WriteTransJson(nlohmann::json &cj);
    virtual void  BuildRenderData();
+   // clang-format on
+
+   virtual void ComputeBBox();
+   EBBoxState AssertBBox();
+   void ResetBBox() { fBBoxState = kBBoxInvalid; }
+   EBBoxState GetBBoxState() const { return fBBoxState; }
+   const REveVector &GetBBoxMin() const { return fBBoxMin; }
+   const REveVector &GetBBoxMax() const { return fBBoxMax; }
 
    void* GetUserData() const   { return fUserData; }
    void  SetUserData(void* ud) { fUserData = ud;   }
@@ -286,7 +334,7 @@ protected:
    };
 
    Short_t fImpliedSelected{0};   // How many times the element is implied selected -- needed during destruction.
-   Bool_t  fPickable{0};          // Can element be selected.
+   Bool_t  fPickable{false};          // Can element be selected.
    UChar_t fCSCBits{0};           // Compound Selection Color flags.
 
 public:
@@ -297,7 +345,7 @@ public:
    virtual REveElement* GetSelectionMaster();
    void         SetSelectionMaster(REveElement *el) { fSelectionMaster = el; }
 
-   virtual void FillImpliedSelectedSet(Set_t& impSelSet);
+   virtual void FillImpliedSelectedSet(Set_t& impSelSet, const std::set<int>&);
 
    void   IncImpliedSelected() { ++fImpliedSelected; }
    void   DecImpliedSelected() { --fImpliedSelected; }
@@ -322,33 +370,52 @@ public:
 
    // Change-stamping and change bits
    //---------------------------------
+   // A change that invalidates geometry must stamp kCBObjProps, which also
+   // invalidates the bounding box. kCBCoreJson and kCBTrans send no render data.
 
+   // clang-format off
    enum EChangeBits
    {
-      kCBColorSelection =  BIT(0), // Main color or select/hilite state changed.
-      kCBTransBBox      =  BIT(1), // Transformation matrix or bounding-box changed.
-      kCBObjProps       =  BIT(2), // Object changed, requires dropping its display-lists.
-      kCBVisibility     =  BIT(3),  // Rendering of self/children changed.
-      kCBElementAdded   =  BIT(4) // Element was added to a new parent.
-      // kCBElementRemoved = BIT()  // Element was removed from a parent.
+      kCBCoreJson       =  BIT(0), // Core JSON changed (colour, name, ...); render data did not.
+      kCBTrans          =  BIT(1), // Transformation changed; cheap update, no rebuild.
+      kCBObjProps       =  BIT(2), // Full rebuild: render data and the full state, transformation included.
+      kCBFullRebuild    =  kCBObjProps,
+      kCBVisibility     =  BIT(3), // Rendering of self/children changed.
+      kCBElementAdded   =  BIT(4)  // Element was added to a new parent.
+      // kCBElementRemoved = BIT() // Element was removed from a parent.
 
       // Deletions are handled in a special way in REveManager::PreDeleteElement().
    };
+   // clang-format on
 
 protected:
-   UChar_t      fChangeBits{0};  //!
-   Char_t       fDestructing{kNone}; //!
+   UChar_t      fChangeBits{0};  ///<!
+   Char_t       fDestructing{kNone}; ///<!
+
+   static thread_local REveElement *stlMirAlpha;
+   static thread_local int          stlMirError;
+   static thread_local std::string  stlMirErrorString;
+   static void ClearMirContext();
+   static void SetMirContext(REveElement *el);
+   static void SetMirError(int error, std::string_view err_str="");
+   static void AppendMirErrorString(std::string_view err_str);
 
 public:
-   void StampColorSelection() { AddStamp(kCBColorSelection); }
-   void StampTransBBox()      { AddStamp(kCBTransBBox); }
-   void StampObjProps()       { AddStamp(kCBObjProps); }
-   void StampObjPropsPreChk() { if ( ! (fChangeBits & kCBObjProps)) AddStamp(kCBObjProps); }
+   void StampCoreJson() { AddStamp(kCBCoreJson); }
+   void StampTrans() { AddStamp(kCBTrans); }
+   void StampObjProps()
+   {
+      fBBoxState = kBBoxInvalid;
+      if (!(fChangeBits & kCBObjProps))
+         AddStamp(kCBObjProps);
+   }
    void StampVisibility()     { AddStamp(kCBVisibility); }
    void StampElementAdded()   { AddStamp(kCBElementAdded); }
    // void StampElementRemoved() { AddStamp(kCBElementRemoved); }
    virtual void AddStamp(UChar_t bits);
    virtual void ClearStamps() { fChangeBits = 0; }
+   // Default stamp for object properties -- the most common case.
+   void Stamp() { StampObjProps(); }
 
    UChar_t GetChangeBits() const { return fChangeBits; }
 
@@ -404,7 +471,7 @@ protected:
    REveElement::List_t fNieces;
 
 public:
-   virtual ~REveAuntAsList()
+   ~REveAuntAsList() override
    {
       for (auto &n : fNieces) n->RemoveAunt(this);
    }

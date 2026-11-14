@@ -4,19 +4,19 @@
 # For the licensing terms see $ROOTSYS/LICENSE.
 # For the list of contributors see $ROOTSYS/README/CREDITS.
 
-add_subdirectory(hist)             # special CMakeLists.txt
-add_subdirectory(histpainter)      # special CMakeLists.txt
+add_subdirectory(hist)
+add_subdirectory(histpainter)
 if(root7)
-   add_subdirectory(histv7)         # special CMakeLists.txt
-   add_subdirectory(histdrawv7)     # special CMakeLists.txt
+  add_subdirectory(histv7)
+  add_subdirectory(histv7util)
 endif()
 if (spectrum)
    add_subdirectory(spectrum)
-   add_subdirectory(spectrumpainter)  # special CMakeLists.txt
+   add_subdirectory(spectrumpainter)
 endif()
-if(xml)
+if(unfold)
   add_subdirectory(unfold)
 endif()
-if(CMAKE_Fortran_COMPILER)
+if(fortran AND CMAKE_Fortran_COMPILER)
   add_subdirectory(hbook)
 endif()

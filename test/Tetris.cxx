@@ -21,15 +21,15 @@
 #include <TRootCanvas.h>
 #include <TApplication.h>
 #include <TList.h>
-#include <snprintf.h>
 #include "Tetris.h"
+
+#include <cstdio>
 
 static Tetris *gTetris;                    // game manager
 
 static const UInt_t gBoxPixelSize = 20;   // size of TetrisBox in pixels
 
 
-ClassImp(Tetris);
 
 ///////////////////////////////////////////////////////////////////
 //  TetrisBox - the main brick of the game
@@ -45,7 +45,7 @@ TetrisBox::TetrisBox(Int_t x, Int_t y, UInt_t type, TPad* pad) :
    //-------  append box to pad
    SetBit(kMustCleanup);
    SetBit(kCanDelete);
-   pad->GetListOfPrimitives()->Add(this);
+   pad->Add(this);
    SetXY(x,y);
 }
 
@@ -69,7 +69,7 @@ void TetrisBox::SetY(Int_t y)
    // Set Y measured in boxes units
 
    // height in pixels of pad
-   Float_t height = (Float_t)fPad->YtoPixel(fPad->GetY1());
+   Float_t height = (Float_t)fPad->GetPadHeight();
 
    Coord_t y1 = ((Float_t)y)*gBoxPixelSize/height;
    Coord_t y2 = ((Float_t)y+1)*gBoxPixelSize/height;
@@ -795,10 +795,10 @@ InfoPad::InfoPad(const char* title, Float_t xlow, Float_t ylow, Float_t xup, Flo
    TText *text = new TText(xlow,yup,title);   // draw title of the information pad
    text->SetTextSize(0.45*(yup-ylow));
    text->SetY(yup+0.2*text->GetTextSize());
-   fMother->GetListOfPrimitives()->Add(text);
+   fMother->Add(text);
 
    text = new TText(0.5,0.5,"0");          // this text used to display fValue
-   GetListOfPrimitives()->Add(text);
+   Add(text);
 
    fValue = 0;
    Modified(kTRUE);
@@ -910,7 +910,7 @@ UpdateLevelTimer::UpdateLevelTimer(ULong_t time) : TTimer(time,kTRUE)
    // Update level timer constructor
 
    SetBit(kCanDelete);   // delete this when gTetris is deleted
-   gTetris->GetListOfPrimitives()->Add(this);
+   gTetris->Add(this);
 }
 
 Bool_t UpdateLevelTimer::Notify()

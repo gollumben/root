@@ -1,7 +1,7 @@
 /// \file
 /// \ingroup tutorial_math
 /// \notebook
-/// Example of first few Legendre Polynomials
+/// Example of first few Legendre Polynomials.
 ///
 /// Draws a graph.
 ///
@@ -15,19 +15,16 @@
 #include "TF1.h"
 #include "TCanvas.h"
 
-#include <Riostream.h>
 #include "TLegend.h"
 #include "TLegendEntry.h"
 
 #include "Math/IFunction.h"
-#include <cmath>
 #include "TSystem.h"
 
+#include <cmath>
 
 void Legendre()
 {
-   R__LOAD_LIBRARY(libMathMore);
-
    TCanvas *Canvas = new TCanvas("DistCanvas", "Legendre polynomials example", 10, 10, 750, 600);
    Canvas->SetGrid();
    TLegend *leg = new TLegend(0.5, 0.7, 0.4, 0.89);
@@ -37,7 +34,7 @@ void Legendre()
    {
          L[nu]= new TF1("L_0", "ROOT::Math::legendre([0],x)", -1, 1);
          L[nu]->SetParameters(nu, 0.0);
-         L[nu]->SetLineStyle(1);
+         L[nu]->SetLineStyle(kSolid);
          L[nu]->SetLineWidth(2);
          L[nu]->SetLineColor(nu+1);
    }
@@ -53,4 +50,3 @@ void Legendre()
 
    Canvas->cd();
 }
-

@@ -11,7 +11,7 @@
 
 /**
 \class TBufferJSON
-\ingroup IO
+\ingroup io_other
 
 Class for serializing object to and from JavaScript Object Notation (JSON) format.
 It creates such object representation, which can be directly
@@ -47,6 +47,12 @@ All STL containers by default converted into JSON Array. Vector of integers:
 ~~~
 Will produce JSON code "[1, 4, 7]".
 
+IMPORTANT: Before using any of `map` classes in I/O, one should create dictionary
+for it with the command like:
+```
+gInterpreter->GenerateDictionary("std::map<int,std::string>", "map;string")
+```
+
 There are special handling for map classes like `map` and `multimap`.
 They will create Array of pair objects with "first" and "second" as data members. Code:
 ~~~{.cpp}
@@ -63,9 +69,10 @@ Will generate json string:
 ]
 ~~~
 In special cases map container can be converted into JSON object. For that key parameter
-must be `std::string` and compact parameter should be 5.
-Like in example:
+must be `std::string` and compact parameter should be 5. Like in example:
 ~~~{.cpp}
+gInterpreter->GenerateDictionary("std::map<std::string,int>", "map;string")
+
 std::map<std::string,int> data;
 data["name1"] = 11;
 data["name2"] = 22;
@@ -95,7 +102,7 @@ class Container {
 #include <typeinfo>
 #include <string>
 #include <cstring>
-#include <locale.h>
+#include <clocale>
 #include <cmath>
 #include <memory>
 #include <cstdlib>
@@ -103,6 +110,7 @@ class Container {
 
 #include "Compression.h"
 
+#include "ESTLType.h"
 #include "TArrayI.h"
 #include "TError.h"
 #include "TBase64.h"
@@ -125,11 +133,11 @@ class Container {
 #include "TVirtualMutex.h"
 #include "TInterpreter.h"
 #include "TEmulatedCollectionProxy.h"
-#include "snprintf.h"
+
+#include <cstdio>
 
 #include <nlohmann/json.hpp>
 
-ClassImp(TBufferJSON);
 
 enum { json_TArray = 100, json_TCollection = -130, json_TString = 110, json_stdstring = 120 };
 
@@ -305,12 +313,12 @@ public:
 
 class TJSONStackObj : public TObject {
    struct StlRead {
-      Int_t fIndx{0};                   //! index of object in STL container
-      Int_t fMap{0};                    //! special iterator over STL map::key members
-      Bool_t fFirst{kTRUE};             //! is first or second element is used in the pair
-      nlohmann::json::iterator fIter;   //! iterator for std::map stored as JSON object
-      const char *fTypeTag{nullptr};    //! type tag used for std::map stored as JSON object
-      nlohmann::json fValue;            //! temporary value reading std::map as JSON
+      Int_t fIndx{0};                   ///<! index of object in STL container
+      Int_t fMap{0};                    ///<! special iterator over STL map::key members
+      Bool_t fFirst{kTRUE};             ///<! is first or second element is used in the pair
+      nlohmann::json::iterator fIter;   ///<! iterator for std::map stored as JSON object
+      const char *fTypeTag{nullptr};    ///<! type tag used for std::map stored as JSON object
+      nlohmann::json fValue;            ///<! temporary value reading std::map as JSON
       nlohmann::json *GetStlNode(nlohmann::json *prnt)
       {
          if (fMap <= 0)
@@ -340,26 +348,26 @@ class TJSONStackObj : public TObject {
    };
 
 public:
-   TStreamerInfo *fInfo{nullptr};       //!
-   TStreamerElement *fElem{nullptr};    //! element in streamer info
-   Bool_t fIsStreamerInfo{kFALSE};      //!
-   Bool_t fIsElemOwner{kFALSE};         //!
-   Bool_t fIsPostProcessed{kFALSE};     //! indicate that value is written
-   Bool_t fIsObjStarted{kFALSE};        //! indicate that object writing started, should be closed in postprocess
-   Bool_t fAccObjects{kFALSE};          //! if true, accumulate whole objects in values
-   Bool_t fBase64{kFALSE};              //! enable base64 coding when writing array
-   std::vector<std::string> fValues;    //! raw values
-   int fMemberCnt{1};                   //! count number of object members, normally _typename is first member
-   int *fMemberPtr{nullptr};            //! pointer on members counter, can be inherit from parent stack objects
-   Int_t fLevel{0};                     //! indent level
-   std::unique_ptr<TArrayIndexProducer> fIndx; //! producer of ndim indexes
-   nlohmann::json *fNode{nullptr};      //! JSON node, used for reading
-   std::unique_ptr<StlRead> fStlRead;   //! custom structure for stl container reading
-   Version_t fClVersion{0};             //! keep actual class version, workaround for ReadVersion in custom streamer
+   TStreamerInfo *fInfo{nullptr};       ///<!
+   TStreamerElement *fElem{nullptr};    ///<! element in streamer info
+   Bool_t fIsStreamerInfo{kFALSE};      ///<!
+   Bool_t fIsElemOwner{kFALSE};         ///<!
+   Bool_t fIsPostProcessed{kFALSE};     ///<! indicate that value is written
+   Bool_t fIsObjStarted{kFALSE};        ///<! indicate that object writing started, should be closed in postprocess
+   Bool_t fAccObjects{kFALSE};          ///<! if true, accumulate whole objects in values
+   Bool_t fBase64{kFALSE};              ///<! enable base64 coding when writing array
+   std::vector<std::string> fValues;    ///<! raw values
+   int fMemberCnt{1};                   ///<! count number of object members, normally _typename is first member
+   int *fMemberPtr{nullptr};            ///<! pointer on members counter, can be inherit from parent stack objects
+   Int_t fLevel{0};                     ///<! indent level
+   std::unique_ptr<TArrayIndexProducer> fIndx; ///<! producer of ndim indexes
+   nlohmann::json *fNode{nullptr};      ///<! JSON node, used for reading
+   std::unique_ptr<StlRead> fStlRead;   ///<! custom structure for stl container reading
+   Version_t fClVersion{0};             ///<! keep actual class version, workaround for ReadVersion in custom streamer
 
    TJSONStackObj() = default;
 
-   ~TJSONStackObj()
+   ~TJSONStackObj() override
    {
       if (fIsElemOwner)
          delete fElem;
@@ -516,6 +524,11 @@ TBufferJSON::~TBufferJSON()
 ///  - 1 - exclude leading and trailing zeros
 ///  - 2 - check values repetition and empty gaps
 ///
+/// Third digit of compact parameter defines typeinfo storage:
+///  - TBufferJSON::kSkipTypeInfo (100) - "_typename" will be skipped, not always can be read back
+///
+/// Fourth digit: (1 or 0) defines whether to set kStoreInfNaN (1000) - inf and nan to be stored as string
+///
 /// Maximal compression achieved when compact parameter equal to 23
 /// When member_name specified, converts only this data member
 
@@ -536,6 +549,29 @@ TString TBufferJSON::ConvertToJSON(const TObject *obj, Int_t compact, const char
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// zip JSON string and convert into base64 string
+/// to be used with JSROOT unzipJSON() function
+/// Main application - embed large JSON code into jupyter notebooks
+
+TString TBufferJSON::zipJSON(const char *json)
+{
+   std::string buf;
+
+   int srcsize = (int) strlen(json);
+
+   buf.resize(srcsize + 500);
+
+   int tgtsize = buf.length();
+
+   int nout = 0;
+
+   R__zipMultipleAlgorithm(ROOT::RCompressionSetting::ELevel::kDefaultZLIB, &srcsize, json, &tgtsize,
+                           (char *)buf.data(), &nout, ROOT::RCompressionSetting::EAlgorithm::kZLIB);
+
+   return TBase64::Encode(buf.data(), nout);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Set level of space/newline/array compression
 /// Lower digit of compact parameter define formatting rules
 ///  - kNoCompress = 0  - no any compression, human-readable form
@@ -550,6 +586,8 @@ TString TBufferJSON::ConvertToJSON(const TObject *obj, Int_t compact, const char
 ///
 /// Third digit defines usage of typeinfo
 ///  - kSkipTypeInfo = 100   - "_typename" field will be skipped, reading by ROOT or JSROOT may be impossible
+///
+/// Fourth digit (1 or 0) defines whether to set kStoreInfNaN
 
 void TBufferJSON::SetCompact(int level)
 {
@@ -567,6 +605,7 @@ void TBufferJSON::SetCompact(int level)
       fTypeNameTag.Clear();
    else if (fTypeNameTag.Length() == 0)
       fTypeNameTag = "_typename";
+   fStoreInfNaN = ((((level / 1000) % 10) * 1000) == kStoreInfNaN);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -631,12 +670,17 @@ Bool_t TBufferJSON::IsSkipClassInfo(const TClass *cl) const
 ///  - TBufferJSON::kBase64 (30) - arrays will be coded with base64 coding
 /// Third digit of compact parameter defines typeinfo storage:
 ///  - TBufferJSON::kSkipTypeInfo (100) - "_typename" will be skipped, not always can be read back
+/// Fourth digit: (1 or 0) defines whether to set kStoreInfNaN (1000) - inf and nan to be stored as string
 /// Maximal none-destructive compression can be achieved when
 /// compact parameter equal to TBufferJSON::kNoSpaces + TBufferJSON::kSameSuppression
 /// When member_name specified, converts only this data member
 
 TString TBufferJSON::ConvertToJSON(const void *obj, const TClass *cl, Int_t compact, const char *member_name)
 {
+   if (!cl) {
+      ::Error("TBufferJSON::ConvertToJSON", "Unknown class (probably missing dictionary).");
+      return TString();
+   }
    TClass *clActual = obj ? cl->GetActualClass(obj) : nullptr;
    const void *actualStart = obj;
    if (clActual && (clActual != cl)) {
@@ -717,9 +761,12 @@ TString TBufferJSON::StoreObject(const void *obj, const TClass *cl)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Converts selected data member into json
-/// Parameter ptr specifies address in memory, where data member is located
-/// compact parameter defines compactness of produced JSON (from 0 to 3)
-/// arraylen (when specified) is array length for this data member,  //[fN] case
+/// \param ptr specifies address in memory, where data member is located.
+/// \note if data member described by `member` is pointer, `ptr` should be the
+/// value of the pointer, not the address of the pointer.
+/// \param compact defines compactness of produced JSON. See
+/// TBufferJSON::SetCompact for more details
+/// \param arraylen (when specified) is array length for this data member,  //[fN] case
 
 TString TBufferJSON::ConvertToJSON(const void *ptr, TDataMember *member, Int_t compact, Int_t arraylen)
 {
@@ -765,7 +812,7 @@ Int_t TBufferJSON::ExportToFile(const char *filename, const TObject *obj, const 
       const char *objbuf = json.Data();
       Long_t objlen = json.Length();
 
-      unsigned long objcrc = R__crc32(0, NULL, 0);
+      unsigned long objcrc = R__crc32(0, nullptr, 0);
       objcrc = R__crc32(objcrc, (const unsigned char *)objbuf, objlen);
 
       // 10 bytes (ZIP header), compressed data, 8 bytes (CRC and original length)
@@ -797,6 +844,10 @@ Int_t TBufferJSON::ExportToFile(const char *filename, const TObject *obj, const 
 
       // R__memcompress fills first 6 bytes with own header, therefore just overwrite them
       unsigned long ziplen = R__memcompress(bufcur - 6, objlen + 6, (char *)objbuf, objlen);
+      if (!ziplen) {
+         free(buffer);
+         return 0;
+      }
 
       memcpy(bufcur - 6, dummy, 6);
 
@@ -845,7 +896,7 @@ Int_t TBufferJSON::ExportToFile(const char *filename, const void *obj, const TCl
       const char *objbuf = json.Data();
       Long_t objlen = json.Length();
 
-      unsigned long objcrc = R__crc32(0, NULL, 0);
+      unsigned long objcrc = R__crc32(0, nullptr, 0);
       objcrc = R__crc32(objcrc, (const unsigned char *)objbuf, objlen);
 
       // 10 bytes (ZIP header), compressed data, 8 bytes (CRC and original length)
@@ -1002,6 +1053,8 @@ void *TBufferJSON::ConvertFromJSONChecked(const char *str, const TClass *expecte
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Convert single data member to JSON structures
+/// Note; if data member described by 'member'is pointer, `ptr` should be the
+/// value of the pointer, not the address of the pointer.
 /// Returns string with converted member
 
 TString TBufferJSON::JsonWriteMember(const void *ptr, TDataMember *member, TClass *memberClass, Int_t arraylen)
@@ -1034,7 +1087,13 @@ TString TBufferJSON::JsonWriteMember(const void *ptr, TDataMember *member, TClas
       if (indx.IsArray() && (tid == kChar_t))
          shift = indx.ReduceDimension();
 
+      auto unitSize = member->GetUnitSize();
       char *ppp = (char *)ptr;
+      if (member->IsaPointer()) {
+         // UnitSize was the sizeof(void*)
+         assert(member->GetDataType());
+         unitSize = member->GetDataType()->Size();
+      }
 
       if (indx.IsArray())
          fOutBuffer.Append(indx.GetBegin());
@@ -1075,7 +1134,7 @@ TString TBufferJSON::JsonWriteMember(const void *ptr, TDataMember *member, TClas
          if (indx.IsArray())
             fOutBuffer.Append(indx.NextSeparator());
 
-         ppp += shift * member->GetUnitSize();
+         ppp += shift * unitSize;
 
       } while (!indx.IsDone());
 
@@ -1196,7 +1255,7 @@ TJSONStackObj *TBufferJSON::JsonStartObjectWrite(const TClass *obj_class, TStrea
          AppendOutput(fTypeVersionTag.Data());
          AppendOutput("\"");
          AppendOutput(fSemicolon.Data());
-         AppendOutput(Form("%d", (int)(info ? info->GetClassVersion() : obj_class->GetClassVersion())));
+         AppendOutput(TString::Format("%d", (int)(info ? info->GetClassVersion() : obj_class->GetClassVersion())));
       }
    } else {
       stack->fMemberCnt = 0; // exclude typename
@@ -1225,19 +1284,19 @@ void TBufferJSON::JsonStartElement(const TStreamerElement *elem, const TClass *b
                elem_name = "fLineStyles";
          }
       break;
-   case TClassEdit::kVector: elem_name = "fVector"; break;
-   case TClassEdit::kList: elem_name = "fList"; break;
-   case TClassEdit::kForwardlist: elem_name = "fForwardlist"; break;
-   case TClassEdit::kDeque: elem_name = "fDeque"; break;
-   case TClassEdit::kMap: elem_name = "fMap"; break;
-   case TClassEdit::kMultiMap: elem_name = "fMultiMap"; break;
-   case TClassEdit::kSet: elem_name = "fSet"; break;
-   case TClassEdit::kMultiSet: elem_name = "fMultiSet"; break;
-   case TClassEdit::kUnorderedSet: elem_name = "fUnorderedSet"; break;
-   case TClassEdit::kUnorderedMultiSet: elem_name = "fUnorderedMultiSet"; break;
-   case TClassEdit::kUnorderedMap: elem_name = "fUnorderedMap"; break;
-   case TClassEdit::kUnorderedMultiMap: elem_name = "fUnorderedMultiMap"; break;
-   case TClassEdit::kBitSet: elem_name = "fBitSet"; break;
+   case ROOT::ESTLType::kSTLvector: elem_name = "fVector"; break;
+   case ROOT::ESTLType::kSTLlist: elem_name = "fList"; break;
+   case ROOT::ESTLType::kSTLforwardlist: elem_name = "fForwardlist"; break;
+   case ROOT::ESTLType::kSTLdeque: elem_name = "fDeque"; break;
+   case ROOT::ESTLType::kSTLmap: elem_name = "fMap"; break;
+   case ROOT::ESTLType::kSTLmultimap: elem_name = "fMultiMap"; break;
+   case ROOT::ESTLType::kSTLset: elem_name = "fSet"; break;
+   case ROOT::ESTLType::kSTLmultiset: elem_name = "fMultiSet"; break;
+   case ROOT::ESTLType::kSTLunorderedset: elem_name = "fUnorderedSet"; break;
+   case ROOT::ESTLType::kSTLunorderedmultiset: elem_name = "fUnorderedMultiSet"; break;
+   case ROOT::ESTLType::kSTLunorderedmap: elem_name = "fUnorderedMap"; break;
+   case ROOT::ESTLType::kSTLunorderedmultimap: elem_name = "fUnorderedMultiMap"; break;
+   case ROOT::ESTLType::kSTLbitset: elem_name = "fBitSet"; break;
    case json_TArray: elem_name = "fArray"; break;
    case json_TString:
    case json_stdstring: elem_name = "fString"; break;
@@ -1347,13 +1406,20 @@ void TBufferJSON::JsonWriteObject(const void *obj, const TClass *cl, Bool_t chec
    } else if ((special_kind <= 0) || (special_kind > json_TArray)) {
       // FIXME: later post processing should be active for all special classes, while they all keep output in the value
       JsonDisablePostprocessing();
-   } else if ((special_kind == TClassEdit::kMap) || (special_kind == TClassEdit::kMultiMap) ||
-              (special_kind == TClassEdit::kUnorderedMap) || (special_kind == TClassEdit::kUnorderedMultiMap)) {
+   } else if ((special_kind == ROOT::ESTLType::kSTLmap) || (special_kind == ROOT::ESTLType::kSTLmultimap) ||
+              (special_kind == ROOT::ESTLType::kSTLunorderedmap) ||
+              (special_kind == ROOT::ESTLType::kSTLunorderedmultimap)) {
 
       if ((fMapAsObject && (fStack.size()==1)) || (stack && stack->fElem && strstr(stack->fElem->GetTitle(), "JSON_object")))
          map_convert = 2; // mapped into normal object
       else
          map_convert = 1;
+
+      if (!cl->HasDictionary()) {
+         Error("JsonWriteObject", "Cannot stream class %s without dictionary", cl->GetName());
+         AppendOutput(map_convert == 1 ? "[]" : "null");
+         goto post_process;
+      }
    }
 
    if (!obj) {
@@ -1367,9 +1433,9 @@ void TBufferJSON::JsonWriteObject(const void *obj, const TClass *cl, Bool_t chec
          Long64_t refid = GetObjectTag(obj);
          if (refid > 0) {
             // old-style refs, coded into string like "$ref12"
-            // AppendOutput(Form("\"$ref:%u\"", iter->second));
+            // AppendOutput(TString::Format("\"$ref:%u\"", iter->second));
             // new-style refs, coded into extra object {"$ref":12}, auto-detected by JSROOT 4.8 and higher
-            AppendOutput(Form("{\"$ref\":%u}", (unsigned)(refid - 1)));
+            AppendOutput(TString::Format("{\"$ref\":%u}", (unsigned)(refid - 1)));
             goto post_process;
          }
          MapObject(obj, cl, fJsonrCnt + 1); // +1 used
@@ -1396,7 +1462,8 @@ void TBufferJSON::JsonWriteObject(const void *obj, const TClass *cl, Bool_t chec
 
    } else {
 
-      bool base64 = ((special_kind == TClassEdit::kVector) && stack && stack->fElem && strstr(stack->fElem->GetTitle(), "JSON_base64"));
+      bool base64 = ((special_kind == ROOT::ESTLType::kSTLvector) && stack && stack->fElem &&
+                     strstr(stack->fElem->GetTitle(), "JSON_base64"));
 
       // for array, string and STL collections different handling -
       // they not recognized at the end as objects in JSON
@@ -1610,61 +1677,78 @@ void TBufferJSON::JsonWriteCollection(TCollection *col, const TClass *)
    // collection treated as JS Array
    AppendOutput("[");
 
-   bool islist = col->InheritsFrom(TList::Class());
-   TMap *map = nullptr;
-   if (col->InheritsFrom(TMap::Class()))
-      map = dynamic_cast<TMap *>(col);
+   auto map = dynamic_cast<TMap *>(col);
+   auto lst = dynamic_cast<TList *>(col);
 
    TString sopt;
-   if (islist) {
+   Bool_t first = kTRUE;
+
+   if (lst) {
+      // handle TList with extra options
       sopt.Capacity(500);
       sopt = "[";
-   }
 
-   TIter iter(col);
-   TObject *obj;
-   Bool_t first = kTRUE;
-   while ((obj = iter()) != nullptr) {
-      if (!first)
-         AppendOutput(fArraySepar.Data());
+      auto lnk = lst->FirstLink();
+      while (lnk) {
+         if (!first) {
+            AppendOutput(fArraySepar.Data());
+            sopt.Append(fArraySepar.Data());
+         }
 
-      if (map) {
+         WriteObjectAny(lnk->GetObject(), TObject::Class());
+
+         if (dynamic_cast<TObjOptLink *>(lnk)) {
+            sopt.Append("\"");
+            sopt.Append(lnk->GetAddOption());
+            sopt.Append("\"");
+         } else
+            sopt.Append("null");
+
+         lnk = lnk->Next();
+         first = kFALSE;
+      }
+   } else if (map) {
+      // handle TMap with artificial TPair object
+      TIter iter(col);
+      while (auto obj = iter()) {
+         if (!first)
+            AppendOutput(fArraySepar.Data());
+
          // fJsonrCnt++; // do not account map pair as JSON object
          AppendOutput("{", "\"$pair\"");
          AppendOutput(fSemicolon.Data());
          AppendOutput("\"TPair\"");
          AppendOutput(fArraySepar.Data(), "\"first\"");
          AppendOutput(fSemicolon.Data());
-      }
 
-      WriteObjectAny(obj, TObject::Class());
+         WriteObjectAny(obj, TObject::Class());
 
-      if (map) {
          AppendOutput(fArraySepar.Data(), "\"second\"");
          AppendOutput(fSemicolon.Data());
          WriteObjectAny(map->GetValue(obj), TObject::Class());
          AppendOutput("", "}");
+         first = kFALSE;
       }
-
-      if (islist) {
+   } else {
+      TIter iter(col);
+      while (auto obj = iter()) {
          if (!first)
-            sopt.Append(fArraySepar.Data());
-         sopt.Append("\"");
-         sopt.Append(iter.GetOption());
-         sopt.Append("\"");
-      }
+            AppendOutput(fArraySepar.Data());
 
-      first = kFALSE;
+         WriteObjectAny(obj, TObject::Class());
+         first = kFALSE;
+      }
    }
 
    AppendOutput("]");
 
-   if (islist) {
+   if (lst) {
       sopt.Append("]");
       AppendOutput(Stack()->NextMemberSeparator(), "\"opt\"");
       AppendOutput(fSemicolon.Data());
       AppendOutput(sopt.Data());
    }
+
    fValue.Clear();
 }
 
@@ -1757,8 +1841,11 @@ void TBufferJSON::JsonReadCollection(TCollection *col, const TClass *)
 
          map->Add(tobj, static_cast<TObject *>(subobj2));
       } else if (lst) {
-         std::string opt = json->at("opt").at(n).get<std::string>();
-         lst->Add(tobj, opt.c_str());
+         auto &elem = json->at("opt").at(n);
+         if (elem.is_null())
+            lst->Add(tobj);
+         else
+            lst->Add(tobj, elem.get<std::string>().c_str());
       } else {
          // generic method, all kinds of TCollection should work
          col->Add(tobj);
@@ -1836,9 +1923,14 @@ void *TBufferJSON::JsonReadObject(void *obj, const TClass *objClass, TClass **re
    }
 
    Int_t map_convert = 0;
-   if ((special_kind == TClassEdit::kMap) || (special_kind == TClassEdit::kMultiMap) ||
-       (special_kind == TClassEdit::kUnorderedMap) || (special_kind == TClassEdit::kUnorderedMultiMap)) {
+   if ((special_kind == ROOT::ESTLType::kSTLmap) || (special_kind == ROOT::ESTLType::kSTLmultimap) ||
+       (special_kind == ROOT::ESTLType::kSTLunorderedmap) || (special_kind == ROOT::ESTLType::kSTLunorderedmultimap)) {
       map_convert = json->is_object() ? 2 : 1; // check if map was written as array or as object
+
+      if (objClass && !objClass->HasDictionary()) {
+         Error("JsonReadObject", "Cannot stream class %s without dictionary", objClass->GetName());
+         return obj;
+      }
    }
 
    // from now all operations performed with sub-element,
@@ -2635,7 +2727,7 @@ Int_t TBufferJSON::ReadArray(Double_t *&d)
 /// Read static array from JSON - not used
 
 template <typename T>
-R__ALWAYS_INLINE Int_t TBufferJSON::JsonReadArray(T *value)
+Int_t TBufferJSON::JsonReadArray(T *value)
 {
    Info("ReadArray", "Not implemented");
    return value ? 1 : 0;
@@ -2749,7 +2841,7 @@ Int_t TBufferJSON::ReadStaticArray(Double_t *d)
 /// Template method to read array from the JSON
 
 template <typename T>
-R__ALWAYS_INLINE void TBufferJSON::JsonReadFastArray(T *arr, Int_t arrsize, bool asstring)
+void TBufferJSON::JsonReadFastArray(T *arr, Int_t arrsize, bool asstring)
 {
    if (!arr || (arrsize <= 0))
       return;
@@ -3031,7 +3123,7 @@ void TBufferJSON::ReadFastArray(void **start, const TClass *cl, Int_t n, Bool_t 
 }
 
 template <typename T>
-R__ALWAYS_INLINE void TBufferJSON::JsonWriteArrayCompress(const T *vname, Int_t arrsize, const char *typname)
+void TBufferJSON::JsonWriteArrayCompress(const T *vname, Int_t arrsize, const char *typname)
 {
    bool is_base64 = Stack()->fBase64 || (fArrayCompact == kBase64);
 
@@ -3252,15 +3344,21 @@ void TBufferJSON::WriteArray(const Double_t *d, Int_t n)
 /// Template method to write array of arbitrary dimensions
 /// Different methods can be used for store last array dimension -
 /// either JsonWriteArrayCompress<T>() or JsonWriteConstChar()
-
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of overflow. See https://github.com/root-project/root/issues/6734 for more details.
+///
 template <typename T>
-R__ALWAYS_INLINE void TBufferJSON::JsonWriteFastArray(const T *arr, Int_t arrsize, const char *typname,
+void TBufferJSON::JsonWriteFastArray(const T *arr, Long64_t arrsize, const char *typname,
                                                       void (TBufferJSON::*method)(const T *, Int_t, const char *))
 {
    JsonPushValue();
    if (arrsize <= 0) { /*fJsonrCnt++;*/
       fValue.Append("[]");
       return;
+   }
+   const Int_t maxElements = std::numeric_limits<Int_t>::max();
+   if (arrsize > maxElements) {
+      Fatal("JsonWriteFastArray", "Array larger than 2^31 elements cannot be stored in JSON");
+      return; // In case the user re-routes the error handler to not die when Fatal is called
    }
 
    TStreamerElement *elem = Stack()->fElem;
@@ -3291,7 +3389,7 @@ R__ALWAYS_INLINE void TBufferJSON::JsonWriteFastArray(const T *arr, Int_t arrsiz
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Bool_t to buffer
 
-void TBufferJSON::WriteFastArray(const Bool_t *b, Int_t n)
+void TBufferJSON::WriteFastArray(const Bool_t *b, Long64_t n)
 {
    JsonWriteFastArray(b, n, "Bool", &TBufferJSON::JsonWriteArrayCompress<Bool_t>);
 }
@@ -3303,11 +3401,11 @@ void TBufferJSON::WriteFastArray(const Bool_t *b, Int_t n)
 /// or some special characters, uses regular array. From array size 1000 it
 /// will be automatically converted into base64 coding
 
-void TBufferJSON::WriteFastArray(const Char_t *c, Int_t n)
+void TBufferJSON::WriteFastArray(const Char_t *c, Long64_t n)
 {
    Bool_t need_blob = false;
    Bool_t has_zero = false;
-   for (int i=0;i<n;++i) {
+   for (Long64_t i=0;i<n;++i) {
       if (!c[i]) {
          has_zero = true; // might be terminal '\0'
       } else if (has_zero || !isprint(c[i])) {
@@ -3325,7 +3423,7 @@ void TBufferJSON::WriteFastArray(const Char_t *c, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Char_t to buffer
 
-void TBufferJSON::WriteFastArrayString(const Char_t *c, Int_t n)
+void TBufferJSON::WriteFastArrayString(const Char_t *c, Long64_t n)
 {
    JsonWriteFastArray(c, n, "Int8", &TBufferJSON::JsonWriteConstChar);
 }
@@ -3333,7 +3431,7 @@ void TBufferJSON::WriteFastArrayString(const Char_t *c, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of UChar_t to buffer
 
-void TBufferJSON::WriteFastArray(const UChar_t *c, Int_t n)
+void TBufferJSON::WriteFastArray(const UChar_t *c, Long64_t n)
 {
    JsonWriteFastArray(c, n, "Uint8", &TBufferJSON::JsonWriteArrayCompress<UChar_t>);
 }
@@ -3341,7 +3439,7 @@ void TBufferJSON::WriteFastArray(const UChar_t *c, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Short_t to buffer
 
-void TBufferJSON::WriteFastArray(const Short_t *h, Int_t n)
+void TBufferJSON::WriteFastArray(const Short_t *h, Long64_t n)
 {
    JsonWriteFastArray(h, n, "Int16", &TBufferJSON::JsonWriteArrayCompress<Short_t>);
 }
@@ -3349,7 +3447,7 @@ void TBufferJSON::WriteFastArray(const Short_t *h, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of UShort_t to buffer
 
-void TBufferJSON::WriteFastArray(const UShort_t *h, Int_t n)
+void TBufferJSON::WriteFastArray(const UShort_t *h, Long64_t n)
 {
    JsonWriteFastArray(h, n, "Uint16", &TBufferJSON::JsonWriteArrayCompress<UShort_t>);
 }
@@ -3357,7 +3455,7 @@ void TBufferJSON::WriteFastArray(const UShort_t *h, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Int_t to buffer
 
-void TBufferJSON::WriteFastArray(const Int_t *i, Int_t n)
+void TBufferJSON::WriteFastArray(const Int_t *i, Long64_t n)
 {
    JsonWriteFastArray(i, n, "Int32", &TBufferJSON::JsonWriteArrayCompress<Int_t>);
 }
@@ -3365,7 +3463,7 @@ void TBufferJSON::WriteFastArray(const Int_t *i, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of UInt_t to buffer
 
-void TBufferJSON::WriteFastArray(const UInt_t *i, Int_t n)
+void TBufferJSON::WriteFastArray(const UInt_t *i, Long64_t n)
 {
    JsonWriteFastArray(i, n, "Uint32", &TBufferJSON::JsonWriteArrayCompress<UInt_t>);
 }
@@ -3373,7 +3471,7 @@ void TBufferJSON::WriteFastArray(const UInt_t *i, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Long_t to buffer
 
-void TBufferJSON::WriteFastArray(const Long_t *l, Int_t n)
+void TBufferJSON::WriteFastArray(const Long_t *l, Long64_t n)
 {
    JsonWriteFastArray(l, n, "Int64", &TBufferJSON::JsonWriteArrayCompress<Long_t>);
 }
@@ -3381,7 +3479,7 @@ void TBufferJSON::WriteFastArray(const Long_t *l, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of ULong_t to buffer
 
-void TBufferJSON::WriteFastArray(const ULong_t *l, Int_t n)
+void TBufferJSON::WriteFastArray(const ULong_t *l, Long64_t n)
 {
    JsonWriteFastArray(l, n, "Uint64", &TBufferJSON::JsonWriteArrayCompress<ULong_t>);
 }
@@ -3389,7 +3487,7 @@ void TBufferJSON::WriteFastArray(const ULong_t *l, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Long64_t to buffer
 
-void TBufferJSON::WriteFastArray(const Long64_t *l, Int_t n)
+void TBufferJSON::WriteFastArray(const Long64_t *l, Long64_t n)
 {
    JsonWriteFastArray(l, n, "Int64", &TBufferJSON::JsonWriteArrayCompress<Long64_t>);
 }
@@ -3397,7 +3495,7 @@ void TBufferJSON::WriteFastArray(const Long64_t *l, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of ULong64_t to buffer
 
-void TBufferJSON::WriteFastArray(const ULong64_t *l, Int_t n)
+void TBufferJSON::WriteFastArray(const ULong64_t *l, Long64_t n)
 {
    JsonWriteFastArray(l, n, "Uint64", &TBufferJSON::JsonWriteArrayCompress<ULong64_t>);
 }
@@ -3405,7 +3503,7 @@ void TBufferJSON::WriteFastArray(const ULong64_t *l, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Float_t to buffer
 
-void TBufferJSON::WriteFastArray(const Float_t *f, Int_t n)
+void TBufferJSON::WriteFastArray(const Float_t *f, Long64_t n)
 {
    JsonWriteFastArray(f, n, "Float32", &TBufferJSON::JsonWriteArrayCompress<Float_t>);
 }
@@ -3413,7 +3511,7 @@ void TBufferJSON::WriteFastArray(const Float_t *f, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Double_t to buffer
 
-void TBufferJSON::WriteFastArray(const Double_t *d, Int_t n)
+void TBufferJSON::WriteFastArray(const Double_t *d, Long64_t n)
 {
    JsonWriteFastArray(d, n, "Float64", &TBufferJSON::JsonWriteArrayCompress<Double_t>);
 }
@@ -3421,10 +3519,10 @@ void TBufferJSON::WriteFastArray(const Double_t *d, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Recall TBuffer function to avoid gcc warning message
 
-void TBufferJSON::WriteFastArray(void *start, const TClass *cl, Int_t n, TMemberStreamer * /* streamer */)
+void TBufferJSON::WriteFastArray(void *start, const TClass *cl, Long64_t n, TMemberStreamer * /* streamer */)
 {
    if (gDebug > 2)
-      Info("WriteFastArray", "void *start cl:%s n:%d", cl ? cl->GetName() : "---", n);
+      Info("WriteFastArray", "void *start cl:%s n:%lld", cl ? cl->GetName() : "---", n);
 
    //   if (streamer) {
    //      JsonDisablePostprocessing();
@@ -3450,7 +3548,7 @@ void TBufferJSON::WriteFastArray(void *start, const TClass *cl, Int_t n, TMember
          AppendOutput(indexes.GetBegin());
       }
 
-      for (Int_t j = 0; j < n; j++, obj += size) {
+      for (Long64_t j = 0; j < n; j++, obj += size) {
 
          if (j > 0)
             AppendOutput(indexes.NextSeparator());
@@ -3474,11 +3572,11 @@ void TBufferJSON::WriteFastArray(void *start, const TClass *cl, Int_t n, TMember
 ////////////////////////////////////////////////////////////////////////////////
 /// Recall TBuffer function to avoid gcc warning message
 
-Int_t TBufferJSON::WriteFastArray(void **start, const TClass *cl, Int_t n, Bool_t isPreAlloc,
+Int_t TBufferJSON::WriteFastArray(void **start, const TClass *cl, Long64_t n, Bool_t isPreAlloc,
                                   TMemberStreamer * /* streamer */)
 {
    if (gDebug > 2)
-      Info("WriteFastArray", "void **startp cl:%s n:%d", cl->GetName(), n);
+      Info("WriteFastArray", "void **startp cl:%s n:%lld", cl->GetName(), n);
 
    //   if (streamer) {
    //      JsonDisablePostprocessing();
@@ -3498,7 +3596,7 @@ Int_t TBufferJSON::WriteFastArray(void **start, const TClass *cl, Int_t n, Bool_
       AppendOutput(indexes.GetBegin());
    }
 
-   for (Int_t j = 0; j < n; j++) {
+   for (Long64_t j = 0; j < n; j++) {
 
       if (j > 0)
          AppendOutput(indexes.NextSeparator());
@@ -3545,7 +3643,7 @@ void TBufferJSON::StreamObject(void *obj, const TClass *cl, const TClass * /* on
 /// Template function to read basic value from JSON
 
 template <typename T>
-R__ALWAYS_INLINE void TBufferJSON::JsonReadBasic(T &value)
+void TBufferJSON::JsonReadBasic(T &value)
 {
    value = Stack()->GetStlNode()->get<T>();
 }
@@ -3653,7 +3751,21 @@ void TBufferJSON::ReadFloat(Float_t &val)
    if (json->is_null())
       val = std::numeric_limits<Float_t>::quiet_NaN();
    else
-      val = json->get<Float_t>();
+      try {
+         val = json->get<Float_t>();
+      } catch (nlohmann::detail::type_error &e) {
+         auto aux = json->get<std::string>();
+         if (aux == "nanf") {
+            val = std::numeric_limits<Float_t>::quiet_NaN();
+         } else if (aux == "inff") {
+            val = std::numeric_limits<Float_t>::infinity();
+         } else if (aux == "-inff") {
+            val = -std::numeric_limits<Float_t>::infinity();
+         } else {
+            Error("ReadFloat", "%s '%s'", e.what(), aux.c_str());
+            val = std::numeric_limits<Float_t>::quiet_NaN();
+         }
+      }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3665,7 +3777,21 @@ void TBufferJSON::ReadDouble(Double_t &val)
    if (json->is_null())
       val = std::numeric_limits<Double_t>::quiet_NaN();
    else
-      val = json->get<Double_t>();
+      try {
+         val = json->get<Double_t>();
+      } catch (nlohmann::detail::type_error &e) {
+         auto aux = json->get<std::string>();
+         if (aux == "nan") {
+            val = std::numeric_limits<Double_t>::quiet_NaN();
+         } else if (aux == "inf") {
+            val = std::numeric_limits<Double_t>::infinity();
+         } else if (aux == "-inf") {
+            val = -std::numeric_limits<Double_t>::infinity();
+         } else {
+            Error("ReadDouble", "%s '%s'", e.what(), aux.c_str());
+            val = std::numeric_limits<Double_t>::quiet_NaN();
+         }
+      }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3929,9 +4055,15 @@ void TBufferJSON::JsonWriteBasic(Long64_t value)
 void TBufferJSON::JsonWriteBasic(Float_t value)
 {
    if (std::isinf(value)) {
-      fValue.Append((value < 0.) ? "-2e308" : "2e308"); // Number.MAX_VALUE is approx 1.79e308
+      if (!fStoreInfNaN)
+         fValue.Append((value < 0.) ? "-2e308" : "2e308"); // JavaScript Number.MAX_VALUE is approx 1.79e308
+      else
+         fValue.Append((value < 0.) ? "\"-inff\"" : "\"inff\"");
    } else if (std::isnan(value)) {
-      fValue.Append("null");
+      if (!fStoreInfNaN)
+         fValue.Append("null");
+      else
+         fValue.Append("\"nanf\"");
    } else {
       char buf[200];
       ConvertFloat(value, buf, sizeof(buf));
@@ -3945,9 +4077,15 @@ void TBufferJSON::JsonWriteBasic(Float_t value)
 void TBufferJSON::JsonWriteBasic(Double_t value)
 {
    if (std::isinf(value)) {
-      fValue.Append((value < 0.) ? "-2e308" : "2e308"); // Number.MAX_VALUE is approx 1.79e308
+      if (!fStoreInfNaN)
+         fValue.Append((value < 0.) ? "-2e308" : "2e308"); // JavaScript Number.MAX_VALUE is approx 1.79e308
+      else
+         fValue.Append((value < 0.) ? "\"-inf\"" : "\"inf\"");
    } else if (std::isnan(value)) {
-      fValue.Append("null");
+      if (!fStoreInfNaN)
+         fValue.Append("null");
+      else
+         fValue.Append("\"nan\"");
    } else {
       char buf[200];
       ConvertDouble(value, buf, sizeof(buf));

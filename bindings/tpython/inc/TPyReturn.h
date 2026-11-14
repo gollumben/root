@@ -12,14 +12,6 @@
 #ifndef ROOT_TPyReturn
 #define ROOT_TPyReturn
 
-//////////////////////////////////////////////////////////////////////////////
-//                                                                          //
-// TPyReturn                                                                //
-//                                                                          //
-// Morphing return type from evaluating python expressions.                 //
-//                                                                          //
-//////////////////////////////////////////////////////////////////////////////
-
 // ROOT
 #include "Rtypes.h"
 
@@ -27,6 +19,7 @@
 struct _object;
 typedef _object PyObject;
 
+/// Morphing return type from evaluating python expressions. 
 class TPyReturn {
 public:
    TPyReturn();
@@ -66,7 +59,7 @@ public:
    ClassDef(TPyReturn, 1) // Python morphing return object
 
 private:
-   PyObject *fPyObject; //! actual python object
+   PyObject *fPyObject; ///<! actual python object
 };
 
 #endif

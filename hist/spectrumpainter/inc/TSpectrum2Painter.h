@@ -31,7 +31,7 @@ class TSpectrum2Painter: public TNamed {
 
 public:
    TSpectrum2Painter(TH2* h2, Int_t bs);
-   virtual ~TSpectrum2Painter();
+   ~TSpectrum2Painter() override;
 
    void GetAngles(Int_t &alpha,Int_t &beta,Int_t &view);
    void GetBezier(Int_t &bezier);
@@ -47,7 +47,7 @@ public:
    void GetPenAttr(Int_t &color, Int_t &style, Int_t &width);
    void GetShading(Int_t &shading,Int_t &shadow);
    void GetZScale(Int_t &scale);
-   void Paint(Option_t *option);
+   void Paint(Option_t *option) override;
    void SetAngles(Int_t alpha,Int_t beta,Int_t view);
    void SetBezier(Int_t bezier);
    void SetChanGrid(Int_t enable,Int_t color);
@@ -180,10 +180,10 @@ protected:
    //auxiliary internal variables, working place
    Double_t  fZ,fZeq,fGbezx,fGbezy,fDxspline,fDyspline,fZPresetValue;
    Int_t     fXt,fYt,fXs,fYs,fXe,fYe,fLine;
-   Short_t  *fEnvelope;                 //!
-   Short_t  *fEnvelopeContour;          //!
-   TColor   *fNewColor;                 //!
-   Int_t     fMaximumXScreenResolution; //!buffers' size
+   Short_t  *fEnvelope;                 ///<!
+   Short_t  *fEnvelopeContour;          ///<!
+   TColor   *fNewColor;                 ///<!
+   Int_t     fMaximumXScreenResolution; ///<!buffers' size
    Int_t     fNewColorIndex;
    Int_t     fBzX[4];
    Int_t     fBzY[4];
@@ -202,7 +202,7 @@ protected:
    void     Transform(Int_t it,Int_t jt,Int_t zmt);//transform function
 
 public:
-   ClassDef(TSpectrum2Painter,0)   //TSpectrum 3d graphics package
+   ClassDefOverride(TSpectrum2Painter,0)   //TSpectrum 3d graphics package
 
 private:
    TSpectrum2Painter (const TSpectrum2Painter&);

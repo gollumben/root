@@ -33,17 +33,17 @@ namespace {
       Int_t           fMaxPar;
       TString         fDefault;
    };
-   static FitterGlobals &GetGlobals() {
+   FitterGlobals &GetGlobals() {
       TTHREAD_TLS_DECL(FitterGlobals,globals);
       return globals;
    }
-   static TVirtualFitter *&GetGlobalFitter() {
+   TVirtualFitter *&GetGlobalFitter() {
       return GetGlobals().fFitter;
    }
-   static Int_t &GetGlobalMaxPar() {
+   Int_t &GetGlobalMaxPar() {
       return GetGlobals().fMaxPar;
    }
-   static TString &GetGlobalDefault() {
+   TString &GetGlobalDefault() {
       return GetGlobals().fDefault;
    }
 }
@@ -53,7 +53,6 @@ namespace {
 // Double_t        TVirtualFitter::fgErrorDef  = 1;
 //TString         TVirtualFitter::fgDefault   = "";
 
-ClassImp(TVirtualFitter);
 
 #ifdef R__COMPLETE_MEM_TERMINATION
 namespace {
@@ -79,61 +78,12 @@ TVirtualFitter::TVirtualFitter() :
    fNpoints(0),
    fPointSize(0),
    fCacheSize(0),
-   fCache(0),
-   fObjectFit(0),
-   fUserFunc(0),
-   fMethodCall(0),
-   fFCN(0)
+   fCache(nullptr),
+   fObjectFit(nullptr),
+   fUserFunc(nullptr),
+   fMethodCall(nullptr),
+   fFCN(nullptr)
 {
-}
-
-////////////////////////////////////////////////////////////////////////////////
-///copy constructor
-
-TVirtualFitter::TVirtualFitter(const TVirtualFitter& tvf) :
-  TNamed(tvf),
-  fOption(tvf.fOption),
-  fXfirst(tvf.fXfirst),
-  fXlast(tvf.fXlast),
-  fYfirst(tvf.fYfirst),
-  fYlast(tvf.fYlast),
-  fZfirst(tvf.fZfirst),
-  fZlast(tvf.fZlast),
-  fNpoints(tvf.fNpoints),
-  fPointSize(tvf.fPointSize),
-  fCacheSize(tvf.fCacheSize),
-  fCache(tvf.fCache),
-  fObjectFit(tvf.fObjectFit),
-  fUserFunc(tvf.fUserFunc),
-  fMethodCall(tvf.fMethodCall),
-  fFCN(tvf.fFCN)
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-///assignment operator
-
-TVirtualFitter& TVirtualFitter::operator=(const TVirtualFitter& tvf)
-{
-   if(this!=&tvf) {
-      TNamed::operator=(tvf);
-      fOption=tvf.fOption;
-      fXfirst=tvf.fXfirst;
-      fXlast=tvf.fXlast;
-      fYfirst=tvf.fYfirst;
-      fYlast=tvf.fYlast;
-      fZfirst=tvf.fZfirst;
-      fZlast=tvf.fZlast;
-      fNpoints=tvf.fNpoints;
-      fPointSize=tvf.fPointSize;
-      fCacheSize=tvf.fCacheSize;
-      fCache=tvf.fCache;
-      fObjectFit=tvf.fObjectFit;
-      fUserFunc=tvf.fUserFunc;
-      fMethodCall=tvf.fMethodCall;
-      fFCN=tvf.fFCN;
-   }
-   return *this;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -144,11 +94,11 @@ TVirtualFitter::~TVirtualFitter()
    delete fMethodCall;
    delete [] fCache;
    if ( GetGlobalFitter() == this ) {
-      GetGlobalFitter()    = 0;
+      GetGlobalFitter()    = nullptr;
       GetGlobalMaxPar()    = 0;
    }
-   fMethodCall = 0;
-   fFCN        = 0;
+   fMethodCall = nullptr;
+   fFCN        = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -160,7 +110,7 @@ TVirtualFitter *TVirtualFitter::Fitter(TObject *obj, Int_t maxpar)
 {
    if (GetGlobalFitter() && maxpar > GetGlobalMaxPar()) {
       delete GetGlobalFitter();
-      GetGlobalFitter() = 0;
+      GetGlobalFitter() = nullptr;
    }
 
    if (!GetGlobalFitter()) {
@@ -168,7 +118,7 @@ TVirtualFitter *TVirtualFitter::Fitter(TObject *obj, Int_t maxpar)
       if (GetGlobalDefault().Length() == 0) GetGlobalDefault() = gEnv->GetValue("Root.Fitter","Minuit");
       if ((h = gROOT->GetPluginManager()->FindHandler("TVirtualFitter",GetGlobalDefault()))) {
          if (h->LoadPlugin() == -1)
-            return 0;
+            return nullptr;
          GetGlobalFitter() = (TVirtualFitter*) h->ExecPlugin(1, maxpar);
          GetGlobalMaxPar() = maxpar;
       }
@@ -247,7 +197,7 @@ void TVirtualFitter::SetDefaultFitter(const char *name)
    ROOT::Math::MinimizerOptions::SetDefaultMinimizer(name,"");
    if (GetGlobalDefault() == name) return;
    delete GetGlobalFitter();
-   GetGlobalFitter() = 0;
+   GetGlobalFitter() = nullptr;
    GetGlobalDefault() = name;
 }
 
@@ -262,7 +212,7 @@ void TVirtualFitter::SetFitter(TVirtualFitter *fitter, Int_t maxpar)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// To set the address of the minimization objective function
-/// called by the native compiler (see function below when called by CINT)
+/// called by the native compiler (see function below when called by Cling)
 
 void TVirtualFitter::SetFCN(void (*fcn)(Int_t &, Double_t *, Double_t &f, Double_t *, Int_t))
 {

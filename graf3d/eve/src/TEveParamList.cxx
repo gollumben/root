@@ -23,7 +23,6 @@
 Collection of named parameters.
 */
 
-ClassImp(TEveParamList);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -97,7 +96,6 @@ Clicked() signal and if model is reset in the editor, its contents
 is removed. This results in a crash.
 */
 
-ClassImp(TEveParamListEditor);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -105,8 +103,8 @@ ClassImp(TEveParamListEditor);
 TEveParamListEditor::TEveParamListEditor(const TGWindow *p, Int_t width, Int_t height,
                                          UInt_t options, Pixel_t back) :
    TGedFrame(p, width, height, options | kVerticalFrame, back),
-   fM          (0),
-   fParamFrame (0)
+   fM          (nullptr),
+   fParamFrame (nullptr)
 {
    MakeTitle("TEveParamList");
 }

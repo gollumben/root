@@ -1,6 +1,5 @@
 // @(#)root/metautils:$Id$
 /// \file TClassEdit.cxx
-/// \ingroup Base
 /// \author Victor Perev
 /// \author Philippe Canal
 /// \date 04/10/2003
@@ -13,73 +12,98 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
+#include "TClassEdit.h"
+#include "TSpinLockGuard.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
 #include <cstring>
-#include "TClassEdit.h"
 #include <cctype>
-#include "Rstrstream.h"
+#include <sstream>
 #include <set>
 #include <stack>
 // for shared_ptr
 #include <memory>
-#include "ROOT/RStringView.hxx"
+#include <string_view>
 #include <algorithm>
+#include <string>
 
-using namespace std;
+using std::string, std::string_view, std::vector, std::set;
 
 namespace {
-   static TClassEdit::TInterpreterLookupHelper *gInterpreterHelper = nullptr;
+static TClassEdit::TInterpreterLookupHelper *gInterpreterHelper = nullptr;
 
-   template <typename T>
-   struct ShuttingDownSignaler : public T {
-      using T::T;
+template <typename T>
+struct ShuttingDownSignaler : public T {
+   using T::T;
 
-      ~ShuttingDownSignaler()
-      {
-         if (gInterpreterHelper)
-            gInterpreterHelper->ShuttingDownSignal();
-      }
-   };
+   ShuttingDownSignaler() = default;
+   ShuttingDownSignaler(T &&in) : T(std::move(in)) {}
+
+   ~ShuttingDownSignaler()
+   {
+      if (gInterpreterHelper)
+         gInterpreterHelper->ShuttingDownSignal();
+   }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+/// Remove the next spaces.
+void RemoveSpace(std::string_view &s)
+{
+   while (!s.empty() && s[0] == ' ')
+      s.remove_prefix(1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the length, if any, taken by std:: and any
 /// potential inline namespace (well compiler detail namespace).
 
-static size_t StdLen(const std::string_view name)
+size_t StdLen(const std::string_view name)
 {
    size_t len = 0;
-   if (name.compare(0,5,"std::")==0) {
+   if (name.compare(0, 5, "std::") == 0) {
       len = 5;
 
       // TODO: This is likely to induce unwanted autoparsing, those are reduced
       // by the caching of the result.
       if (gInterpreterHelper) {
-         for(size_t i = 5; i < name.length(); ++i) {
-            if (name[i] == '<') break;
+         for (size_t i = 5; i < name.length(); ++i) {
+            if (name[i] == '<')
+               break;
             if (name[i] == ':') {
-               bool isInlined;
-               std::string scope(name.data(),i);
-               std::string scoperesult;
+               std::string scope(name.data(), i);
+
                // We assume that we are called in already serialized code.
                // Note: should we also cache the negative answers?
                static ShuttingDownSignaler<std::set<std::string>> gInlined;
+               static std::atomic_flag spinFlag = ATOMIC_FLAG_INIT;
 
-               if (gInlined.find(scope) != gInlined.end()) {
+               bool isInlined;
+               {
+                  ROOT::Internal::TSpinLockGuard lock(spinFlag);
+                  isInlined = (gInlined.find(scope) != gInlined.end());
+               }
+
+               if (isInlined) {
                   len = i;
-                  if (i+1<name.length() && name[i+1]==':') {
+                  if (i + 1 < name.length() && name[i + 1] == ':') {
                      len += 2;
                   }
-               }
-               if (!gInterpreterHelper->ExistingTypeCheck(scope, scoperesult)
-                   && gInterpreterHelper->IsDeclaredScope(scope,isInlined)) {
-                  if (isInlined) {
-                     gInlined.insert(scope);
-                     len = i;
-                     if (i+1<name.length() && name[i+1]==':') {
-                        len += 2;
+               } else {
+                  std::string scoperesult;
+                  if (!gInterpreterHelper->ExistingTypeCheck(scope, scoperesult) &&
+                      gInterpreterHelper->IsDeclaredScope(scope, isInlined)) {
+                     if (isInlined) {
+                        {
+                           ROOT::Internal::TSpinLockGuard lock(spinFlag);
+                           gInlined.insert(scope);
+                        }
+                        len = i;
+                        if (i + 1 < name.length() && name[i + 1] == ':') {
+                           len += 2;
+                        }
                      }
                   }
                }
@@ -95,11 +119,11 @@ static size_t StdLen(const std::string_view name)
 /// Remove std:: and any potential inline namespace (well compiler detail
 /// namespace.
 
-static void RemoveStd(std::string &name, size_t pos = 0)
+void RemoveStd(std::string &name, size_t pos = 0)
 {
-   size_t len = StdLen({name.data()+pos,name.length()-pos});
+   size_t len = StdLen({name.data() + pos, name.length() - pos});
    if (len) {
-      name.erase(pos,len);
+      name.erase(pos, len);
    }
 }
 
@@ -107,13 +131,25 @@ static void RemoveStd(std::string &name, size_t pos = 0)
 /// Remove std:: and any potential inline namespace (well compiler detail
 /// namespace.
 
-static void RemoveStd(std::string_view &name)
+void RemoveStd(std::string_view &name)
 {
    size_t len = StdLen(name);
    if (len) {
       name.remove_prefix(len);
    }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+/// Remove instances of "::".
+
+void RemoveScopeResolution(std::string &name)
+{
+   if (name.length() > 2 && name[0] == ':' && name[1] == ':') {
+      name.erase(0, 2);
+   }
+}
+
+} // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -165,7 +201,7 @@ TClassEdit::TSplitType::TSplitType(const char *type2split, EModType mode) : fNam
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-///  type     : type name: vector<list<classA,allocator>,allocator>[::iterator]
+///  type     : type name: `vector<list<classA,allocator>,allocator>[::%iterator]`
 ///  result:    0          : not stl container and not declared inside an stl container.
 ///             result: code of container that the type or is the scope of the type
 
@@ -416,13 +452,13 @@ void TClassEdit::TSplitType::ShortType(std::string &answ, int mode)
 
    //   do the same for all inside
    for (int i=1;i<narg; i++) {
-      if (strchr(fElements[i].c_str(),'<')==0) {
+      if (!strchr(fElements[i].c_str(),'<')) {
+         if (mode&kResolveTypedef) {
+            fElements[i] = ResolveTypedef(fElements[i].c_str(),true);
+         }
          if (mode&kDropStd) {
             unsigned int offset = (0==strncmp("const ",fElements[i].c_str(),6)) ? 6 : 0;
             RemoveStd( fElements[i], offset );
-         }
-         if (mode&kResolveTypedef) {
-            fElements[i] = ResolveTypedef(fElements[i].c_str(),true);
          }
          continue;
       }
@@ -435,7 +471,10 @@ void TClassEdit::TSplitType::ShortType(std::string &answ, int mode)
          if (gInterpreterHelper &&
              (gInterpreterHelper->ExistingTypeCheck(fElements[i], typeresult)
               || gInterpreterHelper->GetPartiallyDesugaredNameWithScopeHandling(fElements[i], typeresult))) {
-            if (!typeresult.empty()) fElements[i] = typeresult;
+            if (!typeresult.empty() && typeresult != fElements[i]) {
+               // the interpreter helper keeps the default template arguments, so shorten again
+               fElements[i] = TClassEdit::ShortType(typeresult.c_str(), mode | TClassEdit::kKeepOuterConst);
+            }
          }
       }
    }
@@ -522,7 +561,7 @@ ROOT::ESTLType TClassEdit::STLKind(std::string_view type)
    //container names
    static const char *stls[] =
       { "any", "vector", "list", "deque", "map", "multimap", "set", "multiset", "bitset",
-         "forward_list", "unordered_set", "unordered_multiset", "unordered_map", "unordered_multimap", 0};
+         "forward_list", "unordered_set", "unordered_multiset", "unordered_map", "unordered_multimap", nullptr};
    static const size_t stllen[] =
       { 3, 6, 4, 5, 3, 8, 3, 8, 6,
          12, 13, 18, 13, 18, 0};
@@ -604,18 +643,26 @@ static size_t findNameEnd(const std::string &full, size_t pos)
 bool TClassEdit::IsDefAlloc(const char *allocname, const char *classname)
 {
    string_view a( allocname );
+   // In Windows, allocname might be 'class const std::allocator<int>',
+   // (never 'const class ...'), so we start by stripping the 'class ', if any
+   constexpr auto length = std::char_traits<char>::length;
+   constexpr static int clalloclen = length("class ");
+   if (a.compare(0,clalloclen,"class ") == 0) {
+      a.remove_prefix(clalloclen);
+   }
    RemoveStd(a);
 
    if (a=="alloc")                              return true;
    if (a=="__default_alloc_template<true,0>")   return true;
    if (a=="__malloc_alloc_template<0>")         return true;
 
-   const static int alloclen = strlen("allocator<");
+   constexpr static int alloclen = length("allocator<");
    if (a.compare(0,alloclen,"allocator<") != 0) {
       return false;
    }
    a.remove_prefix(alloclen);
 
+   RemoveSpace(a);
    RemoveStd(a);
 
    string_view k = classname;
@@ -639,7 +686,9 @@ bool TClassEdit::IsDefAlloc(const char *allocname, const char *classname)
       a.remove_prefix(k.length());
    }
 
-   if (a.compare(0,1,">")!=0 && a.compare(0,2," >")!=0) {
+   RemoveSpace(a);
+
+   if (a.compare(0, 1, ">") != 0) {
       return false;
    }
 
@@ -657,17 +706,20 @@ bool TClassEdit::IsDefAlloc(const char *allocname,
    if (IsDefAlloc(allocname,keyclassname)) return true;
 
    string_view a( allocname );
+   RemoveSpace(a);
    RemoveStd(a);
 
-   const static int alloclen = strlen("allocator<");
+   constexpr auto length = std::char_traits<char>::length;
+   constexpr static int alloclen = length("allocator<");
    if (a.compare(0,alloclen,"allocator<") != 0) {
       return false;
    }
    a.remove_prefix(alloclen);
 
+   RemoveSpace(a);
    RemoveStd(a);
 
-   const static int pairlen = strlen("pair<");
+   constexpr static int pairlen = length("pair<");
    if (a.compare(0,pairlen,"pair<") != 0) {
       return false;
    }
@@ -678,6 +730,7 @@ bool TClassEdit::IsDefAlloc(const char *allocname,
       a.remove_prefix(constlen+1);
    }
 
+   RemoveSpace(a);
    RemoveStd(a);
 
    string_view k = keyclassname;
@@ -709,14 +762,12 @@ bool TClassEdit::IsDefAlloc(const char *allocname,
       }
       a.remove_prefix(end);
    } else {
-      size_t end = k.length();
-      if ( (a[end-1] == '*') || a[end]==' ' ) {
-         size_t skipSpace = (a[end] == ' ');
-         if (a.compare(end+skipSpace,constlen,"const") == 0) {
-            end += constlen+skipSpace;
-         }
+      // Deal with a trailing const of the allocated type
+      a.remove_prefix(k.length());
+      RemoveSpace(a);
+      if (a.compare(0, constlen, "const") == 0) {
+         a.remove_prefix(constlen);
       }
-      a.remove_prefix(end);
    }
 
    if (a[0] != ',') {
@@ -746,7 +797,9 @@ bool TClassEdit::IsDefAlloc(const char *allocname,
       a.remove_prefix(v.length());
    }
 
-   if (a.compare(0,1,">")!=0 && a.compare(0,2," >")!=0) {
+   RemoveSpace(a);
+
+   if (a.compare(0, 1, ">") != 0) {
       return false;
    }
 
@@ -849,6 +902,23 @@ void TClassEdit::GetNormalizedName(std::string &norm_name, std::string_view name
       return;
    }
 
+   AtomicTypeNameHandlerRAII nameHandler(norm_name);
+   if (gInterpreterHelper) {
+      // Early check whether there is an existing type corresponding to `norm_name`
+      // It is *crucial* to run this block here, before `norm_name` gets split
+      // and reconstructed in the following lines. The reason is that we need
+      // to make string comparisons in `ExistingTypeCheck` and they will give
+      // different results if `norm_name` loses whitespaces. A notable example
+      // is when looking for registered alternate names of a custom user class
+      // present in the class dictionary.
+      std::string typeresult;
+      if (gInterpreterHelper->CheckInClassTable(norm_name, typeresult)) {
+         if (!typeresult.empty()) {
+            norm_name = typeresult;
+         }
+      }
+   }
+
    // Remove the std:: and default template argument and insert the Long64_t and change basic_string to string.
    TClassEdit::TSplitType splitname(norm_name.c_str(),(TClassEdit::EModType)(TClassEdit::kLong64 | TClassEdit::kDropStd | TClassEdit::kDropStlDefault | TClassEdit::kKeepOuterConst));
    splitname.ShortType(norm_name, TClassEdit::kDropStd | TClassEdit::kDropStlDefault | TClassEdit::kResolveTypedef | TClassEdit::kKeepOuterConst);
@@ -870,9 +940,7 @@ void TClassEdit::GetNormalizedName(std::string &norm_name, std::string_view name
    // Depending on how the user typed their code, in particular typedef
    // declarations, we may end up with an explicit '::' being
    // part of the result string.  For consistency, we must remove it.
-   if (norm_name.length()>2 && norm_name[0]==':' && norm_name[1]==':') {
-      norm_name.erase(0,2);
-   }
+   RemoveScopeResolution(norm_name);
 
    if (gInterpreterHelper) {
       // See if the expanded name itself is a typedef.
@@ -880,7 +948,16 @@ void TClassEdit::GetNormalizedName(std::string &norm_name, std::string_view name
       if (gInterpreterHelper->ExistingTypeCheck(norm_name, typeresult)
           || gInterpreterHelper->GetPartiallyDesugaredNameWithScopeHandling(norm_name, typeresult)) {
 
-         if (!typeresult.empty()) norm_name = typeresult;
+         if (!typeresult.empty()) {
+            // For STL containers, typeresult comes back with default template arguments, so a last
+            // stripping step is required
+            TClassEdit::TSplitType stripDefaultTemplateArgs(
+               typeresult.c_str(),
+               static_cast<TClassEdit::EModType>(TClassEdit::kLong64 | TClassEdit::kDropStd |
+                                                 TClassEdit::kDropStlDefault | TClassEdit::kKeepOuterConst));
+            stripDefaultTemplateArgs.ShortType(norm_name, TClassEdit::kDropStd | TClassEdit::kDropStlDefault);
+            RemoveScopeResolution(norm_name);
+         }
       }
    }
 }
@@ -890,7 +967,7 @@ void TClassEdit::GetNormalizedName(std::string &norm_name, std::string_view name
 
 string TClassEdit::GetLong64_Name(const char* original)
 {
-   if (original==0)
+   if (!original)
       return "";
    else
       return GetLong64_Name(string(original));
@@ -1024,33 +1101,29 @@ int TClassEdit::GetSplit(const char *type, vector<string>& output, int &nestedLo
 
    // We need to replace basic_string with string.
    {
-      unsigned int const_offset = (0==strncmp("const ",full.c_str(),6)) ? 6 : 0;
       bool isString = false;
       bool isStdString = false;
-      size_t std_offset = const_offset;
-      static const char* basic_string_std = "std::basic_string<char";
-      static const unsigned int basic_string_std_len = strlen(basic_string_std);
+      bool isConst = false;
+      size_t prefix_offset = 0;
 
-      if (full.compare(const_offset,basic_string_std_len,basic_string_std) == 0
-          && full.size() > basic_string_std_len) {
-         isString = true;
-         isStdString = true;
-         std_offset += 5;
-      } else if (full.compare(const_offset,basic_string_std_len-5,basic_string_std+5) == 0
-                 && full.size() > (basic_string_std_len-5)) {
-         // no std.
-         isString = true;
-      } else if (full.find("basic_string") != std::string::npos) {
-         size_t len = StdLen(full.c_str() + const_offset);
-         if (len && len != 5 && full.compare(const_offset + len, basic_string_std_len-5, basic_string_std+5) == 0) {
-            isString = true;
-            isStdString = true;
-            std_offset += len;
-         }
+      if (full.compare(prefix_offset, 6, "const ") == 0) {
+         isConst = true;
+         prefix_offset += 6;
       }
+      if (full.compare(prefix_offset, 5, "std::") == 0) {
+         prefix_offset += 5;
+         isStdString = true;
+      }
+      if (full.compare(prefix_offset, 9, "__cxx11::") == 0) {
+         prefix_offset += 9;
+      }
+      if (full.compare(prefix_offset, 17, "basic_string<char") == 0) {
+         isString = true;
+         prefix_offset += 17;
+      }
+
       if (isString) {
-         size_t offset = basic_string_std_len - 5;
-         offset += std_offset; // std_offset includs both the size of std prefix and const prefix.
+         size_t offset = prefix_offset;
          if ( full[offset] == '>' ) {
             // done.
          } else if (full[offset] == ',') {
@@ -1058,8 +1131,10 @@ int TClassEdit::GetSplit(const char *type, vector<string>& output, int &nestedLo
             if (full.compare(offset, 5, "std::") == 0) {
                offset += 5;
             }
-            static const char* char_traits_s = "char_traits<char>";
-            static const unsigned int char_traits_len = strlen(char_traits_s);
+            constexpr auto char_traits_s = "char_traits<char>";
+            // or
+            // static constexpr char const* const char_traits_s = "char_traits<char>";
+            static constexpr unsigned int char_traits_len = std::char_traits<char>::length(char_traits_s);
             if (full.compare(offset, char_traits_len, char_traits_s) == 0) {
                offset += char_traits_len;
                if ( full[offset] == '>') {
@@ -1100,7 +1175,7 @@ int TClassEdit::GetSplit(const char *type, vector<string>& output, int &nestedLo
          }
          if (isString) {
             output.push_back(string());
-            if (const_offset && (mode & kKeepOuterConst)) {
+            if (isConst && (mode & kKeepOuterConst)) {
                if (isStdString && !(mode & kDropStd)) {
                   output.push_back("const std::string");
                } else {
@@ -1144,10 +1219,10 @@ int TClassEdit::GetSplit(const char *type, vector<string>& output, int &nestedLo
       //we have 'something<'
       output.push_back(string(full,0,c - full.c_str()));
 
-      const char *cursor;
+      const char *cursor = c + 1;
       int level = 0;
       int parenthesis = 0;
-      for(cursor = c + 1; *cursor != '\0' && !(level==0 && *cursor == '>'); ++cursor) {
+      for ( ; *cursor != '\0' && !(level == 0 && parenthesis == 0 && *cursor == '>'); ++cursor) {
          if (*cursor == '(') {
             ++parenthesis;
             continue;
@@ -1214,33 +1289,39 @@ int TClassEdit::GetSplit(const char *type, vector<string>& output, int &nestedLo
 
 string TClassEdit::CleanType(const char *typeDesc, int mode, const char **tail)
 {
-   static const char* remove[] = {"class","const","volatile",0};
-   static bool isinit = false;
-   static std::vector<size_t> lengths;
-   if (!isinit) {
-      for (int k=0; remove[k]; ++k) {
-         lengths.push_back(strlen(remove[k]));
-      }
-      isinit = true;
-   }
+   constexpr static std::array<const char *, 3> remove{"class", "const", "volatile"};
+   constexpr static auto lengths = []() constexpr {
+      std::array<std::size_t, std::size(remove)> ret{};
+      for (std::size_t i = 0; i < remove.size(); i++)
+         ret[i] = std::char_traits<char>::length(remove[i]);
+      return ret;
+   }();
 
    string result;
    result.reserve(strlen(typeDesc)*2);
-   int lev=0,kbl=1;
+   int kbl=1;
+   std::vector<char> parensStack;
    const char* c;
 
    for(c=typeDesc;*c;c++) {
-      if (c[0]==' ') {
+      if (std::isspace(c[0])) {
          if (kbl)       continue;
          if (!isalnum(c[ 1]) && c[ 1] !='_')    continue;
+         if (c[0] != ' ') {
+            // Significant whitespace other than ' ' (e.g. \n in a multi-line
+            // class name from a selection XML) is replaced by a plain space.
+            result += ' ';
+            kbl = 1;
+            continue;
+         }
       }
-      if (kbl && (mode>=2 || lev==0)) { //remove "const' etc...
+      if (kbl && (mode>=2 || parensStack.empty())) { //remove "const' etc...
          int done = 0;
-         int n = (mode) ? 999 : 1;
+         size_t n = (mode) ? std::size(remove) : 1;
 
          // loop on all the keywords we want to remove
-         for (int k=0; k<n && remove[k]; k++) {
-            int rlen = lengths[k];
+         for (size_t k = 0; k < n; k++) {
+            auto rlen = lengths[k];
 
             // Do we have a match
             if (strncmp(remove[k],c,rlen)) continue;
@@ -1257,8 +1338,10 @@ string TClassEdit::CleanType(const char *typeDesc, int mode, const char **tail)
       // '@' is special character used only the artifical class name used by ROOT to implement the
       // I/O customization rules that requires caching of the input data.
 
-      if (*c == '<' || *c == '(')   lev++;
-      if (lev==0 && !isalnum(*c)) {
+      if (*c == '<' || *c == '(')
+         parensStack.push_back(*c);
+      
+      if (parensStack.empty() && !isalnum(*c)) {
          if (!strchr("*&:._$ []-@",*c)) break;
          // '.' is used as a module/namespace separator by PyROOT, see
          // TPyClassGenerator::GetClass.
@@ -1267,7 +1350,10 @@ string TClassEdit::CleanType(const char *typeDesc, int mode, const char **tail)
 
       result += c[0];
 
-      if (*c == '>' || *c == ')')    lev--;
+      if (*c == '>' && !parensStack.empty() && parensStack.back() == '<')
+         parensStack.pop_back();
+      else if (*c == ')' && !parensStack.empty() && parensStack.back() == '(')
+         parensStack.pop_back();
    }
    if(tail) *tail=c;
    return result;
@@ -1311,7 +1397,7 @@ bool TClassEdit::IsInterpreterDetail(const char *type)
    if (strncmp(type,"const ",6)==0) { offset += 6; }
    static const char *names[] = { "CallFunc_t","ClassInfo_t","BaseClassInfo_t",
       "DataMemberInfo_t","FuncTempInfo_t","MethodInfo_t","MethodArgInfo_t",
-      "TypeInfo_t","TypedefInfo_t",0};
+      "TypeInfo_t", "TypedefInfo_t", nullptr};
 
    for(int k=1;names[k];k++) {if (strcmp(type+offset,names[k])==0) return true;}
    return false;
@@ -1323,7 +1409,7 @@ bool TClassEdit::IsInterpreterDetail(const char *type)
 bool TClassEdit::IsSTLBitset(const char *classname)
 {
    size_t offset = StdLen(classname);
-   if ( strncmp(classname+offset,"bitset<",strlen("bitset<"))==0) return true;
+   if ( strncmp(classname+offset,"bitset<",std::char_traits<char>::length("bitset<"))==0) return true;
    return false;
 }
 
@@ -1389,7 +1475,7 @@ ROOT::ESTLType TClassEdit::IsSTLCont(std::string_view type)
 
 int TClassEdit::IsSTLCont(const char *type, int testAlloc)
 {
-   if (strchr(type,'<')==0) return 0;
+   if (!strchr(type,'<')) return 0;
 
    TSplitType arglist( type );
    return arglist.IsSTLCont(testAlloc);
@@ -1400,32 +1486,33 @@ int TClassEdit::IsSTLCont(const char *type, int testAlloc)
 
 bool TClassEdit::IsStdClass(const char *classname)
 {
+   constexpr auto length = std::char_traits<char>::length;
    classname += StdLen( classname );
    if ( strcmp(classname,"string")==0 ) return true;
-   if ( strncmp(classname,"bitset<",strlen("bitset<"))==0) return true;
+   if ( strncmp(classname,"bitset<",length("bitset<"))==0) return true;
    if ( IsStdPair(classname) ) return true;
    if ( strcmp(classname,"allocator")==0) return true;
-   if ( strncmp(classname,"allocator<",strlen("allocator<"))==0) return true;
-   if ( strncmp(classname,"greater<",strlen("greater<"))==0) return true;
-   if ( strncmp(classname,"less<",strlen("less<"))==0) return true;
-   if ( strncmp(classname,"equal_to<",strlen("equal_to<"))==0) return true;
-   if ( strncmp(classname,"hash<",strlen("hash<"))==0) return true;
-   if ( strncmp(classname,"auto_ptr<",strlen("auto_ptr<"))==0) return true;
+   if ( strncmp(classname,"allocator<",length("allocator<"))==0) return true;
+   if ( strncmp(classname,"greater<",length("greater<"))==0) return true;
+   if ( strncmp(classname,"less<",length("less<"))==0) return true;
+   if ( strncmp(classname,"equal_to<",length("equal_to<"))==0) return true;
+   if ( strncmp(classname,"hash<",length("hash<"))==0) return true;
+   if ( strncmp(classname,"auto_ptr<",length("auto_ptr<"))==0) return true;
 
-   if ( strncmp(classname,"vector<",strlen("vector<"))==0) return true;
-   if ( strncmp(classname,"list<",strlen("list<"))==0) return true;
-   if ( strncmp(classname,"forward_list<",strlen("forward_list<"))==0) return true;
-   if ( strncmp(classname,"deque<",strlen("deque<"))==0) return true;
-   if ( strncmp(classname,"map<",strlen("map<"))==0) return true;
-   if ( strncmp(classname,"multimap<",strlen("multimap<"))==0) return true;
-   if ( strncmp(classname,"set<",strlen("set<"))==0) return true;
-   if ( strncmp(classname,"multiset<",strlen("multiset<"))==0) return true;
-   if ( strncmp(classname,"unordered_set<",strlen("unordered_set<"))==0) return true;
-   if ( strncmp(classname,"unordered_multiset<",strlen("unordered_multiset<"))==0) return true;
-   if ( strncmp(classname,"unordered_map<",strlen("unordered_map<"))==0) return true;
-   if ( strncmp(classname,"unordered_multimap<",strlen("unordered_multimap<"))==0) return true;
-   if ( strncmp(classname,"bitset<",strlen("bitset<"))==0) return true;
-   if ( strncmp(classname,"ROOT::VecOps::RVec<",strlen("ROOT::VecOps::RVec<"))==0) return true;
+   if ( strncmp(classname,"vector<",length("vector<"))==0) return true;
+   if ( strncmp(classname,"list<",length("list<"))==0) return true;
+   if ( strncmp(classname,"forward_list<",length("forward_list<"))==0) return true;
+   if ( strncmp(classname,"deque<",length("deque<"))==0) return true;
+   if ( strncmp(classname,"map<",length("map<"))==0) return true;
+   if ( strncmp(classname,"multimap<",length("multimap<"))==0) return true;
+   if ( strncmp(classname,"set<",length("set<"))==0) return true;
+   if ( strncmp(classname,"multiset<",length("multiset<"))==0) return true;
+   if ( strncmp(classname,"unordered_set<",length("unordered_set<"))==0) return true;
+   if ( strncmp(classname,"unordered_multiset<",length("unordered_multiset<"))==0) return true;
+   if ( strncmp(classname,"unordered_map<",length("unordered_map<"))==0) return true;
+   if ( strncmp(classname,"unordered_multimap<",length("unordered_multimap<"))==0) return true;
+   if ( strncmp(classname,"bitset<",length("bitset<"))==0) return true;
+   if ( strncmp(classname,"ROOT::VecOps::RVec<",length("ROOT::VecOps::RVec<"))==0) return true;
 
    return false;
 }
@@ -1516,17 +1603,18 @@ static void ResolveTypedefImpl(const char *tname,
       }
       while (tname[cursor]==' ') ++cursor;
    }
-
-   if (tname[cursor]=='c' && (cursor+6<len)) {
-      if (strncmp(tname+cursor,"const ",6) == 0) {
-         cursor += 6;
-         if (modified) result += "const ";
-      }
+   // In Windows, we might have 'class const ...' as name,
+   // (never 'const class ...'), so skip the leading 'class ', if any
+   if (cursor < len && strncmp(tname+cursor,"class ",6) == 0) {
+      cursor += 6;
+   }
+   if (cursor < len && strncmp(tname+cursor,"const ",6) == 0) {
+      cursor += 6;
+      if (modified) result += "const ";
       constprefix = true;
-
    }
 
-   if (len > 2 && strncmp(tname+cursor,"::",2) == 0) {
+   if (len > 2 && cursor < len && strncmp(tname+cursor,"::",2) == 0) {
       cursor += 2;
    }
 
@@ -1592,7 +1680,36 @@ static void ResolveTypedefImpl(const char *tname,
             prevScope = cursor+1;
             break;
          }
+         case '(':
          case '<': {
+            // We move on in presence of function pointers, i.e. if we find '(*)' (with spaces which could be in
+            // between), for example cases like:
+            // pair<dd4hep::sim::Geant4Sensitive*,Geant4HitCollection*(*)(const std::string&,const std::string&,Geant4Sensitive*)>
+            // This honors #18842 without breaking #18833.
+            auto nStars = 0u;
+            auto next = cursor + 1;
+            for (; next != cursor && nStars < 2 && next < len; next++) {
+               if (' ' == tname[next]) {
+                  // We simply skip spaces
+                  continue;
+               } else if ('*' == tname[next]) {
+                  nStars++;
+               } else if (')' == tname[next]) {
+                  if (nStars == 1) {
+                     cursor = next;
+                  } else {
+                     break;
+                  }
+               } else {
+                  // if the token is not ' ', '*', or ')' we move on
+                  break;
+               }
+            }
+            // If we found '(*)' (with potentially spaces in between the characters)
+            // we move on with the parsing
+            if (cursor == next)
+               break;
+
             // push information on stack
             if (modified) {
                result += std::string(tname+prevScope,cursor+1-prevScope);
@@ -1623,6 +1740,11 @@ static void ResolveTypedefImpl(const char *tname,
                if (modified) result += " >";
                return;
             }
+            if ( (cursor+1)<len && tname[cursor+1] == ')') {
+               ++cursor;
+               if (modified) result += ")";
+               return;
+            }
             if ( (cursor+1) >= len) {
                return;
             }
@@ -1639,7 +1761,7 @@ static void ResolveTypedefImpl(const char *tname,
             while ((cursor+1)<len && tname[cursor+1] == ' ') ++cursor;
 
             auto next = cursor+1;
-            if (strncmp(tname+next,"const",5) == 0 && ((next+5)==len || tname[next+5] == ' ' || tname[next+5] == '*' || tname[next+5] == '&' || tname[next+5] == ',' || tname[next+5] == '>' || tname[next+5] == ']'))
+            if (next < len && strncmp(tname+next,"const",5) == 0 && ((next+5)==len || tname[next+5] == ' ' || tname[next+5] == '*' || tname[next+5] == '&' || tname[next+5] == ',' || tname[next+5] == '>' || tname[next+5] == ')' || tname[next+5] == ']'))
             {
                // A first const after the type needs to be move in the front.
                if (!modified) {
@@ -1659,7 +1781,7 @@ static void ResolveTypedefImpl(const char *tname,
                cursor += 5;
                end_of_type = cursor+1;
                prevScope = end_of_type;
-               if ((next+5)==len || tname[next+5] == ',' || tname[next+5] == '>' || tname[next+5] == '[') {
+               if ((next+5)==len || tname[next+5] == ',' || tname[next+5] == '>' || tname[next+5] == ')' || tname[next+5] == '[') {
                   break;
                }
             } else if (next!=len && tname[next] != '*' && tname[next] != '&') {
@@ -1675,8 +1797,8 @@ static void ResolveTypedefImpl(const char *tname,
             if (tname[cursor] != ' ') end_of_type = cursor;
             // check and skip const (followed by *,&, ,) ... what about followed by ':','['?
             auto next = cursor+1;
-            if (strncmp(tname+next,"const",5) == 0) {
-               if ((next+5)==len || tname[next+5] == ' ' || tname[next+5] == '*' || tname[next+5] == '&' || tname[next+5] == ',' || tname[next+5] == '>' || tname[next+5] == '[') {
+            if (next < len && strncmp(tname+next,"const",5) == 0) {
+               if ((next+5)==len || tname[next+5] == ' ' || tname[next+5] == '*' || tname[next+5] == '&' || tname[next+5] == ',' || tname[next+5] == '>' || tname[next+5] == ')' || tname[next+5] == '[') {
                   next += 5;
                }
             }
@@ -1684,8 +1806,8 @@ static void ResolveTypedefImpl(const char *tname,
                    (tname[next] == ' ' || tname[next] == '*' || tname[next] == '&')) {
                ++next;
                // check and skip const (followed by *,&, ,) ... what about followed by ':','['?
-               if (strncmp(tname+next,"const",5) == 0) {
-                  if ((next+5)==len || tname[next+5] == ' ' || tname[next+5] == '*' || tname[next+5] == '&' || tname[next+5] == ',' || tname[next+5] == '>' || tname[next+5] == '[') {
+               if (next < len && strncmp(tname+next,"const",5) == 0) {
+                  if ((next+5)==len || tname[next+5] == ' ' || tname[next+5] == '*' || tname[next+5] == '&' || tname[next+5] == ',' || tname[next+5] == '>'|| tname[next+5] == ')' || tname[next+5] == '[') {
                      next += 5;
                   }
                }
@@ -1705,13 +1827,15 @@ static void ResolveTypedefImpl(const char *tname,
             if (modified) result += ',';
             return;
          }
+         case ')':
          case '>': {
+            char c = tname[cursor];
             if (modified && prevScope) {
                result += std::string(tname+prevScope,(end_of_type == 0 ? cursor : end_of_type)-prevScope);
             }
             ResolveTypedefProcessType(tname,len,cursor,constprefix,start_of_type,end_of_type,mod_start_of_type,
                                       modified, result);
-            if (modified) result += '>';
+            if (modified) result += c;
             return;
          }
          default:
@@ -1736,7 +1860,7 @@ string TClassEdit::ResolveTypedef(const char *tname, bool /* resolveAll */)
    //    vector<MyObjTypedef> return vector<MyObj>
    //
 
-   if (tname == 0 || tname[0] == 0)
+   if (!tname || *tname == 0)
       return "";
    if (!gInterpreterHelper)
       return tname;
@@ -1895,16 +2019,18 @@ string TClassEdit::InsertStd(const char *tname)
       "vector",
       "wstring"
    };
-   static ShuttingDownSignaler<set<string>> sSetSTLtypes;
 
-   if (tname==0 || tname[0]==0) return "";
+   if (!tname || *tname == 0) return "";
 
-   if (sSetSTLtypes.empty()) {
+   auto initSetSTLtypes = []() {
+      std::set<std::string> iSetSTLtypes;
       // set up static set
       const size_t nSTLtypes = sizeof(sSTLtypes) / sizeof(const char*);
       for (size_t i = 0; i < nSTLtypes; ++i)
-         sSetSTLtypes.insert(sSTLtypes[i]);
-   }
+         iSetSTLtypes.insert(sSTLtypes[i]);
+      return iSetSTLtypes;
+   };
+   static ShuttingDownSignaler<std::set<std::string>> sSetSTLtypes{ initSetSTLtypes() };
 
    size_t b = 0;
    size_t len = strlen(tname);
@@ -1986,10 +2112,10 @@ public:
       auto argPos = std::find_if(argsBeginPlusOne, argsEnd,
            [](std::string& arg){return (!arg.empty() && arg.front() == ':');});
       if (argPos != argsEnd) {
-         const int lenght = clName.size();
+         const int length = clName.size();
          int wedgeBalance = 0;
          int lastOpenWedge = 0;
-         for (int i=lenght-1;i>-1;i--) {
+         for (int i=length-1;i>-1;i--) {
             auto& c = clName.at(i);
             if (c == '<') {
                wedgeBalance++;
@@ -2043,6 +2169,7 @@ public:
          // ROOT-9933: we remove const if present.
          TClassEdit::TSplitType tst(name.c_str());
          tst.ShortType(name, 1);
+         name += "*";
          fHasChanged = true;
          return name;
       }
@@ -2087,7 +2214,7 @@ std::string TClassEdit::GetNameForIO(const std::string& templateInstanceName,
    auto nameForIO = node.ToString();
    if (hasChanged) {
       *hasChanged = node.HasChanged();
-      }
+   }
    return nameForIO;
 }
 

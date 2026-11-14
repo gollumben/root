@@ -61,7 +61,6 @@ See base/src/TVirtualViewer3D for description of common external 3D
 viewer architecture and how external viewer clients use it.
 */
 
-ClassImp(TGLLogicalShape);
 
 Bool_t TGLLogicalShape::fgIgnoreSizeForCameraInterest = kFALSE;
 
@@ -73,9 +72,9 @@ Bool_t TGLLogicalShape::fgUseDLsForVertArrs = kTRUE;
 
 TGLLogicalShape::TGLLogicalShape() :
    fRef           (0),
-   fFirstPhysical (0),
-   fExternalObj   (0),
-   fScene         (0),
+   fFirstPhysical (nullptr),
+   fExternalObj   (nullptr),
+   fScene         (nullptr),
    fDLBase        (0),
    fDLSize        (1),
    fDLValid       (0),
@@ -90,9 +89,9 @@ TGLLogicalShape::TGLLogicalShape() :
 
 TGLLogicalShape::TGLLogicalShape(TObject* obj) :
    fRef           (0),
-   fFirstPhysical (0),
+   fFirstPhysical (nullptr),
    fExternalObj   (obj),
-   fScene         (0),
+   fScene         (nullptr),
    fDLBase        (0),
    fDLSize        (1),
    fDLValid       (0),
@@ -107,9 +106,9 @@ TGLLogicalShape::TGLLogicalShape(TObject* obj) :
 
 TGLLogicalShape::TGLLogicalShape(const TBuffer3D & buffer) :
    fRef           (0),
-   fFirstPhysical (0),
+   fFirstPhysical (nullptr),
    fExternalObj   (buffer.fID),
-   fScene         (0),
+   fScene         (nullptr),
    fDLBase        (0),
    fDLSize        (1),
    fDLValid       (0),
@@ -127,7 +126,7 @@ TGLLogicalShape::TGLLogicalShape(const TBuffer3D & buffer) :
 
    // If the logical is created without an external object reference,
    // we create a generic  here and delete it during the destruction.
-   if (fExternalObj == 0)
+   if (fExternalObj == nullptr)
    {
       fExternalObj = new TNamed("Generic object", "Internal object created for bookkeeping.");
       fOwnExtObj = kTRUE;
@@ -174,7 +173,7 @@ void TGLLogicalShape::AddRef(TGLPhysicalShape* phys) const
 
 void TGLLogicalShape::SubRef(TGLPhysicalShape* phys) const
 {
-   assert(phys != 0);
+   assert(phys != nullptr);
 
    Bool_t found = kFALSE;
    if (fFirstPhysical == phys) {
@@ -182,7 +181,7 @@ void TGLLogicalShape::SubRef(TGLPhysicalShape* phys) const
       found = kTRUE;
    } else {
       TGLPhysicalShape *shp1 = fFirstPhysical, *shp2;
-      while ((shp2 = shp1->fNextPhysical) != 0) {
+      while ((shp2 = shp1->fNextPhysical) != nullptr) {
          if (shp2 == phys) {
             shp1->fNextPhysical = shp2->fNextPhysical;
             found = kTRUE;
@@ -209,13 +208,13 @@ void TGLLogicalShape::DestroyPhysicals()
    while (curr)
    {
       next = curr->fNextPhysical;
-      curr->fLogicalShape = 0;
+      curr->fLogicalShape = nullptr;
       --fRef;
       delete curr;
       curr = next;
    }
    assert (fRef == 0);
-   fFirstPhysical = 0;
+   fFirstPhysical = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -225,12 +224,12 @@ void TGLLogicalShape::DestroyPhysicals()
 
 UInt_t TGLLogicalShape::UnrefFirstPhysical()
 {
-   if (fFirstPhysical == 0) return 0;
+   if (fFirstPhysical == nullptr) return 0;
 
    TGLPhysicalShape *phys = fFirstPhysical;
    UInt_t            phid = phys->ID();
    fFirstPhysical = phys->fNextPhysical;
-   phys->fLogicalShape = 0;
+   phys->fLogicalShape = nullptr;
    --fRef;
    return phid;
 }

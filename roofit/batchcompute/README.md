@@ -1,67 +1,81 @@
-## RooBatchCompute Library
-_Contains optimized computation functions for PDFs that enable significantly faster fittings._
-#### Note: This library is still at an experimental stage. Tests are being conducted continiously to ensure correctness of the results, but the interfaces and the instructions on how to use might change.
+# RooBatchCompute
 
-### Purpose
-While fitting, a significant amount of time and processing power is spent on computing the probability function for every event and PDF involved in the fitting model. To speed up this process, roofit can use the computation functions provided in this library. The functions provided here process whole data arrays (batches) instead of a single event at a time, as in the legacy evaluate() function in roofit. In addition, the code is written in a manner that allows for compiler optimizations, notably auto-vectorization. This library is compiled multiple times for different [vector instuction set architectures](https://en.wikipedia.org/wiki/SIMD) and the optimal code is executed during runtime, as a result of an automatic hardware detection mechanism that this library contains. **As a result, fits can benefit by a speedup of 3x-16x.**
+`libRooBatchCompute` provides the vectorized/parallelized computation kernels
+that RooFit uses to evaluate its models. The actual kernels do not live in
+`libRooBatchCompute` itself: they are compiled into one *backend* library per
+target architecture, and `libRooBatchCompute` loads the appropriate one at
+runtime with `gSystem->Load()`:
 
-### How to use
-The easiest and most efficient way of accelerating your PDFs is to request their addition to the official RooFit by submiting a ticket [here](https://github.com/root-project/root/issues/new). The ROOT team will gladly assist you and take care of the details.
+| Backend library                | Loaded by                          |
+|--------------------------------|------------------------------------|
+| `libRooBatchCompute_GENERIC`   | `RooBatchCompute::initCPU()`       |
+| `libRooBatchCompute_SSE4.1`    | `RooBatchCompute::initCPU()`       |
+| `libRooBatchCompute_AVX`       | `RooBatchCompute::initCPU()`       |
+| `libRooBatchCompute_AVX2`      | `RooBatchCompute::initCPU()`       |
+| `libRooBatchCompute_AVX512`    | `RooBatchCompute::initCPU()`       |
+| `libRooBatchCompute_CUDA`      | `RooBatchCompute::initCUDA()`      |
 
-The above process might take some time and the users will be required to update ROOT to use the newly introduced PDFs. In the meantime, you are able to significantly improve the speed of fitting (but not take full advantage of the RooBatchCompute library), at least by using the batch evaluation feature.
-To make use of it, one should override [`RooAbsReal::evaluateSpan()`](https://root.cern.ch/doc/master/classRooAbsReal.html#a1e5129ffbc63bfd04c01511fd354b1b8)
-```c++
-  RooSpan<double> RooMyPDF::evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const
+Because the backends are plugins that are looked up by name in ROOT's dynamic
+library search path, they do not have to be built together with the rest of
+ROOT. This is in particular useful for the CUDA backend: it is the only part of
+ROOT that needs the CUDA toolkit, and distributions may not want to make all of
+ROOT depend on it.
+
+## Building only the CUDA backend against an installed ROOT
+
+The `CMakeLists.txt` in this directory doubles as the top-level `CMakeLists.txt`
+of a standalone project that builds nothing but `libRooBatchCompute_CUDA`. Point
+CMake at this directory instead of at the top of the ROOT source tree:
+
+```bash
+cmake -S <root-source-dir>/roofit/batchcompute -B rbc_cuda_build \
+      -DCMAKE_PREFIX_PATH=<root-install-prefix> \
+      -DCMAKE_CUDA_ARCHITECTURES=<architectures>
+cmake --build rbc_cuda_build -j$(nproc)
+cmake --install rbc_cuda_build
 ```
-The evalData is a simple struct that holds the vector data for the fitting in the form of `RooSpan<double>`.
-The normSet (normalization set) is used for invoking the computation and retrieving the values of the variables of the PDF.
-You don't need to worry about these arguments as they will be provided by the RooFit internal functions that will call `evaluateSpan()`.
-```c++
-RooSpan<double> RooMyPDF::evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const
-{
-  // Retrieve `RooSpan`s for each parameter of the PDF
-  RooSpan<const double> span1 = var1->getValues(evalData, normSet);
-  // or: auto span1 = var1->getValues(evalData, normSet);
-  RooSpan<const double> span2 = var2->getValues(evalData, normSet);
-  
-  // let's assume c is a scalar parameter of the PDF. In this case getValues will return a RooSpan with only one value.
-  RooSpan<const double> scalar = c->getValues(evalData, normset);
 
-  // Get the number of nEvents
-  size_t nEvents=0;
-  for (auto& i:{xData,meanData,sigmaData})
-    nEvents = std::max(nEvents,i.size());
+Notes:
 
-  // Allocate the output array
-  evalData.makeBatch(this, nEvents);
-  
-  // Perform computations in a for-loop
-  // Use VDT if possible to facilitate auto-vectorization
-  for (size_t i=0; i<nEvents; ++i) {
-    output[i] = RooBatchCompute::fast_log(span1[i]+span2[i]) + scalar[0]; //scalar is a RooSpan of length 1
-  }
-  return output;
-}
-```
-Make sure to add the `evaluateSpan()` function signature in the header `RooMyPDF.h` and mark it as `override` to ensure that you have successfully overriden the method. In case the data types (scalar or vector) for the variables can not be predicted when writing the source code, you can use [BracketAdapterWithMask](https://github.com/root-project/root/blob/2b84398d4f52462a120083b3c5d1e0b952cc5221/roofit/batchcompute/inc/BracketAdapter.h#L55). This class overloads the `operator[]` and is constructed by a RooSpan. In case the RooSpan used for construction has a length of 1, ie represents a scalar variable, then `BracketAdapterWithMask::operator[]` always returns the scalar value, regrdless of the index used. This allows us to write:
+* The ROOT sources have to be the ones the installed ROOT was built from. The
+  backend and `libRooBatchCompute` share the `RooBatchComputeInterface` ABI,
+  which is not stable across ROOT versions.
+* `CMAKE_PREFIX_PATH` can be omitted if `thisroot.sh` has been sourced. Instead
+  of the installation prefix, `ROOT_DIR` can be pointed directly at the
+  directory that contains `ROOTConfig.cmake` (`<root-install-prefix>/cmake` in
+  ROOT's default install layout, but distributions often move it). Note that a
+  `ROOT_DIR` that does not exist is silently ignored by `find_package()`, which
+  then falls back to any other ROOT it can find, for instance one that is in
+  `PATH`; check the `Building libRooBatchCompute_CUDA standalone against ROOT
+  ...` line that the configuration step prints.
+* `CMAKE_CUDA_ARCHITECTURES` can be omitted, in which case CMake compiles for
+  whatever architecture the CUDA compiler defaults to, just like the regular
+  ROOT build does.
+* No build type is chosen for you. Configure with `-DCMAKE_BUILD_TYPE=Release`
+  for an optimized build like the one the ROOT build does by default, or pass
+  your own optimization flags in `CMAKE_CXX_FLAGS` and `CMAKE_CUDA_FLAGS`. If
+  neither is given, the kernels are compiled without any optimization flags and
+  the configuration step warns about it.
+* The build only needs a CUDA compiler, the ROOT headers and `libRooBatchCompute`
+  from the ROOT installation. No dictionaries are generated and no part of ROOT
+  is rebuilt.
+* By default the library is installed straight into the library directory of the
+  ROOT installation that was found (`${ROOT_LIBRARY_DIR}`), which is where
+  `RooBatchCompute::initCUDA()` will look for it. To stage it somewhere else,
+  for example when building a package, set
+  `-DRooBatchCompute_CUDA_INSTALL_LIBDIR=lib` — a relative path is interpreted
+  with respect to `CMAKE_INSTALL_PREFIX`, so the usual
+  `CMAKE_INSTALL_PREFIX`/`DESTDIR` mechanisms apply. Wherever the library ends
+  up, that directory has to be in ROOT's dynamic library search path (i.e. in
+  `$ROOTSYS/lib`, in `LD_LIBRARY_PATH`, or added to `Unix.*.Root.DynamicPath` in
+  `.rootrc`).
 
-```c++
-RooSpan<double> RooMyPDF::evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const
-{
-  // Construct BracketAdapterWithMasks for each variable if we're not sure whether they are scalar of vectors.
-  BracketAdapterWithMask adapter1(var1->getValues(evalData, normSet));
-  BracketAdapterWithMask adapter2(var2->getValues(evalData, normSet));
-  BracketAdapterWithMask scalar(c->getValues(evalData, normSet));
- 
-  // prepare the computations as above
-  ...
-  
-  // by calling adapter[i] we either get the i-th or 0-th element, if the variable is a vector or a scalar respectively.
-  for (size_t i=0; i<nEvents; ++i) {
-    output[i] = RooBatchCompute::fast_log(adapter1[i]+adapter2[i]) + scalar[i]; 
-  }
-  return output;
-}
-  ```
-  
-  As a final note, always remember to append `RooBatchCompute::` to the classes defined in the RooBatchCompute library, or write `using namespace RooBatchCompute`.
+The ROOT installation itself does not need to know anything about the CUDA
+backend: it is enough that `libRooBatchCompute_CUDA` is findable. RooFit only
+attempts to load it when a computation is requested on the CUDA backend, so a
+ROOT installation without the library keeps working as before.
+
+## Building everything at once
+
+Nothing changes for the regular ROOT build: configuring ROOT with `-Dcuda=ON`
+builds `libRooBatchCompute_CUDA` alongside the CPU backends, exactly as before.

@@ -16,7 +16,6 @@
 #include "TPolyLine.h"
 #include "TList.h"
 #include "TVirtualPad.h"
-#include "TVirtualX.h"
 #include "TPoint.h"
 #include "TFrame.h"
 #include "TCanvas.h"
@@ -24,7 +23,6 @@
 
 #include <iostream>
 
-ClassImp(TParallelCoordRange);
 
 /** \class TParallelCoordRange
 A TParallelCoordRange is a range used for parallel coordinates plots.
@@ -38,10 +36,10 @@ TParallelCoordRange::TParallelCoordRange()
 {
    fMin = 0;
    fMax = 0;
-   fVar = NULL;
-   fSelect = NULL;
-   SetBit(kShowOnPad,kTRUE);
-   SetBit(kLiveUpdate,kFALSE);
+   fVar = nullptr;
+   fSelect = nullptr;
+   SetBit(kShowOnPad,true);
+   SetBit(kLiveUpdate,false);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -65,7 +63,7 @@ TParallelCoordRange::TParallelCoordRange(TParallelCoordVar *var, Double_t min, D
    fMax = max;
 
    fVar = var;
-   fSelect = NULL;
+   fSelect = nullptr;
 
    if (!sel) {
       TParallelCoordSelect* s = var->GetParallel()->GetCurrentSelection();
@@ -77,7 +75,7 @@ TParallelCoordRange::TParallelCoordRange(TParallelCoordVar *var, Double_t min, D
 
    SetLineColor(fSelect->GetLineColor());
 
-   SetBit(kShowOnPad,kTRUE);
+   SetBit(kShowOnPad,true);
    SetBit(kLiveUpdate,var->GetParallel()->TestBit(TParallelCoord::kLiveUpdate));
 }
 
@@ -134,230 +132,124 @@ void TParallelCoordRange::Draw(Option_t* options)
    AppendPad(options);
 }
 
+class TParallelCoordRangeInteractive : public TVirtualPad::TInteractive {
+   public:
+      Int_t dragpoint = -1;
+      Double_t value;
+
+      Bool_t GetValue(TParallelCoordVar *var, TVirtualPad &parent, Int_t px, Int_t py)
+      {
+         TFrame *frame = parent.GetFrame();
+
+         Double_t xx = parent.AbsPixeltoX(px);
+         Double_t yy = parent.AbsPixeltoY(py);
+
+         value = var->GetValuefromXY(xx, yy);
+
+         return var->GetVert() ? (yy > frame->GetY1() && yy < frame->GetY2())
+                               : (xx > frame->GetX1() && xx < frame->GetX2());
+      }
+
+      void Paint(TParallelCoordVar *var, TVirtualPad &parent, Double_t size, Double_t currentMin, Double_t currentMax)
+      {
+         std::vector<Double_t> tx(5), ty(5);
+         Double_t txx = 0, tyy = 0;
+         var->GetXYfromValue(value, txx, tyy);
+         if (var->GetVert()) {
+            tx[0] = txx;
+            tx[1] = tx[4] = txx - size;
+            ty[0] = ty[1] = ty[4] = tyy;
+            tx[2] = tx[3] = txx - 2 * size;
+            ty[2] = tyy + size;
+            ty[3] = tyy - size;
+         } else {
+            ty[0] = tyy;
+            ty[1] = ty[4] = tyy - size;
+            tx[0] = tx[1] = tx[4] = txx;
+            ty[2] = ty[3] = tyy - 2 * size;
+            tx[2] = txx - size;
+            tx[3] = txx + size;
+         }
+
+         // paint marker
+         TAttLine{kBlack, 1, 1}.ModifyOn(parent);
+         parent.PaintPolyLine(5, tx.data(), ty.data(), "iparallelrangemarker");
+
+         Double_t txx2, tyy2;
+         var->GetXYfromValue(dragpoint == 1 ? currentMax : currentMin, txx2, tyy2);
+         if (var->GetVert()) {
+            tx[0] = tx[1] = txx - 2*size;
+            ty[0] = tyy;
+            ty[1] = tyy2;
+         } else {
+            tx[0] = txx;
+            tx[1] = txx2;
+            ty[0] = ty[1] = tyy - 2*size;
+         }
+
+         // paint binding line between markers
+         TAttLine{kBlack, 1, 2}.ModifyOn(parent);
+         parent.PaintPolyLine(2, tx.data(), ty.data(), "iparallelrangebind");
+
+      }
+};
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Execute the entry.
 
 void TParallelCoordRange::ExecuteEvent(Int_t entry, Int_t px, Int_t py)
 {
    if (!gPad) return;
-   if (!gPad->IsEditable() && entry!=kMouseEnter) return;
 
-   Bool_t vert = fVar->GetVert();
-   static Int_t pxold, pyold;
-   static Int_t mindragged = -1; //-1:nothing dragged, 0:max dragged, 1:mindragged, 2:both dragged;
-   Int_t plx1,plx2,ply1,ply2;
+   auto &parent = *gPad;
 
-   Double_t xx,yy,txxmin=0,txxmax=0,tyymin=0,tyymax=0;
-   TFrame *frame = gPad->GetFrame();
-   xx = gPad->AbsPixeltoX(px);
-   yy = gPad->AbsPixeltoY(py);
-   fVar->GetXYfromValue(fMin,txxmin,tyymin);
-   fVar->GetXYfromValue(fMax,txxmax,tyymax);
-   if (vert) {
-      plx1 = gPad->XtoAbsPixel(txxmin-2*fSize);
-      plx2 = gPad->XtoAbsPixel(txxmax-2*fSize);
-      ply1 = gPad->YtoAbsPixel(tyymin+fSize);
-      ply2 = gPad->YtoAbsPixel(tyymax-fSize);
-   } else {
-      plx1 = gPad->XtoAbsPixel(txxmin+fSize);
-      plx2 = gPad->XtoAbsPixel(txxmax-fSize);
-      ply1 = gPad->YtoAbsPixel(tyymin-2*fSize);
-      ply2 = gPad->YtoAbsPixel(tyymax-2*fSize);
-   }
+   if (!parent.IsEditable() && entry!=kMouseEnter) return;
 
-   gPad->SetCursor(kPointer);
-   gVirtualX->SetLineColor(-1);
-   gVirtualX->SetLineWidth(1);
-   TPoint *p = NULL;
+   parent.SetCursor(kPointer);
+
+   auto inter = parent.GetInteractive<TParallelCoordRangeInteractive>(this);
+
    switch (entry) {
       case kButton1Down:
-         fVar->GetParallel()->SetCurrentSelection(fSelect);
-         ((TCanvas*)gPad)->Selected(gPad,fVar->GetParallel(),1);
-         if ((vert && yy<tyymax-fSize) || (!vert && xx < txxmax-fSize)) {     //checks if the min slider is clicked.
-            mindragged = 1;
-            p = GetSliderPoints(fMin);
-            gVirtualX->DrawPolyLine(5,p);
-            delete [] p;
+         inter = parent.MakeInteractive<TParallelCoordRangeInteractive>(this);
+         parent.GetCanvas()->Selected(&parent, fVar->GetParallel(), 1);
+         if (inter->GetValue(fVar, parent, px, py)) {
+            if (inter->value < (fMin + fMax) /2)
+               inter->dragpoint = 1;
+            else
+               inter->dragpoint = 2;
          } else {
-            mindragged = 0;
-            p = GetSliderPoints(fMax);
-            gVirtualX->DrawPolyLine(5,p);
-            delete [] p;
+            // not found reasonable value
+            parent.FreeInteractive(this);
+            break;
          }
-         gVirtualX->DrawLine(plx1,ply1,plx2,ply2);
+         // no break
+      case kButton1Motion:
+         if (inter && inter->GetValue(fVar, parent, px, py)) {
+            inter->Paint(fVar, parent, fSize, fMin, fMax);
+            parent.UpdateAsync();
+         }
          break;
-      case kButton1Up: {
-         Double_t min = fMin, max= fMax;
-         if (mindragged == 1) min = fVar->GetValuefromXY(xx,yy);
-         if (mindragged == 0) max = fVar->GetValuefromXY(xx,yy);
-         if(fMin!=min || fMax != max) {
-            if (min>max) {
-               Double_t mem = min;
-               min = max;
-               max = mem;
-            }
+      case kButton1Up:
+         if (inter) {
+            Double_t min = inter->dragpoint == 1 ? inter->value : fMin;
+            Double_t max = inter->dragpoint == 2 ? inter->value : fMax;
+            if (min > max)
+               std::swap(min, max);
             fMin = min;
             fMax = max;
-            gPad->Modified();
+            parent.Modified();
          }
-         mindragged = -1;
-         break;
-      }
-      case kMouseMotion:
-         pxold = px;
-         pyold = py;
-         break;
-      case kButton1Motion:
-         if((vert && yy > frame->GetY1() && yy < frame->GetY2()) ||
-            (!vert && xx > frame->GetX1() && xx < frame->GetX2())){
-            if (vert) p = GetSliderPoints(pyold);
-            else      p = GetSliderPoints(pxold);
-            gVirtualX->DrawPolyLine(5,p);
-            delete [] p;
-            if (vert) p = GetBindingLinePoints(pyold,mindragged);
-            else p = GetBindingLinePoints(pxold,mindragged);
-            gVirtualX->DrawPolyLine(2,p);
-            delete [] p;
-            if (vert) p = GetSliderPoints(py);
-            else      p = GetSliderPoints(px);
-            gVirtualX->DrawPolyLine(5,p);
-            delete [] p;
-            if (vert) p = GetBindingLinePoints(py,mindragged);
-            else p = GetBindingLinePoints(px,mindragged);
-            gVirtualX->DrawPolyLine(2,p);
-            delete [] p;
-            if (TestBit(kLiveUpdate)){
-               Double_t min = fMin, max= fMax;
-               if (mindragged == 1) min = fVar->GetValuefromXY(xx,yy);
-               if (mindragged == 0) max = fVar->GetValuefromXY(xx,yy);
-               if(fMin!=min || fMax != max) {
-                  if (min>max) {
-                     Double_t mem = min;
-                     min = max;
-                     max = mem;
-                  }
-                  fMin = min;
-                  fMax = max;
-                  gPad->Modified();
-                  gPad->Update();
-               }
-            }
-         }
-         pxold = px;
-         pyold = py;
-         break;
-      default:
-         //std::cout<<"entry: "<<entry<<std::endl;
+         parent.FreeInteractive(this);
          break;
    }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-/// Return the points of the line binding the two needles of the range.
-
-TPoint* TParallelCoordRange::GetBindingLinePoints(Int_t pos,Int_t mindragged)
-{
-   Double_t txx,tyy,txxo,tyyo=0;
-   if (fVar->GetVert()){
-      txx = fVar->GetX();
-      tyy = gPad->AbsPixeltoY(pos);
-   } else {
-      tyy = fVar->GetY();
-      txx = gPad->AbsPixeltoX(pos);
-   }
-   if (mindragged==1) fVar->GetXYfromValue(fMax,txxo,tyyo);
-   else fVar->GetXYfromValue(fMin,txxo,tyyo);
-
-   TPoint *bindline = new TPoint[2];
-   if (fVar->GetVert()) {
-      if (mindragged==1) {
-         bindline[0] = TPoint(gPad->XtoAbsPixel(txx-2*fSize),gPad->YtoAbsPixel(tyy+fSize));
-         bindline[1] = TPoint(gPad->XtoAbsPixel(txx-2*fSize),gPad->YtoAbsPixel(tyyo-fSize));
-      } else {
-         bindline[0] = TPoint(gPad->XtoAbsPixel(txx-2*fSize),gPad->YtoAbsPixel(tyyo+fSize));
-         bindline[1] = TPoint(gPad->XtoAbsPixel(txx-2*fSize),gPad->YtoAbsPixel(tyy-fSize));
-      }
-   } else {
-      if (mindragged==1) {
-         bindline[0] = TPoint(gPad->XtoAbsPixel(txx+fSize),gPad->YtoAbsPixel(tyy-2*fSize));
-         bindline[1] = TPoint(gPad->XtoAbsPixel(txxo-fSize),gPad->YtoAbsPixel(tyy-2*fSize));
-      } else {
-         bindline[0] = TPoint(gPad->XtoAbsPixel(txxo+fSize),gPad->YtoAbsPixel(tyy-2*fSize));
-         bindline[1] = TPoint(gPad->XtoAbsPixel(txx-fSize),gPad->YtoAbsPixel(tyy-2*fSize));
-      }
-   }
-   return bindline;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Return the points to paint the needles at "value".
-
-TPoint* TParallelCoordRange::GetSliderPoints(Double_t value)
-{
-   Double_t txx=0,tyy=0;
-   fVar->GetXYfromValue(value,txx,tyy);
-   Int_t tx[5];
-   Int_t ty[5];
-   if (fVar->GetVert()) {
-      tx[0]=gPad->XtoAbsPixel(txx);
-      tx[1]=tx[4]=gPad->XtoAbsPixel(txx-fSize);
-      ty[0]=ty[1]=ty[4]=gPad->YtoAbsPixel(tyy);
-      tx[2]=tx[3]=gPad->XtoAbsPixel(txx-2*fSize);
-      ty[2]=gPad->YtoAbsPixel(tyy+fSize);
-      ty[3]=gPad->YtoAbsPixel(tyy-fSize);
-   } else {
-      ty[0]=gPad->YtoAbsPixel(tyy);
-      ty[1]=ty[4]=gPad->YtoAbsPixel(tyy-fSize);
-      tx[0]=tx[1]=tx[4]=gPad->XtoAbsPixel(txx);
-      ty[2]=ty[3]=gPad->YtoAbsPixel(tyy-2*fSize);
-      tx[2]=gPad->XtoAbsPixel(txx-fSize);
-      tx[3]=gPad->XtoAbsPixel(txx+fSize);
-   }
-   TPoint *slider = new TPoint[5];
-   for(UInt_t ui=0;ui<5;++ui) slider[ui] = TPoint(tx[ui],ty[ui]);
-   return slider;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Return the points to paint the needle at "pos".
-
-TPoint* TParallelCoordRange::GetSliderPoints(Int_t pos)
-{
-   Double_t txx,tyy;
-   if (fVar->GetVert()){
-      txx = fVar->GetX();
-      tyy = gPad->AbsPixeltoY(pos);
-   } else {
-      tyy = fVar->GetY();
-      txx = gPad->AbsPixeltoX(pos);
-   }
-
-   Int_t tx[5];
-   Int_t ty[5];
-   if (fVar->GetVert()) {
-      tx[0]=gPad->XtoAbsPixel(txx);
-      tx[1]=tx[4]=gPad->XtoAbsPixel(txx-fSize);
-      ty[0]=ty[1]=ty[4]=gPad->YtoAbsPixel(tyy);
-      tx[2]=tx[3]=gPad->XtoAbsPixel(txx-2*fSize);
-      ty[2]=gPad->YtoAbsPixel(tyy+fSize);
-      ty[3]=gPad->YtoAbsPixel(tyy-fSize);
-   } else {
-      ty[0]=gPad->YtoAbsPixel(tyy);
-      ty[1]=ty[4]=gPad->YtoAbsPixel(tyy-fSize);
-      tx[0]=tx[1]=tx[4]=gPad->XtoAbsPixel(txx);
-      ty[2]=ty[3]=gPad->YtoAbsPixel(tyy-2*fSize);
-      tx[2]=gPad->XtoAbsPixel(txx-fSize);
-      tx[3]=gPad->XtoAbsPixel(txx+fSize);
-   }
-   TPoint *slider = new TPoint[5];
-   for(UInt_t ui=0;ui<5;++ui) slider[ui] = TPoint(tx[ui],ty[ui]);
-   return slider;
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Evaluate if the given value is within the range or not.
 
-Bool_t TParallelCoordRange::IsIn(Double_t evtval)
+bool TParallelCoordRange::IsIn(Double_t evtval)
 {
    return evtval>=fMin && evtval<=fMax;
 }
@@ -368,15 +260,15 @@ Bool_t TParallelCoordRange::IsIn(Double_t evtval)
 void TParallelCoordRange::Paint(Option_t* /*options*/)
 {
    if(TestBit(kShowOnPad)){
-      PaintSlider(fMin,kTRUE);
-      PaintSlider(fMax,kTRUE);
+      PaintSlider(fMin,true);
+      PaintSlider(fMax,true);
    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Paint a slider.
 
-void TParallelCoordRange::PaintSlider(Double_t value, Bool_t fill)
+void TParallelCoordRange::PaintSlider(Double_t value, bool fill)
 {
    SetLineColor(fSelect->GetLineColor());
 
@@ -450,7 +342,6 @@ void  TParallelCoordRange::SetLineWidth(Width_t wid)
 }
 
 
-ClassImp(TParallelCoordSelect);
 
 /** \class TParallelCoordSelect
 A TParallelCoordSelect is a specialised TList to hold TParallelCoordRanges used
@@ -473,8 +364,8 @@ TParallelCoordSelect::TParallelCoordSelect()
    : TList(), TAttLine(kBlue,1,1)
 {
    fTitle = "Selection";
-   SetBit(kActivated,kTRUE);
-   SetBit(kShowRanges,kTRUE);
+   SetBit(kActivated,true);
+   SetBit(kShowRanges,true);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -484,8 +375,8 @@ TParallelCoordSelect::TParallelCoordSelect(const char* title)
    : TList(), TAttLine(kBlue,1,1)
 {
    fTitle = title;
-   SetBit(kActivated,kTRUE);
-   SetBit(kShowRanges,kTRUE);
+   SetBit(kActivated,true);
+   SetBit(kShowRanges,true);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -502,7 +393,7 @@ TParallelCoordSelect::~TParallelCoordSelect()
 ////////////////////////////////////////////////////////////////////////////////
 /// Activate the selection.
 
-void TParallelCoordSelect::SetActivated(Bool_t on)
+void TParallelCoordSelect::SetActivated(bool on)
 {
    TIter next(this);
    TParallelCoordRange* range;
@@ -513,7 +404,7 @@ void TParallelCoordSelect::SetActivated(Bool_t on)
 ////////////////////////////////////////////////////////////////////////////////
 /// Show the ranges needles.
 
-void TParallelCoordSelect::SetShowRanges(Bool_t s)
+void TParallelCoordSelect::SetShowRanges(bool s)
 {
    TIter next(this);
    TParallelCoordRange* range;

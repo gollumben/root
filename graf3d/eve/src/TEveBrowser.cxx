@@ -51,7 +51,6 @@ locally nor to manage its consistency.
 Handles also selected/highlighted colors and, in the future, drag-n-drop.
 */
 
-ClassImp(TEveListTreeItem);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Warn about access to function members that should never be called.
@@ -92,7 +91,6 @@ void TEveListTreeItem::Toggle()
 Composite GUI frame for parallel display of a TGListTree and TEveGedEditor.
 */
 
-ClassImp(TEveGListTreeEditorFrame);
 
 TString TEveGListTreeEditorFrame::fgEditorClass("TEveGedEditor");
 
@@ -101,12 +99,12 @@ TString TEveGListTreeEditorFrame::fgEditorClass("TEveGedEditor");
 
 TEveGListTreeEditorFrame::TEveGListTreeEditorFrame(const TGWindow* p, Int_t width, Int_t height) :
    TGMainFrame (p ? p : gClient->GetRoot(), width, height),
-   fFrame      (0),
-   fLTFrame    (0),
-   fListTree   (0),
-   fSplitter   (0),
-   fEditor     (0),
-   fCtxMenu    (0),
+   fFrame      (nullptr),
+   fLTFrame    (nullptr),
+   fListTree   (nullptr),
+   fSplitter   (nullptr),
+   fEditor     (nullptr),
+   fCtxMenu    (nullptr),
    fSignalsConnected (kFALSE)
 {
    SetCleanup(kNoCleanup);
@@ -141,7 +139,7 @@ TEveGListTreeEditorFrame::TEveGListTreeEditorFrame(const TGWindow* p, Int_t widt
    fFrame->SetEditable(kEditDisable);
    fFrame->SetEditable(kFALSE);
    {
-      TGFrameElement *el = 0;
+      TGFrameElement *el = nullptr;
       TIter next(fFrame->GetList());
       while ((el = (TGFrameElement *) next())) {
          if (el->fFrame == fEditor)
@@ -238,7 +236,7 @@ void TEveGListTreeEditorFrame::ReconfToHorizontal()
    fLTFrame->ChangeOptions(kHorizontalFrame);
    fListTree->ChangeOptions(kVerticalFrame);
 
-   TGFrameElement *el = 0;
+   TGFrameElement *el = nullptr;
    TIter next(fFrame->GetList());
    while ((el = (TGFrameElement *) next()))
    {
@@ -279,7 +277,7 @@ void TEveGListTreeEditorFrame::ReconfToVertical()
    fLTFrame->ChangeOptions(kVerticalFrame);
    fListTree->ChangeOptions(kHorizontalFrame);
 
-   TGFrameElement *el = 0;
+   TGFrameElement *el = nullptr;
    TIter next(fFrame->GetList());
    while ((el = (TGFrameElement *) next()))
    {
@@ -314,7 +312,7 @@ void TEveGListTreeEditorFrame::ReconfToVertical()
 
 void TEveGListTreeEditorFrame::ItemBelowMouse(TGListTreeItem *entry, UInt_t /*mask*/)
 {
-   TEveElement* el = entry ? (TEveElement*) entry->GetUserData() : 0;
+   TEveElement* el = entry ? (TEveElement*) entry->GetUserData() : nullptr;
    gEve->GetHighlight()->UserPickedElement(el, kFALSE);
 }
 
@@ -332,7 +330,7 @@ void TEveGListTreeEditorFrame::ItemClicked(TGListTreeItem *item, Int_t btn, UInt
    static const TEveException eh("TEveGListTreeEditorFrame::ItemClicked ");
 
    TEveElement* el = (TEveElement*) item->GetUserData();
-   if (el == 0) return;
+   if (el == nullptr) return;
    TObject* obj = el->GetObject(eh);
 
    switch (btn)
@@ -369,7 +367,7 @@ void TEveGListTreeEditorFrame::ItemDblClicked(TGListTreeItem* item, Int_t btn)
    if (btn != 1) return;
 
    TEveElement* el = (TEveElement*) item->GetUserData();
-   if (el == 0) return;
+   if (el == nullptr) return;
 
    el->ExpandIntoListTree(fListTree, item);
 
@@ -380,7 +378,7 @@ void TEveGListTreeEditorFrame::ItemDblClicked(TGListTreeItem* item, Int_t btn)
       if (obj->IsA()->InheritsFrom(TGeoNode::Class()))
       {
          TGeoNode* n = dynamic_cast<TGeoNode*>(obj);
-         if (item->GetFirstChild() == 0 && n->GetNdaughters())
+         if (item->GetFirstChild() == nullptr && n->GetNdaughters())
          {
             fListTree->DeleteChildren(item);
             for (Int_t i=0; i< n->GetNdaughters(); i++)
@@ -401,7 +399,7 @@ void TEveGListTreeEditorFrame::ItemDblClicked(TGListTreeItem* item, Int_t btn)
 ////////////////////////////////////////////////////////////////////////////////
 /// A key has been pressed for an item.
 ///
-/// Only <Delete>, <Enter> and <Return> keys are handled here,
+/// Only `<Delete>`, `<Enter>` and `<Return>` keys are handled here,
 /// otherwise the control is passed back to TGListTree.
 
 void TEveGListTreeEditorFrame::ItemKeyPress(TGListTreeItem *entry, UInt_t keysym, UInt_t mask)
@@ -409,7 +407,7 @@ void TEveGListTreeEditorFrame::ItemKeyPress(TGListTreeItem *entry, UInt_t keysym
    static const TEveException eh("TEveGListTreeEditorFrame::ItemKeyPress ");
 
    entry = fListTree->GetCurrent();
-   if (entry == 0) return;
+   if (entry == nullptr) return;
 
    TEveElement* el = (TEveElement*) entry->GetUserData();
 
@@ -463,7 +461,6 @@ void TEveGListTreeEditorFrame::ItemKeyPress(TGListTreeItem *entry, UInt_t keysym
 Specialization of TRootBrowser for Eve.
 */
 
-ClassImp(TEveBrowser);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Add "Export to CINT" into context-menu for class cl.
@@ -495,7 +492,7 @@ namespace
 enum EEveMenu_e {
    kNewMainFrameSlot, kNewTabSlot,
    kNewViewer,  kNewScene,
-   kNewBrowser, kNewCanvas, kNewCanvasExt, kNewTextEditor, kNewHtmlBrowser,
+   kNewBrowser, kNewCanvas, kNewCanvasExt, kNewTextEditor,
    kSel_PS_Ignore, kSel_PS_Element, kSel_PS_Projectable, kSel_PS_Compound,
    kSel_PS_PableCompound, kSel_PS_Master, kSel_PS_END,
    kHil_PS_Ignore, kHil_PS_Element, kHil_PS_Projectable, kHil_PS_Compound,
@@ -510,11 +507,11 @@ enum EEveMenu_e {
 /// Constructor.
 
 TEveBrowser::TEveBrowser(UInt_t w, UInt_t h) :
-   TRootBrowser(0, "Eve Main Window", w, h, "", kFALSE),
-   fFileBrowser(0),
-   fEvePopup   (0),
-   fSelPopup   (0),
-   fHilPopup   (0)
+   TRootBrowser(nullptr, "Eve Main Window", w, h, "", kFALSE),
+   fFileBrowser(nullptr),
+   fEvePopup   (nullptr),
+   fSelPopup   (nullptr),
+   fHilPopup   (nullptr)
 {
    // Construct Eve menu.
 
@@ -529,7 +526,6 @@ TEveBrowser::TEveBrowser(UInt_t w, UInt_t h) :
    fEvePopup->AddEntry("New &Canvas",         kNewCanvas);
    fEvePopup->AddEntry("New Canvas Ext",      kNewCanvasExt);
    fEvePopup->AddEntry("New Text &Editor",    kNewTextEditor);
-   // fEvePopup->AddEntry("New HTML Browser", kNewHtmlBrowser);
    fEvePopup->AddSeparator();
 
    {
@@ -592,12 +588,12 @@ void TEveBrowser::EveMenu(Int_t id)
    switch (id)
    {
       case kNewMainFrameSlot: {
-         TEveWindowSlot* ew_slot = TEveWindow::CreateWindowMainFrame(0);
+         TEveWindowSlot* ew_slot = TEveWindow::CreateWindowMainFrame(nullptr);
          gEve->GetWindowManager()->SelectWindow(ew_slot);
          break;
       }
       case kNewTabSlot: {
-         TEveWindowSlot* ew_slot = TEveWindow::CreateWindowInTab(GetTabRight(), 0);
+         TEveWindowSlot* ew_slot = TEveWindow::CreateWindowInTab(GetTabRight(), nullptr);
          gEve->GetWindowManager()->SelectWindow(ew_slot);
          break;
       }
@@ -629,18 +625,6 @@ void TEveBrowser::EveMenu(Int_t id)
          gROOT->ProcessLineFast(Form("new TGTextEditor((const char *)0, (const TGWindow *)0x%zx)", (size_t)gClient->GetRoot()));
          StopEmbedding();
          SetTabTitle("Editor", 1);
-         break;
-      }
-      case kNewHtmlBrowser: {
-         gSystem->Load("libGuiHtml");
-         if (gSystem->Load("libRHtml") >= 0)
-         {
-            StartEmbedding(1);
-            gROOT->ProcessLine(Form("new TGHtmlBrowser(\"http://root.cern.ch/root/html/ClassIndex.html\", \
-                              (const TGWindow *)0x%zx)", (size_t)gClient->GetRoot()));
-            StopEmbedding();
-            SetTabTitle("HTML", 1);
-         }
          break;
       }
       case kSel_PS_Ignore:

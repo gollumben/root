@@ -1,6 +1,5 @@
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2021-01-25
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
  * Copyright (C) 1995-2021, Rene Brun and Fons Rademakers.               *
@@ -17,129 +16,212 @@
 #include "TCanvas.h"
 #include "TROOT.h"
 #include "TClass.h"
+#include "TEnv.h"
 #include "TWebCanvas.h"
 
-using namespace ROOT::Experimental;
+#include <map>
+
+using namespace ROOT;
 
 using namespace std::string_literals;
 
 
 class RBrowserTCanvasWidget : public RBrowserWidget {
 
-   std::unique_ptr<TCanvas> fCanvas; ///<! drawn canvas
+   TString fCanvasName; ///<! canvas name
+   TCanvas *fCanvas{nullptr}; ///<! last canvas pointer
    TWebCanvas *fWebCanvas{nullptr};  ///<! web implementation, owned by TCanvas
 
-   std::unique_ptr<Browsable::RHolder> fObject; // TObject drawing in the TCanvas
+   std::multimap<TVirtualPad *, std::unique_ptr<Browsable::RHolder>> fObjects; ///<! objects holder, associated with pads
 
-   void SetPrivateCanvasFields(bool on_init)
+   bool CheckCanvasPointer()
    {
-      Long_t offset = TCanvas::Class()->GetDataMemberOffset("fCanvasID");
-      if (offset > 0) {
-         Int_t *id = (Int_t *)((char*) fCanvas.get() + offset);
-         if (*id == fCanvas->GetCanvasID()) *id = on_init ? 111222333 : -1;
-      } else {
-         printf("ERROR: Cannot modify TCanvas::fCanvasID data member\n");
-      }
+      if (!fCanvas)
+         return false;
 
-      offset = TCanvas::Class()->GetDataMemberOffset("fPixmapID");
-      if (offset > 0) {
-         Int_t *id = (Int_t *)((char*) fCanvas.get() + offset);
-         if (*id == fCanvas->GetPixmapID()) *id = on_init ? 332211 : -1;
-      } else {
-         printf("ERROR: Cannot modify TCanvas::fPixmapID data member\n");
-      }
+      auto c = gROOT->GetListOfCanvases()->FindObject(fCanvasName.Data());
+      if (c && (fCanvas == c))
+         return true;
 
-      offset = TCanvas::Class()->GetDataMemberOffset("fMother");
-      if (offset > 0) {
-         TPad **moth = (TPad **)((char*) fCanvas.get() + offset);
-         if (*moth == fCanvas->GetMother()) *moth = on_init ? fCanvas.get() : nullptr;
-      } else {
-         printf("ERROR: Cannot set TCanvas::fMother data member\n");
+      fCanvas = nullptr;
+      return false;
+   }
+
+   void RegisterCanvasInGlobalLists(bool add_canvas)
+   {
+      R__LOCKGUARD(gROOTMutex);
+      auto l1 = gROOT->GetListOfCleanups();
+      if (l1) {
+         if (!add_canvas)
+            l1->Remove(fCanvas);
+         else if (!l1->FindObject(fCanvas))
+            l1->Add(fCanvas);
+      }
+      auto l2 = gROOT->GetListOfCanvases();
+      if (l2) {
+         if (!add_canvas)
+            l2->Remove(fCanvas);
+         else if (!l2->FindObject(fCanvas))
+            l2->Add(fCanvas);
       }
    }
 
 public:
 
+   // constructor when new canvas should be created
    RBrowserTCanvasWidget(const std::string &name) : RBrowserWidget(name)
    {
-      fCanvas = std::make_unique<TCanvas>(kFALSE);
-      fCanvas->SetName(name.c_str());
-      fCanvas->SetTitle(name.c_str());
+      fCanvasName = name.c_str();
+
+      // create canvas with web display
+      fCanvas = TWebCanvas::CreateWebCanvas(fCanvasName, fCanvasName);
+
       fCanvas->ResetBit(TCanvas::kShowEditor);
       fCanvas->ResetBit(TCanvas::kShowToolBar);
       fCanvas->SetBit(TCanvas::kMenuBar, kTRUE);
-      fCanvas->SetCanvas(fCanvas.get());
-      fCanvas->SetBatch(kTRUE); // mark canvas as batch
-      fCanvas->SetEditable(kTRUE); // ensure fPrimitives are created
 
-      // create implementation
-      fWebCanvas = new TWebCanvas(fCanvas.get(), "title", 0, 0, 800, 600);
+      // get implementation
+      fWebCanvas = static_cast<TWebCanvas *> (fCanvas->GetCanvasImp());
 
-      // assign implementation
-      fCanvas->SetCanvasImp(fWebCanvas);
+      // use async mode to prevent blocking inside qt6/cef
+      fWebCanvas->SetAsyncMode(kTRUE);
 
-      SetPrivateCanvasFields(true);
-      fCanvas->cd();
+      RegisterCanvasInGlobalLists(true);
    }
 
+   // constructor when widget for existing canvas should be created
    RBrowserTCanvasWidget(const std::string &name, std::unique_ptr<TCanvas> &canv) : RBrowserWidget(name)
    {
-      fCanvas = std::move(canv);
+      fCanvas = canv.release();
+      fCanvasName = fCanvas->GetName();
       fCanvas->SetBatch(kTRUE); // mark canvas as batch
 
       // create implementation
-      fWebCanvas = new TWebCanvas(fCanvas.get(), "title", 0, 0, 800, 600);
+      fWebCanvas = static_cast<TWebCanvas *> (TWebCanvas::NewCanvas(fCanvas, "title", 0, 0, 800, 600));
+
+      // use async mode to prevent blocking inside qt6/cef
+      fWebCanvas->SetAsyncMode(kTRUE);
 
       // assign implementation
       fCanvas->SetCanvasImp(fWebCanvas);
-      SetPrivateCanvasFields(true);
       fCanvas->cd();
+
+      // ensure creation of web window
+      fWebCanvas->CreateWebWindow();
+
+      RegisterCanvasInGlobalLists(true);
    }
 
-   virtual ~RBrowserTCanvasWidget()
+   // constructor when canvas already displayed and just integrated into RBrowser
+   RBrowserTCanvasWidget(const std::string &name, TCanvas *canv, TWebCanvas *webcanv) : RBrowserWidget(name)
    {
-      SetPrivateCanvasFields(false);
+      fCanvas = canv;
+      fCanvasName = fCanvas->GetName();
+      fCanvas->SetBatch(kTRUE); // mark canvas as batch
 
-      gROOT->GetListOfCanvases()->Remove(fCanvas.get());
+      fWebCanvas = webcanv;
+      // use async mode to prevent blocking inside qt6/cef
+      fWebCanvas->SetAsyncMode(kTRUE);
+   }
+
+   ~RBrowserTCanvasWidget() override
+   {
+      if (!fCanvas || !gROOT->GetListOfCanvases()->FindObject(fCanvas))
+         return;
+
+      RegisterCanvasInGlobalLists(false);
+
+      if (fCanvas->GetCanvasImp() == fWebCanvas) {
+         fCanvas->SetCanvasImp(nullptr);
+         delete fWebCanvas;
+      }
 
       fCanvas->Close();
+      delete fCanvas;
    }
 
    std::string GetKind() const override { return "tcanvas"s; }
 
    void SetActive() override
    {
-      fCanvas->cd();
+      if (CheckCanvasPointer())
+         fCanvas->cd();
    }
 
-   void Show(const std::string &arg) override
+   std::shared_ptr<RWebWindow> GetWindow() override
    {
-      fWebCanvas->ShowWebWindow(arg);
+      if (CheckCanvasPointer())
+         return fWebCanvas->GetWebWindow();
+      return nullptr;
    }
 
-   std::string GetUrl() override
-   {
-      return "../"s + fWebCanvas->GetWebWindow()->GetAddr() + "/"s;
-   }
+   std::string GetTitle() override { return fCanvasName.Data(); }
 
-   std::string GetTitle() override
-   {
-      return fCanvas->GetName();
-   }
-
-   bool DrawElement(std::shared_ptr<Browsable::RElement> &elem, const std::string &opt) override
+   bool DrawElement(std::shared_ptr<Browsable::RElement> &elem, const std::string &opt = "") override
    {
       if (!elem->IsCapable(Browsable::RElement::kActDraw6))
          return false;
 
-      fObject = elem->GetObject();
+      std::unique_ptr<Browsable::RHolder> obj = elem->GetObject();
+      if (!obj)
+         return false;
 
-      if (fObject && Browsable::RProvider::Draw6(fCanvas.get(), fObject, opt)) {
-         fCanvas->ForceUpdate();
+      if (!CheckCanvasPointer())
+         return false;
+
+      Browsable::RProvider::ExtendProgressHandle(elem.get(), obj.get());
+
+      std::string drawopt = opt;
+
+      // first remove all objects which may belong to removed pads
+      bool find_removed_pad;
+      do {
+         find_removed_pad = false;
+         for (auto &entry : fObjects)
+            if ((entry.first != fCanvas) && !fCanvas->FindObject(entry.first)) {
+               fObjects.erase(entry.first);
+               find_removed_pad = true;
+               break;
+            }
+      } while (find_removed_pad);
+
+      TVirtualPad *pad = fCanvas;
+      if (gPad && fCanvas->FindObject(gPad))
+         pad = gPad;
+
+      if (drawopt.compare(0,8,"<append>") == 0) {
+         drawopt.erase(0,8);
+      } else {
+         pad->GetListOfPrimitives()->Clear();
+         if (pad == fCanvas)
+            fObjects.clear();
+         else
+            fObjects.erase(pad);
+         pad->Range(0,0,1,1);  // set default range
+      }
+
+      if (drawopt == "<dflt>")
+         drawopt = Browsable::RProvider::GetClassDrawOption(obj->GetClass());
+
+      if (Browsable::RProvider::Draw6(pad, obj, drawopt)) {
+         fObjects.emplace(pad, std::move(obj));
+         pad->Modified();
+         fCanvas->UpdateAsync();
          return true;
       }
 
       return false;
+   }
+
+   void CheckModified() override
+   {
+      if (CheckCanvasPointer() && fCanvas->IsModified())
+         fCanvas->UpdateAsync();
+   }
+
+   bool IsValid() override
+   {
+      return CheckCanvasPointer();
    }
 
 };
@@ -164,8 +246,20 @@ protected:
       return std::make_shared<RBrowserTCanvasWidget>(name, canv);
    }
 
+   std::shared_ptr<RBrowserWidget> DetectWindow(RWebWindow &win) final
+   {
+      TIter iter(gROOT->GetListOfCanvases());
+
+      while (auto canv = static_cast<TCanvas *>(iter())) {
+         auto web_canv = dynamic_cast<TWebCanvas *>(canv->GetCanvasImp());
+         if (web_canv->GetWebWindow().get() == &win)
+            return std::make_shared<RBrowserTCanvasWidget>(canv->GetName(), canv, web_canv);
+      }
+      return nullptr;
+   }
+
 public:
    RBrowserTCanvasProvider() : RBrowserWidgetProvider("tcanvas") {}
-   ~RBrowserTCanvasProvider() = default;
+   ~RBrowserTCanvasProvider() override = default;
 } sRBrowserTCanvasProvider;
 

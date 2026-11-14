@@ -1,4 +1,4 @@
-# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# Copyright (C) 1995-2024, Rene Brun and Fons Rademakers.
 # All rights reserved.
 #
 # For the licensing terms see $ROOTSYS/LICENSE.
@@ -11,6 +11,7 @@
 
 ROOT_STANDARD_LIBRARY_PACKAGE(Gpad
   HEADERS
+    TAnnotation.h
     TAttCanvas.h
     TButton.h
     TCanvas.h
@@ -23,7 +24,8 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Gpad
     TGroupButton.h
     TInspectCanvas.h
     TPad.h
-    TPadPainter.h
+    TPadPainterBase.h
+    TPadPainterPS.h
     TPaveClass.h
     TRatioPlot.h
     TSliderBox.h
@@ -31,6 +33,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Gpad
     TViewer3DPad.h
     TView.h
   SOURCES
+    src/TAnnotation.cxx
     src/TAttCanvas.cxx
     src/TButton.cxx
     src/TCanvas.cxx
@@ -43,7 +46,8 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Gpad
     src/TGroupButton.cxx
     src/TInspectCanvas.cxx
     src/TPad.cxx
-    src/TPadPainter.cxx
+    src/TPadPainterBase.cxx
+    src/TPadPainterPS.cxx
     src/TPaveClass.cxx
     src/TRatioPlot.cxx
     src/TSliderBox.cxx
@@ -56,3 +60,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Gpad
     Graf
     Hist
 )
+
+target_include_directories(Gpad PRIVATE ../graf/src)
+
+ROOT_ADD_TEST_SUBDIRECTORY(test)

@@ -27,14 +27,13 @@ hit testing (selection) for manipulator sub component (widget), and
 some common mouse action handling/tracking.
 */
 
-ClassImp(TGLManip);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Construct a manipulator object, bound to supplied viewer, and no
 /// physical shape.
 
 TGLManip::TGLManip() :
-   fShape(0),
+   fShape(nullptr),
    fSelectedWidget(0), fActive(kFALSE),
    fFirstMouse(0, 0),
    fLastMouse(0, 0)

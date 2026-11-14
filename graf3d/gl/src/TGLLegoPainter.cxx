@@ -32,7 +32,6 @@ Plot-painter implementing LEGO rendering of TH2 histograms in
 cartesian, polar, cylindrical and spherical coordinates.
 */
 
-ClassImp(TGLLegoPainter);
 
 ////////////////////////////////////////////////////////////////////////////////
 ///Ctor.
@@ -433,7 +432,6 @@ void TGLLegoPainter::Pan(Int_t px, Int_t py)
 
 void TGLLegoPainter::AddOption(const TString &option)
 {
-   using namespace std;
    const Ssiz_t legoPos = option.Index("lego");//"lego" _already_ _exists_ in a string.
    if (legoPos + 4 < option.Length() && isdigit(option[legoPos + 4])) {
       switch (option[legoPos + 4] - '0') {

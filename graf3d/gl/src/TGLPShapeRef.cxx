@@ -19,14 +19,13 @@ when the shape is destroyed.
 Could also deliver 'change' notifications.
 */
 
-ClassImp(TGLPShapeRef);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.
 
 TGLPShapeRef::TGLPShapeRef() :
-   fNextPSRef (0),
-   fPShape    (0)
+   fNextPSRef (nullptr),
+   fPShape    (nullptr)
 {
 }
 
@@ -34,8 +33,8 @@ TGLPShapeRef::TGLPShapeRef() :
 /// Constructor with known shape - reference it.
 
 TGLPShapeRef::TGLPShapeRef(TGLPhysicalShape * shape) :
-   fNextPSRef (0),
-   fPShape    (0)
+   fNextPSRef (nullptr),
+   fPShape    (nullptr)
 {
    SetPShape(shape);
 }
@@ -44,7 +43,7 @@ TGLPShapeRef::TGLPShapeRef(TGLPhysicalShape * shape) :
 
 TGLPShapeRef::~TGLPShapeRef()
 {
-   SetPShape(0);
+   SetPShape(nullptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

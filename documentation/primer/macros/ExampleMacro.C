@@ -17,13 +17,12 @@
    not needed if the code is executed at the ROOT prompt.
                                                                             */
 
-//#ifndef __CINT__      // These include-statements are needed if the program is
 #include "TFile.h"    // run as a "stand-alone application", i.e. if it is not
 #include "TH1F.h"     // called from an interactive ROOT session.
 #include "TCanvas.h"
 #include "TMath.h"
 // eventually, load some C libraries
-#include <math.h>
+#include <cmath>
 
 void ExampleMacro();
 
@@ -33,15 +32,11 @@ int main()
   ExampleMacro();
   return 0;
 }
-//#endif
 
 //______________________________________________________________________________
 
 /*
    * From here on, the code can also be used as a macro
-   * Note though, that CINT may report errors where there are none
-     in C++. E.g. this happens here where CINT says that f1 is
-     out of scope ...
 
      ==>>  put your code here
       (remember to update the name of you Macro in the

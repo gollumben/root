@@ -8,63 +8,80 @@
 # CMakeLists.txt file for building ROOT geom/geom package
 ############################################################################
 
+set(RELATIVE_RES_HEADERS bvh2_extra_kernels.h bvh2_third_party.h)
+list(TRANSFORM RELATIVE_RES_HEADERS PREPEND res/)
+
+set(GEOM_HEADERS
+  TGDMLMatrix.h
+  TGeant4PhysicalConstants.h
+  TGeant4SystemOfUnits.h
+  TGeoArb8.h
+  TGeoAtt.h
+  TGeoBBox.h
+  TGeoBoolNode.h
+  TGeoBranchArray.h
+  TGeoBuilder.h
+  TGeoCache.h
+  TGeoColorScheme.h
+  TGeoCompositeShape.h
+  TGeoCone.h
+  TGeoElement.h
+  TGeoEltu.h
+  TGeoExtension.h
+  TGeoGlobalMagField.h
+  TGeoHalfSpace.h
+  TGeoHelix.h
+  TGeoHype.h
+  TGeoManager.h
+  TGeoMaterial.h
+  TGeoMatrix.h
+  TGeoMedium.h
+  TGeoNavigator.h
+  TGeoNode.h
+  TGeoOpticalSurface.h
+  TGeoOverlapCandidate.h
+  TGeoPara.h
+  TGeoParaboloid.h
+  TGeoParallelWorld.h
+  TGeoPatternFinder.h
+  TGeoPcon.h
+  TGeoPgon.h
+  TGeoPhysicalConstants.h
+  TGeoPhysicalNode.h
+  TGeoPolygon.h
+  TGeoRCPtr.h
+  TGeoRegion.h
+  TGeoScaledShape.h
+  TGeoShape.h
+  TGeoShapeAssembly.h
+  TGeoSphere.h
+  TGeoStateInfo.h
+  TGeoSystemOfUnits.h
+  TGeoTessellated.h
+  TGeoTorus.h
+  TGeoTrd1.h
+  TGeoTrd2.h
+  TGeoTube.h
+  TGeoTypedefs.h
+  TGeoUniformMagField.h
+  TGeoVector3.h
+  TGeoVolume.h
+  TGeoVoxelFinder.h
+  TGeoVoxelGrid.h
+  TGeoXtru.h
+  TVirtualGeoChecker.h
+  TVirtualGeoConverter.h
+  TVirtualGeoPainter.h
+  TVirtualGeoTrack.h
+  TVirtualMagField.h
+)
+
+set(RELATIVE_INC_HEADERS ${GEOM_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+
 ROOT_STANDARD_LIBRARY_PACKAGE(Geom
   HEADERS
-    TGDMLMatrix.h
-    TGeoArb8.h
-    TGeoAtt.h
-    TGeoBBox.h
-    TGeoBoolNode.h
-    TGeoBranchArray.h
-    TGeoBuilder.h
-    TGeoCache.h
-    TGeoCompositeShape.h
-    TGeoCone.h
-    TGeoElement.h
-    TGeoEltu.h
-    TGeoExtension.h
-    TGeoGlobalMagField.h
-    TGeoHalfSpace.h
-    TGeoHelix.h
-    TGeoHype.h
-    TGeoManager.h
-    TGeoMaterial.h
-    TGeoMatrix.h
-    TGeoMedium.h
-    TGeoNavigator.h
-    TGeoNode.h
-    TGeoOpticalSurface.h
-    TGeoPara.h
-    TGeoParaboloid.h
-    TGeoParallelWorld.h
-    TGeoPatternFinder.h
-    TGeoPcon.h
-    TGeoPgon.h
-    TGeoPhysicalConstants.h
-    TGeoPhysicalNode.h
-    TGeoPolygon.h
-    TGeoRCPtr.h
-    TGeoRegion.h
-    TGeoScaledShape.h
-    TGeoShape.h
-    TGeoShapeAssembly.h
-    TGeoSphere.h
-    TGeoStateInfo.h
-    TGeoSystemOfUnits.h
-    TGeoTorus.h
-    TGeoTrd1.h
-    TGeoTrd2.h
-    TGeoTube.h
-    TGeoUniformMagField.h
-    TGeoVolume.h
-    TGeoVoxelFinder.h
-    TGeoXtru.h
-    TGeoTessellated.h
-    TGeoVector3.h
-    TVirtualGeoConverter.h
-    TVirtualGeoPainter.h
-    TVirtualGeoTrack.h
-    TVirtualMagField.h
+    ${GEOM_HEADERS}
   SOURCES
     src/TGDMLMatrix.cxx
     src/TGeoArb8.cxx
@@ -74,6 +91,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Geom
     src/TGeoBranchArray.cxx
     src/TGeoBuilder.cxx
     src/TGeoCache.cxx
+    src/TGeoColorScheme.cxx
     src/TGeoCompositeShape.cxx
     src/TGeoCone.cxx
     src/TGeoElement.cxx
@@ -114,6 +132,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Geom
     src/TGeoTessellated.cxx
     src/TGeoVector3.cxx
     src/TVirtualGeoConverter.cxx
+    src/TVirtualGeoChecker.cxx
     src/TVirtualGeoPainter.cxx
     src/TVirtualGeoTrack.cxx
     src/TVirtualMagField.cxx
@@ -122,11 +141,29 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Geom
     RIO
     MathCore
     Hist
+    GenVector
+    Imt
+  LIBRARIES
+    bvh::bvh
 )
 
+target_include_directories(Geom PRIVATE res)
 # GCC has bugs with -O3 or -Ofast that break Geom
 if(CMAKE_COMPILER_IS_GNUCXX)
   if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5 OR CMAKE_SIZEOF_VOID_P LESS 8)
     target_compile_options(Geom PRIVATE -O2)
   endif()
 endif()
+
+target_sources(Geom
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/ res/
+  FILES
+    ${RELATIVE_INC_HEADERS}
+    ${RELATIVE_RES_HEADERS}
+    inc/LinkDef.h
+    inc/LinkDef1.h
+    inc/LinkDef2.h
+)

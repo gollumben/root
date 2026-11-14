@@ -36,14 +36,15 @@ protected:
    void OutputValue(char *value, TXMLOutputStream *out);
    void SaveNode(XMLNodePointer_t xmlnode, TXMLOutputStream *out, Int_t layout, Int_t level);
    XMLNodePointer_t ReadNode(XMLNodePointer_t xmlparent, TXMLInputStream *inp, Int_t &resvalue);
-   void DisplayError(Int_t error, Int_t linenumber);
+   void DisplayError(Int_t error, Int_t linenumber, Bool_t is_parse_file = kTRUE);
    XMLDocPointer_t ParseStream(TXMLInputStream *input);
+   static Bool_t VerifyFilePath(const char *fname);
 
-   Bool_t fSkipComments; //! if true, do not create comments nodes in document during parsing
+   Bool_t fSkipComments; ///<! if true, do not create comments nodes in document during parsing
 
 public:
    TXMLEngine();
-   virtual ~TXMLEngine();
+   ~TXMLEngine() override;
 
    void SetSkipComments(Bool_t on = kTRUE) { fSkipComments = on; }
    Bool_t GetSkipComments() const { return fSkipComments; }
@@ -105,7 +106,7 @@ public:
    void SaveSingleNode(XMLNodePointer_t xmlnode, TString *res, Int_t layout = 1);
    XMLNodePointer_t ReadSingleNode(const char *src);
 
-   ClassDef(TXMLEngine, 1); // ROOT XML I/O parser, user by TXMLFile to read/write xml files
+   ClassDefOverride(TXMLEngine, 1); // ROOT XML I/O parser, user by TXMLFile to read/write xml files
 };
 
 #endif

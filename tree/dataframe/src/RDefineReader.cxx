@@ -1,52 +1,59 @@
-// Author: Enrico Guiraud, CERN  08/2020
+/**
+ \author Vincenzo Eduardo Padulano
+ \date 2024-04
+*/
 
 /*************************************************************************
- * Copyright (C) 1995-2020, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2024, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
+#include <cassert>
 
-#include <ROOT/RDF/RDefineReader.hxx>
-#include <ROOT/RDF/RDefineBase.hxx>
-#include <ROOT/RDF/Utils.hxx> // TypeID2TypeName
-#include <TClass.h>
+#include "ROOT/RDF/RDefineReader.hxx"
 
-#include <stdexcept> // std::runtime_error
-#include <string>
-#include <typeinfo>
-
-void ROOT::Internal::RDF::CheckDefineType(RDefineBase &define, const std::type_info &tid)
+ROOT::Internal::RDF::RDefinesWithReaders::RDefinesWithReaders(std::shared_ptr<ROOT::Detail::RDF::RDefineBase> define,
+                                                              unsigned int nSlots,
+                                                              ROOT::Internal::RDF::RStringCache &cachedColNames)
+   : fDefine(std::move(define)), fReadersPerVariation(nSlots), fCachedColNames(cachedColNames)
 {
-   const auto &colTId = define.GetTypeId();
+   assert(fDefine != nullptr);
+}
 
-   // Here we compare names and not typeinfos since they may come from two different contexts: a compiled
-   // and a jitted one.
-   const auto diffTypes = (0 != std::strcmp(colTId.name(), tid.name()));
-   auto inheritedType = [&]() {
-      auto colTClass = TClass::GetClass(colTId);
-      return colTClass && colTClass->InheritsFrom(TClass::GetClass(tid));
-   };
+ROOT::Internal::RDF::RDefineReader &
+ROOT::Internal::RDF::RDefinesWithReaders::GetReader(unsigned int slot, std::string_view variationName)
+{
+   auto nameIt = fCachedColNames.Insert(std::string(variationName));
+   auto &defineReaders = fReadersPerVariation[slot];
 
-   if (diffTypes && !inheritedType()) {
-      const auto tName = TypeID2TypeName(tid);
-      const auto colTypeName = TypeID2TypeName(colTId);
-      std::string errMsg = "RDefineReader: column \"" + define.GetName() + "\" is being used as ";
-      if (tName.empty()) {
-         errMsg += tid.name();
-         errMsg += " (extracted from type info)";
+   auto it = defineReaders.find(*nameIt);
+   if (it != defineReaders.end())
+      return *it->second;
+
+   std::shared_ptr<RDefineReader> readerToReturn;
+   auto *define = fDefine.get();
+   if (*nameIt == "nominal") {
+      readerToReturn = std::make_shared<RDefineReader>(slot, *define);
+   } else {
+      auto *variedDefine = &define->GetVariedDefine(std::string(variationName));
+      if (variedDefine == define) {
+         // The column in not affected by variations. We can return the same reader as for nominal
+         if (auto nominalReaderIt = defineReaders.find("nominal"); nominalReaderIt != defineReaders.end()) {
+            readerToReturn = nominalReaderIt->second;
+         } else {
+            // The nominal reader doesn't exist yet
+            readerToReturn = std::make_shared<RDefineReader>(slot, *define);
+            auto nominalNameIt = fCachedColNames.Insert("nominal");
+            defineReaders.insert({*nominalNameIt, readerToReturn});
+         }
       } else {
-         errMsg += tName;
+         readerToReturn = std::make_shared<RDefineReader>(slot, *variedDefine);
       }
-      errMsg += " but defined column has type ";
-      if (colTypeName.empty()) {
-         auto &id = colTId;
-         errMsg += id.name();
-         errMsg += " (extracted from type info)";
-      } else {
-         errMsg += colTypeName;
-      }
-      throw std::runtime_error(errMsg);
    }
+
+   defineReaders.insert({*nameIt, readerToReturn});
+
+   return *readerToReturn;
 }

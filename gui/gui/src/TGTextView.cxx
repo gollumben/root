@@ -64,7 +64,6 @@ Bool_t TViewTimer::Notify()
    return kFALSE;
 }
 
-ClassImp(TGTextView);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -116,7 +115,7 @@ void TGTextView::Init(ULong_t back)
 /// Create a text view widget.
 
 TGTextView::TGTextView(const TGWindow *parent, UInt_t w, UInt_t h, Int_t id,
-                       UInt_t sboptions, ULong_t back) :
+                       UInt_t sboptions, Pixel_t back) :
      TGView(parent, w, h, id, 3, 3, kSunkenFrame | kDoubleBorder, sboptions, back)
 {
    Init(back);
@@ -126,7 +125,7 @@ TGTextView::TGTextView(const TGWindow *parent, UInt_t w, UInt_t h, Int_t id,
 /// Create a text view widget.
 
 TGTextView::TGTextView(const TGWindow *parent, UInt_t w, UInt_t h, TGText *text,
-                       Int_t id, UInt_t sboptions, ULong_t back) :
+                       Int_t id, UInt_t sboptions, Pixel_t back) :
      TGView(parent, w, h, id, 3, 3, kSunkenFrame | kDoubleBorder, sboptions, back)
 {
    Init(back);
@@ -143,7 +142,7 @@ TGTextView::TGTextView(const TGWindow *parent, UInt_t w, UInt_t h, TGText *text,
 
 TGTextView::TGTextView(const TGWindow *parent, UInt_t w, UInt_t h,
                        const char *string, Int_t id, UInt_t sboptions,
-                       ULong_t back) :
+                       Pixel_t back) :
      TGView(parent, w, h, id, 3, 3, kSunkenFrame | kDoubleBorder, sboptions, back)
 {
    Init(back);
@@ -751,7 +750,7 @@ Bool_t TGTextView::HandleTimer(TTimer *)
          } else if ((Int_t)fCanvas->GetHeight() - kAutoScrollFudge <= y) {
             dy = fCanvas->GetHeight() - kAutoScrollFudge - y;
          }
-         Int_t ady = TMath::Abs(dy) >> 3;
+         Int_t ady = std::abs(dy) >> 3;
 
          if (dy) {
             if (ady > kAutoScrollFudge) ady = kAutoScrollFudge;
@@ -1560,17 +1559,15 @@ const TGGC &TGTextView::GetDefaultSelectedBackgroundGC()
 
 void TGTextView::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
-   out << "   TGTextView *";
-   out << GetName() << " = new TGTextView(" << fParent->GetName()
+   out << "   TGTextView *" << GetName() << " = new TGTextView(" << fParent->GetName()
        << "," << GetWidth() << "," << GetHeight()
-       << ");"<< std::endl;
+       << ");\n";
 
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
    if (fCanvas->GetBackground() != TGFrame::fgWhitePixel) {
-      out << "   " << GetName() << "->ChangeBackground(" << fCanvas->GetBackground() << ");" << std::endl;
+      out << "   " << GetName() << "->ChangeBackground(" << fCanvas->GetBackground() << ");\n";
    }
 
    TGText *txt = GetText();
@@ -1582,8 +1579,8 @@ void TGTextView::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
       fn = gSystem->UnixPathName(filename);
       gSystem->ExpandPathName(fn);
    } else {
-      fn = TString::Format("Txt%s", GetName()+5);
+      fn.Form("Txt%s", GetName()+5);
       txt->Save(fn.Data());
    }
-   out << "   " << GetName() << "->LoadFile(" << quote << fn.Data() << quote << ");" << std::endl;
+   out << "   " << GetName() << "->LoadFile(\"" << fn.ReplaceSpecialCppChars() << "\");\n";
 }

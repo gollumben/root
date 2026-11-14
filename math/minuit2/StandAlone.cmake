@@ -1,18 +1,13 @@
-cmake_minimum_required(VERSION 3.1)
-
-# Tested with and supporting policies up to the following CMake version. 
-# Not using ... syntax due to parser bug in MSVC's built-in CMake server mode.
-if(${CMAKE_VERSION} VERSION_LESS 3.12)
-    cmake_policy(VERSION ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION})
-else()
-    cmake_policy(VERSION 3.12)
-endif()
+# Use the minimum C++ standard of ROOT by default
+set(CMAKE_CXX_STANDARD 17 CACHE STRING "")
+set(CMAKE_CXX_EXTENSIONS OFF CACHE BOOL "")
 
 include(FeatureSummary)
 include(CMakeDependentOption)
+include(GNUInstallDirs)
 
 # Check to see if we are inside ROOT and set a smart default
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../build/version_number")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../rootx/src/rootx.cxx")
     set(INROOT ON)
 else()
     set(INROOT OFF)
@@ -25,13 +20,38 @@ if(minuit2_standalone)
     message(STATUS "Copying in files from ROOT sources to make a redistributable source package. You should clean out the new files with make purge or the appropriate git clean command when you are done.")
 endif()
 
+# Similar to cmake/modules/SetROOTVersion.cmake
+function(SET_ROOT_VERSION_FROM_FILE)
+  file(READ ${VERSION_FILE} versionstr)
+  string(REGEX MATCH "#define ROOT_VERSION_MAJOR ([0-9]*)" _ ${versionstr})
+  set(ROOT_MAJOR_VERSION ${CMAKE_MATCH_1})
+  string(REGEX MATCH "#define ROOT_VERSION_MINOR ([0-9]*)" _ ${versionstr})
+  set(ROOT_MINOR_VERSION ${CMAKE_MATCH_1})
+  string(REGEX MATCH "#define ROOT_VERSION_PATCH ([0-9]*)" _ ${versionstr})
+  set(ROOT_PATCH_VERSION ${CMAKE_MATCH_1})
+
+  set(ROOT_MAJOR_VERSION "${ROOT_MAJOR_VERSION}" PARENT_SCOPE)
+  set(ROOT_MINOR_VERSION "${ROOT_MINOR_VERSION}" PARENT_SCOPE)
+  set(ROOT_PATCH_VERSION "${ROOT_PATCH_VERSION}" PARENT_SCOPE)
+
+  set(ROOT_VERSION "${ROOT_MAJOR_VERSION}.${ROOT_MINOR_VERSION}.${ROOT_PATCH_VERSION}" PARENT_SCOPE)
+endfunction()
 
 # This file adds copy_standalone
 include(copy_standalone.cmake)
 
+# We need the std::span backport. This can be removed once the minimum C++
+# standard gets raised to C++20, which should happen if also the minimum C++
+# standard of ROOT gets raised and the std::span backport in RSpan is removed.
+set(SPAN_HEADERS RSpan.hxx span.hxx)
+copy_standalone(SOURCE ../../core/foundation/inc/ROOT DESTINATION inc/ROOT OUTPUT SPAN_HEADERS
+                FILES ${SPAN_HEADERS})
+install(FILES ${SPAN_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Minuit2/ROOT)
+
+
 # Copy these files in if needed
-copy_standalone(SOURCE ../../build DESTINATION . OUTPUT VERSION_FILE
-                FILES version_number)
+copy_standalone(SOURCE ../../core/foundation/inc/ROOT DESTINATION . OUTPUT VERSION_FILE
+                FILES RVersion.hxx)
 
 copy_standalone(SOURCE ../.. DESTINATION .
                 FILES LGPL2_1.txt)
@@ -39,14 +59,14 @@ copy_standalone(SOURCE ../.. DESTINATION .
 copy_standalone(SOURCE ../.. DESTINATION . OUTPUT LICENSE_FILE
                 FILES LICENSE)
 
-file(READ ${VERSION_FILE} versionstr)
-string(STRIP ${versionstr} versionstr)
-string(REGEX REPLACE "([0-9]+[.][0-9]+)[/]([0-9]+)" "\\1.\\2" versionstr ${versionstr})
+SET_ROOT_VERSION_FROM_FILE()
+
+# Take the version number over from ROOT
+set(MINUIT2_VERSION ${ROOT_VERSION})
 
 project(Minuit2
-    VERSION ${versionstr}
+    VERSION ${MINUIT2_VERSION}
     LANGUAGES CXX)
-
 
 # Inherit default from parent project if not main project
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
@@ -101,33 +121,32 @@ write_basic_package_version_file(
 # Now, install the Interface targets
 install(TARGETS Minuit2Common
         EXPORT Minuit2Targets
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib
-        RUNTIME DESTINATION bin
-        INCLUDES DESTINATION include
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         )
 
 # Install the export set
 install(EXPORT Minuit2Targets
         FILE Minuit2Targets.cmake
         NAMESPACE Minuit2::
-        DESTINATION lib/cmake/Minuit2
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Minuit2
         )
 
 # Adding the Minuit2Config file
 configure_file(Minuit2Config.cmake.in Minuit2Config.cmake @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/Minuit2Config.cmake" "${CMAKE_CURRENT_BINARY_DIR}/Minuit2ConfigVersion.cmake"
-        DESTINATION lib/cmake/Minuit2
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Minuit2
         )
 
 # Allow build directory to work for CMake import
 export(TARGETS Minuit2Common Minuit2Math Minuit2 NAMESPACE Minuit2:: FILE Minuit2Targets.cmake)
-export(PACKAGE Minuit2)
 
 # Only add tests and docs if this is the main project
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     enable_testing()
-    
+
     # Make adding tests cleaner using this macro
     macro(add_minuit2_test TESTNAME)
         add_executable(${TESTNAME} ${ARGN})
@@ -173,7 +192,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 endif()
 
 # Packaging support
-set(CPACK_PACKAGE_VENDOR "root.cern.ch")
+set(CPACK_PACKAGE_VENDOR "root.cern")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Minuit2 standalone fitting tool")
 set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
@@ -208,4 +227,3 @@ set(CPACK_SOURCE_IGNORE_FILES
     /Pipfile.*$
 )
 include(CPack)
-

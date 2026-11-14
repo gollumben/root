@@ -25,9 +25,11 @@ class TColor;
 class TWebPainting : public TObject {
 
    protected:
-      std::string fOper;      /// list of operations, separated by semicolons
+      std::string fClassName; ///< class name of object produced this painting
+      std::string fObjectName; ///< object name
+      std::string fOper;      ///< list of operations, separated by semicolons
       Int_t fSize{0};         ///<! filled buffer size
-      TArrayF fBuf;           /// array of points for all operations
+      TArrayF fBuf;           ///< array of points for all operations
       TAttLine fLastLine;     ///<! last line attributes
       TAttFill fLastFill;     ///<! last fill attributes
       TAttMarker fLastMarker; ///<! last marker attributes
@@ -35,7 +37,13 @@ class TWebPainting : public TObject {
    public:
 
       TWebPainting();
-      virtual ~TWebPainting() = default;
+      ~TWebPainting() override = default;
+
+      void SetClassName(const std::string &classname) { fClassName = classname; }
+      const std::string &GetClassName() const { return fClassName; }
+
+      void SetObjectName(const std::string &objname) { fObjectName = objname; }
+      const std::string &GetObjectName() const { return fObjectName; }
 
       Bool_t IsEmpty() const { return fOper.empty() && (fBuf.GetSize() == 0); }
 
@@ -56,7 +64,7 @@ class TWebPainting : public TObject {
       static std::string MakeTextOper(const char *str);
 
 
-   ClassDef(TWebPainting, 1) // store for all paint operation of TVirtualPadPainter
+   ClassDefOverride(TWebPainting, 2) // store for all paint operation of TVirtualPadPainter
 };
 
 #endif

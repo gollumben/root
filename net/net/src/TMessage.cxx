@@ -30,7 +30,6 @@
 Bool_t TMessage::fgEvolution = kFALSE;
 
 
-ClassImp(TMessage);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a TMessage object for storing objects. The "what" integer
@@ -43,8 +42,8 @@ ClassImp(TMessage);
 /// the message will be compressed in TSocket using the zip algorithm
 /// (only if message is > 256 bytes).
 
-TMessage::TMessage(UInt_t what, Int_t bufsiz) :
-   TBufferFile(TBuffer::kWrite, bufsiz + 2*sizeof(UInt_t)),
+TMessage::TMessage(UInt_t what, Int_t bufsize) :
+   TBufferFile(TBuffer::kWrite, bufsize + 2*sizeof(UInt_t)),
    fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    // space at the beginning of the message reserved for the message length
@@ -68,7 +67,7 @@ TMessage::TMessage(UInt_t what, Int_t bufsiz) :
 /// Create a TMessage object for reading objects. The objects will be
 /// read from buf. Use the What() method to get the message type.
 
-TMessage::TMessage(void *buf, Int_t bufsize) : TBufferFile(TBuffer::kRead, bufsize, buf),
+TMessage::TMessage(void *buf, Int_t bufsize, Bool_t adopt) : TBufferFile(TBuffer::kRead, bufsize, buf, adopt),
                                                fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    // skip space at the beginning of the message reserved for the message length
@@ -88,6 +87,9 @@ TMessage::TMessage(void *buf, Int_t bufsize) : TBufferFile(TBuffer::kRead, bufsi
       fBufCompCur = fBuffer + bufsize;
       fBuffer     = nullptr;
       Uncompress();
+      if (adopt) {
+         SetBit(kIsOwnerComp); // bufcomp points to the original buf
+      }
    }
 
    if (fWhat == kMESS_OBJECT) {
@@ -105,7 +107,9 @@ TMessage::TMessage(void *buf, Int_t bufsize) : TBufferFile(TBuffer::kRead, bufsi
 
 TMessage::~TMessage()
 {
-   delete [] fBufComp;
+   // We only own fBufComp when we explictly created it or adopt and kMESS_ZIP were true
+   if (TestBit(kIsOwnerComp))
+      delete [] fBufComp;
    delete fInfos;
 }
 
@@ -182,7 +186,9 @@ void TMessage::Reset()
    ResetMap();
 
    if (fBufComp) {
-      delete [] fBufComp;
+      // We only own fBufComp when we explictly created it or adopt and kMESS_ZIP were true
+      if (TestBit(kIsOwnerComp))
+         delete [] fBufComp;
       fBufComp    = nullptr;
       fBufCompCur = nullptr;
       fCompPos    = nullptr;
@@ -250,7 +256,9 @@ void TMessage::SetCompressionAlgorithm(Int_t algorithm)
       newCompress = 100 * algorithm + level;
    }
    if (newCompress != fCompress && fBufComp) {
-      delete [] fBufComp;
+      // We only own fBufComp when we explictly created it or adopt and kMESS_ZIP were true
+      if (TestBit(kIsOwnerComp))
+         delete [] fBufComp;
       fBufComp    = nullptr;
       fBufCompCur = nullptr;
       fCompPos    = nullptr;
@@ -274,7 +282,9 @@ void TMessage::SetCompressionLevel(Int_t level)
       newCompress = 100 * algorithm + level;
    }
    if (newCompress != fCompress && fBufComp) {
-      delete [] fBufComp;
+      // We only own fBufComp when we explictly created it or adopt and kMESS_ZIP were true
+      if (TestBit(kIsOwnerComp))
+         delete [] fBufComp;
       fBufComp    = nullptr;
       fBufCompCur = nullptr;
       fCompPos    = nullptr;
@@ -288,7 +298,9 @@ void TMessage::SetCompressionLevel(Int_t level)
 void TMessage::SetCompressionSettings(Int_t settings)
 {
    if (settings != fCompress && fBufComp) {
-      delete [] fBufComp;
+      // We only own fBufComp when we explictly created it or adopt and kMESS_ZIP were true
+      if (TestBit(kIsOwnerComp))
+         delete [] fBufComp;
       fBufComp    = nullptr;
       fBufCompCur = nullptr;
       fCompPos    = nullptr;
@@ -310,7 +322,9 @@ Int_t TMessage::Compress()
    if (compressionLevel <= 0) {
       // no compression specified
       if (fBufComp) {
-         delete [] fBufComp;
+         // We only own fBufComp when we explictly created it or adopt and kMESS_ZIP were true
+         if (TestBit(kIsOwnerComp))
+            delete [] fBufComp;
          fBufComp    = nullptr;
          fBufCompCur = nullptr;
          fCompPos    = nullptr;
@@ -325,7 +339,9 @@ Int_t TMessage::Compress()
 
    // remove any existing compressed buffer before compressing modified message
    if (fBufComp) {
-      delete [] fBufComp;
+      // We only own fBufComp when we explictly created it or adopt and kMESS_ZIP were true
+      if (TestBit(kIsOwnerComp))
+         delete [] fBufComp;
       fBufComp    = nullptr;
       fBufCompCur = nullptr;
       fCompPos    = nullptr;
@@ -343,34 +359,36 @@ Int_t TMessage::Compress()
 
    Int_t hdrlen   = 2*sizeof(UInt_t);
    Int_t messlen  = Length() - hdrlen;
-   Int_t nbuffers = 1 + (messlen - 1) / kMAXZIPBUF;
+   const auto blocks = ROOT::Internal::GetZipBlocks(messlen);
+   const Int_t nbuffers = blocks.fNBlocks;
+   const Int_t blockSize = blocks.fBlockSize;
    Int_t chdrlen  = 3*sizeof(UInt_t);   // compressed buffer header length
    Int_t buflen   = std::max(512, chdrlen + messlen + 9*nbuffers);
    fBufComp       = new char[buflen];
    char *messbuf  = Buffer() + hdrlen;
    char *bufcur   = fBufComp + chdrlen;
-   Int_t noutot   = 0;
+   SetBit(kIsOwnerComp);
    Int_t nzip     = 0;
    Int_t nout, bufmax;
    for (Int_t i = 0; i < nbuffers; ++i) {
       if (i == nbuffers - 1)
          bufmax = messlen - nzip;
       else
-         bufmax = kMAXZIPBUF;
+         bufmax = blockSize;
       R__zipMultipleAlgorithm(compressionLevel, &bufmax, messbuf, &bufmax, bufcur, &nout,
                               static_cast<ROOT::RCompressionSetting::EAlgorithm::EValues>(compressionAlgorithm));
       if (nout == 0 || nout >= messlen) {
          //this happens when the buffer cannot be compressed
-         delete [] fBufComp;
+         if (TestBit(kIsOwnerComp))
+            delete [] fBufComp;
          fBufComp    = nullptr;
          fBufCompCur = nullptr;
          fCompPos    = nullptr;
          return -1;
       }
       bufcur  += nout;
-      noutot  += nout;
-      messbuf += kMAXZIPBUF;
-      nzip    += kMAXZIPBUF;
+      messbuf += blockSize;
+      nzip += blockSize;
    }
    fBufCompCur = bufcur;
    fCompPos    = fBufCur;
@@ -393,15 +411,27 @@ Int_t TMessage::Uncompress()
    if (!fBufComp || !(fWhat & kMESS_ZIP))
       return -1;
 
+   Int_t nbytesRemain = CompLength();
+   if (nbytesRemain < static_cast<Int_t>(3 * sizeof(Int_t))) {
+      Error("Uncompress", "Compressed buffer too short (%d)", CompLength());
+      return -1;
+   }
    Int_t buflen;
    Int_t hdrlen = 2*sizeof(UInt_t);
    char *bufcur1 = fBufComp + hdrlen;
    frombuf(bufcur1, &buflen);
    UChar_t *bufcur = (UChar_t*)bufcur1;
+   nbytesRemain -= 3 * sizeof(Int_t);
+
+   if (buflen < hdrlen) {
+      Error("Uncompress", "Uncompressed buffer length too short (%d)", buflen);
+      return -1;
+   }
 
    /* early consistency check */
-   Int_t nin, nbuf;
-   if(R__unzip_header(&nin, bufcur, &nbuf)!=0) {
+   Int_t nin = 0;
+   Int_t nbuf = 0;
+   if ((nbytesRemain < ROOT::Internal::kZipHeaderSize) || R__unzip_header(&nin, bufcur, &nbuf) != 0) {
       Error("Uncompress", "Inconsistency found in header (nin=%d, nbuf=%d)", nin, nbuf);
       return -1;
    }
@@ -412,17 +442,33 @@ Int_t TMessage::Uncompress()
    fBufMax  = fBuffer + fBufSize;
    char *messbuf = fBuffer + hdrlen;
 
-   Int_t nout;
+   // Force being owner of the newly created buffer
+   SetBit(kIsOwner);
+
+   Int_t nout = 0;
    Int_t noutot = 0;
-   while (1) {
+   Int_t objlenRemain = buflen - hdrlen;
+   while (nbytesRemain >= ROOT::Internal::kZipHeaderSize) {
       Int_t hc = R__unzip_header(&nin, bufcur, &nbuf);
-      if (hc!=0) break;
+      if ((hc != 0) || (nin > nbytesRemain) || (nbuf > objlenRemain))
+         break;
       R__unzip(&nin, bufcur, &nbuf, (unsigned char*) messbuf, &nout);
       if (!nout) break;
       noutot += nout;
       if (noutot >= buflen - hdrlen) break;
       bufcur  += nin;
       messbuf += nout;
+      nbytesRemain -= nin;
+      objlenRemain -= nout;
+   }
+
+   if (noutot != buflen - hdrlen) {
+      Error("Uncompress", "buflen = %d, objlenRemain = %d, noutot = %d, nout=%d, nin=%d, nbuf=%d", buflen, objlenRemain,
+            noutot, nout, nin, nbuf);
+      delete[] fBuffer;
+      fBuffer = fBufCur = fBufMax = nullptr;
+      fBufSize = 0;
+      return -1;
    }
 
    fWhat &= ~kMESS_ZIP;

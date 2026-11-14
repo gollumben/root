@@ -35,13 +35,13 @@
 #include "TRootHelpDialog.h"
 #include "TGListTree.h"
 #include "TImage.h"
+#include "TASUtils.h"
 #include "TGTextEdit.h"
 #include "TGTab.h"
 #include "TGListBox.h"
 #include "TGComboBox.h"
 #include "TGProgressBar.h"
 #include "TVirtualX.h"
-
 
 /** \class TRootGuiBuilder
     \ingroup guibuilder
@@ -52,7 +52,7 @@
  to embedded editing concept - WYSIWYE ("what you see is what you edit").
  The ROOT GUI Builder allows modifying real GUI objects.
  For example, one can edit the existing GUI application created by
- $ROOTSYS/tutorials/gui/guitest.C.
+ $ROOTSYS/tutorials/visualisation/gui/guitest.C.
  GUI components can be added to a design area from a widget palette,
  or can be borrowed from another application.
  One can drag and and drop TCanvas's menu bar into the application.
@@ -109,7 +109,6 @@
 
 */
 
-
 const char gHelpBuilder[] = "\
                Start/Stop Edit Mode\n\
      ************************************************\n\
@@ -160,9 +159,9 @@ const char gHelpBuilder[] = "\
                     More information\n\
      ************************************************\n\
 \n\
-For more information, please see the GuiBuilder Howto page at:\n\
+For more information, please see:\n\
 \n\
-   http://root.cern.ch/root/HowtoGuiBuilder.html\n\
+   https://root.cern.ch/doc/master/group__guibuilder.html\n\
 \n\
 ";
 
@@ -214,7 +213,6 @@ static ToolBarData_t gToolBarData[] = {
 };
 
 
-ClassImp(TRootGuiBuilder);
 
 
 TGGC *TRootGuiBuilder::fgBgnd = 0;
@@ -236,10 +234,10 @@ private:
    Pixel_t fBgndColor;
 
 protected:
-   void DoRedraw();
+   void DoRedraw() override;
 
 public:
-   virtual ~TGuiBldMenuTitle() {}
+   ~TGuiBldMenuTitle() override {}
    TGuiBldMenuTitle(const TGWindow *p, TGHotString *s, TGPopupMenu *menu) :
       TGMenuTitle(p, s, menu) {
          fEditDisabled = kEditDisable;
@@ -248,7 +246,7 @@ public:
          AddInput(kEnterWindowMask | kLeaveWindowMask);
    }
 
-   Bool_t HandleCrossing(Event_t *event);
+   Bool_t HandleCrossing(Event_t *event) override;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -299,14 +297,14 @@ void TGuiBldMenuTitle::DoRedraw()
 class TGuiBldPopupMenu : public TGPopupMenu {
 
 public:
-   virtual ~TGuiBldPopupMenu() { }
+   ~TGuiBldPopupMenu() override { }
    TGuiBldPopupMenu() :
       TGPopupMenu(gClient->GetDefaultRoot()) {
       fEditDisabled = kEditDisable;
       SetBackgroundColor(TRootGuiBuilder::GetPopupBgnd());
       fEntrySep = 8;
    }
-   void DrawEntry(TGMenuEntry *entry);
+   void DrawEntry(TGMenuEntry *entry) override;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -465,20 +463,20 @@ private:
    Pixel_t fBgndColor;
 
 protected:
-   void  DoRedraw();
+   void  DoRedraw() override;
 
 public:
-   virtual ~TGuiBldToolButton() { }
+   ~TGuiBldToolButton() override { }
    TGuiBldToolButton(const TGWindow *p, const TGPicture *pic, Int_t id = -1) :
          TGPictureButton(p, pic, id) {
       fBgndColor = TRootGuiBuilder::GetBgnd();
       ChangeOptions(GetOptions() & ~kRaisedFrame);
    }
 
-   Bool_t IsDown() const { return (fOptions & kSunkenFrame); }
-   void SetState(EButtonState state, Bool_t emit = kTRUE);
-   Bool_t HandleCrossing(Event_t *event);
-   void SetBackgroundColor(Pixel_t bgnd) { fBgndColor = bgnd; TGFrame::SetBackgroundColor(bgnd); }
+   Bool_t IsDown() const override { return (fOptions & kSunkenFrame); }
+   void SetState(EButtonState state, Bool_t emit = kTRUE) override;
+   Bool_t HandleCrossing(Event_t *event) override;
+   void SetBackgroundColor(Pixel_t bgnd) override { fBgndColor = bgnd; TGFrame::SetBackgroundColor(bgnd); }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1602,12 +1600,9 @@ Bool_t TRootGuiBuilder::SaveProject(Event_t *event)
    TGMdiFrame *savfr = fMain->GetCurrent();
    if (!savfr) return kFALSE;
 
-   static TImage *img = 0;
+   static std::unique_ptr<TImage> img;
 
-   if (!img) {
-      img = TImage::Create();
-   }
-   img->FromWindow(savfr->GetParent()->GetId());
+   img = TASUtils::FromWindow(savfr->GetParent()->GetId());
 
    TGWindow *root = (TGWindow*)fClient->GetRoot();
    TGFileInfo fi;
@@ -1659,7 +1654,7 @@ Bool_t TRootGuiBuilder::SaveProject(Event_t *event)
 
       savfr->SetName(name.Data());
 
-      AddMacro(fname.Data(), img);
+      AddMacro(fname.Data(), img.get());
       delete main;
    } else {
       Int_t retval;
@@ -1696,7 +1691,7 @@ void TRootGuiBuilder::AddMacro(const char *macro, TImage *img)
    static int i = 0;
    const TGPicture *pic = fClient->GetPicturePool()->GetPicture(
                                        TString::Format("%s;%d", macro, i++),
-                                       img->GetPixmap(),img->GetMask());
+                                       TASUtils::GetPixmap(img), TASUtils::GetMask(img));
    const char *name = gSystem->BaseName(macro);
 
    TGButton *btn = FindActionButton(name, "User's Macros");

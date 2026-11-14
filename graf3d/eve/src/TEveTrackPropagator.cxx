@@ -36,7 +36,6 @@ not used in TEve and can be ignored in sub-classes.
 NOTE: Magnetic field direction convention is inverted.
 */
 
-ClassImp(TEveMagField);
 
 /** \class TEveMagFieldConst
 \ingroup TEve
@@ -45,7 +44,6 @@ Implements constant magnetic field, given by a vector fB.
 NOTE: Magnetic field direction convention is inverted.
 */
 
-ClassImp(TEveMagFieldConst);
 
 /** \class TEveMagFieldDuo
 \ingroup TEve
@@ -55,7 +53,6 @@ from vector fBIn to fBOut.
 NOTE: Magnetic field direction convention is inverted.
 */
 
-ClassImp(TEveMagFieldDuo);
 
 namespace
 {
@@ -214,7 +211,6 @@ consists of separate domains (like Rho-Z). The track-breaking is enabled by
 default.
 */
 
-ClassImp(TEveTrackPropagator);
 
 Double_t             TEveTrackPropagator::fgDefMagField = 0.5;
 const Double_t       TEveTrackPropagator::fgkB2C        = 0.299792458e-2;
@@ -263,7 +259,7 @@ TEveTrackPropagator::TEveTrackPropagator(const char* n, const char* t,
    fPTBAtt.SetMarkerStyle(4);
    fPTBAtt.SetMarkerSize(0.8);
 
-   if (fMagFieldObj == 0) {
+   if (fMagFieldObj == nullptr) {
       fMagFieldObj = new TEveMagFieldConst(0., 0., fgDefMagField);
       fOwnMagFiledObj = kTRUE;
    }
@@ -1449,7 +1445,7 @@ void TEveTrackPropagator::StepRungeKutta(Double_t step,
        return;
     }
 
-  } while(1);
+  } while(true);
 
   // angle too big, use helix
 

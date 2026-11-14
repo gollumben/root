@@ -22,24 +22,20 @@
 #include "RooTemplateProxy.h"
 #include "RooHistFunc.h"
 
-namespace BatchHelpers { struct RunContext; }
-
 class RooBinWidthFunction : public RooAbsReal {
+  static bool _enabled;
+
 public:
+  static void enableClass();
+  static void disableClass();
+  static bool isClassEnabled();
+
   /// Create an empty instance.
   RooBinWidthFunction() :
     _histFunc("HistFuncForBinWidth", "Handle to a RooHistFunc, whose bin volumes should be returned.", this,
         /*valueServer=*/true, /*shapeServer=*/true) { }
 
-  /// Create an instance.
-  /// \param name Name to identify the object.
-  /// \param title Title for e.g. plotting.
-  /// \param histFunc RooHistFunc object whose bin widths should be returned.
-  /// \param divideByBinWidth If true, return inverse bin width.
-  RooBinWidthFunction(const char* name, const char* title, const RooHistFunc& histFunc, bool divideByBinWidth) :
-    RooAbsReal(name, title),
-    _histFunc("HistFuncForBinWidth", "Handle to a RooHistFunc, whose bin volumes should be returned.", this, histFunc, /*valueServer=*/true, /*shapeServer=*/true),
-    _divideByBinWidth(divideByBinWidth) { }
+  RooBinWidthFunction(const char* name, const char* title, const RooHistFunc& histFunc, bool divideByBinWidth);
 
   /// Copy an existing object.
   RooBinWidthFunction(const RooBinWidthFunction& other, const char* newname = nullptr) :
@@ -47,10 +43,10 @@ public:
     _histFunc("HistFuncForBinWidth", this, other._histFunc),
     _divideByBinWidth(other._divideByBinWidth) { }
 
-  virtual ~RooBinWidthFunction() { }
+  std::unique_ptr<RooAbsArg> compileForNormSet(RooArgSet const &normSet, RooFit::Detail::CompileContext & ctx) const override;
 
   /// Copy the object and return as TObject*.
-  virtual TObject* clone(const char* newname = nullptr) const override {
+  TObject* clone(const char* newname = nullptr) const override {
     return new RooBinWidthFunction(*this, newname);
   }
 
@@ -60,16 +56,18 @@ public:
     return _histFunc->isBinnedDistribution(obs);
   }
   /// Return bin boundaries of internal RooHistFunc.
-  std::list<Double_t>* binBoundaries(RooAbsRealLValue& obs, Double_t xlo, Double_t xhi) const override {
+  std::list<double>* binBoundaries(RooAbsRealLValue& obs, double xlo, double xhi) const override {
     return _histFunc->binBoundaries(obs, xlo, xhi);
   }
   /// Return plotSamplingHint of internal RooHistFunc.
-  std::list<Double_t>* plotSamplingHint(RooAbsRealLValue& obs, Double_t xlo, Double_t xhi) const override {
+  std::list<double>* plotSamplingHint(RooAbsRealLValue& obs, double xlo, double xhi) const override {
     return _histFunc->plotSamplingHint(obs, xlo, xhi);
   }
 
+  bool divideByBinWidth() const { return _divideByBinWidth; }
+  const RooHistFunc& histFunc() const { return (*_histFunc); }
   double evaluate() const override;
-  RooSpan<double> evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const override;
+  void doEval(RooFit::EvalContext &) const override;
 
 private:
   RooTemplateProxy<const RooHistFunc> _histFunc;

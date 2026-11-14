@@ -43,14 +43,11 @@ and TGPrintDialog.
 #include "TObjArray.h"
 #include "TVirtualX.h"
 #include "strlcpy.h"
-#include "snprintf.h"
 
+#include <cstdio>
 #include <cstdlib>
 
 
-ClassImp(TGSearchDialog);
-ClassImp(TGPrintDialog);
-ClassImp(TGGotoDialog);
 
 static TString gLastSearchString;
 TGSearchDialog *TGSearchDialog::fgSearchDialog = nullptr;
@@ -216,7 +213,7 @@ void TGSearchDialog::TextEntered(const char *text)
 ////////////////////////////////////////////////////////////////////////////////
 /// Process search dialog widget messages.
 
-Bool_t TGSearchDialog::ProcessMessage(Long_t msg, Long_t parm1, Long_t)
+Bool_t TGSearchDialog::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t)
 {
    const char *string;
 
@@ -490,7 +487,7 @@ void TGPrintDialog::GetPrinters()
 ////////////////////////////////////////////////////////////////////////////////
 /// Process print dialog widget messages.
 
-Bool_t TGPrintDialog::ProcessMessage(Long_t msg, Long_t parm1, Long_t)
+Bool_t TGPrintDialog::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t)
 {
    const char *string, *txt;
 
@@ -643,7 +640,7 @@ void TGGotoDialog::CloseWindow()
 ////////////////////////////////////////////////////////////////////////////////
 /// Process goto dialog widget messages.
 
-Bool_t TGGotoDialog::ProcessMessage(Long_t msg, Long_t parm1, Long_t)
+Bool_t TGGotoDialog::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t)
 {
    const char *string;
 

@@ -18,14 +18,13 @@ Description of a 2D or 3D frame that can be used to visually group
 a set of objects.
 */
 
-ClassImp(TEveFrameBox);
 
 ////////////////////////////////////////////////////////////////////////////////
 
 TEveFrameBox::TEveFrameBox() :
    fFrameType   (kFT_None),
    fFrameSize   (0),
-   fFramePoints (0),
+   fFramePoints (nullptr),
 
    fFrameWidth  (1),
    fFrameColor  (1),

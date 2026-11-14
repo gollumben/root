@@ -26,7 +26,6 @@ Vessel to carry hand-picked geometry from gled to reve.
 This class exists in both frameworks.
 */
 
-ClassImp(TEveGeoShapeExtract);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -37,8 +36,8 @@ TEveGeoShapeExtract::TEveGeoShapeExtract(const char* n, const char* t) :
    fRnrElements (kTRUE),
    fRnrFrame    (kTRUE),
    fMiniFrame   (kTRUE),
-   fShape       (0),
-   fElements    (0)
+   fShape       (nullptr),
+   fElements    (nullptr)
 {
    memset(fTrans, 0, sizeof(fTrans));
    fTrans[0] = fTrans[5] = fTrans[10] = fTrans[15] = 1;
@@ -60,7 +59,7 @@ TEveGeoShapeExtract::~TEveGeoShapeExtract()
 
 Bool_t TEveGeoShapeExtract::HasElements()
 {
-   return fElements != 0 && fElements->GetSize() > 0;
+   return fElements != nullptr && fElements->GetSize() > 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -68,7 +67,7 @@ Bool_t TEveGeoShapeExtract::HasElements()
 
 void TEveGeoShapeExtract::AddElement(TEveGeoShapeExtract* gse)
 {
-   if (fElements == 0)
+   if (fElements == nullptr)
       fElements = new TList;
 
    fElements->Add(gse);

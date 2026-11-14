@@ -9,12 +9,6 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
-
-
 #include "TROOT.h"
 #include "TStreamerElement.h"
 #include "TVirtualStreamerInfo.h"
@@ -26,6 +20,8 @@
 #include "TBaseClass.h"
 #include "TDataMember.h"
 #include "TDataType.h"
+#include "ROOT/BitUtils.hxx"
+#include "TEnum.h"
 #include "TRealData.h"
 #include "ThreadLocalStorage.h"
 #include "TList.h"
@@ -36,11 +32,11 @@
 #include "TVirtualMutex.h"
 #include "TVirtualCollectionProxy.h"
 #include "strlcpy.h"
-#include "snprintf.h"
 
+#include <cstdio>
 #include <string>
 
-using namespace std;
+using std::string;
 
 const Int_t kMaxLen = 1024;
 
@@ -188,16 +184,16 @@ static void GetRange(const char *comments, Double_t &xmin, Double_t &xmax, Doubl
    if (xmin >= xmax && nbits <15) xmin = nbits+0.1;
 }
 
-ClassImp(TStreamerElement);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
 
 TStreamerElement::TStreamerElement()
 {
-   fType        = 0;
+   // clang-format off
+   fType        = TVirtualStreamerInfo::kUnset;
    fSize        = 0;
-   fNewType     = 0;
+   fNewType     = TVirtualStreamerInfo::kUnset;
    fArrayDim    = 0;
    fArrayLength = 0;
    fStreamer    = nullptr;
@@ -208,6 +204,7 @@ TStreamerElement::TStreamerElement()
    fFactor      = 0;
    fXmin        = 0;
    fXmax        = 0;
+   // clang-format on
    for (Int_t i=0;i<5;i++) fMaxIndex[i] = 0;
 }
 
@@ -287,7 +284,7 @@ Bool_t TStreamerElement::CannotSplit() const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Returns a pointer to the TClass of this element.
+/// Returns a pointer to the TClass of this element and updates fClassObject
 
 TClass *TStreamerElement::GetClassPointer() const
 {
@@ -305,8 +302,25 @@ TClass *TStreamerElement::GetClassPointer() const
 
 Int_t TStreamerElement::GetExecID() const
 {
-   //check if element is a TRef or TRefArray
-   if (strncmp(fTypeName.Data(),"TRef",4) != 0) return 0;
+   TString typeName = fTypeName;
+   if (typeName != "TRef" && typeName != "TRefArray") {
+      // It's not a ROOT standard TRef or TRefArray class, but it could be a user class
+      // inheriting from it (see ROOT-7052)
+      const TString clName = ExtractClassName(fTypeName);
+      const auto cl = TClass::GetClass(clName, kFALSE, kTRUE);
+      // FIXME: The check for HasDataMemberInfo() is likely wrong because it could miss inheritance (chains) from TRef.
+      // However, it is needed to protect against non-loaded classes, previously also present in TClass::GetBaseClass.
+      if (!cl || !cl->HasDataMemberInfo())
+         return 0;
+      // Classes cannot both inherit from TRef/TRefArray and have a collection proxy.
+      if (cl->GetCollectionProxy())
+         return 0;
+      // Only classes inheriting from TObject can inherit from TRef. Do not look inside other classes.
+      if (!cl->IsTObject())
+         return 0;
+      if (!cl->InheritsFrom("TRef") && !cl->InheritsFrom("TRefArray"))
+         return 0;
+   }
 
    //if the UniqueID of this element has already been set, we assume
    //that it contains the exec id of a TRef object.
@@ -374,6 +388,24 @@ void TStreamerElement::GetSequenceType(TString &sequenceType) const
 Int_t TStreamerElement::GetSize() const
 {
    return fSize;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Returns the alignment of this element in bytes.
+/// The bare underlying type (stripping kOffsetL / kOffsetP array/pointer markers)
+/// is used to determine the alignment from TDataType.
+
+std::size_t TStreamerElement::GetAlignment() const
+{
+   // Strip kOffsetL / kOffsetP markers to recover the bare type id.
+   const EDataType bareType = (EDataType)(fType % TVirtualStreamerInfo::kOffsetL);
+   if (bareType == kCounter || bareType == kBits)
+      return sizeof(UInt_t);
+   if (auto *dt = TDataType::GetDataType(bareType); dt && dt->GetAlignOf())
+      return dt->GetAlignOf();
+   Error("TStreamerElement::GetAlignment", "Cannot determine alignment for type %d (bare type %d) for element %s",
+         fType, bareType, GetName());
+   return alignof(std::max_align_t);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -464,9 +496,12 @@ void TStreamerElement::ls(Option_t *) const
       sequenceType.Prepend(" (");
       sequenceType += ") ";
    }
-   printf("  %-14s %-15s offset=%3d type=%2d %s%-20s\n",
-          temp.Data(),GetFullName(),fOffset,fType,sequenceType.Data(),
-          GetTitle());
+   printf("  %-14s %-15s offset=%3d type=%2d",
+          temp.Data(),GetFullName(),fOffset,fType);
+   if (fType != fNewType && fNewType != TVirtualStreamerInfo::kUnset)
+      printf(" newtype=%2d", fNewType);
+   printf(" %s%-20s\n",
+          sequenceType.Data(), GetTitle());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -475,8 +510,10 @@ void TStreamerElement::ls(Option_t *) const
 void TStreamerElement::SetArrayDim(Int_t dim)
 {
    fArrayDim = dim;
-   if (dim) fType += TVirtualStreamerInfo::kOffsetL;
-   fNewType = fType;
+   if (dim) {
+      fType += TVirtualStreamerInfo::kOffsetL;
+      fNewType += TVirtualStreamerInfo::kOffsetL;
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -601,7 +638,6 @@ void TStreamerElement::Update(const TClass *oldClass, TClass *newClass)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerBase);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -668,8 +704,26 @@ TClass *TStreamerBase::GetClassPointer() const
 
 Int_t TStreamerBase::GetSize() const
 {
-   TClass *cl = GetClassPointer();
-   if (cl) return cl->Size();
+   TClass *cl = GetNewClass();
+   if (!cl)
+      cl = GetClassPointer();
+   if (cl)
+      return cl->Size();
+   return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Returns the alignment of the base class in bytes.
+
+std::size_t TStreamerBase::GetAlignment() const
+{
+   TClass *cl = GetNewClass();
+   if (!cl)
+      cl = GetClassPointer();
+   if (cl && cl->GetClassAlignment())
+      return cl->GetClassAlignment();
+   // The caller will complains if the missing alignment information
+   // causes a problem.
    return 0;
 }
 
@@ -896,7 +950,6 @@ Int_t TStreamerBase::WriteBuffer (TBuffer &b, char *pointer)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerBasicPointer);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -1009,7 +1062,6 @@ void TStreamerBasicPointer::Streamer(TBuffer &R__b)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerLoop);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -1035,6 +1087,24 @@ TStreamerLoop::TStreamerLoop(const char *name, const char *title, Int_t offset, 
 
 TStreamerLoop::~TStreamerLoop()
 {
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Returns the alignment of this element in bytes.
+/// The bare underlying type (stripping kOffsetL / kOffsetP array/pointer markers)
+/// is used to determine the alignment from TDataType.
+
+std::size_t TStreamerLoop::GetAlignment() const
+{
+   // Strip kOffsetL / kOffsetP markers to recover the bare type id.
+   const EDataType bareType = (EDataType)(fType % TVirtualStreamerInfo::kOffsetL);
+   if (bareType == kCounter || bareType == kBits)
+      return sizeof(UInt_t);
+   if (auto *dt = TDataType::GetDataType(bareType); dt && dt->GetAlignOf())
+      return dt->GetAlignOf();
+   Error("TStreamerLoop::GetAlignment", "Cannot determine alignment for type %d (bare type %d) for element %s", fType,
+         bareType, GetName());
+   return alignof(std::max_align_t);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1113,7 +1183,6 @@ void TStreamerLoop::Streamer(TBuffer &R__b)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerBasicType);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -1213,7 +1282,6 @@ void TStreamerBasicType::Streamer(TBuffer &R__b)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerObject);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -1273,11 +1341,30 @@ const char *TStreamerObject::GetInclude() const
 
 Int_t TStreamerObject::GetSize() const
 {
-   TClass *cl = GetClassPointer();
+   TClass *cl = GetNewClass();
+   if (!cl)
+      cl = GetClassPointer();
    Int_t classSize = 8;
-   if (cl) classSize = cl->Size();
-   if (fArrayLength) return fArrayLength*classSize;
+   if (cl)
+      classSize = cl->Size();
+   if (fArrayLength)
+      return fArrayLength * classSize;
    return classSize;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Returns the alignment of the object class in bytes.
+
+std::size_t TStreamerObject::GetAlignment() const
+{
+   TClass *cl = GetNewClass();
+   if (!cl)
+      cl = GetClassPointer();
+   if (cl && cl->GetClassAlignment())
+      return cl->GetClassAlignment();
+   // The caller will complains if the missing alignment information
+   // causes a problem.
+   return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1310,7 +1397,6 @@ void TStreamerObject::Streamer(TBuffer &R__b)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerObjectAny);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -1366,11 +1452,30 @@ const char *TStreamerObjectAny::GetInclude() const
 
 Int_t TStreamerObjectAny::GetSize() const
 {
-   TClass *cl = GetClassPointer();
+   TClass *cl = GetNewClass();
+   if (!cl)
+      cl = GetClassPointer();
    Int_t classSize = 8;
-   if (cl) classSize = cl->Size();
-   if (fArrayLength) return fArrayLength*classSize;
+   if (cl)
+      classSize = cl->Size();
+   if (fArrayLength)
+      return fArrayLength * classSize;
    return classSize;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Returns the alignment of the object (non-TObject) class in bytes.
+
+std::size_t TStreamerObjectAny::GetAlignment() const
+{
+   TClass *cl = GetNewClass();
+   if (!cl)
+      cl = GetClassPointer();
+   if (cl && cl->GetClassAlignment())
+      return cl->GetClassAlignment();
+   // The caller will complains if the missing alignment information
+   // causes a problem.
+   return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1404,7 +1509,6 @@ void TStreamerObjectAny::Streamer(TBuffer &R__b)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerObjectPointer);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -1508,7 +1612,6 @@ void TStreamerObjectPointer::Streamer(TBuffer &R__b)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerObjectAnyPointer);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -1603,7 +1706,6 @@ void TStreamerObjectAnyPointer::Streamer(TBuffer &R__b)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerString);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -1673,12 +1775,11 @@ void TStreamerString::Streamer(TBuffer &R__b)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerSTL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
 
-TStreamerSTL::TStreamerSTL() : fSTLtype(0),fCtype(0)
+TStreamerSTL::TStreamerSTL() : fSTLtype(0), fCtype(0)
 {
 }
 
@@ -1689,7 +1790,10 @@ TStreamerSTL::TStreamerSTL(const char *name, const char *title, Int_t offset,
                            const char *typeName, const TVirtualCollectionProxy &proxy, Bool_t dmPointer)
         : TStreamerElement(name,title,offset,ROOT::kSTLany,typeName)
 {
-   fTypeName = TClassEdit::ShortType(fTypeName,TClassEdit::kDropStlDefault).c_str();
+   std::string answer;
+   TClassEdit::TSplitType arglist(fTypeName, TClassEdit::kDropStlDefault);
+   arglist.ShortType(answer, TClassEdit::kDropStlDefault);
+   fTypeName = answer;
 
   if (name==typeName /* intentional pointer comparison */
       || strcmp(name,typeName)==0) {
@@ -1709,8 +1813,15 @@ TStreamerSTL::TStreamerSTL(const char *name, const char *title, Int_t offset,
    } else {
       fCtype = proxy.GetType();
       if (proxy.HasPointers()) fCtype += TVirtualStreamerInfo::kOffsetP;
+      auto enumdesc = TEnum::GetEnum(arglist.fElements[1].c_str());
+      if (enumdesc || gCling->ClassInfo_IsEnum(arglist.fElements[1].c_str())) {
+         fCtype = enumdesc ? enumdesc->GetUnderlyingType() : 3;
+      }
    }
-   if (TStreamerSTL::IsaPointer()) fType = TVirtualStreamerInfo::kSTLp;
+   if (TStreamerSTL::IsaPointer()) {
+      fType = TVirtualStreamerInfo::kSTLp;
+      fNewType = fType;
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1723,7 +1834,10 @@ TStreamerSTL::TStreamerSTL(const char *name, const char *title, Int_t offset,
    const char *t = trueType;
    if (!t || !*t) t = typeName;
 
-   fTypeName = TClassEdit::ShortType(fTypeName,TClassEdit::kDropStlDefault).c_str();
+   std::string answer;
+   TClassEdit::TSplitType arglist(t, TClassEdit::kDropStlDefault);
+   arglist.ShortType(answer, TClassEdit::kDropStlDefault);
+   fTypeName = answer;
 
    if (name==typeName /* intentional pointer comparison */
        || strcmp(name,typeName)==0) {
@@ -1731,56 +1845,31 @@ TStreamerSTL::TStreamerSTL(const char *name, const char *title, Int_t offset,
       fName = fTypeName;
    }
 
-   Int_t nch = strlen(t);
-   char *s = new char[nch+1];
-   strlcpy(s,t,nch+1);
-   char *sopen  = strchr(s,'<');
-   if (sopen == nullptr) {
-      Fatal("TStreamerSTL","For %s, the type name (%s) is seemingly not a template (template argument not found)", name, s);
+   if (arglist.fElements.size() < 2) {
+      Fatal("TStreamerSTL","For %s, the type name (%s) is seemingly not a template (template argument not found)", name, t);
       return;
    }
-   *sopen  = 0; sopen++;
-   // We are looking for the first arguments of the STL container, because
-   // this arguments can be a templates we need to count the < and >
-   char* current=sopen;
-   for(int count = 0; *current!='\0'; current++) {
-      if (*current=='<') count++;
-      if (*current=='>') {
-         if (count==0) break;
-         count--;
-      }
-      if (*current==',' && count==0) break;
+
+   const std::string& inside_type = arglist.fElements[1];
+   std::string inside = (inside_type.find("const ")==0) ? inside_type.substr(6) : inside_type;
+
+   // Let's treat the unique_ptr case
+   std::string intype = TClassEdit::GetNameForIO(inside, TClassEdit::EModType::kNone);
+
+   bool isPointer = false;
+   // The incoming name is normalized (it comes from splitting the name of a TClass),
+   // so all we need to do is drop the last trailing star (if any) and record that information.
+   while (intype.back() == '*') {
+      isPointer = true;
+      intype.pop_back();
    }
-   char *sclose = current; *sclose = 0; sclose--;
-   char *sconst = strstr(sopen,"const ");
-   char *sbracket = strstr(sopen,"<");
-   if (sconst && (sbracket==nullptr || sconst < sbracket)) {
-      // the string "const" may be part of the classname!
-      char *pconst = sconst-1;
-      if (*pconst == ' ' || *pconst == '<' || *pconst == '*' || *pconst == '\0') sopen = sconst + 5;
-   }
-   fSTLtype = TClassEdit::STLKind(s);
+
+   fSTLtype = TClassEdit::STLKind(arglist.fElements[0]);
    fCtype   = 0;
-   if (fSTLtype == ROOT::kNotSTL) { delete [] s; return;}
+   if (fSTLtype == ROOT::kNotSTL) { return; }
    if (dmPointer) fSTLtype += TVirtualStreamerInfo::kOffsetP;
 
-   // find STL contained type
-   while (*sopen==' ') sopen++;
-   Bool_t isPointer = kFALSE;
-   // Find stars outside of any template definitions in the
-   // first template argument.
-   char *star = strrchr(sopen,'>');
-   if (star) star = strchr(star,'*');
-   else star = strchr(sopen,'*');
-   if (star) {
-      isPointer = kTRUE;
-      *star = 0;
-      sclose = star - 1;
-   }
-   while (*sclose == ' ') {*sclose = 0; sclose--;}
-
-
-   TDataType *dt = (TDataType*)gROOT->GetListOfTypes()->FindObject(sopen);
+   TDataType *dt = (TDataType*)gROOT->GetListOfTypes()->FindObject(intype.c_str());
    if (fSTLtype == ROOT::kSTLbitset) {
       // Nothing to check
    } else if (dt) {
@@ -1788,30 +1877,36 @@ TStreamerSTL::TStreamerSTL(const char *name, const char *title, Int_t offset,
       if (isPointer) fCtype += TVirtualStreamerInfo::kOffsetP;
    } else {
      // this could also be a nested enums ... which should work ... be let's see.
-      TClass *cl = TClass::GetClass(sopen);
+      TClass *cl = TClass::GetClass(intype.c_str());
       if (cl) {
          if (isPointer) fCtype = TVirtualStreamerInfo::kObjectp;
          else           fCtype = TVirtualStreamerInfo::kObject;
       } else {
-         if (gCling->ClassInfo_IsEnum(sopen)) {
-            if (isPointer) fCtype += TVirtualStreamerInfo::kOffsetP;
+         auto enumdesc = TEnum::GetEnum(intype.c_str());
+         if (enumdesc || gCling->ClassInfo_IsEnum(intype.c_str())) {
+            fCtype = enumdesc ? enumdesc->GetUnderlyingType() : 3;
+            if (isPointer)
+               fCtype += TVirtualStreamerInfo::kOffsetP;
          } else {
-            if(strcmp(sopen,"string")) {
+            if (intype != "string") {
                // This case can happens when 'this' is a TStreamerElement for
                // a STL container containing something for which we do not have
                // a TVirtualStreamerInfo (This happens in particular is the collection
                // objects themselves are always empty) and we do not have the
                // dictionary/shared library for the container.
                if (GetClassPointer() && GetClassPointer()->IsLoaded()) {
-                  Warning("TStreamerSTL","For %s we could not find any information about the type %s %d %s",fTypeName.Data(),sopen,fSTLtype,s);
+                  Warning("TStreamerSTL", "For %s we could not find any information about the type %s %d %s",
+                          fTypeName.Data(), arglist.fElements[1].c_str(), fSTLtype, arglist.fElements[0].c_str());
                }
             }
          }
       }
    }
-   delete [] s;
 
-   if (TStreamerSTL::IsaPointer()) fType = TVirtualStreamerInfo::kSTLp;
+   if (TStreamerSTL::IsaPointer()) {
+      fType = TVirtualStreamerInfo::kSTLp;
+      fNewType = fType;
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1861,6 +1956,39 @@ Bool_t TStreamerSTL::IsBase() const
    if (strcmp(ts.Data(),GetTypeNameBasic())==0) return kTRUE;
    return kFALSE;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+/// Returns a pointer to the TClass of this element.
+
+TClass *TStreamerSTL::GetClassPointer() const
+{
+   if (fClassObject!=(TClass*)(-1))
+      return fClassObject;
+
+   bool quiet = (fType == TVirtualStreamerInfo::kArtificial);
+
+   TString className(ExtractClassName(fTypeName));
+   TClass *cl = TClass::GetClass(className, kTRUE, quiet);
+
+   auto proxy = cl->GetCollectionProxy();
+   if (!fNewClass && proxy && proxy->GetValueClass() == nullptr) {
+      // Collection of numerical type, let check if it is an enum.
+      TClassEdit::TSplitType arglist(fTypeName, TClassEdit::kDropStlDefault);
+      if ( arglist.fElements[1].size() >= 2 ) {
+         auto enumdesc = TEnum::GetEnum(arglist.fElements[1].c_str());
+         if (enumdesc || gCling->ClassInfo_IsEnum(arglist.fElements[1].c_str())) {
+            ((TStreamerElement *)this)->fNewClass = cl;
+            if (proxy->HasPointers())
+               cl = TClass::GetClass("vector<Int_t*>");
+            else
+               cl = TClass::GetClass("vector<Int_t>");
+         }
+      }
+   }
+   ((TStreamerElement*)this)->fClassObject = cl;
+   return fClassObject;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Returns size of STL container in bytes.
 
@@ -1869,7 +1997,9 @@ Int_t TStreamerSTL::GetSize() const
    // Since the STL collection might or might not be emulated and that the
    // sizeof the object depends on this, let's just always retrieve the
    // current size!
-   TClass *cl = GetClassPointer();
+   TClass *cl = GetNewClass();
+   if (!cl)
+      cl = GetClassPointer();
    UInt_t size = 0;
    if (cl==nullptr) {
       if (!TestBit(kWarned)) {
@@ -1883,6 +2013,21 @@ Int_t TStreamerSTL::GetSize() const
 
    if (fArrayLength) return fArrayLength*size;
    return size;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Returns the alignment of the STL container in bytes.
+
+std::size_t TStreamerSTL::GetAlignment() const
+{
+   TClass *cl = GetNewClass();
+   if (!cl)
+      cl = GetClassPointer();
+   if (cl && cl->GetClassAlignment())
+      return cl->GetClassAlignment();
+   // The caller will complains if the missing alignment information
+   // causes a problem.
+   return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1903,9 +2048,12 @@ void TStreamerSTL::ls(Option_t *) const
       sequenceType.Prepend(" (");
       sequenceType += ") ";
    }
-   printf("  %-14s %-15s offset=%3d type=%2d %s,stl=%d, ctype=%d, %-20s\n",
-          GetTypeName(),name.Data(),fOffset,fType,sequenceType.Data(),
-          fSTLtype,fCtype,GetTitle());
+   printf("  %-14s %-15s offset=%3d type=%2d",
+          GetTypeName(), name.Data(), fOffset, fType);
+   if (fType != fNewType && fNewType != TVirtualStreamerInfo::kUnset)
+      printf(" newtype=%2d", fNewType);
+   printf(" stl=%d ctype=%d %s%-20s\n",
+          fSTLtype, fCtype, sequenceType.Data(), GetTitle());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2016,7 +2164,6 @@ void TStreamerSTL::Streamer(TBuffer &R__b)
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerSTLstring);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -2102,7 +2249,6 @@ void TStreamerSTLstring::Streamer(TBuffer &R__b)
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
 
-ClassImp(TStreamerSTLstring);
 
 void TStreamerArtificial::Streamer(TBuffer& /* R__b */)
 {

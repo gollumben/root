@@ -29,9 +29,15 @@ TEST(RLazyDS, Constructor)
    EXPECT_STREQ(tds.GetTypeName(col1Name).c_str(), "float");
 
    tds.SetNSlots(4);
-   auto col0Readers = tds.GetColumnReaders<double>(col0Name);
-   auto col1Readers = tds.GetColumnReaders<float>(col1Name);
-   tds.Initialise();
+   std::vector<std::unique_ptr<ROOT::Detail::RDF::RColumnReaderBase>> col0Readers;
+   col0Readers.reserve(4);
+   std::vector<std::unique_ptr<ROOT::Detail::RDF::RColumnReaderBase>> col1Readers;
+   col1Readers.reserve(4);
+   for (auto i = 0; i < 4; i++) {
+      col0Readers.push_back(tds.GetColumnReaders(/*slot*/ i, col0Name, typeid(double)));
+      col1Readers.push_back(tds.GetColumnReaders(/*slot*/ i, col1Name, typeid(float)));
+   }
+   tds.Initialize();
    auto ranges = tds.GetEntryRanges();
 
    EXPECT_EQ(0UL, ranges[0].first); // 3 + 1 from the reminder is 4 entries
@@ -51,8 +57,8 @@ TEST(RLazyDS, Constructor)
       tds.InitSlot(slot, range.first);
       for (auto i : ROOT::TSeqI(range.first, range.second)) {
          tds.SetEntry(slot, i);
-         auto val0 = **col0Readers[slot];
-         auto val1 = **col1Readers[slot];
+         auto val0 = *col0Readers[slot]->TryGet<double>(i);
+         auto val1 = *col1Readers[slot]->TryGet<float>(i);
          EXPECT_EQ(col0Vals[i], val0);
          EXPECT_EQ(col1Vals[i], val1);
       }
@@ -70,8 +76,8 @@ TEST(RLazyDS, RangesOneSlot)
    RLazyDS<double> tds({col0Name, col0});
 
    tds.SetNSlots(1);
-   auto col0Readers = tds.GetColumnReaders<double>(col0Name);
-   tds.Initialise();
+   auto col0Readers = tds.GetColumnReaders(/*slot*/ 0, col0Name, typeid(double));
+   tds.Initialize();
    auto ranges = tds.GetEntryRanges();
    EXPECT_EQ(1U, ranges.size());
    EXPECT_EQ(0UL, ranges[0].first);
@@ -89,7 +95,7 @@ TEST(RLazyDS, ColSizesCheck)
    auto col1 = d1.Define(colName, genf).Take<float>(colName);
    RLazyDS<double, float> tds({"zero", col0}, {"one", col1});
    tds.SetNSlots(4);
-   EXPECT_ANY_THROW(tds.Initialise());
+   EXPECT_ANY_THROW(tds.Initialize());
 }
 
 TEST(RLazyDS, RDFSimple)

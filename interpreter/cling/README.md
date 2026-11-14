@@ -1,8 +1,3 @@
-[![Travis status](https://travis-ci.org/root-project/cling.svg?branch=master)](https://travis-ci.org/root-project/cling)
-<!-- a target="_blank" href="https://ci.appveyor.com/project/root-project/cling-j0wdg">
-  ![Appveyor status](https://ci.appveyor.com/api/projects/status/github/root-project/cling?svg=true&branch=master)
-</a -->
-
 Cling - The Interactive C++ Interpreter
 =========================================
 
@@ -12,13 +7,13 @@ The main repository is at [https://github.com/root-project/cling](https://github
 Overview
 --------
 Cling is an interactive C++ interpreter, built on top of Clang and LLVM compiler
-infrastructure. Cling realizes the [read-eval-print loop
+infrastructure. Cling implements the [read-eval-print loop
 (REPL)](http://en.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop)
 concept, in order to leverage rapid application development. Implemented as a
 small extension to LLVM and Clang, the interpreter reuses their strengths such
 as the praised concise and expressive compiler diagnostics.
 
-See also [cling's web page.](https://cdn.rawgit.com/root-project/cling/master/www/index.html)
+See also [cling's web page.](https://rawcdn.githack.com/root-project/cling/master/www/index.html)
 
 Please note that some of the resources are rather old and most of the stated
 limitations are outdated.
@@ -38,44 +33,112 @@ See our [release notes](docs/ReleaseNotes.md) to find what's new.
 
 
 ### Binaries
-Our nightly binary snapshots can be found
-[here](https://root.cern.ch/download/cling/).
+Our nightly binary snapshots are currently unavailable.
 
 
-### Building from Source with Cling Packaging Tool
-Cling's tree has a user-friendly, command-line utility written in Python called
-Cling Packaging Tool (CPT) which can build Cling from source and generate
-installer bundles for a wide range of platforms. CPT requires Python 3 or
-later.
+### Building from Source
 
-If you have Cling's source cloned locally, you can find the tool in
-`tools/packaging` directory. Alternatively, you can download the script
-manually, or by using `wget`:
+See also the instructions [on the webpage](https://root.cern/cling/cling_build_instructions/).
 
-```sh
-wget https://raw.githubusercontent.com/root-project/cling/master/tools/packaging/cpt.py
-chmod +x cpt.py
-./cpt.py --check-requirements && ./cpt.py --create-dev-env Debug --with-workdir=./cling-build/
+#### Building Cling as a Standalone Project
+
+If Clang and LLVM (cling-latest version) are not installed, you need to build them first:
+
+```bash
+git clone https://github.com/root-project/llvm-project.git
+cd llvm-project
+git checkout cling-latest
+cd ..
+mkdir llvm-build && cd llvm-build
+cmake -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="host;NVPTX" -DCMAKE_BUILD_TYPE=Release ../llvm-project/llvm
+cmake --build .
 ```
-Full documentation of CPT can be found in [tools/packaging](tools/packaging).
 
+Once Clang and LLVM (cling-latest version) are installed, you can build Cling. If they are already installed, you can skip the previous step and proceed with the following:
+
+> Note: Ensure you are outside the llvm-project and llvm-build directories before proceeding, as LLVM, Clang, and Cling do not allow building inside the source directory.
+
+```bash
+git clone https://github.com/root-project/cling.git
+mkdir cling-build && cd cling-build
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="The root of your LLVM build directory" -DLLVM_DIR="The directory containing LLVM's CMake modules" ../cling
+cmake --build .
+```
+
+Example CMake command:
+
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=../llvm-build -DLLVM_DIR=../llvm-build/lib/cmake/llvm ../cling
+```
+
+#### Building Cling Along with LLVM (Recommended)
+If Clang and LLVM are not installed, you can build them together with Cling:
+
+```bash
+git clone https://github.com/root-project/llvm-project.git
+cd llvm-project
+git checkout cling-latest
+cd ..
+git clone https://github.com/root-project/cling.git
+mkdir cling-build && cd cling-build
+cmake -DLLVM_EXTERNAL_PROJECTS=cling -DLLVM_EXTERNAL_CLING_SOURCE_DIR=../cling/ -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="host;NVPTX" -DCMAKE_BUILD_TYPE=Release ../llvm-project/llvm
+cmake --build . --target clang cling
+```
+
+#### Jupyter notebooks
+
+To enable support for cling in Jupyter notebooks, after building cling, run:
+
+```bash
+cmake --build . --target libclingJupyter
+```
 
 Usage
 -----
-```c++
-./cling '#include <stdio.h>' 'printf("Hello World!\n")'
+Assuming we're in the build folder.
+
+If Cling is built as a standalone project, you need to specify the include directory for headers:
+
+```bash
+./bin/cling -I"../cling/include" '#include <stdio.h>' 'printf("Hello World!\n");'
+```
+
+If build Cling as part of LLVM:
+
+```bash
+./bin/cling '#include <stdio.h>' 'printf("Hello World!\n");'
 ```
 
 To get started run:
 ```bash
-./cling --help
+./bin/cling --help
 ```
-or type
-```
-./cling
+or
+```bash
+./bin/cling
 [cling]$ .help
 ```
 
+Debugging and Profiling JITted Code
+-----------------------------------
+
+Cling provides support for debugging and profiling interpreted (JITted) code.
+- `CLING_DEBUG=1` enables debug symbol emission on interpreted code, allowing
+the use of a standard debugger. Debugging is aided by switching off
+optimisations and adding frame pointers for better stack traces.
+- `CLING_PROFILE=1` enables perf profiling:
+  - When `jitlink` is enabled (`CLING_JITLINK=1`, soon the default), profiling
+requires a [`perf inject`](https://linux.die.net/man/1/perf-inject) step:
+    ```bash
+    perf record -k 1 <cling>
+    perf inject -j -i perf.data -o perf.jitted.data
+    perf report -i perf.jitted.data
+    ```
+  - When `jitlink` is disabled, perf support is enabled with "perf map" (legacy)
+instead of "JIT dump" and there is no need for an inject step.
+
+Debugging and Profiling, both have a runtime cost, and is therefore disabled by
+default.
 
 Jupyter
 -------

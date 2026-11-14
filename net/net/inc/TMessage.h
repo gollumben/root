@@ -32,7 +32,6 @@ class TVirtualStreamerInfo;
 
 class TMessage : public TBufferFile {
 
-friend class TAuthenticate;
 friend class TSocket;
 friend class TUDPSocket;
 friend class TPSocket;
@@ -59,11 +58,14 @@ private:
    Bool_t TestBitNumber(UInt_t bitnumber) const { return fBitsPIDs.TestBitNumber(bitnumber); }
 
 protected:
-   TMessage(void *buf, Int_t bufsize);   // only called by T(P)Socket::Recv()
+   enum EStatusBits {
+     kIsOwnerComp = BIT(19) // if TMessage owns fBufComp
+   };
+   TMessage(void *buf, Int_t bufsize, Bool_t adopt = kTRUE);   // only called by T(P)Socket::Recv()
    void SetLength() const;               // only called by T(P)Socket::Send()
 
 public:
-   TMessage(UInt_t what = kMESS_ANY, Int_t bufsiz = TBuffer::kInitialSize);
+   TMessage(UInt_t what = kMESS_ANY, Int_t bufsize = TBuffer::kInitialSize);
    virtual ~TMessage();
 
    void     ForceWriteInfo(TVirtualStreamerInfo *info, Bool_t force) override;

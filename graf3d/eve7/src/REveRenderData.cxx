@@ -55,9 +55,6 @@ int REveRenderData::Write(char *msg, int maxlen)
       off += len;
    };
 
-   if (!fMatrix.empty())
-      append(&fMatrix[0], fMatrix.size() * sizeof(float));
-
    if (!fVertexBuffer.empty())
       append(&fVertexBuffer[0], fVertexBuffer.size() * sizeof(float));
 
@@ -71,12 +68,19 @@ int REveRenderData::Write(char *msg, int maxlen)
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
-/// Set transformation matrix
+/// Calculate texture dimensions to hold nel elements with given alignment on x axis.
+/// Static function.
+///
+/// Implementation could be improved -- now it simply goes for near-square-root(size)
+/// dimensions that satisfy the alignment requirement. 
 
-void REveRenderData::SetMatrix(const double *arr)
+void REveRenderData::CalcTextureSize(int nel, int align, int &sx, int &sy)
 {
-   fMatrix.reserve(16);
-   for (int i = 0; i < 16; ++i) {
-      fMatrix.push_back(arr[i]);
-   }
+   if (nel <= 0) { sx = sy = 0; return; }
+
+   sx = (int) std::ceil(std::sqrt(nel));
+   int rx = sx % align;
+   if (rx > 0) sx += align - rx;
+   sy = nel / sx;
+   if (nel % sx > 0) sy += 1;
 }

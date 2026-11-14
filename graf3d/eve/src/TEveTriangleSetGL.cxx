@@ -22,12 +22,11 @@ GL-renderer for TEveTriangleSet class.
 See also: TGLObject, TGLLogicalShape.
 */
 
-ClassImp(TEveTriangleSetGL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
-TEveTriangleSetGL::TEveTriangleSetGL() : TGLObject(), fM(0)
+TEveTriangleSetGL::TEveTriangleSetGL() : TGLObject(), fM(nullptr)
 {
    // fDLCache = false; // Disable display list.
    fMultiColor = kTRUE;

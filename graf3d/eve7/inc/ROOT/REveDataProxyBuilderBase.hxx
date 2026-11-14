@@ -50,13 +50,13 @@ public:
 
    virtual void CollectionBeingDestroyed(const REveDataCollection*);
 
-   void Build();
+   virtual void Build();
    // virtual void Build(REveElement* product);
 
    virtual REveElement* CreateProduct(const std::string& viewType, const REveViewContext*);
    //  void removePerViewProduct(const REveViewContext* vc);
 
-   void FillImpliedSelected(REveElement::Set_t& impSet);
+   void FillImpliedSelected(REveElement::Set_t& impSet, const std::set<int>&);
    void ModelChanges(const REveDataCollection::Ids_t&);
    void CollectionChanged(const REveDataCollection*);
 
@@ -76,11 +76,11 @@ protected:
    // Returns true if new proxies were created.
    virtual bool VisibilityModelChanges(int idx, REveElement*, const std::string& viewType, const REveViewContext*);
 
-   virtual void Build(const REveDataCollection* iItem, REveElement* product, const REveViewContext*);
-   virtual void BuildViewType(const REveDataCollection* iItem, REveElement* product, const std::string& viewType, const REveViewContext*);
+   virtual void BuildProduct(const REveDataCollection* iItem, REveElement* product, const REveViewContext*);
+   virtual void BuildProductViewType(const REveDataCollection* iItem, REveElement* product, const std::string& viewType, const REveViewContext*);
 
    virtual void ModelChanges(const REveDataCollection::Ids_t&, Product*) = 0;
-   virtual void FillImpliedSelected( REveElement::Set_t& /*impSet*/, Product*) {};
+   virtual void FillImpliedSelected( REveElement::Set_t& /*impSet*/, const std::set<int>&, Product*) {};
    virtual void LocalModelChanges(int idx, REveElement* el, const REveViewContext* ctx);
 
    virtual void ScaleProduct(REveElement*, const std::string&) {};
@@ -93,7 +93,6 @@ protected:
 private:
    REveDataCollection *m_collection{nullptr};
 
-   float                 m_layer{0.};
    bool                  m_haveWindow{false};
    bool                  m_modelsChanged{false};
 };

@@ -11,8 +11,9 @@
 
 #include <ROOT/Browsable/RItem.hxx>
 
+class TObject;
+
 namespace ROOT {
-namespace Experimental {
 namespace Browsable {
 
 /** \class TObjectItem
@@ -20,7 +21,6 @@ namespace Browsable {
 \brief Representation of single item in the file browser for generic TObject object
 \author Sergey Linev <S.Linev@gsi.de>
 \date 2019-10-19
-\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 */
 
 class TObjectItem : public RItem {
@@ -35,10 +35,10 @@ public:
    virtual ~TObjectItem() = default;
 
    void SetClassName(const std::string &_className) { className = _className; }
+   const std::string &GetClassName() const { return className; }
 };
 
 } // namespace Browsable
-} // namespace Experimental
 } // namespace ROOT
 
 

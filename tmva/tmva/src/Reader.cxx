@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : Reader                                                                *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Reader class to be used in the user application to interpret the trained  *
@@ -28,7 +28,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::Reader
@@ -37,7 +37,7 @@
  The Reader class serves to use the MVAs in a specific analysis context.
  Within an event loop, a vector is filled that corresponds to the variables
  that were used to train the MVA(s) during the training stage. This vector
- is transfered to the Reader, who takes care of interpreting the weight
+ is transferred to the Reader, who takes care of interpreting the weight
  file of the MVA of choice, and to return the MVA's output. This is then
  used by the user for further analysis.
 
@@ -698,15 +698,6 @@ TMVA::IMethod* TMVA::Reader::FindMVA( const TString& methodTag )
    if (it != fMethodMap.end()) return it->second;
    Log() << kERROR << "Method " << methodTag << " not found!" << Endl;
    return 0;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// special function for Cuts to avoid dynamic_casts in ROOT macros,
-/// which are not properly handled by CINT
-
-TMVA::MethodCuts* TMVA::Reader::FindCutsMVA( const TString& methodTag )
-{
-   return dynamic_cast<MethodCuts*>(FindMVA(methodTag));
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -54,7 +54,7 @@ protected:
    void                ClearError();
    void                SetError(Int_t code, const char* msg, const char *method = nullptr);
 
-   static const char* fgFloatFmt;          //!  printf argument for floats and doubles, either "%f" or "%e" or "%10f" and so on
+   static const char* fgFloatFmt;          ///<!  printf argument for floats and doubles, either "%f" or "%e" or "%10f" and so on
 
 public:
    enum ESQLDataTypes {  // data types, recognised by TSQLServer and other classes, extrction from ODBC
@@ -96,7 +96,7 @@ public:
    const char         *GetHost() const { return fHost.Data(); }
    Int_t               GetPort() const { return fPort; }
 
-   virtual Bool_t      IsError() const { return GetErrorCode()!=0; }
+   virtual Bool_t      IsError() const { return GetErrorCode() != 0; }
    virtual Int_t       GetErrorCode() const;
    virtual const char* GetErrorMsg() const;
    virtual void        EnableErrorOutput(Bool_t on = kTRUE) { fErrorOut = on; }
@@ -114,7 +114,7 @@ public:
    static    void     SetFloatFormat(const char* fmt = "%e");
    static const char* GetFloatFormat();
 
-   ClassDef(TSQLServer,0)  // Connection to SQL server
+   ClassDefOverride(TSQLServer,0)  // Connection to SQL server
 };
 
 #endif

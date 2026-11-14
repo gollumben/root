@@ -10,66 +10,71 @@
 ############################################################################
 
 if (imt)
-  list(APPEND TREE_EXTRA_DEPENDENCIES Imt)
+  list(APPEND TREE_EXTRA_LIBRARIES Imt)
 endif(imt)
+
+set(TREE_HEADERS
+  TBasket.h
+  TBasketSQL.h
+  TBranchBrowsable.h
+  TBranchCacheInfo.h
+  TBranchClones.h
+  TBranchElement.h
+  TBranch.h
+  TBranchObject.h
+  TBranchRef.h
+  TBranchSTL.h
+  TBufferSQL.h
+  TChainElement.h
+  TChain.h
+  TCut.h
+  TEntryListArray.h
+  TEntryListBlock.h
+  TEntryListFromFile.h
+  TEntryList.h
+  TEventList.h
+  TFriendElement.h
+  TIndArray.h
+  TLeafB.h
+  TLeafC.h
+  TLeafD.h
+  TLeafD32.h
+  TLeafElement.h
+  TLeafF.h
+  TLeafF16.h
+  TLeaf.h
+  TLeafI.h
+  TLeafL.h
+  TLeafG.h
+  TLeafObject.h
+  TLeafO.h
+  TLeafS.h
+  TNtupleD.h
+  TNtuple.h
+  TreeUtils.h
+  TSelector.h
+  TSelectorList.h
+  TSelectorScalar.h
+  TTreeCache.h
+  TTreeCacheUnzip.h
+  TTreeCloner.h
+  TTree.h
+  TTreeResult.h
+  TTreeRow.h
+  TTreeSQL.h
+  TVirtualIndex.h
+  TVirtualTreePlayer.h
+  ROOT/InternalTreeUtils.hxx
+  ROOT/RFriendInfo.hxx
+  ROOT/TIOFeatures.hxx
+)
 
 ROOT_STANDARD_LIBRARY_PACKAGE(Tree
   HEADERS
-    TBasket.h
-    TBasketSQL.h
-    TBranchBrowsable.h
-    TBranchCacheInfo.h
-    TBranchClones.h
-    TBranchElement.h
-    TBranch.h
-    TBranchObject.h
-    TBranchRef.h
-    TBranchSTL.h
-    TBufferSQL.h
-    TChainElement.h
-    TChain.h
-    TCut.h
-    TEntryListArray.h
-    TEntryListBlock.h
-    TEntryListFromFile.h
-    TEntryList.h
-    TEventList.h
-    TFriendElement.h
-    TIndArray.h
-    TLeafB.h
-    TLeafC.h
-    TLeafD.h
-    TLeafD32.h
-    TLeafElement.h
-    TLeafF.h
-    TLeafF16.h
-    TLeaf.h
-    TLeafI.h
-    TLeafL.h
-    TLeafG.h
-    TLeafObject.h
-    TLeafO.h
-    TLeafS.h
-    TNtupleD.h
-    TNtuple.h
-    TQueryResult.h
-    TreeUtils.h
-    TSelector.h
-    TSelectorList.h
-    TSelectorScalar.h
-    TTreeCache.h
-    TTreeCacheUnzip.h
-    TTreeCloner.h
-    TTree.h
-    TTreeResult.h
-    TTreeRow.h
-    TTreeSQL.h
-    TVirtualIndex.h
-    TVirtualTreePlayer.h
-    ROOT/InternalTreeUtils.hxx
-    ROOT/TIOFeatures.hxx
+    ${TREE_HEADERS}
   SOURCES
     src/InternalTreeUtils.cxx
+    src/RFriendInfo.cxx
     src/TBasket.cxx
     src/TBasketSQL.cxx
     src/TBranchBrowsable.cxx
@@ -107,7 +112,6 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Tree
     src/TLeafS.cxx
     src/TNtuple.cxx
     src/TNtupleD.cxx
-    src/TQueryResult.cxx
     src/TreeUtils.cxx
     src/TSelector.cxx
     src/TSelectorList.cxx
@@ -124,12 +128,26 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Tree
   DICTIONARY_OPTIONS
     -writeEmptyRootPCM
   DEPENDENCIES
-    ${TREE_EXTRA_DEPENDENCIES}
     Net
     RIO
-    MathCore
   LIBRARIES
     ${ROOT_ATOMIC_LIBS}
+    ${TREE_EXTRA_LIBRARIES}
+    Thread
+    MathCore
+)
+
+set(RELATIVE_INC_HEADERS ${TREE_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+target_sources(Tree
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/ src/
+  FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef.h
+    src/TBranchIMTHelper.h
 )
 
 ROOT_ADD_TEST_SUBDIRECTORY(test)

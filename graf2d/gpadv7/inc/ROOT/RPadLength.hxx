@@ -132,13 +132,13 @@ public:
    /// Constructor from string representation
    RPadLength(const std::string &csscode) : RPadLength() { if (!csscode.empty()) ParseString(csscode); }
 
-   bool HasNormal() const { return fArr.size() > 0; }
+   bool HasNormal() const { return !fArr.empty(); }
    bool HasPixel() const { return fArr.size() > 1; }
    bool HasUser() const { return fArr.size() > 2; }
 
    RPadLength &SetNormal(double v)
    {
-      if (fArr.size() < 1)
+      if (fArr.empty())
          fArr.resize(1);
       fArr[0] = v;
       return *this;
@@ -160,7 +160,7 @@ public:
       return *this;
    }
 
-   double GetNormal() const { return fArr.size() > 0 ? fArr[0] : 0.; }
+   double GetNormal() const { return !fArr.empty() ? fArr[0] : 0.; }
    double GetPixel() const { return fArr.size() > 1 ? fArr[1] : 0.; }
    double GetUser() const { return fArr.size() > 2 ? fArr[2] : 0.; }
 
@@ -181,7 +181,7 @@ public:
    bool Empty() const { return fArr.empty(); }
 
    /// Add two `RPadLength`s.
-   friend RPadLength operator+(RPadLength lhs, const RPadLength &rhs)
+   friend RPadLength operator+(const RPadLength &lhs, const RPadLength &rhs)
    {
       RPadLength res;
       if (lhs.HasUser() || rhs.HasUser())
@@ -194,7 +194,7 @@ public:
    }
 
    /// Subtract two `RPadLength`s.
-   friend RPadLength operator-(RPadLength lhs, const RPadLength &rhs)
+   friend RPadLength operator-(const RPadLength &lhs, const RPadLength &rhs)
    {
       RPadLength res;
       if (lhs.HasUser() || rhs.HasUser())
@@ -275,11 +275,11 @@ public:
 /// using namespace ROOT::Experimental;
 /// RLine(0.1_normal, 0.0_normal, RLineExtent(0.2_normal, 0.5_normal));
 /// ```
-inline RPadLength::Normal operator"" _normal(long double val)
+inline RPadLength::Normal operator""_normal(long double val)
 {
    return RPadLength::Normal{(double)val};
 }
-inline RPadLength::Normal operator"" _normal(unsigned long long int val)
+inline RPadLength::Normal operator""_normal(unsigned long long int val)
 {
    return RPadLength::Normal{(double)val};
 }
@@ -291,11 +291,11 @@ inline RPadLength::Normal operator"" _normal(unsigned long long int val)
 /// using namespace ROOT::Experimental;
 /// RLine(100_px, 0_px, RLineExtent(20_px, 50_px));
 /// ```
-inline RPadLength::Pixel operator"" _px(long double val)
+inline RPadLength::Pixel operator""_px(long double val)
 {
    return RPadLength::Pixel{(double)val};
 }
-inline RPadLength::Pixel operator"" _px(unsigned long long int val)
+inline RPadLength::Pixel operator""_px(unsigned long long int val)
 {
    return RPadLength::Pixel{(double)val};
 }
@@ -307,11 +307,11 @@ inline RPadLength::Pixel operator"" _px(unsigned long long int val)
 /// using namespace ROOT::Experimental;
 /// RLine(0.1_user, 0.0_user, RLineExtent(0.2_user, 0.5_user));
 /// ```
-inline RPadLength::User operator"" _user(long double val)
+inline RPadLength::User operator""_user(long double val)
 {
    return RPadLength::User{(double)val};
 }
-inline RPadLength::User operator"" _user(unsigned long long int val)
+inline RPadLength::User operator""_user(unsigned long long int val)
 {
    return RPadLength::User{(double)val};
 }

@@ -29,8 +29,6 @@
 #include "TMatrixT.h"
 #include "CudaBuffers.h"
 
-//#include "TMVA/RTensor.hxx"
-
 #ifdef R__HAS_CUDNN
 #include "cudnn.h"
 #define CUDNNCHECK(ans) {cudnnError((ans), __FILE__, __LINE__); }
@@ -38,22 +36,17 @@
 
 namespace TMVA {
 
+namespace DNN {
 
+#ifndef TMVA_DNN_ARCHITECTURES_CPU_CPUTENSOR
 
-#ifndef TMVA_RTENSOR
-
-namespace Experimental {
-/// Memory layout type (copy from RTensor.hxx)
+/// Memory layout type
 enum class MemoryLayout : uint8_t {
    RowMajor = 0x01,
    ColumnMajor = 0x02
 };
-}
+
 #endif
-
-namespace DNN {
-
-using MemoryLayout = TMVA::Experimental::MemoryLayout;
 
 #ifdef R__HAS_CUDNN
 /**
@@ -85,7 +78,7 @@ class TCudaTensor
 public:
 
    using Shape_t = std::vector<size_t>;
-   using MemoryLayout = TMVA::Experimental:: MemoryLayout;
+   using MemoryLayout = TMVA::DNN::MemoryLayout;
    using Scalar_t = AFloat;
 
 
@@ -104,9 +97,9 @@ private:
    };
 #endif
 
-   /** For each GPU device keep the CUDA streams in which tensors are used.
+/** For each GPU device keep the CUDA streams in which tensors are used.
      * Instances belonging to the same stream on the same deviceshare a
-     * cudnn library handel to keep cudnn contexts seperated */
+     * cudnn library handel to keep cudnn contexts separated */
    //static std::vector<std::vector<int> > fInstances;
    static std::vector<int> fInstances;
 
@@ -191,14 +184,14 @@ public:
    size_t GetNDim() const {return fNDim;}
    size_t GetSize() const {return fSize;}
 
-   const AFloat * GetDataPointer() const {return fElementBuffer;}
-   AFloat       * GetDataPointer()       {return fElementBuffer;}
-   const AFloat * GetData() const {return fElementBuffer;}
-   AFloat       * GetData()       {return fElementBuffer;}
+   const AFloat * GetDataPointer() const {return fElementBuffer.data();}
+   AFloat       * GetDataPointer()       {return fElementBuffer.data();}
+   const AFloat * GetData() const {return fElementBuffer.data();}
+   AFloat       * GetData()       {return fElementBuffer.data();}
 
    const AFloat * GetDataPointerAt(size_t i ) const {
-      return (const_cast<TCudaDeviceBuffer<AFloat>&>(fElementBuffer)).GetSubBuffer(i * GetFirstStride(), GetFirstStride() ); }
-   AFloat       * GetDataPointerAt(size_t i )       {return fElementBuffer.GetSubBuffer(i * GetFirstStride(), GetFirstStride() ); }
+      return const_cast<TCudaDeviceBuffer<AFloat>&>(fElementBuffer).GetSubBuffer(i * GetFirstStride(), GetFirstStride() ).data(); }
+   AFloat       * GetDataPointerAt(size_t i )       {return fElementBuffer.GetSubBuffer(i * GetFirstStride(), GetFirstStride() ).data(); }
 
 
    const TCudaDeviceBuffer<AFloat> & GetDeviceBuffer()     const {return fElementBuffer;}
@@ -224,9 +217,9 @@ public:
 
       std::unique_ptr<AFloat[]> hostBufferThis(new AFloat[fSize]);
       std::unique_ptr<AFloat[]> hostBufferOther(new AFloat[fSize]);
-      cudaMemcpy(hostBufferThis.get(), fElementBuffer, fSize * sizeof(AFloat),
+      cudaMemcpy(hostBufferThis.get(), fElementBuffer.data(), fSize * sizeof(AFloat),
                  cudaMemcpyDeviceToHost);
-      cudaMemcpy(hostBufferOther.get(), other.GetDeviceBuffer(), fSize * sizeof(AFloat),
+      cudaMemcpy(hostBufferOther.get(), other.GetDeviceBuffer().data(), fSize * sizeof(AFloat),
                  cudaMemcpyDeviceToHost);
 
       for (size_t i = 0; i < fSize; i++) {
@@ -240,7 +233,7 @@ public:
 
 
       std::unique_ptr<AFloat[]> hostBufferThis(new AFloat[fSize]);
-      cudaMemcpy(hostBufferThis.get(), fElementBuffer, fSize * sizeof(AFloat),
+      cudaMemcpy(hostBufferThis.get(), fElementBuffer.data(), fSize * sizeof(AFloat),
                  cudaMemcpyDeviceToHost);
 
       for (size_t i = 0; i < fSize; i++) {
@@ -264,11 +257,11 @@ public:
       fElementBuffer.CopyFrom(hostBuffer);
    }
 
-   // have this tensor representatrions
-   // 2-dimensional tensors  :  NW   where N is batch size W is the feature size . Memory layout should be columnwise in this case
-   // 3 -dimensional tensor  : represnetation is NHWC  , tensor should be columnwise storage
-   // 4 -dimensional tensor :   representation is NCHW  ande tensor should be row wose
-   // a rowmajor tensor with dimension less than trhee should not exist but in case consider as a N, (CHW) for 2d, N, C, (HW) for 3d
+   // have this tensor representations
+   // 2-dimensional tensors  :  NW   where N is batch size W is the feature size . Memory layout should be column wise in this case
+   // 3 -dimensional tensor  : representation is NHWC  , tensor should be column wise storage
+   // 4 -dimensional tensor :   representation is NCHW  ande tensor should be row wise
+   // a rowmajor tensor with dimension less than three should not exist but in case consider as a N, (CHW) for 2d, N, C, (HW) for 3d
    // a columnmajor tensor for dimension >=4 should not exist but in case consider as a N,H,W,C  (i.e. with shape C,W,H,N)
 
    size_t GetFirstSize() const {
@@ -328,7 +321,7 @@ public:
       return TCudaMatrix<AFloat>();
    }
 
-   // for backeard compatibility with old tensor
+   // for backward compatibility with old tensor
    TCudaMatrix<AFloat> operator[](size_t i) const {
       //assert(GetLayout() == MemoryLayout::ColumnMajor );
       return At(i).GetMatrix();
@@ -359,7 +352,7 @@ public:
    void SetTensorDescriptor();
 
    // return slice of tensor
-   // return slices in the first dimension (if row wise) or last dimension if colun wise
+   // return slices in the first dimension (if row wise) or last dimension if column wise
    // so single event slides
    TCudaTensor<AFloat> At(size_t i) const {
       Shape_t sliced_shape = (GetLayout() == MemoryLayout::RowMajor)
@@ -387,7 +380,7 @@ public:
       size_t offset = (GetLayout() == MemoryLayout::RowMajor) ?
          i * ncols + j  : j * nrows + i;
 
-      AFloat * elementPointer = fElementBuffer + offset;
+      AFloat * elementPointer = fElementBuffer.data() + offset;
       return TCudaDeviceReference<AFloat>(elementPointer);
    }
    // element access ( for debugging)
@@ -401,14 +394,14 @@ public:
             i * fStrides[0] + j * fStrides[1] + k :
             i * fStrides[2] + k * fStrides[1] + j;
 
-      AFloat * elementPointer = fElementBuffer + offset;
+      AFloat * elementPointer = fElementBuffer.data() + offset;
 
       return TCudaDeviceReference<AFloat>(elementPointer);
    }
 
     TCudaDeviceReference<AFloat> operator()(size_t i, size_t j, size_t k, size_t l) const
    {
-      // for rowsise
+      // for row wise
       //assert(GetLayout() == MemoryLayout::RowMajor);
       assert( fNDim == 4); // || ( k==0 && fNDim == 2 ) );
 
@@ -416,7 +409,7 @@ public:
             i * fStrides[0] + j * fStrides[1] + k * fStrides[2] + l:
             l * fStrides[3] + k * fStrides[2] + j * fStrides[1] + i;
 
-      AFloat * elementPointer = fElementBuffer + offset;
+      AFloat * elementPointer = fElementBuffer.data() + offset;
 
       return TCudaDeviceReference<AFloat>(elementPointer);
    }

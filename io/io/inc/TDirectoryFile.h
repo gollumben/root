@@ -59,7 +59,7 @@ public:
 
    TDirectoryFile();
    TDirectoryFile(const char *name, const char *title, Option_t *option="", TDirectory* motherDir = nullptr);
-   virtual ~TDirectoryFile();
+   ~TDirectoryFile() override;
 
           void        Append(TObject *obj, Bool_t replace = kFALSE) override;
           void        Add(TObject *obj, Bool_t replace = kFALSE) override { Append(obj,replace); }
@@ -69,7 +69,8 @@ public:
           TObject    *CloneObject(const TObject *obj, Bool_t autoadd = kTRUE) override;
           void        Close(Option_t *option="") override;
           void        Copy(TObject &) const override { MayNotUse("Copy(TObject &)"); }
-          Bool_t      cd(const char *path = nullptr) override;
+          Bool_t      cd() override;
+          Bool_t      cd(const char *path) override;
           void        Delete(const char *namecycle="") override;
           void        FillBuffer(char *&buffer) override;
           TKey       *FindKey(const char *keyname) const override;
@@ -124,6 +125,8 @@ public:
            Int_t       WriteTObject(const TObject *obj, const char *name=nullptr, Option_t *option="", Int_t bufsize=0) override;
            Int_t       WriteObjectAny(const void *obj, const char *classname, const char *name, Option_t *option="", Int_t bufsize=0) override;
            Int_t       WriteObjectAny(const void *obj, const TClass *cl, const char *name, Option_t *option="", Int_t bufsize=0) override;
+           Int_t WriteObjectAny(const void *obj, const TClass *cl, std::pair<const char *, const char *> nameAndTitle,
+                                Option_t *option = "", Int_t bufsize = 0);
            void        WriteDirHeader() override;
            void        WriteKeys() override;
 

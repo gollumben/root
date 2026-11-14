@@ -13,7 +13,7 @@
 #include "TH1.h"
 #include "TVirtualPad.h"
 
-ClassImp(TF12);
+#include <ostream>
 
 /** \class TF12
     \ingroup Functions
@@ -23,21 +23,28 @@ It has the same behaviour as a TF1
 
 Example of a function
 
-~~~ {.cpp}
-    TF2 *f2 = new TF2("f2","sin(x)*sin(y)/(x*y)",0,5,0,5);
-    TF12 *f12 = new TF12("f12",f2,0.1,"y");
+Begin_Macro(source)
+{
+    auto f2 = new TF2("f2","sin(x)*sin(y)/(x*y)",0,5,0,5);
+    auto f12 = new TF12("f12",f2,0.1,"y");
     f12->Draw();
-~~~
+}
+End_Macro
+
+Side note: TF12 derives from TF1 but it does not store the number of parameters:
+so `GetNpar()` will be 0. Instead, it contains a private member pointing to the
+original TF2. Hence, one should not modify the (zero) parameters of the TF12
+but rather modify the original TF2 the TF12 is pointing to.
 
 */
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TF12 default constructor
 
-TF12::TF12(): TF1()
+TF12::TF12()
 {
    fCase = 0;
-   fF2   = 0;
+   fF2   = nullptr;
    fXY   = 0;
 }
 
@@ -46,11 +53,11 @@ TF12::TF12(): TF1()
 /// TF12 normal constructor.
 ///
 /// Create a TF12 (special TF1) from a projection of a TF2
-/// for a fix value of Y if option="X" or X if option="Y"
+/// for a fix value `xy` of Y if option="X" or X if option="Y"
 /// This value may be changed at any time via TF12::SetXY(xy)
 
-TF12::TF12(const char *name, TF2 *f2, Double_t xy, Option_t *option)
-      :TF1(name,"x",0,0)
+TF12::TF12(const char *name, TF2 *f2, Double_t xy, Option_t *option, EAddToList addToGlobList)
+      :TF1(name, "x", 0, 0, addToGlobList)
 {
    SetName(name);
    fF2 = f2;
@@ -60,7 +67,6 @@ TF12::TF12(const char *name, TF2 *f2, Double_t xy, Option_t *option)
       Error("TF12","Pointer to TF2 is null");
       return;
    }
-   SetXY(xy);
    if (opt.Contains("y")) {
       fXmin = f2->GetYmin();
       fXmax = f2->GetYmax();
@@ -70,6 +76,7 @@ TF12::TF12(const char *name, TF2 *f2, Double_t xy, Option_t *option)
       fXmax = f2->GetXmax();
       fCase = 0;
    }
+   SetXY(xy); // has to be called after fCase is set, since it also sets the title
 }
 
 
@@ -86,7 +93,7 @@ TF12::~TF12()
 
 TF12::TF12(const TF12 &f12) : TF1(f12)
 {
-   ((TF12&)f12).Copy(*this);
+   f12.TF12::Copy(*this);
 }
 
 
@@ -106,7 +113,7 @@ void TF12::Copy(TObject &obj) const
 /// Draw a copy of this function with its current attributes.
 ///
 /// This function MUST be used instead of Draw when you want to draw
-/// the same function with different parameters settings in the same canvas.
+/// the same function with different TF12 options (settings) in the same canvas.
 ///
 /// Possible option values are:
 ///
@@ -118,6 +125,17 @@ void TF12::Copy(TObject &obj) const
 ///
 /// Note that the default value is "F". Therefore to draw on top
 /// of an existing picture, specify option "SL"
+///
+/// Beware: this function does not clone the underlying TF2 instance,
+/// it just clones the TF12 objects but the all point to the same
+/// TF2. As a result, this function is only useful if you change
+/// the TF12 options (settings).
+/// If you want to draw projections of the same function with
+/// different TF2 parameters, you can do so by previously cloning
+/// the TF2 object for each variation.
+/// A clone-less alternative is to create a snapshot of the TF12 by
+/// creating a `new TGraph(tf12)` after each variation and then
+/// adding it to a TMultiGraph.
 
 TF1 *TF12::DrawCopy(Option_t *option) const
 {
@@ -171,11 +189,33 @@ Double_t TF12::EvalPar(const Double_t *x, const Double_t *params)
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out
 
-void TF12::SavePrimitive(std::ostream & /*out*/, Option_t * /*option*/ /*= ""*/)
+void TF12::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   Error("SavePrimitive","Function not yet implemented");
-}
+   thread_local Int_t save_f2_id = 9000;
 
+   fF2->SavePrimitive(out, TString::Format("nodraw#%d", ++save_f2_id));
+
+   TString f2Name = gInterpreter->MapCppName(TString::Format("%s%d", fF2->GetName(), save_f2_id));
+
+   TString f12Name = TF1::ProvideSaveName(option);
+
+   out << "   \n";
+   out << "   TF12 *" << f12Name << " = new TF12(\"" << "*" << GetName() << "\", " << f2Name << ", " << fXY << ", "
+       << (fCase ? "\"y\"" : "\"x\"") << ");\n";
+
+   SavePrimitiveNameTitle(out, f12Name);
+
+   SaveFillAttributes(out, f12Name, -1, 0);
+   SaveMarkerAttributes(out, f12Name, -1, -1, -1);
+   SaveLineAttributes(out, f12Name, -1, -1, -1);
+
+   if (fHistogram && !strstr(option, "same")) {
+      GetXaxis()->SaveAttributes(out, f12Name, "->GetXaxis()");
+      GetYaxis()->SaveAttributes(out, f12Name, "->GetYaxis()");
+   }
+
+   SavePrimitiveDraw(out, f12Name, option);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set the value of the constant for the TF2
@@ -189,8 +229,10 @@ void TF12::SetXY(Double_t xy)
 {
    fXY = xy;
    if (!fF2) return;
-   if (fCase == 0) SetTitle(Form("%s (y=%g)",fF2->GetTitle(),xy));
-   else            SetTitle(Form("%s (x=%g)",fF2->GetTitle(),xy));
+   // option == "X" --> fCase = 0, project on X axis, X varies, Y constant 
+   // option == "Y" --> fCase = 1, project on Y axis, Y varies, X constant 
+   if (fCase == 0) SetTitle(TString::Format("%s (y=%g)",fF2->GetTitle(),xy));
+   else            SetTitle(TString::Format("%s (x=%g)",fF2->GetTitle(),xy));
    if (fHistogram) fHistogram->SetTitle(GetTitle());
    if (gPad) gPad->Modified();
 }

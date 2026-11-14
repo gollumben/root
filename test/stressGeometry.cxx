@@ -1,6 +1,6 @@
 // Program to check a TGeo geometry
 // The first time you run this program, the geometry files will be taken
-// from http://root.cern.ch/files
+// from /eos/root-eos/testfiles/ (previously from http://root.cern/files)
 //
 //    How the program works
 // If the file <geom_name>_ref.root does not exist, it is generated. The file
@@ -21,7 +21,7 @@
 //
 //  The ReadRef case is also used as a benchmark
 //  The ROOTMARKS reported are relative to a Linux/P IV 2.8 GHz gcc3.2.3 machine
-//  normalized at 800 ROOTMARKS when running with CINT.
+//  normalized at 800 ROOTMARKS when running with historical CINT.
 //
 // To run this script, do
 //   stressGeometry
@@ -57,7 +57,7 @@
 Double_t tpstot = 0;
 Double_t tpsref = 112.1; //time including the generation of the ref files
 Bool_t testfailed = kFALSE;
-#ifndef __CINT__
+#ifndef __CLING__
 void stressGeometry(const char*, Bool_t, Bool_t);
 
 int main(int argc, char **argv)
@@ -127,39 +127,39 @@ const char *exps[NG] = {"aleph",
                         "belle",
                         "atlas"
 };
-const Int_t versions[NG] =  {5, //aleph
-                             3, //barres
-                             3, //felix
-                             3, //phenix
-                             3, //chambers
-                             4, //p326
-                             3, //bes
-                             3, //dubna
-                             3, //ganil
-                             3, //e907
-                             4, //phobos2
-                             3, //hermes
-                             3, //na35
-                             3, //na47
-                             3, //na49
-                             3, //wa91
-                             3, //sdc
-                             4, //integral
-                             4, //ams
-                             3, //brahms
-                             5, //gem
-                             4, //tesla
-                             3, //btev
-                             6, //cdf
-                             4, //hades2
-                             4, //lhcbfull
-                             4, //star
-                             4, //sld
-                             4, //cms
-                             6, //alice3
-                             4, //babar2
-                             3, //belle
-                             6}; //atlas
+const Int_t versions[NG] = {5,  // aleph
+                            3,  // barres
+                            3,  // felix
+                            3,  // phenix
+                            3,  // chambers
+                            4,  // p326
+                            3,  // bes
+                            3,  // dubna
+                            3,  // ganil
+                            3,  // e907
+                            4,  // phobos2
+                            3,  // hermes
+                            3,  // na35
+                            3,  // na47
+                            3,  // na49
+                            3,  // wa91
+                            3,  // sdc
+                            4,  // integral
+                            4,  // ams
+                            4,  // brahms
+                            5,  // gem
+                            4,  // tesla
+                            3,  // btev
+                            6,  // cdf
+                            4,  // hades2
+                            4,  // lhcbfull
+                            5,  // star
+                            4,  // sld
+                            4,  // cms
+                            6,  // alice3
+                            5,  // babar2
+                            3,  // belle
+                            7}; // atlas
 // The timings below are on my machine PIV 3GHz
 const Double_t cp_brun[NG] = {1.9,  //aleph
                               0.1,  //barres
@@ -274,13 +274,13 @@ void stressGeometry(const char *exp="*", Bool_t generate_ref=kFALSE, Bool_t vecg
          delete gGeoManager;
          gGeoManager = 0;
       }
-      TGeoManager::Import(Form("http://root.cern.ch/files/%s",fname.Data()));
+      TGeoManager::Import(Form("root://eospublic.cern.ch//eos/root-eos/testfiles/%s",fname.Data()));
       if (!gGeoManager) return;
       if (vecgeom) TVirtualGeoConverter::Instance()->ConvertGeometry();
       
       fname = TString::Format("files/%s_ref_%d.root", exps[i],versions[i]);
 
-      if (gen_ref || !TFile::Open(Form("http://root.cern.ch/files/%s_ref_%d.root",exps[i],versions[i]),"CACHEREAD")) {
+      if (gen_ref || !TFile::Open(Form("root://eospublic.cern.ch//eos/root-eos/testfiles//%s_ref_%d.root",exps[i],versions[i]),"CACHEREAD")) {
          if (!gen_ref) fprintf(stderr,"File: %s does not exist, generating it\n", fname.Data());
          else               fprintf(stderr,"Generating reference file %s\n", fname.Data());
          WriteRef(i);
@@ -295,10 +295,6 @@ void stressGeometry(const char *exp="*", Bool_t generate_ref=kFALSE, Bool_t vecg
          TString sp = gSystem->GetFromPipe("uname -a");
          sp.Resize(60);
          printf("*  SYS: %s\n",sp.Data());
-         if (strstr(gSystem->GetBuildNode(),"Linux")) {
-            sp = gSystem->GetFromPipe("lsb_release -d -s");
-            printf("*  SYS: %s\n",sp.Data());
-         }
          if (strstr(gSystem->GetBuildNode(),"Darwin")) {
             sp  = gSystem->GetFromPipe("sw_vers -productVersion");
             sp += " Mac OS X ";
@@ -324,9 +320,9 @@ void ReadRef(Int_t kexp) {
    TFile *f = 0;
    //use ref_[version[i]] files
    if (!gen_ref)
-      fname = TString::Format("http://root.cern.ch/files/%s_ref_%d.root", exps[kexp],versions[kexp]);
+      fname = TString::Format("root://eospublic.cern.ch//eos/root-eos/testfiles//%s_ref_%d.root", exps[kexp],versions[kexp]);
    else
-      fname.Format("files/%s_ref_%d.root", exps[kexp],versions[kexp]);
+      fname = TString::Format("files/%s_ref_%d.root", exps[kexp], versions[kexp]);
 
    f = TFile::Open(fname,"CACHEREAD");
    if (!f) {
@@ -550,7 +546,7 @@ void InspectDiff(const char* exp="alice",Long64_t ientry=-1) {
    Float_t rad    = 0.;
    TString fname(TString::Format("%s.root",exp));
    if (gSystem->AccessPathName(fname)) {
-      TGeoManager::Import(Form("http://root.cern.ch/files/%s",fname.Data()));
+      TGeoManager::Import(Form("root://eospublic.cern.ch//eos/root-eos/testfiles//%s",fname.Data()));
    } else {
       TGeoManager::Import(fname);
    }

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # coding: utf-8
 
 #------------------------------------------------------------------------------
@@ -11,8 +11,6 @@
 # LICENSE.TXT for details.
 #------------------------------------------------------------------------------
 
-from __future__ import print_function
-
 # the name of the project
 name = 'clingkernel'
 
@@ -23,19 +21,16 @@ name = 'clingkernel'
 import sys
 
 v = sys.version_info
-if v[:2] < (2,7) or (v[0] >= 3 and v[:2] < (3,3)):
-    error = "ERROR: %s requires Python version 2.7 or 3.3 or above." % name
+if v[0] >= 3 and v[:2] < (3,3):
+    error = "ERROR: %s requires Python version 3.3 or above." % name
     print(error, file=sys.stderr)
     sys.exit(1)
-
-PY3 = (sys.version_info[0] >= 3)
 
 #-----------------------------------------------------------------------------
 # get on with it
 #-----------------------------------------------------------------------------
 
 import os
-from glob import glob
 
 from distutils.core import setup
 
@@ -48,7 +43,11 @@ setup_args = dict(
     name            = name,
     version         = '0.0.2',
     py_modules      = ['clingkernel'],
-    scripts         = glob(pjoin('scripts', '*')),
+    entry_points    = {
+        'console_scripts': [
+            'jupyter-cling-kernel=clingkernel:main'
+        ],
+    },
     description     = "C++ Kernel for Jupyter with Cling",
     author          = 'Min RK, Axel Naumann',
     author_email    = 'cling-dev@cern.ch',

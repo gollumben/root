@@ -33,7 +33,6 @@ to orthographic bird-view, if camera theta is less than given threshold. It sets
 perspective camera when accumulated angle is more than transition theta.
 */
 
-ClassImp(TEveLegoEventHandler);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -108,7 +107,7 @@ Bool_t TEveLegoEventHandler::Rotate(Int_t xDelta, Int_t yDelta, Bool_t mod1, Boo
 
          Double_t vR =  -0.5 * TMath::Pi(); // switch XY
          Double_t hR =  -0.5 * TMath::Pi() + fTransTheta; // fix top view angle
-         persp->Configure(fov*TMath::RadToDeg(), 0, 0, hR, vR);
+         persp->Configure(fov*TMath::RadToDeg(), 0, nullptr, hR, vR);
 
          fMode = kFree;
          camChanged = kTRUE;
@@ -145,7 +144,7 @@ Bool_t TEveLegoEventHandler::Rotate(Int_t xDelta, Int_t yDelta, Bool_t mod1, Boo
          Double_t t =  persp->FrustumPlane(TGLCamera::kTop).D();
          Double_t b = -persp->FrustumPlane(TGLCamera::kBottom).D();
          Double_t zoom = box.Extents().Y()/(t-b);
-         ortho->Configure(zoom, 0, 0, 0, 0);
+         ortho->Configure(zoom, 0, nullptr, 0, 0);
 
          fMode = kLocked;
          camChanged = kTRUE;

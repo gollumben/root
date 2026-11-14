@@ -19,14 +19,13 @@
 Projected copy of a TEveTrack.
 */
 
-ClassImp(TEveTrackProjected);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.
 
 TEveTrackProjected::TEveTrackProjected() :
    TEveTrack (),
-   fOrigPnts (0)
+   fOrigPnts (nullptr)
 {
 }
 
@@ -201,7 +200,7 @@ void TEveTrackProjected::MakeTrack(Bool_t recurse)
       else
          SetNextPoint((*i).fX, (*i).fY, (*i).fZ);
    }
-   delete [] fOrigPnts; fOrigPnts = 0;
+   delete [] fOrigPnts; fOrigPnts = nullptr;
 
    // Project path-marks
    for (vPathMark_i pm = fPathMarks.begin(); pm != fPathMarks.end(); ++pm)
@@ -251,7 +250,6 @@ void TEveTrackProjected::SecSelected(TEveTrack* /*track*/)
 Specialization of TEveTrackList for holding TEveTrackProjected objects.
 */
 
-ClassImp(TEveTrackListProjected);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.

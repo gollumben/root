@@ -28,7 +28,7 @@
 
 PDF implementing the generalized Asymmetrical Double-Sided Crystall Ball line shape.
 \f[
-  f(m;m_0,\sigma,\alpha_L,n_L,\alpha_R,n_R) =
+  f(m;m_0,\sigma_L,\alpha_L,n_L,\sigma_R,\alpha_R,n_R) =
   \begin{cases}
     A_L \cdot (B_L - \frac{m - m_0}{\sigma_L})^{-n_L}, & \mbox{for }\frac{m - m_0}{\sigma_L} < -\alpha_L \\
     \exp \left( - \frac{1}{2} \cdot \left[ \frac{m - m_0}{\sigma_L} \right]^2 \right), & \mbox{for }\frac{m - m_0}{\sigma_L} \leq 0 \\
@@ -47,7 +47,6 @@ where
 **/
 
 #include "RooCrystalBall.h"
-#include "RooAbsReal.h"
 #include "RooHelpers.h"
 #include "TError.h"
 
@@ -56,7 +55,6 @@ where
 #include <memory>
 #include <utility>
 
-ClassImp(RooCrystalBall);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Creates the fully parametrized crystal ball shape with asymmetric Gaussian core and asymmetric tails.
@@ -95,7 +93,7 @@ RooCrystalBall::RooCrystalBall(const char *name, const char *title, RooAbsReal &
 /// \param title Title for plotting.
 /// \param x The variable of the PDF.
 /// \param x0 Location parameter of the Gaussian component.
-/// \param sigma Width parameter of the Gaussian component.
+/// \param sigmaLR Width parameter of the Gaussian component.
 /// \param alphaL Location of transition to a power law on the left, in standard deviations away from the mean.
 /// \param nL Exponent of power-law tail on the left.
 /// \param alphaR Location of transition to a power law on the right, in standard deviations away from the mean.
@@ -123,7 +121,7 @@ RooCrystalBall::RooCrystalBall(const char *name, const char *title, RooAbsReal &
 /// \param title Title for plotting.
 /// \param x The variable of the PDF.
 /// \param x0 Location parameter of the Gaussian component.
-/// \param sigma Width parameter of the Gaussian component.
+/// \param sigmaLR Width parameter of the Gaussian component.
 /// \param alpha Location of transition to a power law, in standard deviations away from the mean.
 /// \param n Exponent of power-law tail.
 /// \param doubleSided Whether the tail is only on one side or on both sides
@@ -164,10 +162,10 @@ namespace {
 
 inline double evaluateCrystalBallTail(double t, double alpha, double n)
 {
-   double a = std::pow(n / alpha, n) * std::exp(-0.5 * alpha * alpha);
-   double b = n / alpha - alpha;
+   double r = n / alpha;
+   double b = r - alpha;
 
-   return a / std::pow(b - t, n);
+   return std::exp(-0.5 * alpha * alpha) * std::pow(r / (b - t), n);
 }
 
 inline double integrateGaussian(double sigmaL, double sigmaR, double tmin, double tmax)
@@ -183,25 +181,29 @@ inline double integrateGaussian(double sigmaL, double sigmaR, double tmin, doubl
 
 inline double integrateTailLogVersion(double sigma, double alpha, double n, double tmin, double tmax)
 {
-   double a = std::pow(n / alpha, n) * exp(-0.5 * alpha * alpha);
-   double b = n / alpha - alpha;
+   double r = n / alpha;
+   double a = std::pow(r, n) * exp(-0.5 * alpha * alpha);
+   double b = r - alpha;
 
-   return a * sigma * (log(b - tmin) - log(b - tmax));
+   double log_b_tmin = log(b - tmin);
+   double log_b_tmax = log(b - tmax);
+
+   return a * sigma * (log_b_tmin - log_b_tmax + 0.5 * (1.0 - n) * (log_b_tmin * log_b_tmin - log_b_tmax * log_b_tmax));
 }
 
 inline double integrateTailRegular(double sigma, double alpha, double n, double tmin, double tmax)
 {
-   double a = std::pow(n / alpha, n) * exp(-0.5 * alpha * alpha);
-   double b = n / alpha - alpha;
+   double r = n / alpha;
+   double b = r - alpha;
 
-   return a * sigma / (1.0 - n) * (1.0 / (std::pow(b - tmin, n - 1.0)) - 1.0 / (std::pow(b - tmax, n - 1.0)));
+   return r * exp(-0.5 * alpha * alpha) * sigma / (1.0 - n) * (std::pow(r / (b - tmin), n - 1.0) - std::pow(r / (b - tmax), n - 1.0));
 }
 
 } // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Double_t RooCrystalBall::evaluate() const
+double RooCrystalBall::evaluate() const
 {
    const double x = x_;
    const double x0 = x0_;
@@ -239,7 +241,7 @@ Int_t RooCrystalBall::getAnalyticalIntegral(RooArgSet &allVars, RooArgSet &analV
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Double_t RooCrystalBall::analyticalIntegral(Int_t code, const char *rangeName) const
+double RooCrystalBall::analyticalIntegral(Int_t code, const char *rangeName) const
 {
    R__ASSERT(code == 1);
 
@@ -293,7 +295,7 @@ Int_t RooCrystalBall::getMaxVal(const RooArgSet &vars) const
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Double_t RooCrystalBall::maxVal(Int_t code) const
+double RooCrystalBall::maxVal(Int_t code) const
 {
    R__ASSERT(code == 1);
 

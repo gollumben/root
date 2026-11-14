@@ -1,6 +1,7 @@
 // @(#)root/geom:$Id$// Author: Andrei Gheata   24/10/01
 
 // Contains() and DistFromOutside/Out() implemented by Mihaela Gheata
+// 2026-01: Revision to use BVH for navigation functions by Sandro Wenzel
 
 /*************************************************************************
  * Copyright (C) 1995-2000, Rene Brun and Fons Rademakers.               *
@@ -19,6 +20,7 @@ for the composing faces.
 */
 
 #include <iostream>
+#include <fstream>
 #include <sstream>
 
 #include "TGeoManager.h"
@@ -29,108 +31,25 @@ for the composing faces.
 #include "TBuffer3D.h"
 #include "TBuffer3DTypes.h"
 #include "TMath.h"
+#include "TBuffer.h"
 
 #include <array>
 #include <vector>
 
-ClassImp(TGeoTessellated)
+// include the Third-party BVH headers
+#include <bvh2_third_party.h>
+// some kernels on top of BVH
+#include <bvh2_extra_kernels.h>
 
-   using Vertex_t = Tessellated::Vertex_t;
+#include <cmath>
+#include <limits>
 
-std::ostream &operator<<(std::ostream &os, TGeoFacet const &facet)
-{
-   os << "{";
-   for (int i = 0; i < facet.GetNvert(); ++i) {
-      os << facet.GetVertex(i);
-      if (i != facet.GetNvert() - 1)
-         os << ", ";
-   }
-   os << "}";
-   return os;
-}
+ClassImp(TGeoTessellated);
 
-TGeoFacet::TGeoFacet(const TGeoFacet &other) : fVertices(other.fVertices), fNvert(other.fNvert), fShared(other.fShared)
-{
-   memcpy(fIvert, other.fIvert, 4 * sizeof(int));
-   if (!fShared && other.fVertices)
-      fVertices = new VertexVec_t(*other.fVertices);
-}
+using Vertex_t = Tessellated::Vertex_t;
 
-const TGeoFacet &TGeoFacet::operator=(const TGeoFacet &other)
-{
-   if (&other != this) {
-      if (!fShared)
-         delete fVertices;
-      fNvert = other.fNvert;
-      fShared = other.fShared;
-      memcpy(fIvert, other.fIvert, 4 * sizeof(int));
-      if (!fShared && other.fVertices)
-         fVertices = new VertexVec_t(*other.fVertices);
-      else
-         fVertices = other.fVertices;
-   }
-   return *this;
-}
-
-Vertex_t TGeoFacet::ComputeNormal(bool &degenerated) const
-{
-   // Compute normal using non-zero segments
-   constexpr double kTolerance = 1.e-20;
-   degenerated = true;
-   Vertex_t normal;
-   for (int i = 0; i < fNvert - 1; ++i) {
-      Vertex_t e1 = GetVertex(i + 1) - GetVertex(i);
-      if (e1.Mag2() < kTolerance)
-         continue;
-      for (int j = i + 1; j < fNvert; ++j) {
-         Vertex_t e2 = GetVertex((j + 1) % fNvert) - GetVertex(j);
-         if (e2.Mag2() < kTolerance)
-            continue;
-         normal = Vertex_t::Cross(e1, e2);
-         // e1 and e2 may be colinear
-         if (normal.Mag2() < kTolerance)
-            continue;
-         normal.Normalize();
-         degenerated = false;
-         break;
-      }
-      if (!degenerated)
-         break;
-   }
-   return normal;
-}
-
-bool TGeoFacet::Check() const
-{
-   constexpr double kTolerance = 1.e-10;
-   bool degenerated = true;
-   ComputeNormal(degenerated);
-   if (degenerated) {
-      std::cout << "Facet: " << *this << " is degenerated\n";
-      return false;
-   }
-
-   // Compute surface area
-   double surfaceArea = 0.;
-   for (int i = 1; i < fNvert - 1; ++i) {
-      Vertex_t e1 = GetVertex(i) - GetVertex(0);
-      Vertex_t e2 = GetVertex(i + 1) - GetVertex(0);
-      surfaceArea += 0.5 * Vertex_t::Cross(e1, e2).Mag();
-   }
-   if (surfaceArea < kTolerance) {
-      std::cout << "Facet: " << *this << " has zero surface area\n";
-      return false;
-   }
-
-   // Center of the tile
-   /*
-   Vertex_t center;
-   for (int i = 0; i < fNvert; ++i)
-      center += GetVertex(i);
-   center /= fNvert;
-   */
-   return true;
-}
+////////////////////////////////////////////////////////////////////////////////
+/// Compact consecutive equal vertices
 
 int TGeoFacet::CompactFacet(Vertex_t *vert, int nvertices)
 {
@@ -162,10 +81,10 @@ bool TGeoFacet::IsNeighbour(const TGeoFacet &other, bool &flip) const
    int line1[2], line2[2];
    int npoints = 0;
    for (int i = 0; i < fNvert; ++i) {
-      auto ivert = GetVertexIndex(i);
+      auto ivert = fIvert[i];
       // Check if the other facet has the same vertex
       for (int j = 0; j < other.GetNvert(); ++j) {
-         if (ivert == other.GetVertexIndex(j)) {
+         if (ivert == other[j]) {
             line1[npoints] = i;
             line2[npoints] = j;
             if (++npoints == 2) {
@@ -203,14 +122,43 @@ TGeoTessellated::TGeoTessellated(const char *name, const std::vector<Vertex_t> &
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Function to be called after reading tessellated volumes from the geometry file
+/// Add a vertex checking for duplicates, returning the vertex index
 
-void TGeoTessellated::AfterStreamer()
+int TGeoTessellated::AddVertex(Vertex_t const &vert)
 {
-   // The pointer to the array of vertices is not streamed so update it to facets
-   for (auto facet : fFacets)
-      facet.SetVertices(&fVertices);
-   fDefined = true;
+   constexpr double tolerance = 1.e-10;
+   auto vertexHash = [&](Vertex_t const &vertex) {
+      // Compute hash for the vertex
+      long hash = 0;
+      // helper function to generate hash from integer numbers
+      auto hash_combine = [](long seed, const long value) {
+         return seed ^ (std::hash<long>{}(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
+      };
+      for (int i = 0; i < 3; i++) {
+         // use tolerance to generate int with the desired precision from a real number for hashing
+         hash = hash_combine(hash, std::roundl(vertex[i] / tolerance));
+      }
+      return hash;
+   };
+
+   auto hash = vertexHash(vert);
+   bool isAdded = false;
+   int ivert = -1;
+   // Get the compatible vertices
+   auto range = fVerticesMap.equal_range(hash);
+   for (auto it = range.first; it != range.second; ++it) {
+      ivert = it->second;
+      if (fVertices[ivert] == vert) {
+         isAdded = true;
+         break;
+      }
+   }
+   if (!isAdded) {
+      ivert = fVertices.size();
+      fVertices.push_back(vert);
+      fVerticesMap.insert(std::make_pair(hash, ivert));
+   }
+   return ivert;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -232,12 +180,12 @@ bool TGeoTessellated::AddFacet(const Vertex_t &pt0, const Vertex_t &pt1, const V
       Error("AddFacet", "Triangular facet at index %d degenerated. Not adding.", GetNfacets());
       return false;
    }
-   fNvert += 3;
+   int ind[3];
+   for (auto i = 0; i < 3; ++i)
+      ind[i] = AddVertex(vert[i]);
    fNseg += 3;
-   fFacets.emplace_back(pt0, pt1, pt2);
+   fFacets.emplace_back(ind[0], ind[1], ind[2]);
 
-   if (fNfacets > 0 && GetNfacets() == fNfacets)
-      CloseShape();
    return true;
 }
 
@@ -250,13 +198,13 @@ bool TGeoTessellated::AddFacet(int i0, int i1, int i2)
       Error("AddFacet", "Shape %s already fully defined. Not adding", GetName());
       return false;
    }
-   if (fVertices.size() == 0) {
+   if (fVertices.empty()) {
       Error("AddFacet", "Shape %s Cannot add facets by indices without vertices. Not adding", GetName());
       return false;
    }
 
    fNseg += 3;
-   fFacets.emplace_back(&fVertices, 3, i0, i1, i2);
+   fFacets.emplace_back(i0, i1, i2);
    return true;
 }
 
@@ -280,12 +228,14 @@ bool TGeoTessellated::AddFacet(const Vertex_t &pt0, const Vertex_t &pt1, const V
       return false;
    }
 
-   fNvert += nvert;
+   int ind[4];
+   for (auto i = 0; i < nvert; ++i)
+      ind[i] = AddVertex(vert[i]);
    fNseg += nvert;
    if (nvert == 3)
-      fFacets.emplace_back(vert[0], vert[1], vert[2]);
+      fFacets.emplace_back(ind[0], ind[1], ind[2]);
    else
-      fFacets.emplace_back(vert[0], vert[1], vert[2], vert[3]);
+      fFacets.emplace_back(ind[0], ind[1], ind[2], ind[3]);
 
    if (fNfacets > 0 && GetNfacets() == fNfacets)
       CloseShape(false);
@@ -301,13 +251,76 @@ bool TGeoTessellated::AddFacet(int i0, int i1, int i2, int i3)
       Error("AddFacet", "Shape %s already fully defined. Not adding", GetName());
       return false;
    }
-   if (fVertices.size() == 0) {
+   if (fVertices.empty()) {
       Error("AddFacet", "Shape %s Cannot add facets by indices without vertices. Not adding", GetName());
       return false;
    }
 
    fNseg += 4;
-   fFacets.emplace_back(&fVertices, 4, i0, i1, i2, i3);
+   fFacets.emplace_back(i0, i1, i2, i3);
+   return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Compute normal for a given facet
+
+Vertex_t TGeoTessellated::FacetComputeNormal(int ifacet, bool &degenerated) const
+{
+   // Compute normal using non-zero segments
+   constexpr double kTolerance = 1.e-20;
+   auto const &facet = fFacets[ifacet];
+   int nvert = facet.GetNvert();
+   degenerated = true;
+   Vertex_t normal;
+   for (int i = 0; i < nvert - 1; ++i) {
+      Vertex_t e1 = fVertices[facet[i + 1]] - fVertices[facet[i]];
+      if (e1.Mag2() < kTolerance)
+         continue;
+      for (int j = i + 1; j < nvert; ++j) {
+         Vertex_t e2 = fVertices[facet[(j + 1) % nvert]] - fVertices[facet[j]];
+         if (e2.Mag2() < kTolerance)
+            continue;
+         normal = Vertex_t::Cross(e1, e2);
+         // e1 and e2 may be colinear
+         if (normal.Mag2() < kTolerance)
+            continue;
+         normal.Normalize();
+         degenerated = false;
+         break;
+      }
+      if (!degenerated)
+         break;
+   }
+   return normal;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Check validity of facet
+
+bool TGeoTessellated::FacetCheck(int ifacet) const
+{
+   constexpr double kTolerance = 1.e-10;
+   auto const &facet = fFacets[ifacet];
+   int nvert = facet.GetNvert();
+   bool degenerated = true;
+   FacetComputeNormal(ifacet, degenerated);
+   if (degenerated) {
+      std::cout << "Facet: " << ifacet << " is degenerated\n";
+      return false;
+   }
+
+   // Compute surface area
+   double surfaceArea = 0.;
+   for (int i = 1; i < nvert - 1; ++i) {
+      Vertex_t e1 = fVertices[facet[i]] - fVertices[facet[0]];
+      Vertex_t e2 = fVertices[facet[i + 1]] - fVertices[facet[0]];
+      surfaceArea += 0.5 * Vertex_t::Cross(e1, e2).Mag();
+   }
+   if (surfaceArea < kTolerance) {
+      std::cout << "Facet: " << ifacet << " has zero surface area\n";
+      return false;
+   }
+
    return true;
 }
 
@@ -316,110 +329,37 @@ bool TGeoTessellated::AddFacet(int i0, int i1, int i2, int i3)
 
 void TGeoTessellated::CloseShape(bool check, bool fixFlipped, bool verbose)
 {
-   // Compact the array of vertices
-   constexpr double tolerance = 1.e-10;
-   constexpr int ngrid = 100;
-   ComputeBBox();
-   double minExtent[3];
-   minExtent[0] = fOrigin[0] - fDX - tolerance;
-   minExtent[1] = fOrigin[1] - fDY - tolerance;
-   minExtent[2] = fOrigin[2] - fDZ - tolerance;
+   const bool initialized = fIsClosed && fBVH;
+   if (initialized && !check) {
+      return;
+   }
 
-   double invExtent[3];
-   invExtent[0] = 0.5 / (fDX + tolerance);
-   invExtent[1] = 0.5 / (fDY + tolerance);
-   invExtent[2] = 0.5 / (fDZ + tolerance);
+   if (!initialized) {
+      // Compute bounding box
+      fDefined = true;
+      fNvert = fVertices.size();
+      fNfacets = fFacets.size();
+      ComputeBBox();
+
+      BuildBVH();
+      fIsClosed = true;
+
+      // Cleanup the vertex map
+      std::multimap<long, int>().swap(fVerticesMap);
+   }
 
    if (fVertices.size() > 0) {
-      fDefined = true;
-      if (!check)
-         return;
+      if (check) {
+         // Check facets
+         for (auto i = 0; i < fNfacets; ++i)
+            FacetCheck(i);
 
-      // Check facets
-      for (auto &facet : fFacets) {
-         facet.Check();
+         fClosedBody = CheckClosure(fixFlipped, verbose);
       }
-      fClosedBody = CheckClosure(fixFlipped, verbose);
-      return;
+
+      if (fOutwardNormals.size() != fFacets.size())
+         CalculateNormals();
    }
-
-   auto AddVertex = [this](const Vertex_t &vertex) {
-      // Check if vertex exists
-      int ivert = 0;
-      for (const auto &current_vert : fVertices) {
-         if (current_vert == vertex)
-            return ivert;
-         ivert++;
-      }
-      // Vertex new, just add it
-      fVertices.push_back(vertex);
-      return ivert;
-   };
-
-   auto GetHashIndex = [&](const Vertex_t &vertex) {
-      // Get the hash index for a vertex in a 10x10x10 grid in the bounding box
-      int index = 0;
-      for (int i = 0; i < 3; ++i) {
-         int ind = int(ngrid * (vertex[i] - minExtent[i]) * invExtent[i]); // between [0, ngrid-1]
-         assert(ind < (int)ngrid);
-         for (int j = i + 1; j < 3; ++j)
-            ind *= ngrid;
-         index += ind;
-      }
-      return index;
-   };
-
-   // In case the number of vertices is small, just compare with all others
-   int ind[4] = {-1, -1, -1, -1};
-   if (fNvert < 1000) {
-      for (auto &facet : fFacets) {
-         int nvert = facet.GetNvert();
-         for (int i = 0; i < nvert; ++i) {
-            // Check if vertex exists already
-            ind[i] = AddVertex(facet.GetVertex(i));
-         }
-         facet.SetVertices(&fVertices, nvert, ind[0], ind[1], ind[2], ind[3]);
-      }
-   } else {
-      // Use hash index for each vertex
-      using CellVec_t = std::vector<int>;
-      auto grid = new std::array<CellVec_t, ngrid * ngrid * ngrid>;
-      for (auto &facet : fFacets) {
-         int nvert = facet.GetNvert();
-         for (int i = 0; i < nvert; ++i) {
-            // Check if vertex exists already
-            const Vertex_t &vertex = facet.GetVertex(i);
-            int hashind = GetHashIndex(vertex);
-            bool isAdded = false;
-            for (auto ivert : grid->operator[](hashind)) {
-               if (vertex == fVertices[ivert]) {
-                  ind[i] = ivert;
-                  isAdded = true;
-                  break;
-               }
-            }
-            if (!isAdded) {
-               fVertices.push_back(vertex);
-               ind[i] = fVertices.size() - 1;
-               grid->operator[](hashind).push_back(ind[i]);
-            }
-         }
-         facet.SetVertices(&fVertices, nvert, ind[0], ind[1], ind[2], ind[3]);
-      }
-      delete grid;
-   }
-   fNvert = fVertices.size();
-   fNfacets = fFacets.size();
-   fDefined = true;
-   if (!check)
-      return;
-
-   // Check facets
-   for (auto &facet : fFacets) {
-      facet.Check();
-   }
-
-   fClosedBody = CheckClosure(fixFlipped, verbose);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -481,6 +421,8 @@ bool TGeoTessellated::CheckClosure(bool fixFlipped, bool verbose)
       }
       if (nfixed && verbose)
          Info("Check", "Automatically flipped %d facets to match first defined facet", nfixed);
+      if (nfixed && !fOutwardNormals.empty())
+         CalculateNormals();
    }
    delete[] nn;
    delete[] flipped;
@@ -499,8 +441,8 @@ void TGeoTessellated::ComputeBBox()
    for (const auto &facet : fFacets) {
       for (int i = 0; i < facet.GetNvert(); ++i) {
          for (int j = 0; j < 3; ++j) {
-            vmin[j] = TMath::Min(vmin[j], facet.GetVertex(i).operator[](j));
-            vmax[j] = TMath::Max(vmax[j], facet.GetVertex(i).operator[](j));
+            vmin[j] = TMath::Min(vmin[j], fVertices[facet[i]].operator[](j));
+            vmax[j] = TMath::Max(vmax[j], fVertices[facet[i]].operator[](j));
          }
       }
    }
@@ -567,8 +509,8 @@ void TGeoTessellated::SetSegsAndPols(TBuffer3D &buff) const
          int k = (j + 1) % nvert;
          // segment made by next consecutive points
          segs[indseg++] = c;
-         segs[indseg++] = facet.GetVertexIndex(j);
-         segs[indseg++] = facet.GetVertexIndex(k);
+         segs[indseg++] = facet[j];
+         segs[indseg++] = facet[k];
          // add segment to current polygon and increment segment index
          pols[indpol + nvert - j - 1] = sind++;
       }
@@ -615,6 +557,9 @@ void TGeoTessellated::ResizeCenter(double maxsize)
    Vector3_t origin(fOrigin[0], fOrigin[1], fOrigin[2]);
    double maxedge = TMath::Max(TMath::Max(fDX, fDY), fDZ);
    double scale = maxsize / maxedge;
+   constexpr double kTol = 1e-12;
+   const bool modified = (std::abs(scale - 1.0) > kTol) || (std::abs(origin[0]) > kTol) ||
+                         (std::abs(origin[1]) > kTol) || (std::abs(origin[2]) > kTol);
    for (size_t i = 0; i < fVertices.size(); ++i) {
       fVertices[i] = scale * (fVertices[i] - origin);
    }
@@ -622,6 +567,10 @@ void TGeoTessellated::ResizeCenter(double maxsize)
    fDX *= scale;
    fDY *= scale;
    fDZ *= scale;
+   if (modified) {
+      BuildBVH();
+      CalculateNormals();
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -660,7 +609,7 @@ const TBuffer3D &TGeoTessellated::GetBuffer3D(int reqSections, Bool_t localFrame
 
 TGeoTessellated *TGeoTessellated::ImportFromObjFormat(const char *objfile, bool check, bool verbose)
 {
-   using namespace std;
+   using std::vector, std::string, std::ifstream, std::stringstream, std::endl;
 
    vector<Vertex_t> vertices;
    vector<string> sfacets;
@@ -722,14 +671,14 @@ TGeoTessellated *TGeoTessellated::ImportFromObjFormat(const char *objfile, bool 
       string tag;
 
       // We ignore everything which is not a vertex or a face
-      if (line.rfind("v", 0) == 0 && line.rfind("vt", 0) != 0 && line.rfind("vn", 0) != 0 && line.rfind("vn", 0) != 0) {
+      if (line.rfind('v', 0) == 0 && line.rfind("vt", 0) != 0 && line.rfind("vn", 0) != 0 && line.rfind("vn", 0) != 0) {
          // Decode the vertex
          double pos[4] = {0, 0, 0, 1};
          ss >> tag >> pos[0] >> pos[1] >> pos[2] >> pos[3];
          vertices.emplace_back(pos[0] * pos[3], pos[1] * pos[3], pos[2] * pos[3]);
       }
 
-      else if (line.rfind("f", 0) == 0) {
+      else if (line.rfind('f', 0) == 0) {
          // Decode the face
          ss >> tag;
          string word;
@@ -785,4 +734,671 @@ TGeoTessellated *TGeoTessellated::ImportFromObjFormat(const char *objfile, bool 
    tsl->CloseShape(check, true, verbose);
    tsl->Print();
    return tsl;
+}
+
+// implementation of some geometry helper functions in anonymous namespace
+namespace {
+
+using Vertex_t = Tessellated::Vertex_t;
+// The classic Moeller-Trumbore ray triangle-intersection kernel:
+// - Compute triangle edges e1, e2
+// - Compute determinant det
+// - Reject parallel rays
+// - Compute barycentric coordinates u, v
+// - Compute ray parameter t
+double rayTriangle(const Vertex_t &orig, const Vertex_t &dir, const Vertex_t &v0, const Vertex_t &v1,
+                   const Vertex_t &v2, double rayEPS = 1e-8)
+{
+   constexpr double EPS = 1e-8;
+   const double INF = std::numeric_limits<double>::infinity();
+   Vertex_t e1{v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]};
+   Vertex_t e2{v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]};
+   auto p = Vertex_t::Cross(dir, e2);
+   auto det = e1.Dot(p);
+   if (std::abs(det) <= EPS) {
+      return INF;
+   }
+
+   Vertex_t tvec{orig[0] - v0[0], orig[1] - v0[1], orig[2] - v0[2]};
+   auto invDet = 1.0 / det;
+   auto u = tvec.Dot(p) * invDet;
+   if (u < 0.0 || u > 1.0) {
+      return INF;
+   }
+   auto q = Vertex_t::Cross(tvec, e1);
+   auto v = dir.Dot(q) * invDet;
+   if (v < 0.0 || u + v > 1.0) {
+      return INF;
+   }
+   auto t = e2.Dot(q) * invDet;
+   return (t > rayEPS) ? t : INF;
+}
+
+inline double rayFacet(const Vertex_t &orig, const Vertex_t &dir, const TGeoFacet &facet,
+                       const std::vector<Vertex_t> &vertices, double rayEPS = 1e-8)
+{
+   // Keep the stored facet topology intact and triangulate quads only for geometric queries.
+   const auto &v0 = vertices[facet[0]];
+   const auto &v1 = vertices[facet[1]];
+   const auto &v2 = vertices[facet[2]];
+   auto t = rayTriangle(orig, dir, v0, v1, v2, rayEPS);
+   if (facet.GetNvert() == 3)
+      return t;
+   const auto &v3 = vertices[facet[3]];
+   auto t2 = rayTriangle(orig, dir, v0, v2, v3, rayEPS);
+   return std::min(t, t2);
+}
+
+inline bool rayFacetHit(const Vertex_t &orig, const Vertex_t &dir, const TGeoFacet &facet,
+                        const std::vector<Vertex_t> &vertices, double rayEPS = 1e-8)
+{
+   // Contains/parity checks only need a boolean hit, so keep the finite-distance test in one place.
+   return rayFacet(orig, dir, facet, vertices, rayEPS) != std::numeric_limits<double>::infinity();
+}
+
+template <typename T = float>
+struct Vec3f {
+   T x, y, z;
+   Vec3f(T x_, T y_, T z_) : x(x_), y(y_), z(z_){};
+};
+
+template <typename T>
+inline Vec3f<T> operator-(const Vec3f<T> &a, const Vec3f<T> &b)
+{
+   return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+template <typename T>
+inline Vec3f<T> cross(const Vec3f<T> &a, const Vec3f<T> &b)
+{
+   return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+}
+
+template <typename T>
+inline T dot(const Vec3f<T> &a, const Vec3f<T> &b)
+{
+   return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+// Kernel to get closest/shortest distance between a point and a triangl (a,b,c).
+// Performed by default in float since Safety can be approximate.
+// Project point onto triangle plane
+// If projection lies inside → distance to plane
+// Otherwise compute min distance to the three edges
+// Return squared distance
+template <typename T = float>
+T pointTriangleDistSq(const Vec3f<T> &p, const Vec3f<T> &a, const Vec3f<T> &b, const Vec3f<T> &c)
+{
+   // Edges
+   Vec3f<T> ab = b - a;
+   Vec3f<T> ac = c - a;
+   Vec3f<T> ap = p - a;
+
+   auto d1 = dot(ab, ap);
+   auto d2 = dot(ac, ap);
+   if (d1 <= T(0.0) && d2 <= T(0.0)) {
+      return dot(ap, ap); // barycentric (1,0,0)
+   }
+
+   Vec3f<T> bp = p - b;
+   auto d3 = dot(ab, bp);
+   auto d4 = dot(ac, bp);
+   if (d3 >= T(0.0) && d4 <= d3) {
+      return dot(bp, bp); // (0,1,0)
+   }
+
+   T vc = d1 * d4 - d3 * d2;
+   if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
+      T v = d1 / (d1 - d3);
+      Vec3f<T> proj = {a.x + v * ab.x, a.y + v * ab.y, a.z + v * ab.z};
+      Vec3f<T> d = p - proj;
+      return dot(d, d); // edge AB
+   }
+
+   Vec3f<T> cp = p - c;
+   T d5 = dot(ab, cp);
+   T d6 = dot(ac, cp);
+   if (d6 >= T(0.0f) && d5 <= d6) {
+      return dot(cp, cp); // (0,0,1)
+   }
+
+   T vb = d5 * d2 - d1 * d6;
+   if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
+      T w = d2 / (d2 - d6);
+      Vec3f<T> proj = {a.x + w * ac.x, a.y + w * ac.y, a.z + w * ac.z};
+      Vec3f<T> d = p - proj;
+      return dot(d, d); // edge AC
+   }
+
+   T va = d3 * d6 - d5 * d4;
+   if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) {
+      T w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+      Vec3f<T> proj = {b.x + w * (c.x - b.x), b.y + w * (c.y - b.y), b.z + w * (c.z - b.z)};
+      Vec3f<T> d = p - proj;
+      return dot(d, d); // edge BC
+   }
+
+   // Inside face region
+   T denom = T(1.0f) / (va + vb + vc);
+   T v = vb * denom;
+   T w = vc * denom;
+
+   Vec3f<T> proj = {a.x + ab.x * v + ac.x * w, a.y + ab.y * v + ac.y * w, a.z + ab.z * v + ac.z * w};
+
+   Vec3f<T> d = p - proj;
+   return dot(d, d);
+}
+
+template <typename T = float>
+T pointFacetDistSq(const Vec3f<T> &p, const TGeoFacet &facet, const std::vector<Vertex_t> &vertices)
+{
+   // Safety uses the same on-the-fly split as ray queries so triangles and quads stay consistent.
+   const auto &v0 = vertices[facet[0]];
+   const auto &v1 = vertices[facet[1]];
+   const auto &v2 = vertices[facet[2]];
+   auto d = pointTriangleDistSq(p, Vec3f<T>(v0[0], v0[1], v0[2]), Vec3f<T>(v1[0], v1[1], v1[2]),
+                                Vec3f<T>(v2[0], v2[1], v2[2]));
+   if (facet.GetNvert() == 3)
+      return d;
+   const auto &v3 = vertices[facet[3]];
+   auto d2 = pointTriangleDistSq(p, Vec3f<T>(v0[0], v0[1], v0[2]), Vec3f<T>(v2[0], v2[1], v2[2]),
+                                 Vec3f<T>(v3[0], v3[1], v3[2]));
+   return std::min(d, d2);
+}
+
+} // end anonymous namespace
+
+////////////////////////////////////////////////////////////////////////////////
+/// DistFromOutside
+
+Double_t TGeoTessellated::DistFromOutside(const Double_t *point, const Double_t *dir, Int_t /*iact*/, Double_t stepmax,
+                                          Double_t * /*safe*/) const
+{
+   // use the BVH intersector in combination with leaf ray-triangle testing
+   double local_step = Big(); // we need this otherwise the lambda get's confused
+
+   using Scalar = float;
+   using Vec3 = bvh::v2::Vec<Scalar, 3>;
+   using Node = bvh::v2::Node<Scalar, 3>;
+   using Bvh = bvh::v2::Bvh<Node>;
+   using Ray = bvh::v2::Ray<Scalar, 3>;
+
+   // let's fetch the bvh
+   auto mybvh = (Bvh *)fBVH;
+   if (!mybvh) {
+      assert(false);
+      return -1.;
+   }
+
+   auto truncate_roundup = [](double orig) {
+      float epsilon = std::numeric_limits<float>::epsilon() * std::fabs(orig);
+      // Add the bias to x before assigning it to y
+      return static_cast<float>(orig + epsilon);
+   };
+
+   // let's do very quick checks against the top node
+   const auto topnode_bbox = mybvh->get_root().get_bbox();
+   if ((-point[0] + topnode_bbox.min[0]) > stepmax) {
+      return Big();
+   }
+   if ((-point[1] + topnode_bbox.min[1]) > stepmax) {
+      return Big();
+   }
+   if ((-point[2] + topnode_bbox.min[2]) > stepmax) {
+      return Big();
+   }
+   if ((point[0] - topnode_bbox.max[0]) > stepmax) {
+      return Big();
+   }
+   if ((point[1] - topnode_bbox.max[1]) > stepmax) {
+      return Big();
+   }
+   if ((point[2] - topnode_bbox.max[2]) > stepmax) {
+      return Big();
+   }
+
+   // the ray used for bvh interaction
+   Ray ray(Vec3(point[0], point[1], point[2]), // origin
+           Vec3(dir[0], dir[1], dir[2]),       // direction
+           0.0f,                               // minimum distance (could give stepmax ?)
+           truncate_roundup(local_step));
+
+   static constexpr bool use_robust_traversal = true;
+
+   Vertex_t dir_v{dir[0], dir[1], dir[2]};
+   // Traverse the BVH and apply concrete object intersection in BVH leafs
+   bvh::v2::GrowingStack<Bvh::Index> stack;
+   mybvh->intersect<false, use_robust_traversal>(ray, mybvh->get_root().index, stack, [&](size_t begin, size_t end) {
+      for (size_t prim_id = begin; prim_id < end; ++prim_id) {
+         auto objectid = mybvh->prim_ids[prim_id];
+         const auto &facet = fFacets[objectid];
+         const auto &n = fOutwardNormals[objectid];
+
+         // quick normal test. Coming from outside, the dot product must be negative
+         if (n.Dot(dir_v) > 0.) {
+            continue;
+         }
+
+         auto thisdist = rayFacet(Vertex_t(point[0], point[1], point[2]), dir_v, facet, fVertices, 0.);
+
+         if (thisdist < local_step) {
+            local_step = thisdist;
+         }
+      }
+      return false; // go on after this
+   });
+
+   return local_step;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// DistFromOutside
+
+Double_t TGeoTessellated::DistFromInside(const Double_t *point, const Double_t *dir, Int_t /*iact*/,
+                                         Double_t /*stepmax*/, Double_t * /*safe*/) const
+{
+   // use the BVH intersector in combination with leaf ray-triangle testing
+   double local_step = Big(); // we need this otherwise the lambda get's confused
+
+   using Scalar = float;
+   using Vec3 = bvh::v2::Vec<Scalar, 3>;
+   using Node = bvh::v2::Node<Scalar, 3>;
+   using Bvh = bvh::v2::Bvh<Node>;
+   using Ray = bvh::v2::Ray<Scalar, 3>;
+
+   // let's fetch the bvh
+   auto mybvh = (Bvh *)fBVH;
+   if (!mybvh) {
+      assert(false);
+      return -1.;
+   }
+
+   auto truncate_roundup = [](double orig) {
+      float epsilon = std::numeric_limits<float>::epsilon() * std::fabs(orig);
+      // Add the bias to x before assigning it to y
+      return static_cast<float>(orig + epsilon);
+   };
+
+   // the ray used for bvh interaction
+   Ray ray(Vec3(point[0], point[1], point[2]), // origin
+           Vec3(dir[0], dir[1], dir[2]),       // direction
+           0.,                                 // minimum distance (could give stepmax ?)
+           truncate_roundup(local_step));
+
+   static constexpr bool use_robust_traversal = true;
+
+   Vertex_t dir_v{dir[0], dir[1], dir[2]};
+   // Traverse the BVH and apply concrete object intersection in BVH leafs
+   bvh::v2::GrowingStack<Bvh::Index> stack;
+   mybvh->intersect<false, use_robust_traversal>(ray, mybvh->get_root().index, stack, [&](size_t begin, size_t end) {
+      for (size_t prim_id = begin; prim_id < end; ++prim_id) {
+         auto objectid = mybvh->prim_ids[prim_id];
+         auto facet = fFacets[objectid];
+         const auto &n = fOutwardNormals[objectid];
+
+         // Only exiting surfaces are relevant (from inside--> dot product must be positive)
+         if (n.Dot(dir_v) <= 0.) {
+            continue;
+         }
+
+         const double t = rayFacet(Vertex_t{point[0], point[1], point[2]}, dir_v, facet, fVertices, 0.);
+         if (t < local_step) {
+            local_step = t;
+         }
+      }
+      return false; // go on after this
+   });
+
+   return local_step;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Capacity
+
+Double_t TGeoTessellated::Capacity() const
+{
+   // For explanation of the following algorithm see:
+   // https://en.wikipedia.org/wiki/Polyhedron#Volume
+   // http://wwwf.imperial.ac.uk/~rn/centroid.pdf
+
+   double vol = 0.0;
+   for (size_t i = 0; i < fFacets.size(); ++i) {
+      auto &facet = fFacets[i];
+      auto a = fVertices[facet[0]];
+      auto b = fVertices[facet[1]];
+      auto c = fVertices[facet[2]];
+      vol +=
+         a[0] * (b[1] * c[2] - b[2] * c[1]) + b[0] * (c[1] * a[2] - c[2] * a[1]) + c[0] * (a[1] * b[2] - a[2] * b[1]);
+   }
+   return vol / 6.0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// BuildBVH
+
+void TGeoTessellated::BuildBVH()
+{
+   using Scalar = float;
+   using BBox = bvh::v2::BBox<Scalar, 3>;
+   using Vec3 = bvh::v2::Vec<Scalar, 3>;
+   using Node = bvh::v2::Node<Scalar, 3>;
+   using Bvh = bvh::v2::Bvh<Node>;
+
+   // helper determining axis aligned bounding box from a facet;
+   auto GetBoundingBox = [this](TGeoFacet const &facet) {
+      const auto nvertices = facet.GetNvert();
+      if (nvertices != 3 && nvertices != 4)
+         Fatal("BuildBVH", "only facets with 3 or 4 vertices supported");
+      const auto &v1 = fVertices[facet[0]];
+      const auto &v2 = fVertices[facet[1]];
+      const auto &v3 = fVertices[facet[2]];
+      const auto &v4 = (nvertices == 4) ? fVertices[facet[3]] : v3;
+      BBox bbox;
+      // A quad needs all four vertices in the BVH bounds even though traversal tests two triangles later on.
+      bbox.min[0] = std::min(std::min(std::min(v1[0], v2[0]), v3[0]), v4[0]) - 0.001f;
+      bbox.min[1] = std::min(std::min(std::min(v1[1], v2[1]), v3[1]), v4[1]) - 0.001f;
+      bbox.min[2] = std::min(std::min(std::min(v1[2], v2[2]), v3[2]), v4[2]) - 0.001f;
+      bbox.max[0] = std::max(std::max(std::max(v1[0], v2[0]), v3[0]), v4[0]) + 0.001f;
+      bbox.max[1] = std::max(std::max(std::max(v1[1], v2[1]), v3[1]), v4[1]) + 0.001f;
+      bbox.max[2] = std::max(std::max(std::max(v1[2], v2[2]), v3[2]), v4[2]) + 0.001f;
+      return bbox;
+   };
+
+   // we need bounding boxes enclosing the primitives and centers of primitives
+   // (replaced here by centers of bounding boxes) to build the bvh
+   std::vector<BBox> bboxes;
+   std::vector<Vec3> centers;
+
+   int nd = fFacets.size();
+   bboxes.reserve(nd);
+   centers.reserve(nd);
+
+   for (int i = 0; i < nd; ++i) {
+      auto &facet = fFacets[i];
+
+      // fetch the bounding box of this node and add to the vector of bounding boxes
+      (bboxes).push_back(GetBoundingBox(facet));
+      centers.emplace_back((bboxes).back().get_center());
+   }
+
+   // check if some previous object is registered and delete if necessary
+   if (fBVH) {
+      delete (Bvh *)fBVH;
+      fBVH = nullptr;
+   }
+
+   // create the bvh
+   typename bvh::v2::DefaultBuilder<Node>::Config config;
+   config.quality = bvh::v2::DefaultBuilder<Node>::Quality::High;
+   auto bvh = bvh::v2::DefaultBuilder<Node>::build(bboxes, centers, config);
+   auto bvhptr = new Bvh;
+   *bvhptr = std::move(bvh); // copy structure
+   fBVH = (void *)(bvhptr);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Contains
+
+bool TGeoTessellated::Contains(Double_t const *point) const
+{
+   // we do the parity test
+   using Scalar = float;
+   using Vec3 = bvh::v2::Vec<Scalar, 3>;
+   using Node = bvh::v2::Node<Scalar, 3>;
+   using Bvh = bvh::v2::Bvh<Node>;
+   using Ray = bvh::v2::Ray<Scalar, 3>;
+
+   // let's fetch the bvh
+   auto mybvh = (Bvh *)fBVH;
+   if (!mybvh) {
+      assert(false);
+      return false;
+   }
+
+   auto truncate_roundup = [](double orig) {
+      float epsilon = std::numeric_limits<float>::epsilon() * std::fabs(orig);
+      // Add the bias to x before assigning it to y
+      return static_cast<float>(orig + epsilon);
+   };
+
+   // let's do very quick checks against the top node
+   if (!TGeoBBox::Contains(point)) {
+      return false;
+   }
+
+   // An arbitrary test direction.
+   // Doesn't need to be normalized and probes all normals. Also ensuring to be skewed somewhat
+   // without evident symmetries.
+   Vertex_t test_dir{1.0, 1.41421356237, 1.73205080757};
+
+   double local_step = Big();
+   // the ray used for bvh interaction
+   Ray ray(Vec3(point[0], point[1], point[2]),          // origin
+           Vec3(test_dir[0], test_dir[1], test_dir[2]), // direction
+           0.0f,                                        // minimum distance (could give stepmax ?)
+           truncate_roundup(local_step));
+
+   static constexpr bool use_robust_traversal = true;
+
+   // Traverse the BVH and apply concrete object intersection in BVH leafs
+   bvh::v2::GrowingStack<Bvh::Index> stack;
+   size_t crossings = 0;
+   mybvh->intersect<false, use_robust_traversal>(ray, mybvh->get_root().index, stack, [&](size_t begin, size_t end) {
+      for (size_t prim_id = begin; prim_id < end; ++prim_id) {
+         auto objectid = mybvh->prim_ids[prim_id];
+         auto &facet = fFacets[objectid];
+
+         // for the parity test, we probe all crossing surfaces
+         if (rayFacetHit(Vertex_t(point[0], point[1], point[2]), test_dir, facet, fVertices, 0.)) {
+            ++crossings;
+         }
+      }
+      return false;
+   });
+
+   return crossings & 1;
+}
+
+namespace {
+
+// Helper classes/structs used for priority queue - BVH traversal
+// structure keeping cost (value) for a BVH index
+struct BVHPrioElement {
+   size_t bvh_node_id;
+   float value;
+};
+
+// A priority queue for BVHPrioElement with an additional clear method
+// for quick reset. We intentionally derive from std::priority_queue here to expose a
+// clear() convenience method via access to the protected container `c`.
+// This is internal, non-polymorphic code and relies on standard-library
+// implementation details that are stable across supported platforms.
+template <typename Comparator>
+class BVHPrioQueue : public std::priority_queue<BVHPrioElement, std::vector<BVHPrioElement>, Comparator> {
+public:
+   using std::priority_queue<BVHPrioElement, std::vector<BVHPrioElement>,
+                             Comparator>::priority_queue; // constructor inclusion
+
+   // convenience method to quickly clear/reset the queue (instead of having to pop one by one)
+   void clear() { this->c.clear(); }
+};
+
+} // namespace
+
+/// a reusable safety kernel, which optionally returns the closest face
+template <bool returnFace>
+inline Double_t TGeoTessellated::SafetyKernel(const Double_t *point, bool in, int *closest_facet_id) const
+{
+   // This is the classic traversal/pruning of a BVH based on priority queue search
+
+   float smallest_safety_sq = TGeoShape::Big();
+
+   using Scalar = float;
+   using Vec3 = bvh::v2::Vec<Scalar, 3>;
+   using Node = bvh::v2::Node<Scalar, 3>;
+   using Bvh = bvh::v2::Bvh<Node>;
+
+   // let's fetch the bvh
+   auto mybvh = (Bvh *)fBVH;
+
+   // testpoint object in float for quick BVH interaction
+   Vec3 testpoint(point[0], point[1], point[2]);
+
+   auto currnode = mybvh->nodes[0]; // we start from the top BVH node
+   // we do a quick check on the top node (in case we are outside shape)
+   bool outside_top = false;
+   if (!in) {
+      outside_top = !bvh::v2::extra::contains(currnode.get_bbox(), testpoint);
+      if (outside_top) {
+         const auto safety_sq_to_top = bvh::v2::extra::SafetySqToNode(currnode.get_bbox(), testpoint);
+         // we simply return safety to the outer bounding box as an estimate
+         return std::sqrt(safety_sq_to_top);
+      }
+   }
+
+   // comparator bringing out "smallest" value on top
+   auto cmp = [](BVHPrioElement a, BVHPrioElement b) { return a.value > b.value; };
+   static thread_local BVHPrioQueue<decltype(cmp)> queue(cmp);
+   queue.clear();
+
+   // algorithm is based on standard iterative tree traversal with priority queues
+   float current_safety_to_node_sq = 0.f;
+
+   if (returnFace) {
+      *closest_facet_id = -1;
+   }
+
+   do {
+      if (currnode.is_leaf()) {
+         // we are in a leaf node and actually talk to a face primitive
+         const auto begin_prim_id = currnode.index.first_id();
+         const auto end_prim_id = begin_prim_id + currnode.index.prim_count();
+
+         for (auto p_id = begin_prim_id; p_id < end_prim_id; p_id++) {
+            const auto object_id = mybvh->prim_ids[p_id];
+
+            const auto &facet = fFacets[object_id];
+            auto thissafetySQ = pointFacetDistSq(Vec3f<float>(point[0], point[1], point[2]), facet, fVertices);
+
+            if (thissafetySQ < smallest_safety_sq) {
+               smallest_safety_sq = thissafetySQ;
+               if (returnFace) {
+                  *closest_facet_id = object_id;
+               }
+            }
+         }
+      } else {
+         // not a leave node ... for further traversal,
+         // we inject the children into priority queue based on distance to it's bounding box
+         const auto leftchild_id = currnode.index.first_id();
+         const auto rightchild_id = leftchild_id + 1;
+
+         for (size_t childid : {leftchild_id, rightchild_id}) {
+            if (childid >= mybvh->nodes.size()) {
+               continue;
+            }
+
+            const auto &node = mybvh->nodes[childid];
+            const auto inside = bvh::v2::extra::contains(node.get_bbox(), testpoint);
+
+            if (inside) {
+               // this must be further considered because we are inside the bounding box
+               queue.push(BVHPrioElement{childid, -1.});
+            } else {
+               auto safety_to_node_square = bvh::v2::extra::SafetySqToNode(node.get_bbox(), testpoint);
+               if (safety_to_node_square <= smallest_safety_sq) {
+                  // this should be further considered
+                  queue.push(BVHPrioElement{childid, safety_to_node_square});
+               }
+            }
+         }
+      }
+
+      if (queue.size() > 0) {
+         auto currElement = queue.top();
+         currnode = mybvh->nodes[currElement.bvh_node_id];
+         current_safety_to_node_sq = currElement.value;
+         queue.pop();
+      } else {
+         break;
+      }
+   } while (current_safety_to_node_sq <= smallest_safety_sq);
+
+   return std::nextafter(std::sqrt(smallest_safety_sq), 0.0f);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Safety
+
+Double_t TGeoTessellated::Safety(const Double_t *point, Bool_t in) const
+{
+   // we could use some caching here (in future) since queries to the solid will likely
+   // be made with some locality
+
+   // fall-back to precise safety kernel
+   return SafetyKernel<false>(point, in);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// ComputeNormal interface
+
+void TGeoTessellated::ComputeNormal(const Double_t *point, const Double_t *dir, Double_t *norm) const
+{
+   // We take the approach to identify closest facet to the point via safety
+   // and returning the normal from this face.
+
+   // TODO: Before doing that we could check for cached points from other queries
+
+   // use safety kernel
+   int closest_face_id = -1;
+   SafetyKernel<true>(point, true, &closest_face_id);
+
+   if (closest_face_id < 0) {
+      norm[0] = 1.;
+      norm[1] = 0.;
+      norm[2] = 0.;
+      return;
+   }
+
+   const auto &n = fOutwardNormals[closest_face_id];
+   norm[0] = n[0];
+   norm[1] = n[1];
+   norm[2] = n[2];
+
+   // change sign depending on dir
+   if (norm[0] * dir[0] + norm[1] * dir[1] + norm[2] * dir[2] < 0) {
+      norm[0] = -norm[0];
+      norm[1] = -norm[1];
+      norm[2] = -norm[2];
+   }
+   return;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Custom streamer which performs Closing on read.
+/// Recalculation of BVH and normals is fast
+
+void TGeoTessellated::Streamer(TBuffer &b)
+{
+   if (b.IsReading()) {
+      b.ReadClassBuffer(TGeoTessellated::Class(), this);
+      CloseShape(false); // close shape but do not re-perform checks
+   } else {
+      b.WriteClassBuffer(TGeoTessellated::Class(), this);
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Calculate the normals
+
+void TGeoTessellated::CalculateNormals()
+{
+   fOutwardNormals.clear();
+   fOutwardNormals.reserve(fFacets.size());
+   for (size_t i = 0; i < fFacets.size(); ++i) {
+      // Reuse the generic facet normal code so triangles and quads follow the same path.
+      bool degenerated = false;
+      auto norm = FacetComputeNormal(static_cast<int>(i), degenerated);
+      fOutwardNormals.emplace_back(norm);
+   }
 }

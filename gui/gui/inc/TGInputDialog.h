@@ -36,10 +36,11 @@ public:
    TGInputDialog(const TGWindow *p = nullptr, const TGWindow *main = nullptr,
                  const char *prompt = nullptr, const char *defval = nullptr,
                  char *retstr = nullptr, UInt_t options = kVerticalFrame);
-   ~TGInputDialog();
-   virtual Bool_t ProcessMessage(Long_t msg, Long_t parm1, Long_t);
+   ~TGInputDialog() override;
 
-   ClassDef(TGInputDialog, 0)  // Simple input dialog
+   Bool_t ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t) override;
+
+   ClassDefOverride(TGInputDialog, 0)  // Simple input dialog
 
 };
 

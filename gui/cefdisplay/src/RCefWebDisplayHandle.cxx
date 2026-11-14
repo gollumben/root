@@ -1,9 +1,8 @@
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2020-08-21
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
- * Copyright (C) 1995-2020, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2023, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -25,6 +24,8 @@
 #include "TEnv.h"
 #include "TApplication.h"
 
+#include "include/base/cef_build.h"
+
 #include <ROOT/RLogger.hxx>
 
 #include <memory>
@@ -37,7 +38,6 @@ public:
    {
       // just let run loop
       CefDoMessageLoopWork();
-
    }
 };
 
@@ -50,7 +50,7 @@ public:
 
    FrameSourceVisitor(RCefWebDisplayHandle *handle) : CefStringVisitor(), fHandle(handle) {}
 
-   virtual ~FrameSourceVisitor() = default;
+   ~FrameSourceVisitor() override = default;
 
    void Visit(const CefString &str) override
    {
@@ -69,9 +69,9 @@ class HeadlessPrintCallback : public CefPdfPrintCallback {
    bool *fFlag{nullptr};
 public:
    HeadlessPrintCallback(bool *flag) : CefPdfPrintCallback(), fFlag(flag) {}
-   virtual ~HeadlessPrintCallback() = default;
+   ~HeadlessPrintCallback() override = default;
 
-   void OnPdfPrintFinished(const CefString&, bool ok ) override
+   void OnPdfPrintFinished(const CefString&, bool ok) override
    {
       if (fFlag) *fFlag = true;
    }
@@ -81,46 +81,83 @@ private:
    DISALLOW_COPY_AND_ASSIGN(HeadlessPrintCallback);
 };
 
-std::unique_ptr<ROOT::Experimental::RWebDisplayHandle> RCefWebDisplayHandle::CefCreator::Display(const ROOT::Experimental::RWebDisplayArgs &args)
+std::unique_ptr<ROOT::RWebDisplayHandle> RCefWebDisplayHandle::CefCreator::Display(const ROOT::RWebDisplayArgs &args)
 {
 
    auto handle = std::make_unique<RCefWebDisplayHandle>(args.GetFullUrl());
+   if (!args.IsStandalone())
+      handle->fCloseBrowser = false;
+
+   Int_t wait_tmout = args.IsHeadless() ? gEnv->GetValue("WebGui.CefHeadlessTimeout", 30) : -1;
 
    if (fCefApp) {
-      fCefApp->SetNextHandle(handle.get());
+      fCefApp->SetNextHandle(handle.get(), args.IsHeadless());
 
       CefRect rect((args.GetX() > 0) ? args.GetX() : 0, (args.GetY() > 0) ? args.GetY() : 0,
             (args.GetWidth() > 0) ? args.GetWidth() : 800, (args.GetHeight() > 0) ? args.GetHeight() : 600);
 
-      fCefApp->StartWindow(args.GetHttpServer(), args.GetFullUrl(), args.GetPageContent(), rect);
+      fCefApp->StartWindow(args.GetHttpServer(), args.GetFullUrl(), args.GetPageContent(), rect, args.IsHeadless());
 
       if (args.IsHeadless())
-         handle->WaitForContent(30, args.GetExtraArgs()); // 30 seconds
+         handle->WaitForContent(wait_tmout, args.GetExtraArgs());
 
       return handle;
    }
 
-   bool use_views = GuiHandler::PlatformInit();
+   GuiHandler::PlatformInit();
+   bool use_views = true;
+
+   TString env_use_views = gEnv->GetValue("WebGui.CefUseViews", "");
+   if ((env_use_views == "yes") || (env_use_views == "1"))
+      use_views = true;
+   else if ((env_use_views == "no") || (env_use_views == "0"))
+      use_views = false;
+
+   // Specify CEF global settings here.
+   CefSettings settings;
+
+   TString ceflog = gEnv->GetValue("WebGui.CefLogSeveriry", "fatal");
+   if (ceflog == "fatal")
+      settings.log_severity = LOGSEVERITY_FATAL;
+   else if (ceflog == "verbose")
+      settings.log_severity = LOGSEVERITY_VERBOSE;
+   else if (ceflog == "info")
+      settings.log_severity = LOGSEVERITY_INFO;
+   else if (ceflog == "warning")
+      settings.log_severity = LOGSEVERITY_WARNING;
+   else if (ceflog == "error")
+      settings.log_severity = LOGSEVERITY_ERROR;
+   else if (ceflog == "disable")
+      settings.log_severity = LOGSEVERITY_DISABLE;
+   else
+      settings.log_severity = LOGSEVERITY_FATAL;
+
+   bool supress_log = (settings.log_severity == LOGSEVERITY_DISABLE) ||
+                      (settings.log_severity == LOGSEVERITY_FATAL);
+
 
 #ifdef OS_WIN
+
+   // CefMainArgs main_args(args.IsHeadless() ? (HINSTANCE) 0 : GetModuleHandle(nullptr));
+
    CefMainArgs main_args(GetModuleHandle(nullptr));
+
 #else
+
    TApplication *root_app = gROOT->GetApplication();
 
-   int cef_argc = 1;
-   const char *arg2 = nullptr, *arg3 = nullptr;
-   if (args.IsHeadless()) {
-      // arg2 = "--allow-file-access-from-files";
-      arg2 = "--disable-web-security";
-      cef_argc++;
-      if (use_views) {
-         arg3 = "--ozone-platform=headless";
-         cef_argc++;
-      }
-   }
-   char *cef_argv[] = {root_app->Argv(0), (char *) arg2, (char *) arg3, nullptr};
+   std::vector<const char *> cef_argv = { root_app->Argv(0) };
 
-   CefMainArgs main_args(cef_argc, cef_argv);
+   if (supress_log) {
+      cef_argv.emplace_back("--disable-logging");
+      cef_argv.emplace_back("--enable-logging=none");
+      cef_argv.emplace_back("--v=-1");
+   }
+
+   cef_argv.emplace_back(nullptr);
+
+   CefMainArgs main_args(cef_argv.size() - 1, (char **) cef_argv.data());
+
 #endif
 
    // CEF applications have multiple sub-processes (render, plugin, GPU, etc)
@@ -139,39 +176,42 @@ std::unique_ptr<ROOT::Experimental::RWebDisplayHandle> RCefWebDisplayHandle::Cef
    //         XSetErrorHandler(XErrorHandlerImpl);
    //         XSetIOErrorHandler(XIOErrorHandlerImpl);
 
-   // Specify CEF global settings here.
-   CefSettings settings;
 
    TString cef_main = TROOT::GetBinDir() + "/cef_main";
    cef_string_ascii_to_utf16(cef_main.Data(), cef_main.Length(), &settings.browser_subprocess_path);
-
-#ifdef OS_LINUX
-   // on linux resource directory copied to lib/
-   TString path2 = TROOT::GetLibDir() + "/locales";
-   cef_string_ascii_to_utf16(path2.Data(), path2.Length(), &settings.locales_dir_path);
-   TString path3 = TROOT::GetLibDir();
-   cef_string_ascii_to_utf16(path3.Data(), path3.Length(), &settings.resources_dir_path);
-#endif
-
-#ifdef OS_WIN
-   // on windows resource directory copied to bin/
-   TString path2 = TROOT::GetBinDir() + "/locales";
-   cef_string_ascii_to_utf16(path2.Data(), path2.Length(), &settings.locales_dir_path);
-   TString path3 = TROOT::GetBinDir();
-   cef_string_ascii_to_utf16(path3.Data(), path3.Length(), &settings.resources_dir_path);
-#endif
 
 #ifdef OS_MACOSX
    // on mac there is framework directory, where resources and libs are combined together
    TString path = TROOT::GetDataDir() + "/Frameworks/Chromium Embedded Framework.framework";
    cef_string_ascii_to_utf16(path.Data(), path.Length(), &settings.framework_dir_path);
+
+   // add CEF libraries to DYLD library path
+   TString dypath = gSystem->Getenv("DYLD_LIBRARY_PATH");
+   if (dypath.Length() > 0)
+      dypath.Append(":");
+   dypath.Append(path + "/Libraries/");
+   gSystem->Setenv("DYLD_LIBRARY_PATH", dypath);
+#endif
+
+#ifdef OS_WIN
+   TString resource_dir = TROOT::GetBinDir();
+   cef_string_ascii_to_utf16(resource_dir.Data(), resource_dir.Length(), &settings.resources_dir_path);
+   TString locales_dir = TROOT::GetDataDir() + "/Frameworks/cef/locales";
+   cef_string_ascii_to_utf16(locales_dir.Data(), locales_dir.Length(), &settings.locales_dir_path);
+#endif
+
+#ifdef OS_LINUX
+   TString resource_dir = TROOT::GetLibDir();
+   cef_string_ascii_to_utf16(resource_dir.Data(), resource_dir.Length(), &settings.resources_dir_path);
+   TString locales_dir = TROOT::GetDataDir() + "/Frameworks/cef/locales";
+   cef_string_ascii_to_utf16(locales_dir.Data(), locales_dir.Length(), &settings.locales_dir_path);
 #endif
 
    settings.no_sandbox = true;
    // if (gROOT->IsWebDisplayBatch()) settings.single_process = true;
 
-   // if (batch_mode)
-   // settings.windowless_rendering_enabled = true;
+   if (args.IsHeadless())
+      settings.windowless_rendering_enabled = true;
 
    // settings.external_message_pump = true;
    // settings.multi_threaded_message_loop = false;
@@ -179,8 +219,6 @@ std::unique_ptr<ROOT::Experimental::RWebDisplayHandle> RCefWebDisplayHandle::Cef
    std::string plog = "cef.log";
    cef_string_ascii_to_utf16(plog.c_str(), plog.length(), &settings.log_file);
 
-   settings.log_severity = LOGSEVERITY_ERROR; // LOGSEVERITY_VERBOSE, LOGSEVERITY_INFO, LOGSEVERITY_WARNING,
-   // LOGSEVERITY_ERROR, LOGSEVERITY_DISABLE
    // settings.uncaught_exception_stack_size = 100;
    // settings.ignore_certificate_errors = true;
 
@@ -189,18 +227,19 @@ std::unique_ptr<ROOT::Experimental::RWebDisplayHandle> RCefWebDisplayHandle::Cef
    // SimpleApp implements application-level callbacks for the browser process.
    // It will create the first browser instance in OnContextInitialized() after
    // CEF has initialized.
-   fCefApp = new SimpleApp(use_views, args.GetHttpServer(), args.GetFullUrl(), args.GetPageContent(),
-                                args.GetWidth() > 0 ? args.GetWidth() : 800,
-                                args.GetHeight() > 0 ? args.GetHeight() : 600,
-                                args.IsHeadless());
+   fCefApp = new SimpleApp(use_views, supress_log,
+                           args.GetHttpServer(), args.GetFullUrl(), args.GetPageContent(),
+                           args.GetWidth() > 0 ? args.GetWidth() : 800,
+                           args.GetHeight() > 0 ? args.GetHeight() : 600,
+                           args.IsHeadless());
 
-   fCefApp->SetNextHandle(handle.get());
+   fCefApp->SetNextHandle(handle.get(), args.IsHeadless());
 
    // Initialize CEF for the browser process.
    CefInitialize(main_args, settings, fCefApp.get(), nullptr);
 
    if (args.IsHeadless()) {
-      handle->WaitForContent(30, args.GetExtraArgs()); // 30 seconds
+      handle->WaitForContent(wait_tmout, args.GetExtraArgs());
    } else {
       // Create timer to let run CEF message loop together with ROOT event loop
       Int_t interval = gEnv->GetValue("WebGui.CefTimer", 10);
@@ -226,17 +265,14 @@ RCefWebDisplayHandle::~RCefWebDisplayHandle()
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /// Closes associated browser window
 
-
 void RCefWebDisplayHandle::CloseBrowser()
 {
-   if (fBrowser) {
+   if (fBrowser && fCloseBrowser) {
       auto host = fBrowser->GetHost();
       if (host) host->CloseBrowser(true);
       fBrowser = nullptr;
    }
 }
-
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /// Process system events until browser content is available
@@ -277,6 +313,18 @@ bool RCefWebDisplayHandle::WaitForContent(int tmout_sec, const std::string &extr
    return !GetContent().empty();
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+/// Resize browser window
+
+bool RCefWebDisplayHandle::Resize(int width, int height)
+{
+   if (!fBrowser)
+      return false;
+   return GuiHandler::PlatformResize(fBrowser, width, height);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+/// Add CEF creator
 
 void RCefWebDisplayHandle::AddCreator()
 {
@@ -285,6 +333,8 @@ void RCefWebDisplayHandle::AddCreator()
       GetMap().emplace("cef", std::make_unique<CefCreator>());
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+/// Helper struct to add creator
 
 struct RCefCreatorReg {
    RCefCreatorReg() { RCefWebDisplayHandle::AddCreator(); }

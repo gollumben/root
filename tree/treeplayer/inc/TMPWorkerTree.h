@@ -12,6 +12,7 @@
 #ifndef ROOT_TMPWorkerTree
 #define ROOT_TMPWorkerTree
 
+#include "ROOT/TypeTraits.hxx" // InvokeResult_t
 #include "TMPWorker.h"
 #include "TFile.h"
 #include "TEntryList.h"
@@ -26,7 +27,7 @@
 #include <memory> //unique_ptr
 #include <string>
 #include <sstream>
-#include <type_traits> //std::result_of
+#include <type_traits> //std::enable_if_t
 #include <unistd.h> //pid_t
 #include <vector>
 
@@ -37,7 +38,7 @@ public:
    TMPWorkerTree(const std::vector<std::string> &fileNames, TEntryList *entries, const std::string &treeName,
                  UInt_t nWorkers, ULong64_t maxEntries, ULong64_t firstEntry);
    TMPWorkerTree(TTree *tree, TEntryList *entries, UInt_t nWorkers, ULong64_t maxEntries, ULong64_t firstEntry);
-   virtual ~TMPWorkerTree();
+   ~TMPWorkerTree() override;
 
    // It doesn't make sense to copy a TMPWorker (each one has a uniq_ptr to its socket)
    TMPWorkerTree(const TMPWorkerTree &) = delete;
@@ -47,8 +48,8 @@ protected:
 
    void         CloseFile();
    ULong64_t    EvalMaxEntries(ULong64_t maxEntries);
-   void         HandleInput(MPCodeBufPair& msg); ///< Execute instructions received from a MP client
-   void Init(int fd, UInt_t workerN);
+   void         HandleInput(MPCodeBufPair& msg) override; ///< Execute instructions received from a MP client
+   void Init(int fd, UInt_t workerN) override;
    Int_t LoadTree(UInt_t code, MPCodeBufPair &msg, Long64_t &start, Long64_t &finish, TEntryList **enl,
                   std::string &errmsg);
    TFile       *OpenFile(const std::string& fileName);
@@ -69,8 +70,8 @@ private:
 
    // TTree cache handling
    TTreeCache *fTreeCache;              ///< instance of the tree cache for the tree
-   Bool_t      fTreeCacheIsLearning;    ///< Whether cache is in learning phase
-   Bool_t      fUseTreeCache;           ///< Control usage of the tree cache
+   bool        fTreeCacheIsLearning;    ///< Whether cache is in learning phase
+   bool        fUseTreeCache;           ///< Control usage of the tree cache
    Long64_t    fCacheSize;              ///< Cache size
 };
 
@@ -89,15 +90,15 @@ public:
         fCanReduce(false)
    {
    }
-   virtual ~TMPWorkerTreeFunc() {}
+   ~TMPWorkerTreeFunc() override {}
 
 private:
-   void Process(UInt_t code, MPCodeBufPair &msg);
-   void SendResult();
+   void Process(UInt_t code, MPCodeBufPair &msg) override;
+   void SendResult() override;
 
    F  fProcFunc; ///< copy the function to be executed
    /// the results of the executions of fProcFunc merged together
-   std::result_of_t<F(std::reference_wrapper<TTreeReader>)> fReducedResult;
+   ROOT::TypeTraits::InvokeResult_t<F, std::reference_wrapper<TTreeReader>> fReducedResult;
    /// true if fReducedResult can be reduced with a new result, false until we have produced one result
    bool fCanReduce;
 };
@@ -115,11 +116,11 @@ public:
       : TMPWorkerTree(tree, entries, nWorkers, maxEntries, firstEntry), fSelector(selector), fCallBegin(true)
    {
    }
-   virtual ~TMPWorkerTreeSel() {}
+   ~TMPWorkerTreeSel() override {}
 
 private:
-   void Process(UInt_t code, MPCodeBufPair &msg);
-   void SendResult();
+   void Process(UInt_t code, MPCodeBufPair &msg) override;
+   void SendResult() override;
 
    TSelector &fSelector; ///< pointer to the selector to be used to process the tree. It is null if we are not using a TSelector.
    bool fCallBegin = true;
@@ -167,7 +168,7 @@ void DetachRes(T res)
 {
    if (res) {
       TIter nxo(res);
-      TObject *obj = 0;
+      TObject *obj = nullptr;
       while ((obj = nxo())) {
          DetachRes(obj);
       }
@@ -190,7 +191,7 @@ void TMPWorkerTreeFunc<F>::Process(UInt_t code, MPCodeBufPair &msg)
 
    Long64_t start = 0;
    Long64_t finish = 0;
-   TEntryList *enl = 0;
+   TEntryList *enl = nullptr;
    std::string reply, errmsg, sn = "[S" + std::to_string(GetNWorker()) + "]: ";
    if (LoadTree(code, msg, start, finish, &enl, errmsg) != 0) {
       reply = sn + errmsg;
@@ -198,32 +199,36 @@ void TMPWorkerTreeFunc<F>::Process(UInt_t code, MPCodeBufPair &msg)
       return;
    }
 
+   // If we are not done processing entries in the tree, 
    // create a TTreeReader that reads this range of entries
-   TTreeReader reader(fTree, enl);
+   if (start >= 0 && start < fTree->GetEntries()) {
+      TTreeReader reader(fTree, enl);
 
-   TTreeReader::EEntryStatus status = reader.SetEntriesRange(start, finish);
-   if(status != TTreeReader::kEntryValid) {
-      reply = sn + "could not set TTreeReader to range " + std::to_string(start) + " " + std::to_string(finish - 1);
-      MPSend(GetSocket(), MPCode::kProcError, reply.c_str());
-      return;
+      TTreeReader::EEntryStatus status = reader.SetEntriesRange(start, finish);
+      if (status != TTreeReader::kEntryValid) {
+         reply = sn + "could not set TTreeReader to range " + std::to_string(start) + " " + std::to_string(finish - 1);
+         MPSend(GetSocket(), MPCode::kProcError, reply.c_str());
+         return;
+      }
+
+      // execute function
+      auto res = fProcFunc(reader);
+
+      // detach result from file if needed (currently needed for TH1, TTree, TEventList)
+      DetachRes(res);
+
+      if (fCanReduce) {
+         PoolUtils::ReduceObjects<TObject *> redfunc;
+         fReducedResult = static_cast<decltype(fReducedResult)>(redfunc(
+            {res, fReducedResult})); // TODO try not to copy these into a vector, do everything by ref. std::vector<T&>?
+      } else {
+         fCanReduce = true;
+         fReducedResult = res;
+      }
    }
-
-   //execute function
-   auto res = fProcFunc(reader);
-
-   //detach result from file if needed (currently needed for TH1, TTree, TEventList)
-   DetachRes(res);
 
    //update the number of processed entries
    fProcessedEntries += finish - start;
-
-   if(fCanReduce) {
-      PoolUtils::ReduceObjects<TObject *> redfunc;
-      fReducedResult = static_cast<decltype(fReducedResult)>(redfunc({res, fReducedResult})); //TODO try not to copy these into a vector, do everything by ref. std::vector<T&>?
-   } else {
-      fCanReduce = true;
-      fReducedResult = res;
-   }
 
    if(fMaxNEntries == fProcessedEntries)
       //we are done forever

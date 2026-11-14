@@ -8,7 +8,7 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifdef __CINT__
+#ifdef __CLING__
 
 #pragma link off all globals;
 #pragma link off all classes;
@@ -25,13 +25,13 @@
 #pragma link C++ class TWebPadClick+;
 
 #pragma link C++ class TWebPadPainter+;
-#pragma link C++ class TWebPS+;
 #pragma link C++ class TWebPainting+;
 #pragma link C++ class TWebSnapshot+;
 #pragma link C++ class TPadWebSnapshot+;
 #pragma link C++ class TCanvasWebSnapshot+;
 
 #pragma link C++ class TWebCanvas+;
-#pragma link C++ class TWebGuiFactory+;
+
+#pragma link C++ class TWebControlBar+;
 
 #endif

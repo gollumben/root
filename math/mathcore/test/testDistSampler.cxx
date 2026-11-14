@@ -9,6 +9,9 @@
 #include "TRandom.h"
 #include "TError.h"
 #include "TCanvas.h"
+
+#include <iostream>
+
 // double Pdf(double x) {
 // }
 
@@ -40,7 +43,7 @@ int testCont1D(int n)  {
    w.Stop();
    double c = 1.E9/double(n);
    std::cout << "Unuran sampling - (ns)/call = " << c*w.RealTime() << "   " << c*w.CpuTime() << std::endl;
-   new TCanvas("Continous test");
+   new TCanvas("Continuous test");
    h1->SetLineColor(kBlue);
    h1->Draw();
 

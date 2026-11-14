@@ -1,0 +1,17 @@
+# Copyright (C) 1995-2024, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
+ROOT_ADD_GTEST(TRatioPlot ratioplot.cxx LIBRARIES Gpad)
+ROOT_ADD_GTEST(TPad pdftitle.cxx LIBRARIES Gpad)
+ROOT_ADD_GTEST(TPDF pdfurl.cxx LIBRARIES Gpad)
+
+if(asimage)
+  ROOT_ADD_GTEST(TASImagePDF tasimage_pdf.cxx LIBRARIES Gpad ASImage ZLIB::ZLIB)
+endif()
+
+if(webgui)
+  ROOT_ADD_GTEST(SaveHTML savehtml.cxx LIBRARIES Gpad)
+endif()

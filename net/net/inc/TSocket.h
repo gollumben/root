@@ -30,30 +30,34 @@
 #include "TBits.h"
 #include "TInetAddress.h"
 #include "MessageTypes.h"
-#include "TVirtualAuth.h"
-#include "TSecContext.h"
 #include "TTimeStamp.h"
 #include "TVirtualMutex.h"
 
 class TMessage;
-class THostAuth;
+class TSocket;
 
 class TSocket : public TNamed {
 
 friend class TServerSocket;
-friend class TProofServ;   // to be able to call SetDescriptor(), RecvHostAuth()
-friend class TSlave;       // to be able to call SendHostAuth()
 
 public:
    enum EStatusBits { kIsUnix = BIT(16),    // set if unix socket
                       kBrokenConn = BIT(17) // set if conn reset by peer or broken
                     };
    enum EInterest { kRead = 1, kWrite = 2 };
-   enum EServiceType { kSOCKD, kROOTD, kPROOFD };
+   enum EServiceType { kSOCKD, kROOTD };
 
 protected:
    enum ESocketErrors {
-     kInvalid = -1,
+// clang++ <v20 (-Wshadow) complains about shadowing TSystem.h global enum EFpeMask. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kInvalid = -1,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
      kInvalidStillInList = -2
    };
    TInetAddress  fAddress;        // remote internet address and port #
@@ -62,17 +66,15 @@ protected:
    Int_t         fCompress;       // Compression level and algorithm
    TInetAddress  fLocalAddress;   // local internet address and port #
    Int_t         fRemoteProtocol; // protocol of remote daemon
-   TSecContext  *fSecContext;     // after a successful Authenticate call
-                                  // points to related security context
    TString       fService;        // name of service (matches remote port #)
    EServiceType  fServType;       // remote service type
    Int_t         fSocket;         // socket descriptor
    Int_t         fTcpWindowSize;  // TCP window size (default 65535);
-   TString       fUrl;            // needs this for special authentication options
+   TString       fUrl;            // used to hold special authentication options
    TBits         fBitsInfo;       // bits array to mark TStreamerInfo classes already sent
    TList        *fUUIDs;          // list of TProcessIDs already sent through the socket
 
-   TVirtualMutex *fLastUsageMtx;   // Protect last usage setting / reading
+   TVirtualMutex *fLastUsageMtx;  // Protect last usage setting / reading
    TTimeStamp    fLastUsage;      // Time stamp of last usage
 
    static ULong64_t fgBytesRecv;  // total bytes received by all socket objects
@@ -81,11 +83,10 @@ protected:
    static Int_t  fgClientProtocol; // client "protocol" version
 
    TSocket() : fAddress(), fBytesRecv(0), fBytesSent(0), fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal),
-               fLocalAddress(), fRemoteProtocol(), fSecContext(0), fService(),
+               fLocalAddress(), fRemoteProtocol(), fService(),
                fServType(kSOCKD), fSocket(-1), fTcpWindowSize(0), fUrl(),
-               fBitsInfo(), fUUIDs(0), fLastUsageMtx(0), fLastUsage() { }
+               fBitsInfo(), fUUIDs(nullptr), fLastUsageMtx(nullptr), fLastUsage() {}
 
-   Bool_t       Authenticate(const char *user);
    void         SetDescriptor(Int_t desc) { fSocket = desc; }
    void         SendStreamerInfos(const TMessage &mess);
    Bool_t       RecvStreamerInfos(TMessage *mess);
@@ -94,8 +95,8 @@ protected:
    void         MarkBrokenConnection();
 
 private:
-   TSocket&      operator=(const TSocket &);  // not implemented
-   Option_t     *GetOption() const { return TObject::GetOption(); }
+   TSocket&      operator=(const TSocket &) = delete;
+   Option_t     *GetOption() const override { return TObject::GetOption(); }
 
 public:
    TSocket(TInetAddress address, const char *service, Int_t tcpwindowsize = -1);
@@ -124,11 +125,9 @@ public:
    Int_t                 GetErrorCode() const;
    virtual Int_t         GetOption(ESockOptions opt, Int_t &val);
    Int_t                 GetRemoteProtocol() const { return fRemoteProtocol; }
-   TSecContext          *GetSecContext() const { return fSecContext; }
    Int_t                 GetTcpWindowSize() const { return fTcpWindowSize; }
    TTimeStamp            GetLastUsage() { R__LOCKGUARD2(fLastUsageMtx); return fLastUsage; }
-   const char           *GetUrl() const { return fUrl; }
-   virtual Bool_t        IsAuthenticated() const { return fSecContext ? kTRUE : kFALSE; }
+   const char           *GetUrl() const { return fUrl.Data(); }
    virtual Bool_t        IsValid() const { return fSocket < 0 ? kFALSE : kTRUE; }
    virtual Int_t         Recv(TMessage *&mess);
    virtual Int_t         Recv(Int_t &status, Int_t &kind);
@@ -149,7 +148,6 @@ public:
    void                  SetCompressionSettings(Int_t settings = ROOT::RCompressionSetting::EDefaults::kUseCompiledDefault);
    virtual Int_t         SetOption(ESockOptions opt, Int_t val);
    void                  SetRemoteProtocol(Int_t rproto) { fRemoteProtocol = rproto; }
-   void                  SetSecContext(TSecContext *ctx) { fSecContext = ctx; }
    void                  SetService(const char *service) { fService = service; }
    void                  SetServType(Int_t st) { fServType = (EServiceType)st; }
    void                  SetUrl(const char *url) { fUrl = url; }
@@ -161,14 +159,9 @@ public:
    static ULong64_t      GetSocketBytesSent();
    static ULong64_t      GetSocketBytesRecv();
 
-   static TSocket       *CreateAuthSocket(const char *user, const char *host,
-                                          Int_t port, Int_t size = 0,
-                                          Int_t tcpwindowsize = -1, TSocket *s = 0, Int_t *err = 0);
-   static TSocket       *CreateAuthSocket(const char *url, Int_t size = 0,
-                                          Int_t tcpwindowsize = -1, TSocket *s = 0, Int_t *err = 0);
    static void           NetError(const char *where, Int_t error);
 
-   ClassDef(TSocket,0)  //This class implements client sockets
+   ClassDefOverride(TSocket,0)  //This class implements client sockets
 };
 
 //______________________________________________________________________________

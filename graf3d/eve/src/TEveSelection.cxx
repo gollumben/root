@@ -22,7 +22,6 @@ Make sure there is a SINGLE running TEveSelection for each
 selection type (select/highlight).
 */
 
-ClassImp(TEveSelection);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -282,8 +281,8 @@ void TEveSelection::DeactivateSelection()
 
 TEveElement* TEveSelection::MapPickedToSelected(TEveElement* el)
 {
-   if (el == 0)
-      return 0;
+   if (el == nullptr)
+      return nullptr;
 
    if (el->ForwardSelection())
    {
@@ -294,7 +293,7 @@ TEveElement* TEveSelection::MapPickedToSelected(TEveElement* el)
    {
       case kPS_Ignore:
       {
-         return 0;
+         return nullptr;
       }
       case kPS_Element:
       {
@@ -343,7 +342,7 @@ TEveElement* TEveSelection::MapPickedToSelected(TEveElement* el)
 
 void TEveSelection::UserPickedElement(TEveElement* el, Bool_t multi)
 {
-   TEveElement *edit_el = el ? el->ForwardEdit() : 0;
+   TEveElement *edit_el = el ? el->ForwardEdit() : nullptr;
 
    el = MapPickedToSelected(el);
 

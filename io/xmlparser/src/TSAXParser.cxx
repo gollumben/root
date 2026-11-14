@@ -11,7 +11,7 @@
 
 /**
 \class TSAXParser
-\ingroup IO
+\ingroup io_xml
 
 TSAXParser is a subclass of TXMLParser, it is a wraper class to
 libxml library.
@@ -35,7 +35,6 @@ occur.
 
 #include "TSAXParser.h"
 #include "TXMLAttr.h"
-#include "Varargs.h"
 #include "strlcpy.h"
 #include "TList.h"
 #include "TClass.h"
@@ -43,6 +42,7 @@ occur.
 #include <libxml/parser.h>
 #include <libxml/parserInternals.h>
 
+#include <cstdarg>
 
 class TSAXParserCallback {
 public:
@@ -59,7 +59,6 @@ public:
 };
 
 
-ClassImp(TSAXParser);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create SAX parser.
@@ -92,7 +91,7 @@ TSAXParser::TSAXParser()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// TSAXParser desctructor
+/// TSAXParser destructor
 
 TSAXParser::~TSAXParser()
 {
@@ -125,9 +124,9 @@ void TSAXParser::OnEndDocument()
 
 void TSAXParser::OnStartElement(const char *name, const TList *attributes)
 {
-   Long_t args[2];
-   args[0] = (Long_t)name;
-   args[1] = (Long_t)attributes;
+   Longptr_t args[2];
+   args[0] = (Longptr_t)name;
+   args[1] = (Longptr_t)attributes;
 
    Emit("OnStartElement(const char *, const TList *)", args);
 }
@@ -196,8 +195,8 @@ Int_t TSAXParser::OnFatalError(const char *text)
 
 void TSAXParser::OnCdataBlock(const char *text, Int_t len)
 {
-   Long_t args[2];
-   args[0] = (Long_t)text;
+   Longptr_t args[2];
+   args[0] = (Longptr_t)text;
    args[1] = len;
 
    Emit("OnCdataBlock(const char *, Int_t)", args);
@@ -236,7 +235,7 @@ Int_t TSAXParser::Parse()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// It creates the parse context of the xml file, where the xml file name is
-/// filename. If context is created sucessfully, it will call Parse()
+/// filename. If context is created successfully, it will call Parse()
 /// It returns parse error code, see TXMLParser.
 
 Int_t TSAXParser::ParseFile(const char *filename)
@@ -353,15 +352,15 @@ void TSAXParserCallback::Comment(void *fParser, const xmlChar *value)
 /// Warning callback function. Warnings while parsing a xml file will
 /// be stored at fmt.
 
-void TSAXParserCallback::Warning(void * fParser, const char *va_(fmt), ...)
+void TSAXParserCallback::Warning(void *fParser, const char *fmt, ...)
 {
    TSAXParser *parser = (TSAXParser*)fParser;
 
    va_list arg;
    char buffer[2048];
 
-   va_start(arg, va_(fmt));
-   vsnprintf(buffer, 2048, va_(fmt), arg);
+   va_start(arg, fmt);
+   vsnprintf(buffer, 2048, fmt, arg);
    va_end(arg);
 
    TString buff(buffer);
@@ -373,7 +372,7 @@ void TSAXParserCallback::Warning(void * fParser, const char *va_(fmt), ...)
 /// Error callback function. Errors while parsing a xml file will be stored
 /// at fmt.
 
-void TSAXParserCallback::Error(void *fParser, const char *va_(fmt), ...)
+void TSAXParserCallback::Error(void *fParser, const char *fmt, ...)
 {
    Int_t errorcode;
    TSAXParser *parser = (TSAXParser*)fParser;
@@ -381,8 +380,8 @@ void TSAXParserCallback::Error(void *fParser, const char *va_(fmt), ...)
    va_list arg;
    char buffer[2048];
 
-   va_start(arg, va_(fmt));
-   vsnprintf(buffer, 2048, va_(fmt), arg);
+   va_start(arg, fmt);
+   vsnprintf(buffer, 2048, fmt, arg);
    va_end(arg);
 
    TString buff(buffer);
@@ -402,7 +401,7 @@ void TSAXParserCallback::Error(void *fParser, const char *va_(fmt), ...)
 /// FactalError callback function. Factal errors while parsing a xml file
 /// will be stored at fmt.
 
-void TSAXParserCallback::FatalError(void *fParser, const char *va_(fmt), ...)
+void TSAXParserCallback::FatalError(void *fParser, const char *fmt, ...)
 {
    Int_t errorcode;
    TSAXParser *parser = (TSAXParser*)fParser;
@@ -410,8 +409,8 @@ void TSAXParserCallback::FatalError(void *fParser, const char *va_(fmt), ...)
    va_list arg;
    char buffer[2048];
 
-   va_start(arg, va_(fmt));
-   vsnprintf(buffer, 2048, va_(fmt), arg);
+   va_start(arg, fmt);
+   vsnprintf(buffer, 2048, fmt, arg);
    va_end(arg);
 
    TString buff(buffer);
@@ -439,7 +438,7 @@ void TSAXParserCallback::CdataBlock(void *fParser, const xmlChar *value,
 /// with the user-define SAX Handler, whose functions has to be exactly the
 /// same as in TSAXParser.
 ///
-/// \param[in] handler Name User-defined SAX Handler class name
+/// \param[in] handlerName User-defined SAX Handler class name
 /// \param[in] handler Pointer to the user-defined SAX Handler
 ///
 /// See SAXHandler.C tutorial.

@@ -2,7 +2,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : Interval                                                              *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *          Extension of the Interval to "logarithmic" intervals                  *
@@ -18,7 +18,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_LogInterval
@@ -89,21 +89,21 @@ namespace TMVA {
       virtual ~LogInterval();
 
       // accessors
-      virtual Double_t GetMin()   const { return fMin; }
-      virtual Double_t GetMax()   const { return fMax; }
-      virtual Double_t GetWidth() const;
-      virtual Int_t    GetNbins() const { return fNbins; }
-      virtual Double_t GetMean()  const;
-      virtual Double_t GetRndm( TRandom3& )  const;
-      virtual Double_t GetElement( Int_t position ) const;
-      virtual Double_t GetStepSize(Int_t iBin=0) const;
+      Double_t GetMin()   const override { return fMin; }
+      Double_t GetMax()   const override { return fMax; }
+      Double_t GetWidth() const override;
+      Int_t    GetNbins() const override { return fNbins; }
+      Double_t GetMean()  const override;
+      Double_t GetRndm( TRandom3& )  const override;
+      Double_t GetElement( Int_t position ) const override;
+      Double_t GetStepSize(Int_t iBin=0) const override;
 
       void SetMax( Double_t m ) { fMax = m; }
       void SetMin( Double_t m ) { fMin = m; }
 
       MsgLogger& Log() const;
 
-      ClassDef(Interval,0);    // Interval definition, continous and discrete
+      ClassDefOverride(Interval,0);    // Interval definition, continuous and discrete
    };
 
 } // namespace TMVA

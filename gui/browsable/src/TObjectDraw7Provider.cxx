@@ -12,7 +12,7 @@
 #include <ROOT/RCanvas.hxx>
 #include <ROOT/TObjectDrawable.hxx>
 
-using namespace ROOT::Experimental::Browsable;
+using namespace ROOT::Browsable;
 
 /** Provider for drawing of ROOT7 classes */
 
@@ -25,12 +25,6 @@ public:
          // If it possible, TObject will be cloned by TObjectHolder
          auto tobj = obj->get_shared<TObject>();
          if (!tobj) return false;
-
-         if (subpad->NumPrimitives() > 0) {
-            subpad->Wipe();
-            subpad->GetCanvas()->Modified();
-            subpad->GetCanvas()->Update(true);
-         }
 
          subpad->Draw<ROOT::Experimental::TObjectDrawable>(tobj, opt);
          subpad->GetCanvas()->Update(true);

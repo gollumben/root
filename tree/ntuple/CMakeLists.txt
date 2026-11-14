@@ -9,89 +9,179 @@
 # @author Jakob Blomer CERN
 ############################################################################
 
-if(NOT root7)
-  return()
+# RNTuple optionally writes to S3-compatible object storage via libcurl (RCurlHttp).
+if(curl)
+  set(ROOTNTuple_OPTIONAL_DEPENDENCIES RCurlHttp)
+  list(APPEND ROOTNTuple_EXTRA_HEADERS ROOT/RPageStorageS3.hxx)
+  list(APPEND ROOTNTuple_EXTRA_SOURCES src/RPageStorageS3.cxx)
 endif()
 
-ROOT_STANDARD_LIBRARY_PACKAGE(ROOTNTuple
-HEADERS
+# Enable RNTuple support for Intel DAOS
+if(daos OR daos_mock)
+  list(APPEND ROOTNTuple_EXTRA_HEADERS ROOT/RPageStorageDaos.hxx)
+  list(APPEND ROOTNTuple_EXTRA_SOURCES src/RDaos.cxx src/RPageStorageDaos.cxx)
+
+  if(daos_mock)
+    list(APPEND ROOTNTuple_EXTRA_SOURCES src/libdaos_mock/libdaos_mock.cxx)
+  endif()
+endif()
+
+set(ROOTNTuple_HEADERS
   ROOT/RCluster.hxx
   ROOT/RClusterPool.hxx
   ROOT/RColumn.hxx
-  ROOT/RColumnElement.hxx
-  ROOT/RColumnModel.hxx
+  ROOT/RColumnElementBase.hxx
+  ROOT/RCreateFieldOptions.hxx
   ROOT/REntry.hxx
   ROOT/RField.hxx
-  ROOT/RFieldValue.hxx
+  ROOT/RFieldBase.hxx
+  ROOT/RFieldToken.hxx
+  ROOT/RFieldUtils.hxx
   ROOT/RFieldVisitor.hxx
   ROOT/RMiniFile.hxx
   ROOT/RNTuple.hxx
+  ROOT/RNTupleAttrReading.hxx
+  ROOT/RNTupleAttrUtils.hxx
+  ROOT/RNTupleAttrWriting.hxx
   ROOT/RNTupleDescriptor.hxx
+  ROOT/RNTupleFillContext.hxx
+  ROOT/RNTupleFillStatus.hxx
+  ROOT/RNTupleImtTaskScheduler.hxx
+  ROOT/RNTupleJoinTable.hxx
   ROOT/RNTupleMerger.hxx
   ROOT/RNTupleMetrics.hxx
   ROOT/RNTupleModel.hxx
-  ROOT/RNTupleOptions.hxx
-  ROOT/RNTupleUtil.hxx
+  ROOT/RNTupleParallelWriter.hxx
+  ROOT/RNTupleProcessor.hxx
+  ROOT/RNTupleProcessorEntry.hxx
+  ROOT/RNTupleRange.hxx
+  ROOT/RNTupleReadOptions.hxx
+  ROOT/RNTupleReader.hxx
+  ROOT/RNTupleSerialize.hxx
+  ROOT/RNTupleTypes.hxx
+  ROOT/RNTupleUtils.hxx
   ROOT/RNTupleView.hxx
+  ROOT/RNTupleWriteOptions.hxx
+  ROOT/RNTupleWriteOptionsDaos.hxx
+  ROOT/RNTupleWriter.hxx
   ROOT/RNTupleZip.hxx
   ROOT/RPage.hxx
   ROOT/RPageAllocator.hxx
+  ROOT/RPageNullSink.hxx
   ROOT/RPagePool.hxx
   ROOT/RPageSinkBuf.hxx
-  ROOT/RPageSourceFriends.hxx
   ROOT/RPageStorage.hxx
   ROOT/RPageStorageFile.hxx
+  ROOT/RRawPtrWriteEntry.hxx
+)
+
+ROOT_STANDARD_LIBRARY_PACKAGE(ROOTNTuple
+NO_GLOB_HEADERS # Ensure that the optional headers above only get installed when enabled
+HEADERS
+  ${ROOTNTuple_HEADERS}
+  ${ROOTNTuple_EXTRA_HEADERS}
 SOURCES
-  v7/src/RCluster.cxx
-  v7/src/RClusterPool.cxx
-  v7/src/RColumn.cxx
-  v7/src/RColumnElement.cxx
-  v7/src/RField.cxx
-  v7/src/RFieldVisitor.cxx
-  v7/src/REntry.cxx
-  v7/src/RMiniFile.cxx
-  v7/src/RNTuple.cxx
-  v7/src/RNTupleDescriptor.cxx
-  v7/src/RNTupleDescriptorFmt.cxx
-  v7/src/RNTupleMerger.cxx
-  v7/src/RNTupleMetrics.cxx
-  v7/src/RNTupleModel.cxx
-  v7/src/RNTupleOptions.cxx
-  v7/src/RNTupleUtil.cxx
-  v7/src/RPage.cxx
-  v7/src/RPageAllocator.cxx
-  v7/src/RPagePool.cxx
-  v7/src/RPageSinkBuf.cxx
-  v7/src/RPageSourceFriends.cxx
-  v7/src/RPageStorage.cxx
-  v7/src/RPageStorageFile.cxx
+  src/RCluster.cxx
+  src/RClusterPool.cxx
+  src/RColumn.cxx
+  src/RColumnElement.cxx
+  src/RField.cxx
+  src/RFieldBase.cxx
+  src/RFieldMeta.cxx
+  src/RFieldSequenceContainer.cxx
+  src/RFieldUtils.cxx
+  src/RFieldVisitor.cxx
+  src/RMiniFile.cxx
+  src/RNTuple.cxx
+  src/RNTupleAttrReading.cxx
+  src/RNTupleAttrWriting.cxx
+  src/RNTupleDescriptor.cxx
+  src/RNTupleDescriptorFmt.cxx
+  src/RNTupleFillContext.cxx
+  src/RNTupleJoinTable.cxx
+  src/RNTupleMerger.cxx
+  src/RNTupleMetrics.cxx
+  src/RNTupleModel.cxx
+  src/RNTupleParallelWriter.cxx
+  src/RNTupleProcessor.cxx
+  src/RNTupleProcessorEntry.cxx
+  src/RNTupleReader.cxx
+  src/RNTupleSerialize.cxx
+  src/RNTupleTypes.cxx
+  src/RNTupleUtils.cxx
+  src/RNTupleWriteOptions.cxx
+  src/RNTupleWriter.cxx
+  src/RNTupleView.cxx
+  src/RPage.cxx
+  src/RPageAllocator.cxx
+  src/RPagePool.cxx
+  src/RPageSinkBuf.cxx
+  src/RPageStorage.cxx
+  src/RPageStorageFile.cxx
+  ${ROOTNTuple_EXTRA_SOURCES}
 LINKDEF
   LinkDef.h
 DEPENDENCIES
   Imt
   RIO
   ROOTVecOps
+  ${ROOTNTuple_OPTIONAL_DEPENDENCIES}
+
 )
+
+set(ROOTNTuple_NONSTANDALONE_HEADERS
+  ROOT/RField/RFieldFundamental.hxx
+  ROOT/RField/RFieldProxiedCollection.hxx
+  ROOT/RField/RFieldRecord.hxx
+  ROOT/RField/RFieldSequenceContainer.hxx
+  ROOT/RField/RFieldSoA.hxx
+  ROOT/RField/RFieldSTLMisc.hxx
+)
+
+set(RELATIVE_INC_HEADERS ${ROOTNTuple_HEADERS} ${ROOTNTuple_EXTRA_HEADERS} ${ROOTNTuple_NONSTANDALONE_HEADERS})
+if(daos_mock)
+  list(APPEND RELATIVE_INC_HEADERS ROOT/libdaos_mock/daos.h ROOT/RDaos.hxx)
+endif()    
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+target_sources(ROOTNTuple
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/ src/
+  FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef.h
+    src/RColumnElement.hxx
+)
+
+# Non-standalone headers must be left out of the dictionary, so a dedicated install command is required.
+ROOT_INSTALL_HEADERS(HEADERS
+  ${ROOTNTuple_NONSTANDALONE_HEADERS})
+
+target_link_libraries(ROOTNTuple PRIVATE xxHash::xxHash)
 
 # Enable RNTuple support for Intel DAOS
 if(daos OR daos_mock)
-  set(ROOTNTuple_EXTRA_HEADERS ROOT/RPageStorageDaos.hxx)
-  target_sources(ROOTNTuple PRIVATE v7/src/RDaos.cxx v7/src/RPageStorageDaos.cxx)
   target_compile_definitions(ROOTNTuple PRIVATE R__ENABLE_DAOS)
 
   target_include_directories(ROOTNTuple PRIVATE ${UUID_INCLUDE_DIR})
   target_link_libraries(ROOTNTuple PRIVATE ${UUID_LIBRARY})
   if(daos_mock)
-    target_include_directories(ROOTNTuple PRIVATE v7/inc/ROOT/libdaos_mock/)
-    target_sources(ROOTNTuple PRIVATE v7/src/libdaos_mock/libdaos_mock.cxx)
+    target_include_directories(ROOTNTuple PRIVATE inc/ROOT/libdaos_mock/)
   else()
     target_include_directories(ROOTNTuple PRIVATE ${DAOS_INCLUDE_DIRS})
     target_link_libraries(ROOTNTuple PRIVATE ${DAOS_LIBRARIES})
   endif()
 endif()
 
+# Enable RNTuple support for S3-compatible object storage
+if(curl)
+  target_compile_definitions(ROOTNTuple PRIVATE R__ENABLE_S3)
+  target_link_libraries(ROOTNTuple PRIVATE nlohmann_json::nlohmann_json)
+endif()
+
 if(MSVC)
   target_compile_definitions(ROOTNTuple PRIVATE _USE_MATH_DEFINES)
 endif()
 
-ROOT_ADD_TEST_SUBDIRECTORY(v7/test)
+ROOT_ADD_TEST_SUBDIRECTORY(test)

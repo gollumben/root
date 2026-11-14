@@ -10,6 +10,7 @@
  *************************************************************************/
 
 /** \class TRobustEstimator
+    \note Despite being in the group of Legacy statistics classes, TRobustEstimator is still useful and no drop-in replacement exists for it.
     \ingroup Physics
 Minimum Covariance Determinant Estimator - a Fast Algorithm
 invented by Peter J.Rousseeuw and Katrien Van Dreissen
@@ -99,7 +100,6 @@ Technical details of the algorithm:
 #include "TMath.h"
 #include "TDecompChol.h"
 
-ClassImp(TRobustEstimator);
 
 const Double_t kChiMedian[50]= {
          0.454937, 1.38629, 2.36597, 3.35670, 4.35146, 5.34812, 6.34581, 7.34412, 8.34283,
@@ -718,7 +718,7 @@ const TVectorD* TRobustEstimator::GetHyperplane() const
 {
    if (fExact==0) {
       Error("GetHyperplane","the data doesn't lie on a hyperplane!\n");
-      return 0;
+      return nullptr;
    } else {
       return &fHyperplane;
    }
@@ -1038,7 +1038,6 @@ Int_t TRobustEstimator::Exact(Double_t *ndist)
    Int_t i, j;
 
    TMatrixDSymEigen eigen(fCovariance);
-   TVectorD eigenValues=eigen.GetEigenValues();
    TMatrixD eigenMatrix=eigen.GetEigenVectors();
 
    for (j=0; j<fNvar; j++) {

@@ -33,7 +33,6 @@ single class) but then it seemed somehow messy.
 Maybe next time.
 */
 
-ClassImp(TGLManipSet);
 
 TGLManipSet::TGLManipSet() :
    TGLOverlayElement(kViewer),
@@ -150,7 +149,7 @@ void TGLManipSet::MouseLeave()
 
 void TGLManipSet::Render(TGLRnrCtx& rnrCtx)
 {
-   if (fPShape == 0)
+   if (fPShape == nullptr)
       return;
 
    if (rnrCtx.Selection())

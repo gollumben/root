@@ -37,6 +37,7 @@ private:
    std::list<FunctionSelectionRule> fMethodSelectionRules;
    bool fIsInheritable;
 
+   // clang-format off
    bool fRequestStreamerInfo;    // for linkdef.h: true if we had '+' at the end of a class name
    bool fRequestNoStreamer;      // for linkdef.h: true if we had '-' or "-!" at the end of a class name
    bool fRequestNoInputOperator; // for linkdef.h: true if we had '!' at the end of a class name
@@ -44,6 +45,11 @@ private:
    bool fRequestProtected;       // Explicit request to be able to access protected member from the interpreter.
    bool fRequestPrivate;         // Explicit request to be able to access private member from the interpreter.
    int  fRequestedVersionNumber; // Explicit request for a specific version number (default to no request with -1).
+   // Explicit request for unsplit (-1) or split (=1), defaults to unset (=0)
+   int  fRequestedRNTupleSerializationMode = 0;
+   // If not empty, marks the class as an RNTuple SoA layout for the underlying given record class
+   std::string fRequestedRNTupleSoARecord;
+   // clang-format on
 
 public:
 
@@ -56,7 +62,7 @@ public:
    ClassSelectionRule(long index, bool inherit, ESelect sel, std::string attributeName, std::string attributeValue, cling::Interpreter &interp, const char* selFileName = "", long lineno = -1):
    BaseSelectionRule(index, sel, attributeName, attributeValue, interp, selFileName, lineno), fIsInheritable(inherit), fRequestStreamerInfo(false), fRequestNoStreamer(false), fRequestNoInputOperator(false), fRequestOnlyTClass(false), fRequestProtected(false), fRequestPrivate(false), fRequestedVersionNumber(-1) {}
 
-   void Print(std::ostream &out) const;
+   void Print(std::ostream &out) const final;
 
    void AddFieldSelectionRule(const VariableSelectionRule& field); //adds entry to the filed selections list
    bool HasFieldSelectionRules() const;
@@ -78,6 +84,8 @@ public:
    void SetRequestProtected(bool val);
    void SetRequestPrivate(bool val);
    void SetRequestedVersionNumber(int version);
+   void SetRequestedRNTupleSerializationMode(int serializationMode);
+   void SetRequestedRNTupleSoARecord(const std::string &recordName);
 
    bool RequestOnlyTClass() const;      // True if the user want the TClass intiliazer but *not* the interpreter meta data
    bool RequestNoStreamer() const;      // Request no Streamer function in the dictionary
@@ -86,6 +94,8 @@ public:
    bool RequestProtected() const;
    bool RequestPrivate() const;
    int  RequestedVersionNumber() const;
+   int RequestedRNTupleSerializationMode() const;
+   const std::string &RequestedRNTupleSoARecord() const;
 };
 
 #endif

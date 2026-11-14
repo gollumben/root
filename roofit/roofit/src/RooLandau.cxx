@@ -23,23 +23,24 @@ Landau distribution p.d.f
 
 #include "RooLandau.h"
 #include "RooHelpers.h"
-#include "RooFit.h"
 #include "RooRandom.h"
 #include "RooBatchCompute.h"
 
-#include "TMath.h"
+#include "RooFit/Detail/MathFuncs.h"
 
-ClassImp(RooLandau);
+#include "TMath.h"
+#include "Math/ProbFunc.h"
+
 
 ////////////////////////////////////////////////////////////////////////////////
 
-RooLandau::RooLandau(const char *name, const char *title, RooAbsReal& _x, RooAbsReal& _mean, RooAbsReal& _sigma) :
+RooLandau::RooLandau(const char *name, const char *title, RooAbsReal::Ref _x, RooAbsReal::Ref _mean, RooAbsReal::Ref _sigma) :
   RooAbsPdf(name,title),
   x("x","Dependent",this,_x),
   mean("mean","Mean",this,_mean),
   sigma("sigma","Width",this,_sigma)
 {
-  RooHelpers::checkRangeOfParameters(this, {&_sigma}, 0.0);
+  RooHelpers::checkRangeOfParameters(this, {&static_cast<RooAbsReal&>(_sigma)}, 0.0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -54,23 +55,42 @@ RooLandau::RooLandau(const RooLandau& other, const char* name) :
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Double_t RooLandau::evaluate() const
+double RooLandau::evaluate() const
 {
-  return TMath::Landau(x, mean, sigma);
+  return RooFit::Detail::MathFuncs::landau(x, mean, sigma);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Compute multiple values of Landau distribution.  
-RooSpan<double> RooLandau::evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const {
-  return RooBatchCompute::dispatch->computeLandau(this, evalData, x->getValues(evalData, normSet), mean->getValues(evalData, normSet), sigma->getValues(evalData, normSet));
+/// Compute multiple values of Landau distribution.
+void RooLandau::doEval(RooFit::EvalContext &ctx) const
+{
+   RooBatchCompute::compute(ctx.config(this), RooBatchCompute::Landau, ctx.output(),
+                            {ctx.at(x), ctx.at(mean), ctx.at(sigma)});
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Int_t RooLandau::getGenerator(const RooArgSet& directVars, RooArgSet &generateVars, Bool_t /*staticInitOK*/) const
+Int_t RooLandau::getGenerator(const RooArgSet& directVars, RooArgSet &generateVars, bool /*staticInitOK*/) const
 {
-  if (matchArgs(directVars,generateVars,x)) return 1 ;
-  return 0 ;
+  return matchArgs(directVars,generateVars,x) ? 1 : 0;
+}
+
+Int_t RooLandau::getAnalyticalIntegral(RooArgSet &allVars, RooArgSet &analVars, const char * /*rangeName*/) const
+{
+   return matchArgs(allVars, analVars, x) ? 1 : 0;
+}
+
+Double_t RooLandau::analyticalIntegral(Int_t /*code*/, const char *rangeName) const
+{
+   // Don't do anything with "code". It can only be "1" anyway (see
+   // implementation of getAnalyticalIntegral).
+
+   const double meanVal = mean;
+   const double sigmaVal = sigma;
+
+   const double a = ROOT::Math::landau_cdf(x.max(rangeName), sigmaVal, meanVal);
+   const double b = ROOT::Math::landau_cdf(x.min(rangeName), sigmaVal, meanVal);
+   return sigmaVal * (a - b);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -78,8 +98,8 @@ Int_t RooLandau::getGenerator(const RooArgSet& directVars, RooArgSet &generateVa
 void RooLandau::generateEvent(Int_t code)
 {
   assert(1 == code); (void)code;
-  Double_t xgen ;
-  while(1) {
+  double xgen ;
+  while(true) {
     xgen = RooRandom::randomGenerator()->Landau(mean,sigma);
     if (xgen<x.max() && xgen>x.min()) {
       x = xgen ;

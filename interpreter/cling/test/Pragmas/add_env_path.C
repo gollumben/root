@@ -6,15 +6,16 @@
 // LICENSE.TXT for details.
 //------------------------------------------------------------------------------
 
-// RUN: %mkdir "%T/subdir" || true
-// RUN: %rm "%T/subdir/libtest%shlibext"
-// RUN: clang -DCLING_EXPORT=%dllexport -shared %S/call_lib.c -o %T/subdir/libtest%shlibext
-// RUN: cat %s | %cling -I %S -DENVVAR_LIB="\"%/T/subdir\"" -DENVVAR_INC="\"%/p/subdir\"" -Xclang -verify 2>&1 | FileCheck %s
+// RUN: rm -rf %t.dir && mkdir -p %t.dir
+// RUN: %mkdir "%t.dir/subdir" || true
+// RUN: %rm "%t.dir/subdir/libtest%shlibext"
+// RUN: clang -DCLING_EXPORT=%dllexport -shared %S/call_lib.c -o %t.dir/subdir/libtest%shlibext
+// RUN: cat %s | %cling -I %S -DENVVAR_LIB="\"%/t.dir/subdir\"" -DENVVAR_INC="\"%/p/subdir\"" -Xclang -verify 2>&1 | FileCheck %s
 
 extern "C" int cling_testlibrary_function();
 
 #ifndef _WIN32
- #include <stdlib.h>
+ #include <cstdlib>
 #else
  extern "C" int _putenv_s(const char *name, const char *value);
  #define setenv(n, v, o) _putenv_s(n,v)

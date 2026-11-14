@@ -35,11 +35,21 @@ using namespace ROOT::Experimental;
 void TObjectDrawable::CheckOwnership(TObject *obj)
 {
    if (obj && obj->InheritsFrom("TH1")) {
-      TMethodCall call(obj->IsA(), "SetDirectory", "nullptr");
-      call.Execute((void *)(obj));
+      TMethodCall call;
+      call.InitWithPrototype(obj->IsA(), "SetDirectory", "TDirectory*");
+      if (call.IsValid()) {
+         void *arg0 = nullptr;
+         const void *method_args[1] = { &arg0 };
+         call.Execute((void *) obj, method_args, 1);
+      }
    } else if (obj && obj->InheritsFrom("TF1")) {
-      TMethodCall call(obj->IsA(), "AddToGlobalList", "kFALSE");
-      call.Execute((void *)(obj));
+      TMethodCall call;
+      call.InitWithPrototype(obj->IsA(), "AddToGlobalList", "Bool_t");
+      if (call.IsValid()) {
+         Bool_t arg0 = kFALSE;
+         const void *method_args[1] = { &arg0 };
+         call.Execute((void *) obj, method_args, 1);
+      }
    }
 }
 
@@ -324,8 +334,27 @@ std::unique_ptr<RDisplayItem> TObjectDrawable::Display(const RDisplayContext &ct
 void TObjectDrawable::PopulateMenu(RMenuItems &items)
 {
    auto obj = Get();
-   if ((fKind == kObject) && obj)
-      items.PopulateObjectMenu((void *)obj, obj->IsA());
+
+   if ((fKind != kObject) || !obj)
+      return;
+
+   TClass *cl = obj->IsA();
+
+   if (!items.GetSpecifier().empty() && cl->InheritsFrom("TH1")) {
+      Longptr_t offset = 0;
+      if (items.GetSpecifier() == "x")
+         offset = cl->GetDataMemberOffset("fXaxis");
+      else if (items.GetSpecifier() == "y")
+         offset = cl->GetDataMemberOffset("fYaxis");
+      else if (items.GetSpecifier() == "z")
+         offset = cl->GetDataMemberOffset("fZaxis");
+      if (offset > 0) {
+         obj = (TObject *) ((char *) obj + offset);
+         cl = obj->IsA();
+      }
+   }
+
+   items.PopulateObjectMenu((void *)obj, cl);
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -351,6 +380,6 @@ void TObjectDrawable::Execute(const std::string &exec)
 
    std::stringstream cmd;
    cmd << "((" << obj->ClassName() << " *) " << std::hex << std::showbase << (size_t)obj << ")->" << ex << ";";
-   std::cout << "TObjectDrawable::Execute Obj " << obj->GetName() << "Cmd " << cmd.str() << std::endl;
+   std::cout << "TObjectDrawable::Execute Obj " << obj->GetName() << " Cmd " << cmd.str() << std::endl;
    gROOT->ProcessLine(cmd.str().c_str());
 }

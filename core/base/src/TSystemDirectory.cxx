@@ -22,15 +22,12 @@ Describes an Operating System directory for the browser.
 #include "TList.h"
 
 
-ClassImp(TSystemDirectory);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a system directory object.
 
 TSystemDirectory::TSystemDirectory()
 {
-   fDirsInBrowser  = nullptr;
-   fFilesInBrowser = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -39,31 +36,6 @@ TSystemDirectory::TSystemDirectory()
 TSystemDirectory::TSystemDirectory(const char *dirname, const char *path) :
    TSystemFile(dirname, path)
 {
-   fDirsInBrowser  = nullptr;
-   fFilesInBrowser = nullptr;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Copy constructor
-
-TSystemDirectory::TSystemDirectory(const TSystemDirectory& sd) :
-  TSystemFile(sd),
-  fDirsInBrowser(sd.fDirsInBrowser),
-  fFilesInBrowser(sd.fFilesInBrowser)
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Assignment operator
-
-TSystemDirectory& TSystemDirectory::operator=(const TSystemDirectory& sd)
-{
-   if(this!=&sd) {
-      TSystemFile::operator=(sd);
-      fDirsInBrowser=sd.fDirsInBrowser;
-      fFilesInBrowser=sd.fFilesInBrowser;
-   }
-   return *this;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -201,7 +173,7 @@ void TSystemDirectory::Browse(TBrowser *b)
 
 TSystemDirectory *TSystemDirectory::FindDirObj(const char *name)
 {
-   int size = fDirsInBrowser->GetSize();
+   int size = fDirsInBrowser ? fDirsInBrowser->GetSize() : 0;
    for (int i = 0; i < size; i++) {
       TSystemDirectory *obj = (TSystemDirectory *) fDirsInBrowser->At(i);
       if (!strcmp(name, obj->GetTitle()))
@@ -216,7 +188,7 @@ TSystemDirectory *TSystemDirectory::FindDirObj(const char *name)
 
 TSystemFile *TSystemDirectory::FindFileObj(const char *name, const char *dir)
 {
-   int size = fFilesInBrowser->GetSize();
+   int size = fFilesInBrowser ? fFilesInBrowser->GetSize() : 0;
    for (int i = 0; i < size; i++) {
       TSystemFile *obj = (TSystemFile *) fFilesInBrowser->At(i);
       if (!strcmp(name, obj->GetName()) && !strcmp(dir, obj->GetTitle()))

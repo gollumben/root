@@ -13,6 +13,8 @@
 /** \class TFolder
 \ingroup Base
 
+\legacy{TFolder}
+
 A TFolder object is a collection of objects and folders.
 Folders have a name and a title and are identified in the folder hierarchy
 by a "Unix-like" naming mechanism. The root of all folders is //root.
@@ -82,8 +84,6 @@ to save the pointer to the object as a class member or local variable
 if this pointer is used frequently or inside loops.
 */
 
-#include <iostream>
-#include "Strlen.h"
 #include "strlcpy.h"
 #include "TFolder.h"
 #include "TBrowser.h"
@@ -93,13 +93,15 @@ if this pointer is used frequently or inside loops.
 #include "TError.h"
 #include "TRegexp.h"
 
+#include <iostream>
+#include <cstring>
+
 static const char *gFolderD[64];
 static Int_t gFolderLevel = -1;
 static char  gFolderPath[512];
 
 enum { kOwnFolderList = BIT(15) };
 
-ClassImp(TFolder);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor used by the Input functions.
@@ -122,14 +124,6 @@ TFolder::TFolder(const char *name, const char *title) : TNamed(name,title)
    fFolders = new TList();
    SetBit(kOwnFolderList);
    fIsOwner = kFALSE;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Copy constructor.
-
-TFolder::TFolder(const TFolder &folder) : TNamed(folder),fFolders(nullptr),fIsOwner(kFALSE)
-{
-   ((TFolder&)folder).Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -425,7 +419,7 @@ void TFolder::ls(Option_t *option) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Return occurence number of object in the list of objects of this folder.
+/// Return occurrence number of object in the list of objects of this folder.
 /// The function returns the number of objects with the same name as object
 /// found in the list of objects in this folder before object itself.
 /// If only one object is found, return 0.

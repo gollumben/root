@@ -5,15 +5,15 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : GiniIndex                                                             *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description: Implementation of the GiniIndex as separation criterion           *
  *              Large Gini Indices (maximum 0.5) mean , that the sample is well   *
  *              mixed (same amount of signal and bkg)                             *
  *              bkg. Small Indices mean, well separated.                          *
- *              general defniniton:                                               *
+ *              general definition:                                               *
  *              Gini(Sample M) = 1 - (c(1)/N)^2 - (c(2)/N)^2 .... - (c(k)/N)^2    *
- *              Where: M is a smaple of whatever N elements (events)              *
+ *              Where: M is a sample of whatever N elements (events)              *
  *                     that belong to K different classes                         *
  *                     c(k) is the number of elements that belong to class k      *
  *              for just Signal and Background classes this boils down to:        *
@@ -74,11 +74,11 @@ namespace TMVA {
       virtual ~GiniIndex(){}
 
       // Return the separation index (a measure for "purity" of the sample")
-      virtual Double_t GetSeparationIndex( const Double_t s, const Double_t b );
+      Double_t GetSeparationIndex( const Double_t s, const Double_t b ) override;
 
    protected:
 
-      ClassDef(GiniIndex,0); // Implementation of the GiniIndex as separation criterion
+      ClassDefOverride(GiniIndex,0); // Implementation of the GiniIndex as separation criterion
    };
 
 } // namespace TMVA

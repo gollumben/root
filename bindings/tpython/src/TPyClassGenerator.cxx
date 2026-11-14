@@ -9,10 +9,8 @@
 //  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
 //  *************************************************************************/
 
-// Bindings
-// CPyCppyy.h must be go first, since it includes Python.h, which must be
-// included before any standard header
-#include "CPyCppyy.h"
+#include <Python.h>
+
 #include "TPyClassGenerator.h"
 #include "TPyReturn.h"
 
@@ -27,22 +25,56 @@
 #include <string>
 #include <typeinfo>
 
-// needed to properly resolve (dllimport) symbols on Windows
-namespace CPyCppyy {
-   R__EXTERN bool gDictLookupActive;
-   namespace PyStrings {
-      R__EXTERN PyObject *gBases;
+namespace {
+
+class PyGILRAII {
+   PyGILState_STATE m_GILState;
+
+public:
+   PyGILRAII() : m_GILState(PyGILState_Ensure()) {}
+   ~PyGILRAII() { PyGILState_Release(m_GILState); }
+};
+
+#if (defined(Py_LIMITED_API) || PY_VERSION_HEX < 0x30d00f0)
+
+// Implementation of PyObject_GetOptionalAttr and
+// PyObject_GetOptionalAttrString from
+// https://github.com/python/pythoncapi-compat/, since the function is not part
+// of the limited API.
+
+inline int PyObject_GetOptionalAttr(PyObject *obj, PyObject *attr_name, PyObject **result)
+{
+   *result = PyObject_GetAttr(obj, attr_name);
+   if (*result != NULL) {
+      return 1;
    }
+   if (!PyErr_Occurred()) {
+      return 0;
+   }
+   if (PyErr_ExceptionMatches(PyExc_AttributeError)) {
+      PyErr_Clear();
+      return 0;
+   }
+   return -1;
 }
 
-namespace {
-   class PyGILRAII {
-      PyGILState_STATE m_GILState;
-   public:
-      PyGILRAII() : m_GILState(PyGILState_Ensure()) { }
-      ~PyGILRAII() { PyGILState_Release(m_GILState); }
-   };
+inline int PyObject_GetOptionalAttrString(PyObject *obj, const char *attr_name, PyObject **result)
+{
+   PyObject *name_obj;
+   int rc;
+   name_obj = PyUnicode_FromString(attr_name);
+   if (name_obj == NULL) {
+      *result = NULL;
+      return -1;
+   }
+   rc = PyObject_GetOptionalAttr(obj, name_obj, result);
+   Py_DECREF(name_obj);
+   return rc;
 }
+
+#endif
+
+} // namespace
 
 //- public members -----------------------------------------------------------
 TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load)
@@ -56,10 +88,6 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
 {
    // Class generator to make python classes available to Cling
 
-   // called if all other class generators failed, attempt to build from python class
-   if (CPyCppyy::gDictLookupActive == kTRUE)
-      return 0; // call originated from python
-
    if (!load || !name)
       return 0;
 
@@ -67,11 +95,11 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
 
    // first, check whether the name is of a module
    PyObject *modules = PySys_GetObject(const_cast<char *>("modules"));
-   PyObject *pyname = CPyCppyy_PyText_FromString(name);
+   PyObject *pyname = PyUnicode_FromString(name);
    PyObject *keys = PyDict_Keys(modules);
    Bool_t isModule = PySequence_Contains(keys, pyname);
-   Py_DECREF(keys);
-   Py_DECREF(pyname);
+   Py_DecRef(keys);
+   Py_DecRef(pyname);
 
    if (isModule) {
       // the normal TClass::GetClass mechanism doesn't allow direct returns, so
@@ -84,29 +112,34 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
       nsCode << "namespace " << name << " {\n";
 
       // add all free functions
+      PyObject *bases = PyUnicode_FromString("__bases__");
       PyObject *mod = PyDict_GetItemString(modules, const_cast<char *>(name));
       PyObject *dct = PyModule_GetDict(mod);
       keys = PyDict_Keys(dct);
 
-      for (int i = 0; i < PyList_GET_SIZE(keys); ++i) {
-         PyObject *key = PyList_GET_ITEM(keys, i);
-         Py_INCREF(key);
-
+      for (int i = 0; i < PyList_Size(keys); ++i) {
+         // borrowed references
+         PyObject *key = PyList_GetItem(keys, i);
          PyObject *attr = PyDict_GetItem(dct, key);
-         Py_INCREF(attr);
 
          // TODO: refactor the code below with the class method code
-         if (PyCallable_Check(attr) && !(PyClass_Check(attr) || PyObject_HasAttr(attr, CPyCppyy::PyStrings::gBases))) {
-            std::string func_name = CPyCppyy_PyText_AsString(key);
+         if (PyCallable_Check(attr) && !(PyType_Check(attr) || PyObject_HasAttr(attr, bases))) {
+            const char *func_name = PyUnicode_AsUTF8AndSize(key, nullptr);
+            if (!func_name) {
+                Py_DecRef(keys);
+                Py_DecRef(bases);
+                return nullptr; // propagate possible error
+            }
 
             // figure out number of variables required
-            PyObject *func_code = PyObject_GetAttrString(attr, (char *)"func_code");
+            PyObject *func_code = nullptr;
+            PyObject_GetOptionalAttrString(attr, (char *)"func_code", &func_code);
             PyObject *var_names = func_code ? PyObject_GetAttrString(func_code, (char *)"co_varnames") : NULL;
-            int nVars = var_names ? PyTuple_GET_SIZE(var_names) : 0 /* TODO: probably large number, all default? */;
+            int nVars = var_names ? PyTuple_Size(var_names) : 0 /* TODO: probably large number, all default? */;
             if (nVars < 0)
                nVars = 0;
-            Py_XDECREF(var_names);
-            Py_XDECREF(func_code);
+            Py_DecRef(var_names);
+            Py_DecRef(func_code);
 
             nsCode << " TPyReturn " << func_name << "(";
             for (int ivar = 0; ivar < nVars; ++ivar) {
@@ -124,12 +157,10 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
             // call dispatch (method or class pointer hard-wired)
             nsCode << "  return TPyReturn(TPyArg::CallMethod((PyObject*)" << std::showbase << (uintptr_t)attr << ", v)); }\n";
          }
-
-         Py_DECREF(attr);
-         Py_DECREF(key);
       }
 
-      Py_DECREF(keys);
+      Py_DecRef(keys);
+      Py_DecRef(bases);
 
       nsCode << " }";
 
@@ -168,10 +199,10 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
       return 0; // module apparently disappeared
    }
 
-   Py_INCREF(mod);
+   Py_IncRef(mod);
    PyObject *pyclass = PyDict_GetItemString(PyModule_GetDict(mod), const_cast<char *>(clName.c_str()));
-   Py_XINCREF(pyclass);
-   Py_DECREF(mod);
+   Py_IncRef(pyclass);
+   Py_DecRef(mod);
 
    if (!pyclass) {
       PyErr_Clear(); // the class is no longer available?!
@@ -182,7 +213,7 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
    PyObject *attrs = PyObject_Dir(pyclass);
    if (!attrs) {
       PyErr_Clear();
-      Py_DECREF(pyclass);
+      Py_DecRef(pyclass);
       return 0;
    }
 
@@ -194,14 +225,18 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
 
    // loop over and add member functions
    Bool_t hasConstructor = kFALSE, hasDestructor = kFALSE;
-   for (int i = 0; i < PyList_GET_SIZE(attrs); ++i) {
-      PyObject *label = PyList_GET_ITEM(attrs, i);
-      Py_INCREF(label);
+   for (int i = 0; i < PyList_Size(attrs); ++i) {
+      PyObject *label = PyList_GetItem(attrs, i);
+      Py_IncRef(label);
       PyObject *attr = PyObject_GetAttr(pyclass, label);
 
       // collect only member functions (i.e. callable elements in __dict__)
       if (PyCallable_Check(attr)) {
-         std::string mtName = CPyCppyy_PyText_AsString(label);
+         const char *mtNameCStr = PyUnicode_AsUTF8AndSize(label, nullptr);
+         if(!mtNameCStr) {
+            return nullptr;
+         }
+         std::string mtName = mtNameCStr;
 
          if (mtName == "__del__") {
             hasDestructor = kTRUE;
@@ -214,25 +249,17 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
             continue; // skip all other python special funcs
 
 // figure out number of variables required
-#if PY_VERSION_HEX < 0x03000000
-         PyObject *im_func = PyObject_GetAttrString(attr, (char *)"im_func");
-         PyObject *func_code = im_func ? PyObject_GetAttrString(im_func, (char *)"func_code") : NULL;
-#else
          PyObject *func_code = PyObject_GetAttrString(attr, "__code__");
-#endif
          PyObject *var_names = func_code ? PyObject_GetAttrString(func_code, (char *)"co_varnames") : NULL;
          if (PyErr_Occurred())
             PyErr_Clear(); // happens for slots; default to 0 arguments
 
          int nVars =
-            var_names ? PyTuple_GET_SIZE(var_names) - 1 /* self */ : 0 /* TODO: probably large number, all default? */;
+            var_names ? PyTuple_Size(var_names) - 1 /* self */ : 0 /* TODO: probably large number, all default? */;
          if (nVars < 0)
             nVars = 0;
-         Py_XDECREF(var_names);
-         Py_XDECREF(func_code);
-#if PY_VERSION_HEX < 0x03000000
-         Py_XDECREF(im_func);
-#endif
+         Py_DecRef(var_names);
+         Py_DecRef(func_code);
 
          // method declaration as appropriate
          if (isConstructor) {
@@ -265,7 +292,7 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
       }
 
       // no decref of attr for now (b/c of hard-wired ptr); need cleanup somehow
-      Py_DECREF(label);
+      Py_DecRef(label);
    }
 
    // special case if no constructor or destructor
@@ -285,9 +312,9 @@ TClass *TPyClassGenerator::GetClass(const char *name, Bool_t load, Bool_t silent
    if (useNS)
       proxyCode << " }";
 
-   Py_DECREF(attrs);
+   Py_DecRef(attrs);
    // done with pyclass, decref here, assuming module is kept
-   Py_DECREF(pyclass);
+   Py_DecRef(pyclass);
 
    // body compilation
    if (!gInterpreter->LoadText(proxyCode.str().c_str()))

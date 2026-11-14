@@ -18,7 +18,6 @@ Array of long64s (64 bits per element).
 #include "TBuffer.h"
 
 
-ClassImp(TArrayL64);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default TArrayL64 ctor.
@@ -71,7 +70,7 @@ TArrayL64 &TArrayL64::operator=(const TArrayL64 &rhs)
 TArrayL64::~TArrayL64()
 {
    delete [] fArray;
-   fArray = 0;
+   fArray = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

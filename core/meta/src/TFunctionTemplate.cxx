@@ -18,7 +18,6 @@ This class describes one single function template.
 #include "TInterpreter.h"
 #include "TClass.h"
 
-ClassImp(TFunctionTemplate);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default TFunctionTemplate ctor.
@@ -57,6 +56,8 @@ TFunctionTemplate& TFunctionTemplate::operator=(const TFunctionTemplate &rhs)
          gCling->FuncTempInfo_Title(fInfo,fTitle);
       } else
          fInfo = nullptr;
+
+      fClass = rhs.fClass;
    }
    return *this;
 }

@@ -17,22 +17,28 @@
 
 
 class TCrown : public TEllipse {
+   Double_t fYXRatio = 1;  // ratio between Y and X axis
 
 public:
    TCrown();
    TCrown(Double_t x1, Double_t y1,Double_t radin, Double_t radout,
           Double_t phimin=0,Double_t phimax=360);
    TCrown(const TCrown &crown);
-   virtual ~TCrown();
-   void   Copy(TObject &crown) const;
-   virtual Int_t  DistancetoPrimitive(Int_t px, Int_t py);
-   virtual void   DrawCrown(Double_t x1, Double_t y1, Double_t radin, Double_t radout,
-                            Double_t  phimin=0, Double_t  phimax=360, Option_t *option="");
-   virtual void   ExecuteEvent(Int_t event, Int_t px, Int_t py);
-   virtual void   Paint(Option_t *option="");
-   virtual void   SavePrimitive(std::ostream &out, Option_t *option = "");
+   ~TCrown() override;
 
-   ClassDef(TCrown,1)  //A crown or segment of crown
+   void SetYXRatio(Double_t v = 1) { fYXRatio = v; }
+   Double_t GetYXRatio() const { return fYXRatio; }
+
+   void Copy(TObject &crown) const override;
+   Int_t   DistancetoPrimitive(Int_t px, Int_t py) override;
+   virtual TCrown *DrawCrown(Double_t x1, Double_t y1, Double_t radin, Double_t radout,
+                             Double_t  phimin=0, Double_t  phimax=360, Option_t *option="");
+   void    ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
+   Int_t   IsInside(Double_t x, Double_t y) const;
+   void    Paint(Option_t *option="") override;
+   void    SavePrimitive(std::ostream &out, Option_t *option = "") override;
+
+   ClassDefOverride(TCrown,2)  //A crown or segment of crown
 };
 
 #endif

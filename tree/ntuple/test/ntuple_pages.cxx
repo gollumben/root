@@ -1,0 +1,207 @@
+#include "ntuple_test.hxx"
+
+namespace {
+
+using ROOT::Internal::RCluster;
+using ROOT::Internal::RPageRef;
+
+/// Used to keep track of pinned clusters
+class RPageSourceMock : public RPageSource {
+protected:
+   void LoadStructureImpl() final {}
+   RNTupleDescriptor AttachImpl() final { return RNTupleDescriptor(); }
+   std::unique_ptr<RPageSource> CloneImpl() const final { return nullptr; }
+   void LoadPageListImpl(const ROOT::RNTupleLocator &, unsigned char *) final {}
+   void LoadSealedPageImpl(const ROOT::RNTupleLocator &, RSealedPage &) final {}
+   std::unique_ptr<ROOT::Internal::RPageSource>
+   OpenWithDifferentAnchor(const ROOT::Internal::RNTupleLink &, const ROOT::RNTupleReadOptions &) final
+   {
+      throw ROOT::RException(R__FAIL("method not implemented"));
+   }
+
+public:
+   RPageSourceMock() : RPageSource("test", RNTupleReadOptions()) {}
+   std::vector<std::unique_ptr<RCluster>> LoadClusters(std::span<RCluster::RKey>) final
+   {
+      return std::vector<std::unique_ptr<RCluster>>();
+   }
+};
+
+} // anonymous namespace
+
+TEST(Pages, Allocation)
+{
+   RPageAllocatorHeap allocator;
+
+   auto page = allocator.NewPage(4, 16);
+   EXPECT_FALSE(page.IsNull());
+   EXPECT_EQ(16U, page.GetMaxElements());
+   EXPECT_EQ(0U, page.GetNElements());
+   EXPECT_EQ(0U, page.GetNBytes());
+}
+
+TEST(Pages, Pool)
+{
+   RPageSourceMock pageSource;
+   RPageAllocatorHeap allocator;
+   RPagePool pool(pageSource);
+
+   {
+      auto pageRef = pool.GetPage(RPagePool::RKey{0, std::type_index(typeid(void))}, 0);
+      EXPECT_TRUE(pageRef.Get().IsNull());
+   } // returning empty page should not crash
+
+   RPage::RClusterInfo clusterInfo(2, 40);
+   auto page = allocator.NewPage(1, 10);
+   auto pageBuffer = page.GetBuffer();
+   page.GrowUnchecked(10);
+   EXPECT_EQ(page.GetMaxElements(), page.GetNElements());
+   page.SetWindow(50, clusterInfo);
+   EXPECT_FALSE(page.IsNull());
+
+   {
+      auto registeredPage = pool.RegisterPage(std::move(page), RPagePool::RKey{1, std::type_index(typeid(void))});
+
+      {
+         auto pageRef = pool.GetPage(RPagePool::RKey{0, std::type_index(typeid(void))}, 0);
+         EXPECT_TRUE(pageRef.Get().IsNull());
+         pageRef = pool.GetPage(RPagePool::RKey{0, std::type_index(typeid(void))}, 55);
+         EXPECT_TRUE(pageRef.Get().IsNull());
+         pageRef = pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(int))}, 55);
+         EXPECT_TRUE(pageRef.Get().IsNull());
+         pageRef = pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(void))}, 55);
+         EXPECT_FALSE(pageRef.Get().IsNull());
+         EXPECT_EQ(50U, pageRef.Get().GetGlobalRangeFirst());
+         EXPECT_EQ(59U, pageRef.Get().GetGlobalRangeLast());
+         EXPECT_EQ(10U, pageRef.Get().GetLocalRangeFirst());
+         EXPECT_EQ(19U, pageRef.Get().GetLocalRangeLast());
+
+         auto pageRef2 =
+            pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(void))}, ROOT::RNTupleLocalIndex(0, 15));
+         EXPECT_TRUE(pageRef2.Get().IsNull());
+         pageRef2 = pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(int))}, ROOT::RNTupleLocalIndex(2, 15));
+         EXPECT_TRUE(pageRef2.Get().IsNull());
+         pageRef2 = pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(void))}, ROOT::RNTupleLocalIndex(2, 15));
+         EXPECT_FALSE(pageRef2.Get().IsNull());
+      }
+
+      auto newPage = allocator.NewPage(1, 10);
+      newPage.GrowUnchecked(10);
+      newPage.SetWindow(50, clusterInfo);
+      auto newPageRef = pool.RegisterPage(std::move(newPage), RPagePool::RKey{1, std::type_index(typeid(void))});
+      EXPECT_EQ(pageBuffer, newPageRef.Get().GetBuffer());
+   }
+   auto pageRef = pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(void))}, 55);
+   EXPECT_TRUE(pageRef.Get().IsNull());
+}
+
+TEST(Pages, ReleasePinned)
+{
+   RPageSourceMock pageSource;
+   RPageAllocatorHeap allocator;
+   RPagePool pool(pageSource);
+
+   constexpr ROOT::DescriptorId_t columnId = 7;
+   constexpr ROOT::NTupleSize_t nElements = 10;
+   constexpr ROOT::NTupleSize_t elementSize = 1;
+   constexpr ROOT::DescriptorId_t clusterId1 = 10;
+   constexpr ROOT::DescriptorId_t clusterId2 = 20;
+   constexpr ROOT::NTupleSize_t firstElementIndex1 = 100;
+   constexpr ROOT::NTupleSize_t firstElementIndex2 = 200;
+
+   auto page1 = allocator.NewPage(elementSize, nElements);
+   page1.GrowUnchecked(nElements);
+   page1.SetWindow(firstElementIndex1, RPage::RClusterInfo(clusterId1, firstElementIndex1));
+
+   auto page2 = allocator.NewPage(elementSize, nElements);
+   page2.GrowUnchecked(nElements);
+   page2.SetWindow(firstElementIndex2, RPage::RClusterInfo(clusterId2, firstElementIndex2));
+
+   pageSource.PinCluster(clusterId1);
+
+   {
+      auto pageRef1 = pool.RegisterPage(std::move(page1), RPagePool::RKey{columnId, std::type_index(typeid(void))});
+      auto pageRef2 = pool.RegisterPage(std::move(page2), RPagePool::RKey{columnId, std::type_index(typeid(void))});
+   }
+
+   auto pageRef = pool.GetPage(RPagePool::RKey{columnId, std::type_index(typeid(void))}, firstElementIndex1);
+   EXPECT_FALSE(pageRef.Get().IsNull());
+   EXPECT_EQ(firstElementIndex1, pageRef.Get().GetGlobalRangeFirst());
+   EXPECT_EQ(firstElementIndex1 + nElements - 1, pageRef.Get().GetGlobalRangeLast());
+
+   pageRef = pool.GetPage(RPagePool::RKey{columnId, std::type_index(typeid(void))}, firstElementIndex2);
+   EXPECT_TRUE(pageRef.Get().IsNull());
+}
+
+TEST(Pages, EvictBasics)
+{
+   RPageSourceMock pageSource;
+   RPageAllocatorHeap allocator;
+   RPagePool pool(pageSource);
+
+   RPage::RClusterInfo clusterInfo(2, 40);
+   auto page = allocator.NewPage(1, 10);
+   page.GrowUnchecked(10);
+   page.SetWindow(50, clusterInfo);
+
+   pool.Evict(2); // should be a noop, pool is empty
+
+   pool.PreloadPage(std::move(page), RPagePool::RKey{1, std::type_index(typeid(void))});
+   {
+      auto pageRef1 = pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(void))}, 55);
+      EXPECT_FALSE(pageRef1.Get().IsNull());
+
+      pool.Evict(2); // should be a noop, page is used
+      auto pageRef2 = pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(void))}, 55);
+      EXPECT_FALSE(pageRef2.Get().IsNull());
+   }
+
+   auto pageRef = pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(void))}, 55);
+   EXPECT_TRUE(pageRef.Get().IsNull());
+
+   page = allocator.NewPage(1, 10);
+   page.GrowUnchecked(10);
+   page.SetWindow(50, clusterInfo);
+   pool.PreloadPage(std::move(page), RPagePool::RKey{1, std::type_index(typeid(void))});
+
+   pool.Evict(2); // should remove the preloaded page
+
+   pageRef = pool.GetPage(RPagePool::RKey{1, std::type_index(typeid(void))}, 55);
+   EXPECT_TRUE(pageRef.Get().IsNull());
+}
+
+#ifdef R__USE_IMT
+TEST(Pages, EvictExpiredClusters)
+{
+   IMTRAII _;
+   FileRaii fileGuard("test_ntuple_pages_evict_expired_clusters.root");
+
+   {
+      auto model = RNTupleModel::Create();
+      auto ptrPt = model->MakeField<float>("pt");
+      auto ptrE = model->MakeField<float>("E");
+      auto writer = RNTupleWriter::Recreate(std::move(model), "ntpl", fileGuard.GetPath());
+
+      for (unsigned i = 0; i < 3; ++i) {
+         writer->Fill();
+         writer->CommitCluster();
+      }
+   }
+
+   auto reader = RNTupleReader::Open("ntpl", fileGuard.GetPath());
+   reader->EnableMetrics();
+   auto viewPt = reader->GetView<float>("pt");
+   auto viewE = reader->GetView<float>("E");
+   viewPt(0);
+   viewPt(1); // should evict the unused page for E in cluster 0
+   EXPECT_EQ(4, reader->GetMetrics().GetCounter("RNTupleReader.RPageSourceFile.nPageUnsealed")->GetValueAsInt());
+   viewE(0);
+   EXPECT_EQ(6, reader->GetMetrics().GetCounter("RNTupleReader.RPageSourceFile.nPageUnsealed")->GetValueAsInt());
+
+   viewPt(2);
+   EXPECT_EQ(8, reader->GetMetrics().GetCounter("RNTupleReader.RPageSourceFile.nPageUnsealed")->GetValueAsInt());
+   viewPt(0); // should evice the unused page for E in cluster 2
+   viewE(2);
+   EXPECT_EQ(10, reader->GetMetrics().GetCounter("RNTupleReader.RPageSourceFile.nPageUnsealed")->GetValueAsInt());
+}
+#endif // R__USE_IMT

@@ -218,7 +218,7 @@ class PointerCheckInjector : public RecursiveASTVisitor<PointerCheckInjector> {
       SourceLocation noLoc;
       m_clingthrowIfInvalidPointerCache = new LookupResult(m_Sema, Name, noLoc,
                                         Sema::LookupOrdinaryName,
-                                        Sema::ForVisibleRedeclaration);
+                                        RedeclarationKind::ForVisibleRedeclaration);
       m_Sema.LookupQualifiedName(*m_clingthrowIfInvalidPointerCache,
                                  m_Context.getTranslationUnitDecl());
       assert(!m_clingthrowIfInvalidPointerCache->empty() &&
@@ -226,14 +226,27 @@ class PointerCheckInjector : public RecursiveASTVisitor<PointerCheckInjector> {
     }
   };
 
-  static bool hasPtrCheckDisabledInContext(const Decl* D) {
+  static bool hasPtrCheckDisabledInContext(Sema *S, const Decl* D) {
     if (isa<TranslationUnitDecl>(D))
       return false;
-    for (const auto *Ann : D->specific_attrs<AnnotateAttr>()) {
+    if (auto *NS = dyn_cast<NamespaceDecl>(D)) {
+      if (NS->getName() == "Experimental") {
+        return true;
+      }
+    }
+    for (const auto *Ann : D->specific_attrs<clang::AnnotateAttr>()) {
       if (Ann->getAnnotation() == "__cling__ptrcheck(off)")
         return true;
       else if (Ann->getAnnotation() == "__cling__ptrcheck(on)")
         return false;
+      else if (Ann->getAnnotation().starts_with("__cling__ptrcheck(")) {
+        DiagnosticsEngine& Diags = S->getDiagnostics();
+        Diags.Report(Ann->getLocation(),
+                    Diags.getCustomDiagID(
+                        clang::DiagnosticsEngine::Level::Warning,
+                        "NullDerefProtectionTransformer: invalid annotation: '%0'. Must be `on` or `off`."))
+            << Ann->getAnnotation();
+      }
     }
     const Decl* Parent = nullptr;
     for (auto DC = D->getDeclContext(); !Parent; DC = DC->getParent())
@@ -241,7 +254,7 @@ class PointerCheckInjector : public RecursiveASTVisitor<PointerCheckInjector> {
 
     assert(Parent && "Decl without context!");
 
-    return hasPtrCheckDisabledInContext(Parent);
+    return hasPtrCheckDisabledInContext(S, Parent);
   }
 
 } // unnamed namespace
@@ -260,7 +273,7 @@ namespace cling {
     if (D->isTemplateDecl())
       return false;
 
-    if (hasPtrCheckDisabledInContext(D))
+    if (hasPtrCheckDisabledInContext(getSemaPtr(), D))
       return false;
 
     auto Loc = D->getLocation();
@@ -276,7 +289,7 @@ namespace cling {
     if (FID.isInvalid())
       return false;
 
-    auto FE = SM.getFileEntryForID(FID);
+    auto FE = SM.getFileEntryRefForID(FID);
     if (!FE)
       return false;
 
@@ -288,7 +301,7 @@ namespace cling {
     if (IterAndInserted.second == false)
       return IterAndInserted.first->second;
 
-    if (llvm::sys::fs::can_write(Dir->getName()))
+    if (llvm::sys::fs::can_write(Dir.getName()))
       return true; // `true` is already emplaced above.
 
     // Remember that this dir is not writable and should not be visited.

@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Classes: PDEFoamDiscriminant                                                   *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *    Concrete PDEFoam sub-class.  This foam stores the discriminant D            *
@@ -24,7 +24,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_PDEFoamDiscriminant
@@ -50,16 +50,16 @@ namespace TMVA
       virtual ~PDEFoamDiscriminant() {}       // Default destructor
 
       // function to fill created cell with given value
-      virtual void FillFoamCells(const Event* ev, Float_t wt);
+      void FillFoamCells(const Event* ev, Float_t wt) override;
 
       // function to call after foam is grown
-      virtual void Finalize();
+      void Finalize() override;
 
       // 2-dimensional projection
-      virtual TH2D* Project2(Int_t, Int_t, ECellValue, PDEFoamKernelBase*, UInt_t);
+      TH2D* Project2(Int_t, Int_t, ECellValue, PDEFoamKernelBase*, UInt_t) override;
 
       // ---------- ROOT class definition
-      ClassDef(PDEFoamDiscriminant, 1) // Tree of PDEFoamCells
+      ClassDefOverride(PDEFoamDiscriminant, 1) // Tree of PDEFoamCells
          }; // end of PDEFoamDiscriminant
 
 }  // namespace TMVA

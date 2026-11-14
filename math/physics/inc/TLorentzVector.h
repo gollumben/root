@@ -24,10 +24,9 @@
 #include "TMath.h"
 #include "TVector3.h"
 #include "TRotation.h"
-
+#include "Math/Vector4D.h"
 
 class TLorentzRotation;
-
 
 class TLorentzVector : public TObject {
 
@@ -55,10 +54,10 @@ public:
    TLorentzVector(const TVector3 & vector3, Double_t t);
    // Constructor giving a 3-Vector and a time component.
 
-   TLorentzVector(const TLorentzVector & lorentzvector);
+   TLorentzVector(const TLorentzVector & lorentzvector) noexcept;
    // Copy constructor.
 
-   virtual ~TLorentzVector(){};
+   ~TLorentzVector() override = default;
    // Destructor
 
    // inline operator TVector3 () const;
@@ -129,7 +128,7 @@ public:
    inline Double_t & operator [] (int i);
    // Set components by index.
 
-   inline TLorentzVector & operator = (const TLorentzVector &);
+   inline TLorentzVector & operator = (const TLorentzVector &) noexcept;
    // Assignment.
 
    inline TLorentzVector   operator +  (const TLorentzVector &) const;
@@ -257,9 +256,13 @@ public:
    TLorentzVector & Transform(const TLorentzRotation &);
    // Transformation with HepLorenzRotation.
 
-   virtual void        Print(Option_t *option="") const;
+   operator ROOT::Math::PxPyPzEVector() const {
+      return {Px(), Py(), Pz(), E()};
+   }
 
-   ClassDef(TLorentzVector,4) // A four vector with (-,-,-,+) metric
+   void        Print(Option_t *option="") const override;
+
+   ClassDefOverride(TLorentzVector,4) // A four vector with (-,-,-,+) metric
 };
 
 
@@ -363,7 +366,7 @@ inline void TLorentzVector::GetXYZT(Float_t *carray) const{
 inline Double_t & TLorentzVector::operator [] (int i)       { return (*this)(i); }
 inline Double_t   TLorentzVector::operator [] (int i) const { return (*this)(i); }
 
-inline TLorentzVector &TLorentzVector::operator = (const TLorentzVector & q) {
+inline TLorentzVector &TLorentzVector::operator = (const TLorentzVector & q) noexcept {
    fP = q.Vect();
    fE = q.T();
    return *this;
@@ -617,7 +620,7 @@ inline TLorentzVector::TLorentzVector(const Float_t * x0)
 inline TLorentzVector::TLorentzVector(const TVector3 & p, Double_t e)
                : fP(p), fE(e) {}
 
-inline TLorentzVector::TLorentzVector(const TLorentzVector & p) : TObject(p)
+inline TLorentzVector::TLorentzVector(const TLorentzVector & p) noexcept : TObject(p)
                , fP(p.Vect()), fE(p.T()) {}
 
 

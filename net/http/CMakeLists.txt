@@ -1,4 +1,4 @@
-# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# Copyright (C) 1995-2026, Rene Brun and Fons Rademakers.
 # All rights reserved.
 #
 # For the licensing terms see $ROOTSYS/LICENSE.
@@ -7,26 +7,25 @@
 ############################################################################
 # CMakeLists.txt file for building ROOT net/http package
 # @author Pere Mato, CERN
+# @author Sergey Linev, GSI
 ############################################################################
 
 if(NOT FASTCGI_FOUND)
   set(FASTCGI_LIBRARY "")
 endif()
 
-# look for the realtime extensions library and use it if it exists
-find_library(RT_LIBRARY rt)
-if(RT_LIBRARY)
-  set(RT_LIBRARIES ${RT_LIBRARY})
-endif()
+set(RHTTP_HEADERS
+  THttpCallArg.h
+  THttpEngine.h
+  THttpServer.h
+  THttpWSHandler.h
+  TRootSniffer.h
+  TRootSnifferStore.h
+)
 
 ROOT_STANDARD_LIBRARY_PACKAGE(RHTTP
   HEADERS
-    THttpCallArg.h
-    THttpEngine.h
-    THttpServer.h
-    THttpWSHandler.h
-    TRootSniffer.h
-    TRootSnifferStore.h
+    ${RHTTP_HEADERS}
   SOURCES
     src/TCivetweb.cxx
     src/TCivetweb.h
@@ -42,37 +41,33 @@ ROOT_STANDARD_LIBRARY_PACKAGE(RHTTP
     src/THttpWSHandler.cxx
     src/TRootSniffer.cxx
     src/TRootSnifferStore.cxx
-    civetweb/civetweb.c
   LIBRARIES
-    ZLIB::ZLIB
-    ${RT_LIBRARIES}
-    ${FASTCGI_LIBRARY}
-    ${CMAKE_DL_LIBS}
+    civetweb::civetweb
+    Thread
   DEPENDENCIES
     RIO
-    Thread
-    Graf
 )
 
-if(ssl)
-  target_include_directories(RHTTP PRIVATE ${OPENSSL_INCLUDE_DIR})
-endif()
+set(RELATIVE_INC_HEADERS ${RHTTP_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+target_sources(RHTTP
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/ src/
+  FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef.h
+    src/TCivetweb.h
+    src/TFastCgi.h
+    src/THttpLongPollEngine.h
+    src/THttpWSEngine.h
+)
 
-if(FASTCGI_FOUND)
-  target_include_directories(RHTTP PRIVATE ${FASTCGI_INCLUDE_DIR})
-endif()
-
-target_compile_definitions(RHTTP PUBLIC -DUSE_WEBSOCKET)
-
-if(ssl)
-  target_compile_definitions(RHTTP PUBLIC -DNO_SSL_DL)
-  target_link_libraries(RHTTP PRIVATE ${OPENSSL_LIBRARIES})
-  if(OPENSSL_VERSION AND (${OPENSSL_VERSION} VERSION_EQUAL "1.1"))
-    MESSAGE(STATUS "Use SSL API VERSION 1.1 for civetweb")
-    target_compile_definitions(RHTTP PUBLIC -DOPENSSL_API_1_1)
-  endif()
-endif()
-
-if(NOT FASTCGI_FOUND)
+if(TARGET FastCGI::FastCGI)
+  target_link_libraries(RHTTP PRIVATE FastCGI::FastCGI)
+else()
   target_compile_definitions(RHTTP PUBLIC -DHTTP_WITHOUT_FASTCGI)
 endif()
+
+ROOT_ADD_TEST_SUBDIRECTORY(test)

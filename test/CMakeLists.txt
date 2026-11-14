@@ -1,41 +1,13 @@
-# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# Copyright (C) 1995-2022, Rene Brun and Fons Rademakers.
 # All rights reserved.
 #
 # For the licensing terms see $ROOTSYS/LICENSE.
 # For the list of contributors see $ROOTSYS/README/CREDITS.
-
-# CMakeLists.txt for the ROOT test programs.
-# This shows nicely how to compile and link applications
-# using the ROOT libraries on all supported platforms.
 #
 # Author: Pere Mato, 25/10/2010
-cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
 
-project(test)
-
-# Sergey: make no sence while CMakeLists.txt file cannot be used separately from ROOT
-# but variables like ROOT_asimage_FOUND used here and produced in ROOTConfig.cmake
-find_package(ROOT REQUIRED)
-
-#---Copy the CTestCustom.cmake file into the build directory---------------------------------
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CTestCustom.cmake ${CMAKE_CURRENT_BINARY_DIR} COPYONLY)
-enable_testing()
-
-if(CMAKE_SYSTEM_NAME MATCHES Darwin)
-  # To avoid to set ld_Library_path to locate the test libraries
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath,@loader_path/.")
-endif()
-
-if(DEFINED ROOT_SOURCE_DIR)
-  # Testing using the binary tree
-  set(ROOT_root_CMD ${ROOT_BINDIR}/root.exe)
-else()
-  # Testing using an installation (assuming access to ROOT CMake modules)
-  include_directories(${ROOT_INCLUDE_DIRS})
-  include_directories(${ROOT_INCLUDE_DIRS}/../tutorials)
-  add_definitions(${ROOT_DEFINITIONS})
-  include(RootMacros)
-endif()
+# Testing using the binary tree
+set(root_exe $<TARGET_FILE:root.exe>)
 
 #---environment-------------------------------------------------------------------------------
 ROOT_ADD_TEST(show-environment COMMAND ${CMAKE_COMMAND} -E environment)
@@ -49,47 +21,52 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Event
                               HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/Event.h
                               SOURCES Event.cxx LINKDEF EventLinkDef.h
                               DEPENDENCIES Hist MathCore)
-if(MSVC)
+if(MSVC AND NOT CMAKE_GENERATOR MATCHES Ninja)
+  add_custom_command(TARGET Event POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/libEvent.dll
+                                                  ${CMAKE_CURRENT_BINARY_DIR}/libEvent.dll)
   if(NOT runtime_cxxmodules)
     add_custom_command(TARGET Event POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/libEvent_rdict.pcm
-                                       ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/libEvent_rdict.pcm)
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/libEvent_rdict.pcm
+                                                    ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/libEvent_rdict.pcm)
   else()
     add_custom_command(TARGET Event POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/Event.pcm
-                                     ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/Event.pcm)
-  endif()                                                           
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/Event.pcm
+                                                  ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/Event.pcm)
+  endif()
 endif()
 ROOT_EXECUTABLE(eventexe MainEvent.cxx LIBRARIES Event RIO Tree TreePlayer Hist Net)
+ROOT_SET_OUTPUT_DIRECTORIES(eventexe)
 ROOT_ADD_TEST(test-event COMMAND eventexe)
 
 #---guitest------------------------------------------------------------------------------------
-ROOT_EXECUTABLE(guitest guitest.cxx LIBRARIES RIO Gui Gpad Hist)
+if(TARGET Gui)
+  ROOT_EXECUTABLE(guitest guitest.cxx LIBRARIES RIO Gui Gpad Hist)
+endif()
 
 #---hsimple------------------------------------------------------------------------------------
 #ROOT_EXECUTABLE(hsimple hsimple.cxx LIBRARIES RIO Tree Hist)
 #ROOT_ADD_TEST(test-hsimple COMMAND hsimple)
 
 #---invalid pointer checks---------------------------------------------------------------------
-if(NOT (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES arm64) OR M1_BROKEN_TESTS)
+if((NOT (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES arm64) OR M1_BROKEN_TESTS) AND NOT experimental_adaptivecpp)
   ROOT_ADD_TEST(test-check-nullptr
-    COMMAND ${ROOT_root_CMD} -b -q -l -e "int*ptr=(int*)0" -e "*ptr"
+    COMMAND ${root_exe} -b -q --ptrcheck -e "int*ptr=(int*)0" -e "*ptr"
     PASSREGEX "dereference null pointer")
 
   if(NOT MSVC OR win_broken_tests)
     ROOT_ADD_TEST(test-check-invalidptr
-      COMMAND ${ROOT_root_CMD} -b -q -l -e "int*ptr=(int*)1" -e "*ptr"
+      COMMAND ${root_exe} -b -q --ptrcheck -e "int*ptr=(int*)1" -e "*ptr"
       PASSREGEX "invalid memory address")
   endif()
 endif()
 
 #--minexam-------------------------------------------------------------------------------------
-ROOT_EXECUTABLE(minexam minexam.cxx LIBRARIES Minuit)
+ROOT_EXECUTABLE(minexam minexam.cxx LIBRARIES Hist)
 ROOT_ADD_TEST(test-minexam COMMAND minexam)
 
 #--tstring-------------------------------------------------------------------------------------
 ROOT_EXECUTABLE(tstring tstring.cxx LIBRARIES Core)
-configure_file(tstring.cxx tstring.cxx COPYONLY)
 ROOT_ADD_TEST(test-tstring COMMAND tstring)
 
 #--tcollex-------------------------------------------------------------------------------------
@@ -115,15 +92,27 @@ ROOT_ADD_TEST(test-vlazy COMMAND vlazy)
 #--helloso------------------------------------------------------------------------------------
 ROOT_GENERATE_DICTIONARY(G__Hello ${CMAKE_CURRENT_SOURCE_DIR}/Hello.h MODULE Hello DEPENDENCIES Gpad Graf Hist MathCore Matrix)
 ROOT_LINKER_LIBRARY(Hello Hello.cxx G__Hello.cxx LIBRARIES Graf Gpad)
+ROOT_SET_OUTPUT_DIRECTORIES(Hello)
+set_target_properties(Hello PROPERTIES PREFIX "")
 
 #--Aclockso------------------------------------------------------------------------------------
 ROOT_GENERATE_DICTIONARY(G__Aclock ${CMAKE_CURRENT_SOURCE_DIR}/Aclock.h MODULE Aclock DEPENDENCIES Graf Gpad MathCore)
 ROOT_LINKER_LIBRARY(Aclock Aclock.cxx G__Aclock.cxx LIBRARIES Graf Gpad)
+ROOT_SET_OUTPUT_DIRECTORIES(Aclock)
+set_target_properties(Aclock PROPERTIES PREFIX "")
+
+#--tetris------------------------------------------------------------------------------------
+if(TARGET Gui)
+  ROOT_GENERATE_DICTIONARY(G__Tetris ${CMAKE_CURRENT_SOURCE_DIR}/Tetris.h MODULE Tetris DEPENDENCIES Graf Gpad Gui MathCore)
+  ROOT_LINKER_LIBRARY(Tetris Tetris.cxx G__Tetris.cxx LIBRARIES Core Graf Gui MathCore)
+  ROOT_SET_OUTPUT_DIRECTORIES(Tetris)
+  set_target_properties(Tetris PROPERTIES PREFIX "")
+endif()
 
 #--bench------------------------------------------------------------------------------------
 ROOT_GENERATE_DICTIONARY(G__TBench ${CMAKE_CURRENT_SOURCE_DIR}/TBench.h MODULE TBench LINKDEF benchLinkDef.h DEPENDENCIES MathCore Tree)
 ROOT_LINKER_LIBRARY(TBench TBench.cxx G__TBench.cxx LIBRARIES Core MathCore RIO Tree)
-ROOT_EXECUTABLE(bench bench.cxx LIBRARIES Core TBench)
+ROOT_EXECUTABLE(bench bench.cxx LIBRARIES Core TBench RIO)
 ROOT_ADD_TEST(test-bench COMMAND bench -s LABELS longtest)
 
 #--stress------------------------------------------------------------------------------------
@@ -131,89 +120,130 @@ ROOT_ADD_TEST(test-bench COMMAND bench -s LABELS longtest)
   ROOT_ADD_TEST(test-stress COMMAND stress -b FAILREGEX "FAILED|Error in"
                             DEPENDS test-event LABELS longtest)
 
-#--stressShapes------------------------------------------------------------------------------------
-ROOT_EXECUTABLE(stressShapes stressShapes.cxx LIBRARIES  Geom Tree GenVector Gpad)
-ROOT_ADD_TEST(test-stressshapes COMMAND stressShapes -b FAILREGEX "FAILED|Error in")
-ROOT_ADD_TEST(test-stressshapes-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressShapes.cxx
-              FAILREGEX "FAILED|Error in"
-)
+if(geom)
+  #--stressShapes------------------------------------------------------------------------------------
+  ROOT_EXECUTABLE(stressShapes stressShapes.cxx LIBRARIES  Geom Tree GenVector Gpad)
+  ROOT_ADD_TEST(test-stressshapes COMMAND stressShapes -b FAILREGEX "FAILED|Error in")
+  ROOT_ADD_TEST(test-stressshapes-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressShapes.cxx
+                FAILREGEX "FAILED|Error in")
 
-#--stressGeometry------------------------------------------------------------------------------------
-ROOT_EXECUTABLE(stressGeometry stressGeometry.cxx LIBRARIES Geom Tree GenVector Gpad)
-ROOT_ADD_TEST(test-stressgeometry COMMAND stressGeometry -b FAILREGEX "FAILED|Error in" LABELS longtest)
-ROOT_ADD_TEST(test-stressgeometry-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressGeometry.cxx
-              FAILREGEX "FAILED|Error in" DEPENDS test-stressgeometry LABELS longtest)
+  #--stressGeometry------------------------------------------------------------------------------------
+  if (NOT MSVC) # Prevents the access to the web, which could happen through https
+    ROOT_EXECUTABLE(stressGeometry stressGeometry.cxx LIBRARIES Geom Tree GenVector Gpad)
+    ROOT_ADD_TEST(test-stressgeometry COMMAND stressGeometry -b FAILREGEX "FAILED|Error in" LABELS longtest)
+    ROOT_ADD_TEST(test-stressgeometry-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressGeometry.cxx
+                  FAILREGEX "FAILED|Error in" DEPENDS test-stressgeometry LABELS longtest)
+  endif()
+endif()
 
 #--stressLinear------------------------------------------------------------------------------------
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/linearIO.root ${CMAKE_CURRENT_BINARY_DIR} COPYONLY)
 ROOT_EXECUTABLE(stressLinear stressLinear.cxx LIBRARIES Matrix Hist RIO)
 ROOT_ADD_TEST(test-stresslinear COMMAND stressLinear FAILREGEX "FAILED|Error in" LABELS longtest)
-ROOT_ADD_TEST(test-stresslinear-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressLinear.cxx
-              FAILREGEX "FAILED|Error in" DEPENDS test-stresslinear LABELS longtest)
+ROOT_ADD_TEST(test-stresslinear-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressLinear.cxx
+              FAILREGEX "FAILED|Error in" LABELS longtest)
 
 #--stressGraphics------------------------------------------------------------------------------------
-if(ROOT_opengl_FOUND)
-  ROOT_EXECUTABLE(stressGraphics stressGraphics.cxx LIBRARIES Graf Gpad Postscript)
+if(opengl AND TARGET TreeViewer)
+  ROOT_EXECUTABLE(stressGraphics stressGraphics.cxx LIBRARIES Graf Gpad Postscript TreeViewer HistPainter)
   if(MSVC)
     set_property(TARGET stressGraphics APPEND_STRING PROPERTY LINK_FLAGS "/STACK:4000000")
   endif()
-  # with ZLIB-CF(builtin_zlib) we have better compression ratio.
+  # We need to adapt to zlib-ng, if that's used
   if(ZLIB_CF)
-    configure_file(stressGraphics_builtinzlib.ref stressGraphics_builtinzlib.ref COPYONLY)
+    configure_file(stressGraphics_zlibng.ref stressGraphics_zlibng.ref COPYONLY)
   else()
     configure_file(stressGraphics.ref stressGraphics.ref COPYONLY)
   endif()
-  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../tutorials/graphics/earth.dat earth.dat COPYONLY)
-  ROOT_ADD_TEST(test-stressgraphics ENVIRONMENT LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib:$ENV{LD_LIBRARY_PATH} COMMAND stressGraphics -b -k FAILREGEX "FAILED|Error in" LABELS longtest)
-  ROOT_ADD_TEST(test-stressgraphics-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressGraphics.cxx
-              FAILREGEX "FAILED|Error in" DEPENDS test-stressgraphics )
+  configure_file(stressGraphics_web.ref stressGraphics_web.ref COPYONLY)
+  configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../tutorials/visualisation/graphics/earth.dat earth.dat COPYONLY)
+  ROOT_ADD_TEST(test-stressgraphics
+                COMMAND stressGraphics -b --web=off -k -p=sge
+                FAILREGEX "FAILED|Error in"
+                LABELS longtest)
+  ROOT_ADD_TEST(test-stressgraphics-interpreted
+                COMMAND ${root_exe} -b --web=off -q ${CMAKE_CURRENT_SOURCE_DIR}/stressGraphics.cxx
+                FAILREGEX "FAILED|Error in"
+                DEPENDS test-stressgraphics
+                LABELS longtest)
+  ROOT_ADD_TEST(test-stressgraphics-svg
+                COMMAND stressGraphics -b --web=off -p=svg --svg=${CMAKE_CURRENT_SOURCE_DIR}/svg_ref/
+                FAILREGEX "FAILED|Error in"
+                LABELS longtest)
+  if(webgui AND CHROME_EXECUTABLE)
+    ROOT_ADD_TEST(test-stressgraphics-chrome
+                  RUN_SERIAL
+                  COMMAND stressGraphics -b -k -p=sgc --web=chrome
+                  FAILREGEX "FAILED|Error in"
+                  LABELS longtest)
+  endif()
+  if(webgui AND FIREFOX_EXECUTABLE)
+    ROOT_ADD_TEST(test-stressgraphics-firefox-skip3d
+                  RUN_SERIAL
+                  COMMAND stressGraphics -b -k -p=sgf --web=firefox -skip3d
+                  FAILREGEX "FAILED|Error in"
+                  LABELS longtest)
+  endif()
+  if(webgui AND TARGET ROOTCefDisplay)
+    ROOT_ADD_TEST(test-stressgraphics-cef
+                  RUN_SERIAL
+                  COMMAND stressGraphics -b -k -p=sgk --web=cef
+                  FAILREGEX "FAILED|Error in"
+                  LABELS longtest)
+  endif()
 endif()
 
 #--stressHistogram------------------------------------------------------------------------------------
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/stressHistogram.5.18.00.root ${CMAKE_CURRENT_BINARY_DIR} COPYONLY)
 ROOT_EXECUTABLE(stressHistogram stressHistogram.cxx LIBRARIES Hist RIO)
 ROOT_ADD_TEST(test-stresshistogram COMMAND stressHistogram FAILREGEX "FAILED|Error in" LABELS longtest)
-ROOT_ADD_TEST(test-stresshistogram-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressHistogram.cxx
-              FAILREGEX "FAILED|Error in" DEPENDS test-stresshistogram )
+# The stresshistogram-interpreted test fails on Windows due to unresolved symbols with Visual Studio 2026
+if(MSVC AND MSVC_VERSION GREATER_EQUAL 1951 AND NOT "${CMAKE_GENERATOR_PLATFORM}" MATCHES "Win32")
+  set(_willfail WILLFAIL)
+endif()
+ROOT_ADD_TEST(test-stresshistogram-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressHistogram.cxx
+              ${_willfail}
+              FAILREGEX "FAILED|Error in")
 
 #--stressGUI---------------------------------------------------------------------------------------
-if(ROOT_asimage_FOUND)
-  ROOT_EXECUTABLE(stressGUI stressGUI.cxx LIBRARIES Gui Recorder GuiHtml ASImageGui)
+if(asimage)
+  ROOT_EXECUTABLE(stressGUI stressGUI.cxx LIBRARIES Gui Recorder GuiHtml ASImageUtils ASImageGui)
+
+  find_program(XVFB_RUN_EXECUTABLE NAMES xvfb-run)
+
+  if(XVFB_RUN_EXECUTABLE)
+    ROOT_ADD_TEST(test-stressgui-ref
+                  COMMAND ${XVFB_RUN_EXECUTABLE} -a -s "-ac -screen 0 1024x768x24" ./stressGUI -ref
+                  FIXTURES_SETUP fixtures-test-stressgui
+                  FAILREGEX "FAILED|Error in"
+                  LABELS longtest)
+    ROOT_ADD_TEST(test-stressgui-xvfb
+                  COMMAND ${XVFB_RUN_EXECUTABLE} -a -s "-ac -screen 0 1024x768x24" ./stressGUI
+                  FIXTURES_REQUIRED fixtures-test-stressgui
+                  FAILREGEX "FAILED|Error in"
+                  LABELS longtest)
+  endif()
 endif()
 
 #--stressSpectrum----------------------------------------------------------------------------------
 if (spectrum)
   ROOT_EXECUTABLE(stressSpectrum stressSpectrum.cxx LIBRARIES Hist Spectrum Gpad)
   ROOT_ADD_TEST(test-stressspectrum COMMAND stressSpectrum -b FAILREGEX "FAILED|Error in" LABELS longtest)
-  ROOT_ADD_TEST(test-stressspectrum-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressSpectrum.cxx
+  ROOT_ADD_TEST(test-stressspectrum-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressSpectrum.cxx
                 FAILREGEX "FAILED|Error in" DEPENDS test-stressspectrum LABELS longtest)
 endif()
 
 #--stressVector------------------------------------------------------------------------------------
-ROOT_EXECUTABLE(stressVector stressVector.cxx LIBRARIES Physics GenVector)
+ROOT_EXECUTABLE(stressVector stressVector.cxx LIBRARIES Physics GenVector Smatrix)
 ROOT_ADD_TEST(test-stressvector COMMAND stressVector FAILREGEX "FAILED|Error in")
-ROOT_ADD_TEST(test-stressvector-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressVector.cxx
+ROOT_ADD_TEST(test-stressvector-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressVector.cxx
               FAILREGEX "FAILED|Error in" DEPENDS test-stressvector)
 
-#--stressTMVA--------------------------------------------------------------------------------------
-if(CUDA_FOUND)
-  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDNNCUDA")
-endif()
-
-if(BLAS_FOUND AND imt)
-  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDNNCPU")
-endif()
-
-if(ROOT_tmva_FOUND)
-  ROOT_EXECUTABLE(stressTMVA stressTMVA.cxx LIBRARIES TMVA)
-  ROOT_ADD_TEST(test-stresstmva COMMAND stressTMVA -b LABELS longtest TIMEOUT 1800)
-  ROOT_ADD_TEST(test-stresstmva-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressTMVA.cxx
-                FAILREGEX "FAILED|Error in" DEPENDS test-stresstmva TIMEOUT 1800)
-endif()
-
 #--stressMathMore----------------------------------------------------------------------------------
-if(ROOT_mathmore_FOUND)
+if(mathmore)
   ROOT_EXECUTABLE(stressMathMore stressMathMore.cxx LIBRARIES MathMore Smatrix)
   ROOT_ADD_TEST(test-stressmathmore COMMAND stressMathMore FAILREGEX "FAILED|Error in" LABELS longtest)
-  ROOT_ADD_TEST(test-stressmathmore-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressMathMore.cxx
+  ROOT_ADD_TEST(test-stressmathmore-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressMathMore.cxx
                 FAILREGEX "FAILED|Error in" DEPENDS test-stressmathmore TIMEOUT 1800)
 endif()
 
@@ -224,78 +254,42 @@ ROOT_STANDARD_LIBRARY_PACKAGE(TrackMathCoreDict
                               HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/TrackMathCore.h
                               LINKDEF TrackMathCoreLinkDef.h
                               DEPENDENCIES Core MathCore RIO GenVector Smatrix)
-if(MSVC)
+if(MSVC AND NOT CMAKE_GENERATOR MATCHES Ninja)
   add_custom_command(TARGET TrackMathCoreDict POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/libTrackMathCoreDict.dll
-                                     ${CMAKE_CURRENT_BINARY_DIR}/libTrackMathCoreDict.dll)
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/libTrackMathCoreDict.dll
+                                                  ${CMAKE_CURRENT_BINARY_DIR}/libTrackMathCoreDict.dll)
 endif()
-ROOT_EXECUTABLE(stressMathCore stressMathCore.cxx LIBRARIES MathCore Hist RIO Tree GenVector)
+ROOT_EXECUTABLE(stressMathCore stressMathCore.cxx LIBRARIES MathCore Hist RIO Tree GenVector Smatrix)
 ROOT_ADD_TEST(test-stressmathcore COMMAND stressMathCore FAILREGEX "FAILED|Error in" LABELS longtest)
-ROOT_ADD_TEST(test-stressmathcore-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressMathCore.cxx
+ROOT_ADD_TEST(test-stressmathcore-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressMathCore.cxx
               FAILREGEX "FAILED|Error in" DEPENDS test-stressmathcore)
-
-#--stressRooFit----------------------------------------------------------------------------------
-if(ROOT_roofit_FOUND)
-  if(ROOT_mathmore_FOUND)
-    ROOT_EXECUTABLE(stressRooFit stressRooFit.cxx LIBRARIES RooFit RooFitMore)
-  else()
-    ROOT_EXECUTABLE(stressRooFit stressRooFit.cxx LIBRARIES RooFit )
-  endif()  
-  configure_file(stressRooFit_ref.root stressRooFit_ref.root COPYONLY)
-  ROOT_ADD_TEST(test-stressroofit COMMAND stressRooFit FAILREGEX "FAILED|Error in" LABELS longtest)
-  ROOT_ADD_TEST(test-stressroofit-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressRooFit.cxx
-                FAILREGEX "FAILED|Error in" DEPENDS test-stressroofit )
-
-  add_subdirectory(fit)
-endif()
-
-#--stressRooStats----------------------------------------------------------------------------------
-if(ROOT_roofit_FOUND)
-  ROOT_EXECUTABLE(stressRooStats stressRooStats.cxx LIBRARIES RooStats)
-  configure_file(stressRooStats_ref.root stressRooStats_ref.root COPYONLY)
-  ROOT_ADD_TEST(test-stressroostats COMMAND stressRooStats FAILREGEX "FAILED|Error in" LABELS longtest)
-  ROOT_ADD_TEST(test-stressroostats-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressRooStats.cxx
-                FAILREGEX "FAILED|Error in" DEPENDS test-stressroostats )
-  if (ROOT_minuit2_FOUND)
-    ROOT_ADD_TEST(test-stressroostats-minuit2 COMMAND stressRooStats -minim Minuit2  FAILREGEX "FAILED|Error in" LABELS longtest)
-  endif()
-endif()
-
-#--stressHistFactory--------------------------------------------------------------------------------
-if(ROOT_roofit_FOUND AND GSL_FOUND AND ROOT_xml_FOUND)
-  ROOT_EXECUTABLE(stressHistFactory stressHistFactory.cxx LIBRARIES RooStats HistFactory XMLParser)
-  if(NOT MSVC)
-    configure_file(HistFactoryTest.tar HistFactoryTest.tar COPYONLY)
-    configure_file(stressHistFactory_ref.root stressHistFactory_ref.root COPYONLY)
-    ROOT_ADD_TEST(test-stressHistFactory ENVIRONMENT ROOTSYS=${CMAKE_BINARY_DIR} COMMAND stressHistFactory FAILREGEX "FAILED|Error in" LABELS longtest)
-    ROOT_ADD_TEST(test-stressHistFactory-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressHistFactory.cxx FAILREGEX "FAILED|Error in" DEPENDS test-stressHistFactory)
-  endif()
-endif()
 
 #--stressFit---------------------------------------------------------------------------------
 ROOT_EXECUTABLE(stressFit stressFit.cxx LIBRARIES MathCore Matrix)
 ROOT_ADD_TEST(test-stressfit COMMAND stressFit FAILREGEX "FAILED|Error in" LABELS longtest)
-ROOT_ADD_TEST(test-stressfit-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressFit.cxx
+ROOT_ADD_TEST(test-stressfit-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressFit.cxx
               FAILREGEX "FAILED|Error in" DEPENDS test-stressfit)
 
 #--stressHistoFit-----------------------------------------------------------------------------
-if(ROOT_unuran_FOUND)
+if(unuran)
   ROOT_EXECUTABLE(stressHistoFit stressHistoFit.cxx LIBRARIES MathCore Matrix Unuran Tree Gpad)
   ROOT_ADD_TEST(test-stresshistofit COMMAND stressHistoFit FAILREGEX "FAILED|Error in" LABELS longtest)
-  ROOT_ADD_TEST(test-stresshistofit-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressHistoFit.cxx
-                FAILREGEX "FAILED|Error in" DEPENDS test-stresshistofit )
+  if(NOT MSVC OR llvm13_broken_tests)
+    ROOT_ADD_TEST(test-stresshistofit-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressHistoFit.cxx
+                  FAILREGEX "FAILED|Error in" DEPENDS test-stresshistofit )
+  endif()
 endif()
 
 #--stressEntryList---------------------------------------------------------------------------
 ROOT_EXECUTABLE(stressEntryList stressEntryList.cxx LIBRARIES MathCore Tree Hist)
 ROOT_ADD_TEST(test-stressentrylist COMMAND stressEntryList -b FAILREGEX "FAILED|Error in")
-ROOT_ADD_TEST(test-stressentrylist-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressEntryList.cxx
+ROOT_ADD_TEST(test-stressentrylist-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressEntryList.cxx
               FAILREGEX "FAILED|Error in" DEPENDS test-stressentrylist)
 
 #--stressIterators---------------------------------------------------------------------------
 ROOT_EXECUTABLE(stressIterators stressIterators.cxx LIBRARIES Core)
 ROOT_ADD_TEST(test-stressiterators COMMAND stressIterators FAILREGEX "FAILED|Error in")
-ROOT_ADD_TEST(test-stressiterators-interpreted COMMAND ${ROOT_root_CMD} -b -q -l ${CMAKE_CURRENT_SOURCE_DIR}/stressIterators.cxx
+ROOT_ADD_TEST(test-stressiterators-interpreted COMMAND ${root_exe} -b -q ${CMAKE_CURRENT_SOURCE_DIR}/stressIterators.cxx
               FAILREGEX "FAILED|Error in" DEPENDS test-stressiterators)
 
 #--stressInterpreter-------------------------------------------------------------------------
@@ -304,6 +298,7 @@ if(WIN32)
   set(cleantmpfiles POSTCMD cmd /c del AutoDict_*)
 endif()
 ROOT_ADD_TEST(test-stressinterpreter COMMAND stressInterpreter
+              WORKING_DIR ${CMAKE_BINARY_DIR}
               PRECMD ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/stressInterpreter.cxx
                                               $<TARGET_FILE_DIR:stressInterpreter>/stressInterpreter.cxx
               ${cleantmpfiles}
@@ -312,18 +307,6 @@ ROOT_ADD_TEST(test-stressinterpreter COMMAND stressInterpreter
 #--stressHepix-------------------------------------------------------------------------------
 ROOT_EXECUTABLE(stressHepix stressHepix.cxx LIBRARIES Core)
 #ROOT_ADD_TEST(test-stressHepix COMMAND stressHepix FAILREGEX "FAILED|Error in")
-
-#--stressProof-------------------------------------------------------------------------------
-if(proof AND NOT WIN32)
-  add_custom_target(TestData COMMAND ${CMAKE_COMMAND} -DDST=${CMAKE_SOURCE_DIR}/files -P ${CMAKE_CURRENT_SOURCE_DIR}/rootDownloadData.cmake)
-  ROOT_EXECUTABLE(stressProof stressProof.cxx LIBRARIES Proof ProofPlayer Hist)
-  ROOT_ADD_TEST(test-stressproof PRECMD ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target TestData
-                                 COMMAND stressProof lite://
-                                         -h1 ${CMAKE_SOURCE_DIR}/files/h1 -event ${CMAKE_SOURCE_DIR}/files/event
-                                         -l /tmp/stressProof-%d.log -cleanlog -catlog -noprogress
-                                         ENVIRONMENT PATH=${CMAKE_BINARY_DIR}/bin:$ENV{PATH}
-                                         FAILREGEX "FAILED|Error in")
-endif()
 
 #--testbits----------------------------------------------------------------------------------
 ROOT_EXECUTABLE(testbits testbits.cxx LIBRARIES Core)
@@ -343,10 +326,10 @@ ROOT_EXECUTABLE(threads threads.cxx LIBRARIES Thread Hist Gpad)
 
 #--stressIOPlugins--------------------------------------------------------------------------
 ROOT_EXECUTABLE(stressIOPlugins stressIOPlugins.cxx LIBRARIES Event Core Hist RIO Tree Gpad Postscript)
-if(ROOT_xrootd_FOUND)
+if(xrootd)
   ROOT_ADD_TEST(test-stressIOPlugins-xroot COMMAND stressIOPlugins root FAILREGEX "FAILED|Error in")
 endif()
-if(ROOT_davix_FOUND)
+if(davix OR curl)
   ROOT_ADD_TEST(test-stressIOPlugins-http COMMAND stressIOPlugins http FAILREGEX "FAILED|Error in")
 endif()
 
@@ -361,73 +344,15 @@ if(MSVC)
 endif()
 ROOT_ADD_TEST(test-TFormulaTests COMMAND TFormulaTests FAILREGEX "FAILED|Error in")
 
-#--Vc basic test-----------------------------------------------------------------------------------
-if(ROOT_vc_FOUND)
-  ROOT_EXECUTABLE(testVc testVc.cxx LIBRARIES ${Vc_LIBRARIES} BUILTINS Vc)
-  target_include_directories(testVc SYSTEM BEFORE PRIVATE ${Vc_INCLUDE_DIRS})
-  ROOT_ADD_TEST(test-Vc COMMAND testVc FAILREGEX "FAILED|Error in")
-endif()
-
-#--VecCore basic test------------------------------------------------------------------------------
-if(ROOT_veccore_FOUND)
-  ROOT_EXECUTABLE(test-veccore test-veccore.cxx LIBRARIES ${VecCore_LIBRARIES} BUILTINS VECCORE)
-  target_include_directories(test-veccore BEFORE PRIVATE ${VecCore_INCLUDE_DIRS})
-  target_compile_definitions(test-veccore PRIVATE ${VecCore_DEFINITIONS})
-  if(VecCore_Vc_FOUND)
-    ROOT_ADD_TEST(VecCore COMMAND test-veccore REGEX "Vc")
-  else()
-    ROOT_ADD_TEST(VecCore COMMAND test-veccore REGEX "Scalar")
-  endif()
-endif()
-
-#--Vc GenVector test-----------------------------------------------------------------------------------
-if(ROOT_vc_FOUND)
-  ROOT_EXECUTABLE(testGenVectorVc testGenVectorVc.cxx LIBRARIES Physics GenVector ${Vc_LIBRARIES} BUILTINS Vc)
-  target_include_directories(testGenVectorVc SYSTEM BEFORE PRIVATE ${Vc_INCLUDE_DIRS})
-  ROOT_ADD_TEST(test-GenVector-Vc COMMAND testGenVectorVc FAILREGEX "FAILED|Error in")
+#--std::simd GenVector test-----------------------------------------------------------------------------------
+if(ROOT_HAVE_EXPERIMENTAL_SIMD)
+  ROOT_EXECUTABLE(testGenVectorSimd testGenVectorSimd.cxx LIBRARIES Physics GenVector)
+  ROOT_ADD_TEST(test-GenVector-Simd COMMAND testGenVectorSimd FAILREGEX "FAILED|Error in")
 endif()
 
 #--g2root------------------------------------------------------------------------------------------
 if(TARGET g2root)
   ROOT_ADD_TEST(test-g2root COMMAND g2root)
-endif()
-
-#--periodic----------------------------------------------------------------------------------------
-if (NOT cxxmodules)
-  # There are two problems with this test and cxxmodules. First, it picks up a
-  # header files from $ROOTSYS/include and builds a library. Naturally, we should
-  # build pcm files, however, building module MathCore requires specific -I to
-  # build the needed VecCore and Vc components. This test does not have access
-  # to the include relevant include paths. Secondly, if we want to reuse the
-  # modules from ROOT which makes most sense we can't because we get a hard
-  # error such as: fatal error: malformed or corrupted AST file:
-  # 'SourceLocation remap refers to unknown module, cannot find include/pcms/1WYSNQV9VBZK7/stl-2OZGQN92C38MI.pcm
-  #
-  # FIXME: We can fix the first point by moving out all VecCore-related headers
-  # such as Math/Types.h and all of its includers in a separate module. Thus,
-  # the current test will not require the VecCore (as in the textual case).
-  # Alternatively, we can trace the origin of the fatal error and try to remap
-  # the source locations.
-  if(MSVC)
-    set(build_generator_args --build-generator ${CMAKE_GENERATOR})
-    if(CMAKE_GENERATOR_PLATFORM)
-      list(APPEND build_generator_args --build-generator-platform ${CMAKE_GENERATOR_PLATFORM})
-    endif()
-    if(CMAKE_GENERATOR_TOOLSET)
-      list(APPEND build_generator_args --build-generator-toolset ${CMAKE_GENERATOR_TOOLSET})
-    endif()
-    ROOT_ADD_TEST(test-periodic-build
-      COMMAND ${CMAKE_CTEST_COMMAND} ${build_generator_args}
-        --build-and-test ${CMAKE_CURRENT_SOURCE_DIR}/periodic periodic-build
-    )
-  else()
-    ROOT_ADD_TEST(test-periodic-build
-      COMMAND
-        env CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-        ${CMAKE_CTEST_COMMAND} --build-generator ${CMAKE_GENERATOR}
-        --build-and-test ${CMAKE_CURRENT_SOURCE_DIR}/periodic periodic-build
-    )
-  endif()
 endif()
 
 #--canary tests------------------------------------------------------------------------------------

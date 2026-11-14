@@ -26,7 +26,6 @@ with a number of buttons (text or picture buttons).
 #include "TGButton.h"
 
 
-ClassImp(TRootControlBar);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a ROOT native GUI controlbar.
@@ -137,7 +136,7 @@ void TRootControlBar::Hide()
 ////////////////////////////////////////////////////////////////////////////////
 /// Handle controlbar button messages.
 
-Bool_t TRootControlBar::ProcessMessage(Long_t, Long_t, Long_t parm2)
+Bool_t TRootControlBar::ProcessMessage(Longptr_t, Longptr_t, Longptr_t parm2)
 {
    TControlBarButton *button = (TControlBarButton *) parm2;
 

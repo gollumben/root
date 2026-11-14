@@ -16,39 +16,45 @@
 #ifndef ROO_BIFUR_GAUSS
 #define ROO_BIFUR_GAUSS
 
-#include "RooAbsPdf.h"
-#include "RooRealProxy.h"
-
-class RooRealVar;
+#include <RooAbsPdf.h>
+#include <RooRealProxy.h>
 
 class RooBifurGauss : public RooAbsPdf {
 public:
-  RooBifurGauss() {} ;
-  RooBifurGauss(const char *name, const char *title, RooAbsReal& _x,
-      RooAbsReal& _mean, RooAbsReal& _sigmaL, RooAbsReal& _sigmaR);
+   RooBifurGauss() {}
+   RooBifurGauss(const char *name, const char *title, RooAbsReal &_x, RooAbsReal &_mean, RooAbsReal &_sigmaL,
+                 RooAbsReal &_sigmaR);
 
-  RooBifurGauss(const RooBifurGauss& other, const char* name=0) ;
-  virtual TObject* clone(const char* newname) const { return new RooBifurGauss(*this,newname); }
-  inline virtual ~RooBifurGauss() { }
+   RooBifurGauss(const RooBifurGauss &other, const char *name = nullptr);
+   TObject *clone(const char *newname) const override { return new RooBifurGauss(*this, newname); }
 
-  Int_t getAnalyticalIntegral(RooArgSet& allVars, RooArgSet& analVars, const char* rangeName=0) const ;
-  Double_t analyticalIntegral(Int_t code, const char* rangeName=0) const ;
+   Int_t getAnalyticalIntegral(RooArgSet &allVars, RooArgSet &analVars, const char *rangeName = nullptr) const override;
+   double analyticalIntegral(Int_t code, const char *rangeName = nullptr) const override;
 
+  /// Get the x variable.
+  RooAbsReal const& getX() const { return x.arg(); }
+
+  /// Get the mean parameter.
+  RooAbsReal const& getMean() const { return mean.arg(); }
+
+  /// Get the left sigma parameter.
+  RooAbsReal const& getSigmaL() const { return sigmaL.arg(); }
+
+  /// Get the right sigma parameter.
+  RooAbsReal const& getSigmaR() const { return sigmaR.arg(); }
 
 protected:
+   RooRealProxy x;
+   RooRealProxy mean;
+   RooRealProxy sigmaL;
+   RooRealProxy sigmaR;
 
-  RooRealProxy x;
-  RooRealProxy mean;
-  RooRealProxy sigmaL;
-  RooRealProxy sigmaR;
-
-  Double_t evaluate() const;
-  RooSpan<double> evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const;
-
+   double evaluate() const override;
+   void doEval(RooFit::EvalContext &) const override;
+   inline bool canComputeBatchWithCuda() const override { return true; }
 
 private:
-
-  ClassDef(RooBifurGauss,1) // Bifurcated Gaussian PDF
+   ClassDefOverride(RooBifurGauss, 1) // Bifurcated Gaussian PDF
 };
 
 #endif

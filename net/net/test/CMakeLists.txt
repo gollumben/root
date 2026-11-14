@@ -1,0 +1,12 @@
+# Copyright (C) 1995-2025, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
+ROOT_ADD_GTEST(nettests nettests.cxx LIBRARIES Net)
+
+if(NOT MSVC)
+  # This test currently relies on unix sockets and doesn't work as-is on windows.
+  ROOT_ADD_GTEST(testParallelMergingFile testParallelMergingFile.cxx LIBRARIES Net ROOTNTuple)
+endif()

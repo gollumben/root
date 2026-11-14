@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : TMaxPoolLayer                                                         *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Max Pool Deep Neural Network Layer                                        *
@@ -21,7 +21,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef MAXPOOLLAYER_H_
@@ -48,7 +48,7 @@ namespace CNN {
     a CNN. It inherits all of the properties of the convolutional layer
     TConvLayer, but it overrides the propagation methods. In a sense, max pooling
     can be seen as non-linear convolution: a filter slides over the input and produces
-    one element as a function of the the elements within the receptive field.
+    one element as a function of the elements within the receptive field.
     In addition to that, it contains a matrix of winning units.
 
     The height and width of the weights and biases is set to 0, since this
@@ -68,9 +68,9 @@ public:
    using HelperDescriptor_t = typename Architecture_t::DropoutDescriptor_t;
 
    // do we need thse ???
-   using AlgorithmForward_t = typename Architecture_t::AlgorithmForward_t;   // Forward layer operation
-   using AlgorithmBackward_t = typename Architecture_t::AlgorithmBackward_t; // Backward layer operation
-   using AlgorithmHelper_t = typename Architecture_t::AlgorithmHelper_t;     // Used for weight grad backward pass
+   using AlgorithmForward_t = typename Architecture_t::AlgorithmForward_t;   ///< Forward layer operation
+   using AlgorithmBackward_t = typename Architecture_t::AlgorithmBackward_t; ///< Backward layer operation
+   using AlgorithmHelper_t = typename Architecture_t::AlgorithmHelper_t;     ///< Used for weight grad backward pass
 
    // FIXME: Add other cudnn types (algorithm preference etc.)
    using AlgorithmDataType_t = typename Architecture_t::AlgorithmDataType_t;
@@ -122,23 +122,23 @@ public:
     *  must be in 3D tensor form with the different matrices corresponding to
     *  different events in the batch. It spatially downsamples the input
     *  matrices. */
-   void Forward(Tensor_t &input, bool applyDropout = true);
+   void Forward(Tensor_t &input, bool applyDropout = true) override;
 
    /*! Depending on the winning units determined during the Forward pass,
     *  it only forwards the derivatives to the right units in the previous
     *  layer. Must only be called directly at the corresponding call
     *  to Forward(...). */
-   void Backward(Tensor_t &gradients_backward, const Tensor_t &activations_backward);
+   void Backward(Tensor_t &gradients_backward, const Tensor_t &activations_backward) override;
    //             Tensor_t &inp1, Tensor_t &inp2);
 
    /*! Writes the information and the weights about the layer in an XML node. */
-   virtual void AddWeightsXMLTo(void *parent);
+   void AddWeightsXMLTo(void *parent) override;
 
    /*! Read the information and the weights about the layer from XML node. */
-   virtual void ReadWeightsFromXML(void *parent);
+   void ReadWeightsFromXML(void *parent) override;
 
    /*! Prints the info about the layer. */
-   void Print() const;
+   void Print() const override;
 
    /*! Getters */
    size_t GetFilterDepth() const { return fFilterDepth; }
@@ -282,13 +282,13 @@ auto TMaxPoolLayer<Architecture_t>::Print() const -> void
 template <typename Architecture_t>
 void TMaxPoolLayer<Architecture_t>::AddWeightsXMLTo(void *parent)
 {
-   auto layerxml = gTools().xmlengine().NewChild(parent, 0, "MaxPoolLayer");
+   auto layerxml = gTools().xmlengine().NewChild(parent, nullptr, "MaxPoolLayer");
 
    // write  maxpool layer info
-   gTools().xmlengine().NewAttr(layerxml, 0, "FilterHeight", gTools().StringFromInt(this->GetFilterHeight()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "FilterWidth", gTools().StringFromInt(this->GetFilterWidth()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "StrideRows", gTools().StringFromInt(this->GetStrideRows()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "StrideCols", gTools().StringFromInt(this->GetStrideCols()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "FilterHeight", gTools().StringFromInt(this->GetFilterHeight()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "FilterWidth", gTools().StringFromInt(this->GetFilterWidth()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "StrideRows", gTools().StringFromInt(this->GetStrideRows()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "StrideCols", gTools().StringFromInt(this->GetStrideCols()));
 
 }
 

@@ -11,10 +11,11 @@
 
 #include "TMethodArg.h"
 #include "TInterpreter.h"
-#include "Strlen.h"
 #include "TMethod.h"
 #include "TMethodCall.h"
 #include "TDataMember.h"
+
+#include <cstring>
 
 /** \class TMethodArg
 Each ROOT method (see TMethod) has a linked list of its arguments.
@@ -26,7 +27,6 @@ The method argument information is used a.o. in the TContextMenu
 and THtml classes.
 */
 
-ClassImp(TMethodArg);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default TMethodArg ctor. TMethodArgs are constructed in TFunction
@@ -93,6 +93,14 @@ std::string TMethodArg::GetTypeNormalizedName() const
 Long_t TMethodArg::Property() const
 {
    return gCling->MethodArgInfo_Property(fInfo);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Get the TypeInfo of the method argument.
+
+TypeInfo_t *TMethodArg::GetTypeInfo() const
+{
+   return gCling->MethodArgInfo_TypeInfo(fInfo);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

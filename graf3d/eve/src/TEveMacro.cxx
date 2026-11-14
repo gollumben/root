@@ -22,7 +22,6 @@ Sub-class of TMacro, overriding Exec to unload the previous version
 and cleanup after the execution.
 */
 
-ClassImp(TEveMacro);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.
@@ -63,7 +62,7 @@ Longptr_t TEveMacro::Exec(const char* params, Int_t* error)
 {
    Longptr_t retval = -1;
 
-   if (gROOT->GetGlobalFunction(fName, 0, kTRUE) != 0)
+   if (gROOT->GetGlobalFunction(fName, nullptr, kTRUE) != nullptr)
    {
       gROOT->SetExecutingMacro(kTRUE);
       gROOT->SetExecutingMacro(kFALSE);
@@ -76,7 +75,7 @@ Longptr_t TEveMacro::Exec(const char* params, Int_t* error)
       TString fname = "/tmp/";
       {
          //the current implementation uses a file in the current directory.
-         //should be replaced by a direct execution from memory by CINT
+         //should be replaced by a direct execution from memory by Cling
          fname += GetName();
          fname += ".C";
          SaveSource(fname);

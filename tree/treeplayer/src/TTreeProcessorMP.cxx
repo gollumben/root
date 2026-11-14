@@ -14,27 +14,30 @@
 #include "ROOT/TTreeProcessorMP.hxx"
 #include "TMPWorkerTree.h"
 
+#include <thread>
+static const std::thread::id MAIN_THREAD_ID = std::this_thread::get_id();
+
 //////////////////////////////////////////////////////////////////////////
 ///
 /// \class ROOT::TTreeProcessorMP
-/// \ingroup Parallelism
 /// \brief This class provides an interface to process a TTree dataset
 ///        in parallel with multi-process technology
 ///
 /// ###ROOT::TTreeProcessorMP::Process
 /// The possible usages of the Process method are the following:\n
-/// * Process(<dataset>, F func, const std::string& treeName, ULong64_t nToProcess):
+/// * `Process(<dataset>, F func, const std::string& treeName, ULong64_t nToProcess)`:
 ///     func is executed nToProcess times with argument a TTreeReader&, initialized for
-///     the TTree with name treeName, from the dataset <dataset>. The dataset can be
+///     the TTree with name treeName, from the dataset `<dataset>`. The dataset can be
 ///     expressed as:
+/// \code{.cpp}
 ///                     const std::string& fileName  -> single file name
 ///                     const std::vector<std::string>& fileNames -> vector of file names
 ///                     TFileCollection& files       -> collection of TFileInfo objects
 ///                     TChain& files                -> TChain with the file paths
 ///                     TTree& tree                  -> Reference to an existing TTree object
-///
+/// \endcode
 /// For legacy, the following signature is also supported:
-/// * Process(<dataset>, TSelector& selector, const std::string& treeName, ULong64_t nToProcess):
+/// * `Process(<dataset>, TSelector& selector, const std::string& treeName, ULong64_t nToProcess)`:
 ///   where selector is a TSelector derived class describing the analysis and the other arguments
 ///   have the same meaning as above.
 ///
@@ -101,6 +104,14 @@ TList *TTreeProcessorMP::Process(TTree &tree, TSelector &selector, TEntryList &e
    if (jFirst > 0) {
       Warning("Process", "support for generic 'first entry' (jFirst > 0) not implemented yet - ignoring");
       jFirst = 0;
+   }
+
+   // Warn about forking of already threaded program
+   if (std::this_thread::get_id() != MAIN_THREAD_ID) {
+      Warning("Process",
+              "multiprocessing from an already multi-threaded program "
+              "(first thread '%zu' vs current thread id '%zu') might lead to inefficient forking",
+              std::hash<std::thread::id>{}(MAIN_THREAD_ID), std::hash<std::thread::id>{}(std::this_thread::get_id()));
    }
 
    //prepare environment
@@ -326,9 +337,9 @@ void TTreeProcessorMP::FixLists(std::vector<TObject*> &lists) {
    TList *firstlist = new TList;
    TList *oldlist = (TList *) lists[0];
    TIter nxo(oldlist);
-   TObject *o = 0;
+   TObject *o = nullptr;
    while ((o = nxo())) { firstlist->Add(o); }
-   oldlist->SetOwner(kFALSE);
+   oldlist->SetOwner(false);
    lists.erase(lists.begin());
    lists.insert(lists.begin(), firstlist);
    delete oldlist;

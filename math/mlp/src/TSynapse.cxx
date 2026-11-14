@@ -21,15 +21,14 @@ In addition to the value, the synapse can return the DeDw
 #include "TSynapse.h"
 #include "TNeuron.h"
 
-ClassImp(TSynapse);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor
 
 TSynapse::TSynapse()
 {
-   fpre    = 0;
-   fpost   = 0;
+   fpre    = nullptr;
+   fpost   = nullptr;
    fweight = 1;
    fDEDw   = 0;
 }

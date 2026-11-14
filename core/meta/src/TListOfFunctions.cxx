@@ -22,8 +22,8 @@ unloaded function.
 #include "TMethod.h"
 #include "TInterpreter.h"
 #include "TVirtualMutex.h"
+#include "TROOT.h"
 
-ClassImp(TListOfFunctions);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -110,6 +110,15 @@ void TListOfFunctions::AddAt(TObject *obj, Int_t idx)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Insert object at location idx in the list, with options.
+
+void TListOfFunctions::AddAt(TObject *obj, Int_t idx, Option_t *opt)
+{
+   THashList::AddAt(obj, idx, opt);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Insert object after object after in the list.
 
 void TListOfFunctions::AddAfter(const TObject *after, TObject *obj)
@@ -128,6 +137,24 @@ void TListOfFunctions::AddAfter(TObjLink *after, TObject *obj)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Insert object after object after in the list, with options.
+
+void TListOfFunctions::AddAfter(const TObject *after, TObject *obj, Option_t *opt)
+{
+   THashList::AddAfter(after, obj, opt);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object after object after in the list, with options.
+
+void TListOfFunctions::AddAfter(TObjLink *after, TObject *obj, Option_t *opt)
+{
+   THashList::AddAfter(after, obj, opt);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Insert object before object before in the list.
 
 void TListOfFunctions::AddBefore(const TObject *before, TObject *obj)
@@ -142,6 +169,24 @@ void TListOfFunctions::AddBefore(const TObject *before, TObject *obj)
 void TListOfFunctions::AddBefore(TObjLink *before, TObject *obj)
 {
    THashList::AddBefore(before, obj);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object before object before in the list, with options.
+
+void TListOfFunctions::AddBefore(const TObject *before, TObject *obj, Option_t *opt)
+{
+   THashList::AddBefore(before, obj, opt);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object before object before in the list, with options.
+
+void TListOfFunctions::AddBefore(TObjLink *before, TObject *obj, Option_t *opt)
+{
+   THashList::AddBefore(before, obj, opt);
    MapObject(obj);
 }
 
@@ -267,6 +312,11 @@ TFunction *TListOfFunctions::Get(DeclId_t id)
    //need the Find and possible Add to be one atomic operation
    TFunction *f = Find(id);
    if (f) return f;
+
+   if (gROOT->TestBit(kInvalidObject)) {
+      // Abort early during tear down.
+      return nullptr;
+   }
 
    if (fClass) {
       if (!gInterpreter->ClassInfo_Contains(fClass->GetClassInfo(),id)) return nullptr;
@@ -548,7 +598,6 @@ Int_t TListOfFunctions::GetSize() const
 Iterator for TListOfFunctions.
 */
 
-ClassImp(TListOfFunctionsIter);
 
 ////////////////////////////////////////////////////////////////////////////////
 

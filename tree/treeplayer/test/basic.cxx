@@ -1,3 +1,4 @@
+#include "TEventList.h"
 #include "TEntryListArray.h"
 
 #include "TChain.h"
@@ -5,13 +6,16 @@
 #include "TLeaf.h"
 #include "TROOT.h"
 #include "TTree.h"
+#include "TTreePerfStats.h"
 #include "TTreeReader.h"
 #include "TTreeReaderValue.h"
 #include "TTreeReaderArray.h"
 #include "TSystem.h"
 
 #include "gtest/gtest.h"
-#include <stdlib.h>
+#include "ROOT/TestSupport.hxx"
+#include "ROOT/InternalTreeUtils.hxx" // GetFileNamesFromTree
+#include <cstdlib>
 #include <memory>
 
 #include "RErrorIgnoreRAII.hxx"
@@ -118,6 +122,8 @@ TEST(TTreeReaderBasic, Interfaces) {
 
 
 TEST(TTreeReaderBasic, ErrorProbing) {
+   ROOT::TestSupport::CheckDiagsRAII diags{ kError, "TTreeReader::TTreeReader", "No TTree called doesNotExist was found in the selected TDirectory." };
+
    TTreeReader tr("doesNotExist", gROOT);
    EXPECT_EQ(TTreeReader::kEntryNoTree, tr.GetEntryStatus());
    EXPECT_EQ(nullptr, tr.GetTree());
@@ -261,10 +267,11 @@ TEST(TTreeReaderBasic, InvertedEntryRange) {
 
 
 TEST(TTreeReaderBasic, EntryList) {
-   // See https://root.cern.ch/phpBB3/viewtopic.php?f=3&t=22850&p=100796
+   // See https://root.cern/phpBB3/viewtopic.php?f=3&t=22850&p=100796
    auto tree = MakeTree();
    EXPECT_EQ(9, tree->Draw(">>negZ","three.z<0", "entrylistarray"));
    TEntryListArray* selected = (TEntryListArray*)gDirectory->Get("negZ");
+   ASSERT_NE(selected, nullptr);
    TTreeReader aReader(tree.get(), selected);
 
    EXPECT_EQ(9, aReader.GetEntries(false));
@@ -401,6 +408,8 @@ TEST(TTreeReaderBasic, EntryListAndEntryRange)
    EXPECT_TRUE(r.Next());
    EXPECT_EQ(*rv, 8);
    EXPECT_FALSE(r.Next());
+
+   t.SetEntryList(nullptr);
 }
 
 TEST(TTreeReaderBasic, TChainWithSubEntryListsAndEntryRange)
@@ -463,10 +472,12 @@ TEST(TTreeReaderBasic, InfLoop)
 // ROOT-10019
 TEST(TTreeReaderBasic, DisappearingBranch)
 {
+   ROOT::TestSupport::CheckDiagsRAII diags{kError, "TTreeReader::SetEntryBase()",
+                                           "There was an error while notifying the proxies."};
 
    auto createFile = [](const char *fileName, int ncols) {
-      // auto r = ROOT::RDataFrame(1).Define("col0",[](){return 0;}).Snapshot<int>("t","f1.root",{"col0"});
-      // r->Define("col1",[](){return 0;}).Snapshot<int,int>("t","f0.root",{"col0","col1"});
+      // auto r = ROOT::RDataFrame(1).Define("col0",[](){return 0;}).Snapshot("t","f1.root",{"col0"});
+      // r->Define("col1",[](){return 0;}).Snapshot("t","f0.root",{"col0","col1"});
       TFile f(fileName, "RECREATE");
       TTree t("t", "t");
       int i = 42;
@@ -482,6 +493,10 @@ TEST(TTreeReaderBasic, DisappearingBranch)
 
    TChain c("t");
    c.Add("DisappearingBranch*.root");
+   diags.requiredDiag(kError, "TBranchProxy::Setup()",
+                      "Branch 'col1' is not available from tree 't' in file '" +
+                         ROOT::Internal::TreeUtils::GetFileNamesFromTree(c)[1] + "'.");
+
    TTreeReader r(&c);
    TTreeReaderValue<int> rv(r, "col1");
    r.Next();
@@ -502,3 +517,114 @@ TEST(TTreeReaderBasic, DisappearingBranch)
    gSystem->Unlink("DisappearingBranch0.root");
    gSystem->Unlink("DisappearingBranch1.root");
 }
+
+// Issue #16249
+TEST(TTreeReaderBasic, ZeroEntriesTree)
+{
+   TTree t("t", "t");
+   TTreeReader tr(&t);
+   auto b = tr.begin();
+   auto e = tr.end();
+   auto n_iterations = 0;
+   for ([[maybe_unused]] auto &d : tr) {
+      ++n_iterations;
+   }
+   EXPECT_EQ(n_iterations, 0);
+   EXPECT_TRUE(b == e);
+   EXPECT_TRUE(b == b);
+   EXPECT_TRUE(e == e);
+   auto b_copy(b);
+   EXPECT_TRUE(b++ == e);
+   EXPECT_TRUE(++b_copy == e);
+}
+
+TEST(TTreeReaderBasic, ZeroEntriesTreeCheckValueStatus)
+{
+   // Regression test for https://github.com/root-project/root/issues/18955
+   struct Dataset {
+      Dataset()
+      {
+         auto f = std::make_unique<TFile>("TTreeReaderBasicZeroEntriesTreeCheckValueStatus.root", "recreate");
+         auto t = std::make_unique<TTree>("t", "t");
+         std::vector<int> b1;
+         t->Branch("b1", &b1);
+         f->Write();
+      }
+      ~Dataset() { std::remove("TTreeReaderBasicZeroEntriesTreeCheckValueStatus.root"); }
+   } dataset;
+
+   // Test with TTree
+   {
+      auto f = std::make_unique<TFile>("TTreeReaderBasicZeroEntriesTreeCheckValueStatus.root");
+      auto t = f->Get<TTree>("t");
+      TTreeReader tr{t};
+      TTreeReaderValue<std::vector<int>> v1{tr, "b1"};
+      tr.Next();
+      EXPECT_EQ(v1.GetSetupStatus(), ROOT::Internal::TTreeReaderValueBase::ESetupStatus::kSetupMatchButEntryBeyondEnd);
+   }
+
+   // Test with TChain
+   {
+      TChain c{"t"};
+      c.Add("TTreeReaderBasicZeroEntriesTreeCheckValueStatus.root");
+      TTreeReader tr{&c};
+      TTreeReaderValue<std::vector<int>> v1{tr, "b1"};
+      tr.Next();
+      EXPECT_EQ(v1.GetSetupStatus(), ROOT::Internal::TTreeReaderValueBase::ESetupStatus::kSetupMatchButEntryBeyondEnd);
+   }
+}
+
+template <typename T>
+void TTreeDrawTest()
+{
+   constexpr auto optionString = std::is_same_v<T, TEntryList>        ? "entrylist"
+                                 : std::is_same_v<T, TEntryListArray> ? "entrylistarray"
+                                                                      : "";
+   auto tree = MakeTree();
+   tree->Draw(">>elist", "z>2.", optionString);
+   auto eventList = gDirectory->Get<T>("elist");
+   ASSERT_NE(eventList, nullptr);
+   eventList->SetDirectory(nullptr);
+   delete eventList;
+
+   auto elistUnreg = std::make_unique<T>("elistUnreg", "Unregistered entry/event list");
+   elistUnreg->SetDirectory(nullptr);
+   ROOT_EXPECT_WARNING_PARTIAL(tree->Draw(">>+elistUnreg", "z>2.", optionString), "TSelectorDraw",
+                               "TTree::Draw was asked to append to");
+   auto elistPost = gDirectory->Get("elistUnreg");
+   EXPECT_NE(elistPost, nullptr);
+   EXPECT_NE(elistUnreg.get(), elistPost);
+   delete elistPost;
+}
+
+TEST(TTreeDraw, TEventList)
+{
+   TTreeDrawTest<TEventList>();
+}
+
+TEST(TTreeDraw, TEntryList)
+{
+   TTreeDrawTest<TEntryList>();
+}
+
+TEST(TTreeDraw, TEntryListArray)
+{
+   TTreeDrawTest<TEntryListArray>();
+}
+
+#ifdef R__USE_IMT
+// Check the warning emitted to address ROOT-10972
+TEST(TTreePerfStats, WarnWithIMT)
+{
+
+   auto fName = "file_ROOT-10972.root";
+   TFile f(fName, "RECREATE");
+   auto tPtr = MakeTree();
+   ROOT::EnableImplicitMT();
+   ROOT::TestSupport::CheckDiagsRAII diags{kWarning, "TTreePerfStats::TTreePerfStats",
+                                           "Results obtained with ImplicitMT enabled are not reliable."};
+   TTreePerfStats("tps", tPtr.get());
+   ROOT::DisableImplicitMT();
+   gSystem->Unlink(fName);
+}
+#endif

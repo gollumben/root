@@ -44,7 +44,6 @@
 #include "TVirtualPad.h"
 #include "TKDE.h"
 
-ClassImp(TKDE);
 
 
 struct TKDE::KernelIntegrand {
@@ -90,12 +89,12 @@ TKDE::~TKDE() {
 //// Internal function to instantiate a TKDE object
 void TKDE::Instantiate(KernelFunction_Ptr kernfunc, UInt_t events, const Double_t* data, const Double_t* dataWeights, Double_t xMin, Double_t xMax, const Option_t* option, Double_t rho) {
 
-   fPDF = 0;
-   fKernelFunction = 0;
-   fUpperPDF = 0;
-   fLowerPDF = 0;
-   fApproximateBias = 0;
-   fGraph = 0;
+   fPDF = nullptr;
+   fKernelFunction = nullptr;
+   fUpperPDF = nullptr;
+   fLowerPDF = nullptr;
+   fApproximateBias = nullptr;
+   fGraph = nullptr;
    fNewData = false;
    fUseMirroring = false; fMirrorLeft = false; fMirrorRight = false;
    fAsymLeft = false; fAsymRight = false;
@@ -197,53 +196,53 @@ void TKDE::SetDrawOptions(const Option_t* option, TString& plotOpt, TString& dra
 
 void TKDE::GetOptions(std::string optionType, std::string option) {
    // Gets User defined KDE construction options
-   if (optionType.compare("kerneltype") == 0) {
+   if (optionType == "kerneltype") {
       fSettedOptions[0] = kTRUE;
-      if (option.compare("gaussian") == 0) {
+      if (option == "gaussian") {
          fKernelType = kGaussian;
-      } else if (option.compare("epanechnikov") == 0) {
+      } else if (option == "epanechnikov") {
          fKernelType = kEpanechnikov;
-      } else if (option.compare("biweight") == 0) {
+      } else if (option == "biweight") {
          fKernelType = kBiweight;
-      } else if (option.compare("cosinearch") == 0) {
+      } else if (option == "cosinearch") {
          fKernelType = kCosineArch;
-      } else if (option.compare("userdefined") == 0) {
+      } else if (option == "userdefined") {
          fKernelType = kUserDefined;
       } else {
          this->Warning("GetOptions", "Unknown kernel type option %s: setting to Gaussian",option.c_str());
          this->Info("GetOptions", "Possible kernel type options are: Gaussian, Epanechnikov, Biweight, Cosinearch, Userdefined");
          fKernelType = kGaussian;
       }
-   } else if (optionType.compare("iteration") == 0) {
+   } else if (optionType == "iteration") {
       fSettedOptions[1] = kTRUE;
-      if (option.compare("adaptive") == 0) {
+      if (option == "adaptive") {
          fIteration = kAdaptive;
-      } else if (option.compare("fixed") == 0) {
+      } else if (option == "fixed") {
          fIteration = kFixed;
       } else {
          this->Warning("GetOptions", "Unknown iteration option %s: setting to Adaptive",option.c_str());
          this->Info("GetOptions","Possible iteration type options are: Adaptive, Fixed");
          fIteration = kAdaptive;
       }
-   } else if (optionType.compare("mirror") == 0) {
+   } else if (optionType == "mirror") {
       fSettedOptions[2] = kTRUE;
-      if (option.compare("nomirror") == 0) {
+      if (option == "nomirror") {
          fMirror = kNoMirror;
-      } else if (option.compare("mirrorleft") == 0) {
+      } else if (option == "mirrorleft") {
          fMirror = kMirrorLeft;
-      } else if (option.compare("mirrorright") == 0) {
+      } else if (option == "mirrorright") {
          fMirror = kMirrorRight;
-      } else if (option.compare("mirrorboth") == 0) {
+      } else if (option == "mirrorboth") {
          fMirror = kMirrorBoth;
-      } else if (option.compare("mirrorasymleft") == 0) {
+      } else if (option == "mirrorasymleft") {
          fMirror = kMirrorAsymLeft;
-      } else if (option.compare("mirrorrightasymleft") == 0) {
+      } else if (option == "mirrorrightasymleft") {
          fMirror = kMirrorRightAsymLeft;
-      } else if (option.compare("mirrorasymright") == 0) {
+      } else if (option == "mirrorasymright") {
          fMirror = kMirrorAsymRight;
-      } else if (option.compare("mirrorleftasymright") == 0) {
+      } else if (option == "mirrorleftasymright") {
          fMirror = kMirrorLeftAsymRight;
-      } else if (option.compare("mirrorasymboth") == 0) {
+      } else if (option == "mirrorasymboth") {
          fMirror = kMirrorAsymBoth;
       } else {
          this->Warning("GetOptions", "Unknown mirror option %s: setting to NoMirror",option.c_str());
@@ -251,13 +250,13 @@ void TKDE::GetOptions(std::string optionType, std::string option) {
                                   "MirrorAsymRight, MirrorRightAsymLeft, MirrorLeftAsymRight, MirrorAsymBoth");
          fMirror = kNoMirror;
       }
-   } else if (optionType.compare("binning") == 0) {
+   } else if (optionType == "binning") {
       fSettedOptions[3] = kTRUE;
-      if (option.compare("unbinned") == 0) {
+      if (option == "unbinned") {
          fBinning = kUnbinned;
-      } else if (option.compare("relaxedbinning") == 0) {
+      } else if (option == "relaxedbinning") {
          fBinning = kRelaxedBinning;
-      } else if (option.compare("forcedbinning") == 0) {
+      } else if (option == "forcedbinning") {
          fBinning = kForcedBinning;
       } else {
          this->Warning("GetOptions", "Unknown binning option %s: setting to RelaxedBinning", option.c_str());
@@ -484,7 +483,7 @@ void TKDE::ReInit() {
       return;
    }
 
-   if (fEvents.size() == 0) {
+   if (fEvents.empty()) {
       Error("ReInit","TKDE does not contain any data !");
       return;
    }
@@ -518,7 +517,15 @@ void TKDE::InitFromNewData() {
    if (fUseMirroring) {
       SetMirroredEvents();
    }
+   else {
+      // to set fBinCount and fSumOfCounts
+      SetBinCountData();
+   }
    // in case of I/O reset the kernel
+   if (!fKernelFunction) SetKernelFunction(nullptr);
+
+   SetKernel();
+   
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -876,6 +883,9 @@ void TKDE::SetBinCountData() {
       }
       fBinCount.clear();
    }
+   if (fSumOfCounts == 0) {
+      Warning("SetBinCountData()", "Empty sum of counts, might lead to nan/inf errors when normalizing.");
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -912,7 +922,7 @@ void TKDE::Draw(const Option_t* opt) {
       Double_t level = 0.95;
       const char * s = strstr(plotOpt.Data(),"interval@");
       // coverity [secure_coding : FALSE]
-      if (s != 0) sscanf(s,"interval@%lf",&level);
+      if (s != nullptr) sscanf(s,"interval@%lf",&level);
       if((level <= 0) || (level >= 1)) {
          Warning("Draw","given confidence level %.3lf is invalid - use default 0.95",level);
          level = 0.95;
@@ -991,7 +1001,7 @@ const Double_t *  TKDE::GetAdaptiveWeights() const {
    // Returns the bandwidths for the adaptive KDE
    if (fIteration != TKDE::kAdaptive) {
       this->Warning("GetFixedWeight()", "Adaptive iteration option not enabled. Returning a NULL pointer<");
-      return 0;
+      return nullptr;
    }
    if (fNewData) (const_cast<TKDE*>(this))->InitFromNewData();
    return &(fKernel->GetAdaptiveWeights()).front();
@@ -1015,7 +1025,7 @@ Double_t TKDE::TKernel::operator()(Double_t x) const {
    Bool_t useCount = (fKDE->fBinCount.size() == n);
    // also in case of unbinned unweighted data fSumOfCounts is sum of events in range
    // events outside range should be used to normalize the TKDE ??
-   Double_t nSum = fKDE->fSumOfCounts; //(useBins) ? fKDE->fSumOfCounts : fKDE->fNEvents;
+   Double_t nSum = fKDE->fSumOfCounts; //(useCount) ? fKDE->fSumOfCounts : fKDE->fNEvents;
    //if (!useCount) nSum = fKDE->fNEvents;
    // in case of non-adaptive fWeights is a vector of size 1
    Bool_t hasAdaptiveWeights = (fWeights.size() == n);
@@ -1234,9 +1244,7 @@ TF1* TKDE::GetKDEFunction(UInt_t npx, Double_t xMin , Double_t xMax) {
    TString title = "KDE "; title+= GetTitle();
    if (xMin >= xMax) { xMin = fXMin; xMax = fXMax; }
    //Do not register the TF1 to global list
-   bool previous = TF1::DefaultAddToGlobalList(kFALSE);
-   TF1 * pdf = new TF1(name.Data(), this, xMin, xMax, 0);
-   TF1::DefaultAddToGlobalList(previous);
+   TF1 * pdf = new TF1(name.Data(), this, xMin, xMax, 0, 1, TF1::EAddToList::kNo);
    if (npx > 0) pdf->SetNpx(npx);
    pdf->SetTitle(title);
    return pdf;

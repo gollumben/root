@@ -11,7 +11,7 @@
 #ifndef ROOT_RACTIONBASE
 #define ROOT_RACTIONBASE
 
-#include "ROOT/RDF/RBookedDefines.hxx"
+#include "ROOT/RDF/RColumnRegister.hxx"
 #include "ROOT/RDF/RSampleInfo.hxx"
 #include "ROOT/RDF/Utils.hxx" // ColumnNames_t
 #include "RtypesCore.h"
@@ -42,22 +42,25 @@ protected:
    /// A raw pointer to the RLoopManager at the root of this functional graph.
    /// Never null: children nodes have shared ownership of parent nodes in the graph.
    RLoopManager *fLoopManager;
+   const ColumnNames_t fColumnNames;
 
 private:
    const unsigned int fNSlots; ///< Number of thread slots used by this node.
    bool fHasRun = false;
-   const ColumnNames_t fColumnNames;
+   /// List of systematic variations that affect the result of this action ("nominal" excluded).
+   std::vector<std::string> fVariations;
 
-   RBookedDefines fDefines;
+   RColumnRegister fColRegister;
 
 public:
-   RActionBase(RLoopManager *lm, const ColumnNames_t &colNames, const RBookedDefines &defines);
+   RActionBase(RLoopManager *lm, const ColumnNames_t &colNames, const RColumnRegister &colRegister,
+               const std::vector<std::string> &prevVariations);
    RActionBase(const RActionBase &) = delete;
    RActionBase &operator=(const RActionBase &) = delete;
    virtual ~RActionBase();
 
    const ColumnNames_t &GetColumnNames() const { return fColumnNames; }
-   RBookedDefines &GetDefines() { return fDefines; }
+   RColumnRegister &GetColRegister() { return fColRegister; }
    RLoopManager *GetLoopManager() { return fLoopManager; }
    unsigned int GetNSlots() const { return fNSlots; }
    virtual void Run(unsigned int slot, Long64_t entry) = 0;
@@ -74,7 +77,8 @@ public:
    virtual bool HasRun() const { return fHasRun; }
    virtual void SetHasRun() { fHasRun = true; }
 
-   virtual std::shared_ptr<ROOT::Internal::RDF::GraphDrawing::GraphNode> GetGraph() = 0;
+   virtual std::shared_ptr<ROOT::Internal::RDF::GraphDrawing::GraphNode>
+   GetGraph(std::unordered_map<void *, std::shared_ptr<ROOT::Internal::RDF::GraphDrawing::GraphNode>> &visitedMap) = 0;
 
    /**
       Retrieve a wrapper to the result of the action that knows how to merge
@@ -83,6 +87,11 @@ public:
    virtual std::unique_ptr<RMergeableValueBase> GetMergeableValue() const = 0;
 
    virtual ROOT::RDF::SampleCallback_t GetSampleCallback() = 0;
+
+   const std::vector<std::string> &GetVariations() const { return fVariations; }
+
+   virtual std::unique_ptr<RActionBase> MakeVariedAction(std::vector<void *> &&results) = 0;
+   virtual std::unique_ptr<RActionBase> CloneAction(void *newResult) = 0;
 };
 } // namespace RDF
 } // namespace Internal

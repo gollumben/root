@@ -17,12 +17,13 @@
 #endif
 
 #include "TObject.h"
+#include "TVirtualMapFile.h"
 
 class TDirectory;
 class TList;
 class TMapRec;
 
-class TMapFile : public TObject {
+class TMapFile : public TVirtualMapFile {
 
 friend class TMapRec;
 
@@ -65,46 +66,45 @@ protected:
    void       SumBuffer(Int_t bufsize);
    Int_t      GetBestBuffer();
 
-   void   CreateSemaphore(Int_t pid=0);
+   void   CreateSemaphore(Int_t pid = 0);
    Int_t  AcquireSemaphore();
    Int_t  ReleaseSemaphore();
    void   DeleteSemaphore();
 
    static void *MapToAddress();
 
-public:
-   enum { kDefaultMapSize = 0x80000 }; // default size of mapped heap is 500 KB
-
-   // Should both be protected (waiting for cint)
-   virtual ~TMapFile();
+   ~TMapFile() override;
    void *operator new(size_t sz) { return TObject::operator new(sz); }
    void *operator new[](size_t sz) { return TObject::operator new[](sz); }
    void *operator new(size_t sz, void *vp) { return TObject::operator new(sz, vp); }
    void *operator new[](size_t sz, void *vp) { return TObject::operator new[](sz, vp); }
    void     operator delete(void *vp);
 
-   void          Browse(TBrowser *b);
-   void          Close(Option_t *option = "");
+public:
+   enum { kDefaultMapSize = 0x80000 }; // default size of mapped heap is 500 KB
+
+   void          Browse(TBrowser *b) override;
+   void          Close(Option_t *option = "") override;
    void         *GetBaseAddr() const { return (void *)fBaseAddr; }
    void         *GetBreakval() const;
    TDirectory   *GetDirectory() const {return fDirectory;}
    Int_t         GetFd() const { return fFd; }
    void         *GetMmallocDesc() const { return fMmallocDesc; }
-   const char   *GetName() const { return fName; }
+   const char   *GetName() const override { return fName; }
    Int_t         GetSize() const { return fSize; }
-   const char   *GetOption() const { return fOption; }
-   const char   *GetTitle() const { return fTitle; }
+   const char   *GetOption() const override { return fOption; }
+   const char   *GetTitle() const override { return fTitle; }
    TMapRec      *GetFirst() const { return (TMapRec*)((Longptr_t) fFirst + fOffset); }
    TMapRec      *GetLast() const { return (TMapRec*)((Longptr_t) fLast + fOffset); }
-   Bool_t        IsFolder() const;
+   Bool_t        IsFolder() const override;
    Bool_t        IsWritable() const { return fWritable; }
    void         *OrgAddress(void *addr) const { return (void *)((Longptr_t)addr - fOffset); }
-   void          Print(Option_t *option="") const;
-   void          ls(Option_t *option="") const;
-   Bool_t        cd(const char *path = 0);
+   void          Print(Option_t *option="") const override;
+   void          ls(Option_t *option="") const override;
+   Bool_t        cd(const char *path = nullptr);
 
    void          Add(const TObject *obj, const char *name = "");
-   void          Update(TObject *obj = 0);
+   void          Update(TObject *obj = nullptr);
    TObject      *Remove(TObject *obj) { return Remove(obj, kTRUE); }
    TObject      *Remove(const char *name) { return Remove(name, kTRUE); }
    void          RemoveAll();
@@ -114,14 +114,14 @@ public:
    static TMapFile *WhichMapFile(void *addr);
    static void      SetMapAddress(Longptr_t addr);
 
-   ClassDef(TMapFile,0)  // Memory mapped directory structure
+   ClassDefOverride(TMapFile,0)  // Memory mapped directory structure
 };
 
 
 
 /**
 \class TMapRec
-\ingroup IO
+\ingroup io_files
 
 Keep track of an object in the mapped file.
 

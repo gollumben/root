@@ -15,7 +15,6 @@
 #include "TNamed.h"
 #include "TAttMarker.h"
 #include "TAttLine.h"
-#include "TAttBBox.h"
 
 #include "ROOT/REveElement.hxx"
 #include "ROOT/REveProjectionBases.hxx"
@@ -37,9 +36,7 @@ class REveStraightLineSet : public REveElement,
                             public REveProjectable,
                             public TAttLine,
                             public TAttMarker,
-                            public TAttBBox,
-                            public REveSecondarySelectable
-{
+                            public REveSecondarySelectable {
 private:
    REveStraightLineSet(const REveStraightLineSet&) = delete;
    REveStraightLineSet& operator=(const REveStraightLineSet&) = delete;
@@ -86,7 +83,7 @@ protected:
 
 public:
    REveStraightLineSet(const std::string &n="StraightLineSet", const std::string &t="");
-   virtual ~REveStraightLineSet() {}
+   ~REveStraightLineSet() override {}
 
    void SetLineColor(Color_t col) override { SetMainColor(col); }
 
@@ -121,7 +118,6 @@ public:
    void ComputeBBox() override;
 };
 
-
 ///////////////////////////////////////////////////////////////////////////////
 /// REveStraightLineSetProjected
 /// Projected copy of a REveStraightLineSet.
@@ -139,7 +135,7 @@ protected:
 
 public:
    REveStraightLineSetProjected();
-   virtual ~REveStraightLineSetProjected() {}
+   ~REveStraightLineSetProjected() override {}
 
    void SetProjection(REveProjectionManager* mng, REveProjectable* model) override;
    void UpdateProjection() override;

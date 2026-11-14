@@ -13,10 +13,8 @@
 #include "TROOT.h"
 #include "TPavesText.h"
 #include "TVirtualPad.h"
-#include "TBufferFile.h"
 #include "TError.h"
 
-ClassImp(TPavesText);
 
 
 /** \class TPavesText
@@ -45,6 +43,7 @@ TPavesText::TPavesText(): TPaveText()
 ///  - option = "L" Left frame
 ///  - option = "NDC" x1,y1,x2,y2 are given in NDC
 ///  - option = "ARC" corners are rounded
+/// To add a shadow to the TPavesText, use the function TPave::SetBorderSize
 
 TPavesText::TPavesText(Double_t x1, Double_t y1,Double_t x2, Double_t  y2, Int_t npaves,Option_t *option)
            :TPaveText(x1,y1,x2,y2,option)
@@ -63,14 +62,9 @@ TPavesText::~TPavesText()
 ////////////////////////////////////////////////////////////////////////////////
 /// Pavestext copy constructor.
 
-TPavesText::TPavesText(const TPavesText &pavestext) : TPaveText()
+TPavesText::TPavesText(const TPavesText &pavestext) : TPaveText(pavestext)
 {
-   TBufferFile b(TBuffer::kWrite);
-   TPavesText *p = (TPavesText*)(&pavestext);
-   p->Streamer(b);
-   b.SetReadMode();
-   b.SetBufferOffset(0);
-   Streamer(b);
+   fNpaves = pavestext.fNpaves;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -86,6 +80,7 @@ void TPavesText::Draw(Option_t *option)
 
 void TPavesText::Paint(Option_t *option)
 {
+   if (!gPad) return;
    // Draw the fNpaves-1 stacked paves
    // The spacing between paves is set to 3 times the bordersize
    Int_t bordersize = GetBorderSize();
@@ -115,33 +110,22 @@ void TPavesText::Paint(Option_t *option)
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out
 
-void TPavesText::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
+void TPavesText::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   if (!strcmp(GetName(),"stats")) return;
-   if (!strcmp(GetName(),"title")) return;
-   Bool_t saved = gROOT->ClassSaved(TPavesText::Class());
-   char quote = '"';
-   out<<"   "<<std::endl;
-   if (saved) {
-      out<<"   ";
-   } else {
-      out<<"   TPavesText *";
-   }
-   out<<"pst = new TPavesText("<<fX1<<","<<fY1<<","<<fX2<<","<<fY2
-      <<","<<fNpaves<<","<<quote<<fOption<<quote<<");"<<std::endl;
+   if (!strcmp(GetName(), "stats") || !strcmp(GetName(), "title"))
+      return;
 
-   if (strcmp(GetName(),"TPave")) {
-      out<<"   pst->SetName("<<quote<<GetName()<<quote<<");"<<std::endl;
-   }
-   if (fLabel.Length() > 0) {
-      out<<"   pst->SetLabel("<<quote<<fLabel<<quote<<");"<<std::endl;
-   }
-   if (fBorderSize != 4) {
-      out<<"   pst->SetBorderSize("<<fBorderSize<<");"<<std::endl;
-   }
-   SaveFillAttributes(out,"pst",0,1001);
-   SaveLineAttributes(out,"pst",1,1,1);
-   SaveTextAttributes(out,"pst",22,0,1,62,0);
-   TPaveText::SaveLines(out,"pst",saved);
-   out<<"   pst->Draw();"<<std::endl;
+   SavePrimitiveConstructor(out, Class(), "pst", GetSavePaveArgs(TString::Format("%d", fNpaves)));
+
+   if (strcmp(GetName(), "TPave"))
+      out << "   pst->SetName(\"" << GetName() << "\");\n";
+   if (fLabel.Length() > 0)
+      out << "   pst->SetLabel(\"" << TString(fLabel).ReplaceSpecialCppChars() << "\");\n";
+   if (fBorderSize != 4)
+      out << "   pst->SetBorderSize(" << fBorderSize << ");\n";
+   SaveFillAttributes(out, "pst", -1, -1);
+   SaveLineAttributes(out, "pst", 1, 1, 1);
+   SaveTextAttributes(out, "pst", 22, 0, 1, 62, 0);
+   SaveLines(out, "pst", kTRUE);
+   SavePrimitiveDraw(out, "pst", option);
 }

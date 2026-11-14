@@ -45,7 +45,7 @@
 #define TMVA_DNN_PrintTCpuMatrix(mat, text)                                                                \
    {                                                                                                       \
       auto _dpointer = mat.GetRawDataPointer();                                                            \
-      if (_dpointer == NULL) {                                                                             \
+      if (!_dpointer) {                                                                                    \
          std::cout << #mat << " is null pointer" << std::endl;                                             \
          exit(1);                                                                                          \
       }                                                                                                    \
@@ -163,8 +163,8 @@ public:
 
    /** Return raw pointer to the elements stored contiguously in column-major
     *  order. */
-   AFloat *GetRawDataPointer() { return fBuffer; }
-   const AFloat *GetRawDataPointer() const { return fBuffer; }
+   AFloat *GetRawDataPointer() { return fBuffer.data(); }
+   const AFloat *GetRawDataPointer() const { return fBuffer.data(); }
 
    static Executor &GetThreadExecutor() { return TMVA::Config::Instance().GetThreadExecutor(); }
 

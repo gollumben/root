@@ -107,7 +107,7 @@ namespace cling {
 
     llvm::DenseMap<const clang::Decl*, bool> m_Visited; // fwd decl success
     std::stack<llvm::raw_ostream*> m_StreamStack;
-    std::set<const char*> m_BuiltinNames;
+    std::set<std::string> m_BuiltinNames;
     IgnoreFilesFunc_t m_IgnoreFile; // Call back to ignore some top level files.
 
     void printTypedefOrAliasDecl(clang::TypedefNameDecl* D);
@@ -157,7 +157,7 @@ namespace cling {
     // Not coming from the RecursiveASTVisitor
     void Visit(clang::QualType QT);
     void Visit(const clang::Type* T);
-    void VisitNestedNameSpecifier(const clang::NestedNameSpecifier* NNS);
+    void VisitNestedNameSpecifier(const clang::NestedNameSpecifier NNS);
     void VisitTemplateArgument(const clang::TemplateArgument& TA);
     void VisitTemplateName(const clang::TemplateName& TN);
 
@@ -166,7 +166,7 @@ namespace cling {
 
     void PrintTemplateParameters(llvm::raw_ostream& Stream,
                                  clang::TemplateParameterList *Params,
-                                 const clang::TemplateArgumentList *Args = 0);
+                                 const clang::TemplateArgumentList *Args = nullptr);
     void prettyPrintAttributes(clang::Decl *D);
 
     bool isOperator(clang::FunctionDecl* D);
@@ -270,7 +270,7 @@ namespace cling {
       largestream m_Stream;
       bool m_HavePopped;
     public:
-      StreamRAII(ForwardDeclPrinter& pr, clang::PrintingPolicy* pol = 0):
+      StreamRAII(ForwardDeclPrinter& pr, clang::PrintingPolicy* pol = nullptr):
         m_pr(pr), m_oldPol(pr.m_Policy), m_HavePopped(false) {
         m_pr.m_StreamStack.push(&static_cast<llvm::raw_ostream&>(m_Stream));
         if (pol)

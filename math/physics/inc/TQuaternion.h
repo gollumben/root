@@ -18,10 +18,10 @@ public:
    TQuaternion(const Float_t *);
    // Constructors from an array : 0 to 2 = vector part, 3 = real part
 
-   TQuaternion(const TQuaternion &);
+   TQuaternion(const TQuaternion &) noexcept;
    // The copy constructor.
 
-   virtual ~TQuaternion();
+   ~TQuaternion() override;
    // Destructor
 
    Double_t operator () (int) const;
@@ -60,7 +60,7 @@ public:
    TQuaternion operator/(Double_t real) const;
 
    // ---------------- vector to quaternion algebra
-   inline TQuaternion& operator=(const TVector3& );
+   inline TQuaternion& operator=(const TVector3& ) noexcept;
    inline Bool_t operator == (const TVector3&) const;
    inline Bool_t operator != (const TVector3&) const;
    inline TQuaternion& operator+=(const TVector3 &vector);
@@ -105,12 +105,12 @@ public:
    void Rotate(TVector3& vect) const;
    TVector3 Rotation(const TVector3& vect) const;
 
-   void Print(Option_t* option="") const;
+   void Print(Option_t* option="") const override;
 
    Double_t fRealPart;          // Real part
    TVector3 fVectorPart; // vector part
 
-   ClassDef(TQuaternion,1) // a quaternion class
+   ClassDefOverride(TQuaternion,1) // a quaternion class
 };
 
 
@@ -200,7 +200,7 @@ inline Bool_t TQuaternion::operator != (const TVector3& V) const {
    return (fVectorPart != V || fRealPart != 0) ? kTRUE : kFALSE;
 }
 
-inline TQuaternion& TQuaternion::operator=(const TVector3& vect) {
+inline TQuaternion& TQuaternion::operator=(const TVector3& vect) noexcept {
    fRealPart = 0;
    fVectorPart.SetXYZ(vect.X(),vect.Y(),vect.Z());
    return *this;

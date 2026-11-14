@@ -59,9 +59,6 @@ const TGFont *TGListView::fgDefaultFont = nullptr;
 TGGC         *TGListView::fgDefaultGC = nullptr;
 
 
-ClassImp(TGLVEntry);
-ClassImp(TGLVContainer);
-ClassImp(TGListView);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a list view item.
@@ -69,7 +66,7 @@ ClassImp(TGListView);
 TGLVEntry::TGLVEntry(const TGWindow *p, const TGPicture *bigpic,
                      const TGPicture *smallpic, TGString *name,
                      TGString **subnames, EListViewMode viewMode,
-                     UInt_t options, ULong_t back) :
+                     UInt_t options, Pixel_t back) :
    TGFrame(p, 10, 10, options, back)
 {
    fSelPic = 0;
@@ -476,7 +473,7 @@ TGDimension TGLVEntry::GetDefaultSize() const
    switch (fViewMode) {
       default:
       case kLVLargeIcons:
-         size.fWidth = TMath::Max(isize.fWidth, lsize.fWidth);
+         size.fWidth = std::max(isize.fWidth, lsize.fWidth);
          size.fHeight = isize.fHeight + lsize.fHeight + 6;
          break;
 
@@ -484,7 +481,7 @@ TGDimension TGLVEntry::GetDefaultSize() const
       case kLVList:
       case kLVDetails:
          size.fWidth = isize.fWidth + lsize.fWidth + 4;
-         size.fHeight = TMath::Max(isize.fHeight, lsize.fHeight);
+         size.fHeight = std::max(isize.fHeight, lsize.fHeight);
          break;
    }
    return size;
@@ -519,7 +516,7 @@ const TGGC &TGLVEntry::GetDefaultGC()
 /// created by the TGCanvas derived TGListView).
 
 TGLVContainer::TGLVContainer(const TGWindow *p, UInt_t w, UInt_t h,
-                             UInt_t options, ULong_t back) :
+                             UInt_t options, Pixel_t back) :
    TGContainer(p, w, h, options, back)
 {
    fListView = 0;
@@ -538,7 +535,7 @@ TGLVContainer::TGLVContainer(const TGWindow *p, UInt_t w, UInt_t h,
 /// all the list items. It will be shown through a TGViewPort (which is
 /// created by the TGCanvas derived TGListView).
 
-TGLVContainer::TGLVContainer(TGCanvas *p,UInt_t options, ULong_t back) :
+TGLVContainer::TGLVContainer(TGCanvas *p,UInt_t options, Pixel_t back) :
    TGContainer(p,options, back)
 {
    fListView = 0;
@@ -701,8 +698,8 @@ TGDimension TGLVContainer::GetMaxItemSize() const
    TIter next(fList);
    while ((el = (TGFrameElement *) next())) {
       csize = el->fFrame->GetDefaultSize();
-      maxsize.fWidth  = TMath::Max(maxsize.fWidth, csize.fWidth);
-      maxsize.fHeight = TMath::Max(maxsize.fHeight, csize.fHeight);
+      maxsize.fWidth  = std::max(maxsize.fWidth, csize.fWidth);
+      maxsize.fHeight = std::max(maxsize.fHeight, csize.fHeight);
    }
    if (fViewMode == kLVLargeIcons) {
       maxsize.fWidth  += 8;
@@ -730,7 +727,7 @@ Int_t TGLVContainer::GetMaxSubnameWidth(Int_t idx) const
    while ((el = (TGFrameElement *) next())) {
       TGLVEntry *entry = (TGLVEntry *) el->fFrame;
       width = entry->GetSubnameWidth(idx-1);
-      maxwidth = TMath::Max(maxwidth, width);
+      maxwidth = std::max(maxwidth, width);
    }
    return maxwidth;
 }
@@ -1172,7 +1169,7 @@ void TGLVContainer::SelectEntry(TGLVEntry *item)
 /// Create a list view widget.
 
 TGListView::TGListView(const TGWindow *p, UInt_t w, UInt_t h,
-                       UInt_t options, ULong_t back) :
+                       UInt_t options, Pixel_t back) :
    TGCanvas(p, w, h, options, back)
 {
    fViewMode    = kLVLargeIcons;
@@ -1417,9 +1414,9 @@ void TGListView::SetDefaultColumnWidth(TGVFileSplitter* splitter)
          TString dt = fColHeader[i]->GetString();
          UInt_t bsize = gVirtualX->TextWidth(fColHeader[i]->GetFontStruct(),
                                              dt.Data(), dt.Length());
-         UInt_t w = TMath::Max(fColHeader[i]->GetDefaultWidth(), bsize + 20);
-         if (i == 0) w = TMath::Max(fMaxSize.fWidth + 10, w);
-         if (i > 0)  w = TMath::Max(container->GetMaxSubnameWidth(i) + 40, (Int_t)w);
+         UInt_t w = std::max(fColHeader[i]->GetDefaultWidth(), bsize + 20);
+         if (i == 0) w = std::max(fMaxSize.fWidth + 10, w);
+         if (i > 0)  w = std::max(container->GetMaxSubnameWidth(i) + 40, (Int_t)w);
          fColHeader[i]->Resize(w, fColHeader[i]->GetHeight());
          Layout();
       }
@@ -1467,14 +1464,14 @@ void TGListView::Layout()
          fColHeader[i]->SetText(fColNames[i]);
 
          if ( fJustChanged ) {
-            w = TMath::Min(fMaxSize.fWidth + 10, fColHeader[i]->GetDefaultWidth());
+            w = std::min(fMaxSize.fWidth + 10, fColHeader[i]->GetDefaultWidth());
             if (w < fMinColumnSize) w = fColHeader[i]->GetDefaultWidth();
-            if (i == 0) w = TMath::Max(fMaxSize.fWidth + 10, w);
-            if (i > 0)  w = TMath::Max(container->GetMaxSubnameWidth(i) + 40, (Int_t)w);
+            if (i == 0) w = std::max(fMaxSize.fWidth + 10, w);
+            if (i > 0)  w = std::max(container->GetMaxSubnameWidth(i) + 40, (Int_t)w);
          } else {
             w = fColHeader[i]->GetWidth();
          }
-         w = TMath::Max(fMinColumnSize, w);
+         w = std::max(fMinColumnSize, w);
          if ( fColHeader[i]->GetDefaultWidth() > w ) {
             for (int j = fColNames[i].Length() - 1 ; j > 0; j--) {
                fColHeader[i]->SetText( fColNames[i](0,j) + "..." );
@@ -1560,14 +1557,14 @@ void TGListView::LayoutHeader(TGFrame *head)
          fColHeader[i]->SetText(fColNames[i]);
 
          if ( fJustChanged ) {
-            w = TMath::Min(fMaxSize.fWidth + 10, fColHeader[i]->GetDefaultWidth());
+            w = std::min(fMaxSize.fWidth + 10, fColHeader[i]->GetDefaultWidth());
             if (w < fMinColumnSize) w = fColHeader[i]->GetDefaultWidth();
-            if (i == 0) w = TMath::Max(fMaxSize.fWidth + 10, w);
-            if (i > 0)  w = TMath::Max(container->GetMaxSubnameWidth(i) + 40, (Int_t)w);
+            if (i == 0) w = std::max(fMaxSize.fWidth + 10, w);
+            if (i > 0)  w = std::max(container->GetMaxSubnameWidth(i) + 40, (Int_t)w);
          } else {
             w = fColHeader[i]->GetWidth();
          }
-         w = TMath::Max(fMinColumnSize, w);
+         w = std::max(fMinColumnSize, w);
          if ( fColHeader[i]->GetDefaultWidth() > w ) {
             for (int j = fColNames[i].Length() - 1 ; j > 0; j--) {
                fColHeader[i]->SetText( fColNames[i](0,j) + "..." );
@@ -1605,7 +1602,7 @@ void TGListView::LayoutHeader(TGFrame *head)
 ////////////////////////////////////////////////////////////////////////////////
 /// Handle messages generated by the list view components.
 
-Bool_t TGListView::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
+Bool_t TGListView::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2)
 {
    TGLVContainer *cnt = (TGLVContainer*)GetContainer();
 
@@ -1645,9 +1642,9 @@ Bool_t TGListView::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
 
 void TGListView::Clicked(TGLVEntry *entry, Int_t btn)
 {
-   Long_t args[2];
+   Longptr_t args[2];
 
-   args[0] = (Long_t)entry;
+   args[0] = (Longptr_t)entry;
    args[1] = btn;
 
    Emit("Clicked(TGLVEntry*,Int_t)", args);
@@ -1658,9 +1655,9 @@ void TGListView::Clicked(TGLVEntry *entry, Int_t btn)
 
 void TGListView::Clicked(TGLVEntry *entry, Int_t btn, Int_t x, Int_t y)
 {
-   Long_t args[4];
+   Longptr_t args[4];
 
-   args[0] = (Long_t)entry;
+   args[0] = (Longptr_t)entry;
    args[1] = btn;
    args[2] = x;
    args[3] = y;
@@ -1673,9 +1670,9 @@ void TGListView::Clicked(TGLVEntry *entry, Int_t btn, Int_t x, Int_t y)
 
 void TGListView::DoubleClicked(TGLVEntry *entry, Int_t btn)
 {
-   Long_t args[2];
+   Longptr_t args[2];
 
-   args[0] = (Long_t)entry;
+   args[0] = (Longptr_t)entry;
    args[1] = btn;
 
    Emit("DoubleClicked(TGLVEntry*,Int_t)", args);
@@ -1686,9 +1683,9 @@ void TGListView::DoubleClicked(TGLVEntry *entry, Int_t btn)
 
 void TGListView::DoubleClicked(TGLVEntry *entry, Int_t btn, Int_t x, Int_t y)
 {
-   Long_t args[4];
+   Longptr_t args[4];
 
-   args[0] = (Long_t)entry;
+   args[0] = (Longptr_t)entry;
    args[1] = btn;
    args[2] = x;
    args[3] = y;
@@ -1723,58 +1720,36 @@ const TGGC &TGListView::GetDefaultGC()
 
 void TGListView::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   // save options and color if necessary
+   auto extra_args = SaveCtorArgs(out, kSunkenFrame | kDoubleBorder);
 
-   out << std::endl << "   // list view" << std::endl;
-   out <<"   TGListView *";
-   out << GetName() << " = new TGListView(" << fParent->GetName()
-       << "," << GetWidth() << "," << GetHeight();
+   out << "\n   // list view\n";
+   out << "   TGListView *" << GetName() << " = new TGListView(" << fParent->GetName() << "," << GetWidth() << ","
+       << GetHeight() << extra_args << ");\n";
 
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (GetOptions() == (kSunkenFrame | kDoubleBorder)) {
-         out <<");" << std::endl;
-      } else {
-         out << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
    GetContainer()->SavePrimitive(out, option);
 
-   out << std::endl;
-   out << "   " << GetName() << "->SetContainer(" << GetContainer()->GetName()
-                << ");" << std::endl;
+   out << "   \n";
+   out << "   " << GetName() << "->SetContainer(" << GetContainer()->GetName() << ");\n";
    out << "   " << GetName() << "->SetViewMode(";
    switch (fViewMode) {
-      case kLVLargeIcons:
-         out << "kLVLargeIcons";
-         break;
-      case kLVSmallIcons:
-         out << "kLVSmallIcons";
-         break;
-      case kLVList:
-         out << "kLVList";
-         break;
-      case kLVDetails:
-         out << "kLVDetails";
-         break;
+   case kLVLargeIcons: out << "kLVLargeIcons"; break;
+   case kLVSmallIcons: out << "kLVSmallIcons"; break;
+   case kLVList: out << "kLVList"; break;
+   case kLVDetails: out << "kLVDetails"; break;
    }
-   out << ");" << std::endl;
+   out << ");\n";
 
-   out << "   " << GetContainer()->GetName() << "->Resize();" << std::endl;
+   out << "   " << GetContainer()->GetName() << "->Resize();\n";
 
-   if (fHScrollbar && fHScrollbar->IsMapped()) {
-   out << "   " << GetName() << "->SetHsbPosition(" << GetHsbPosition()
-       << ");" << std::endl;
-   }
+   if (fHScrollbar && fHScrollbar->IsMapped())
+      out << "   " << GetName() << "->SetHsbPosition(" << GetHsbPosition() << ");\n";
 
-   if (fVScrollbar && fVScrollbar->IsMapped()) {
-   out << "   " << GetName() << "->SetVsbPosition(" << GetVsbPosition()
-       << ");" << std::endl;
-   }
+   if (fVScrollbar && fVScrollbar->IsMapped())
+      out << "   " << GetName() << "->SetVsbPosition(" << GetVsbPosition() << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1782,26 +1757,17 @@ void TGListView::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 
 void TGLVContainer::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   // save options and color if necessary
+   auto extra_args = SaveCtorArgs(out, kSunkenFrame | kDoubleBorder);
 
-   out << std::endl << "   // list view container" << std::endl;
-   out << "   TGLVContainer *";
+   out << "\n   // list view container\n";
+   out << "   TGLVContainer *" << GetName() << " = new TGLVContainer(";
+   if ((fParent->GetParent())->InheritsFrom(TGCanvas::Class()))
+      out <<  GetCanvas()->GetName();
+    else
+      out << fParent->GetName() << ", " << GetWidth() << "," << GetHeight();
+   out << extra_args << ");\n";
 
-   if ((fParent->GetParent())->InheritsFrom(TGCanvas::Class())) {
-      out << GetName() << " = new TGLVContainer(" << GetCanvas()->GetName();
-   } else {
-      out << GetName() << " = new TGLVContainer(" << fParent->GetName();
-      out << "," << GetWidth() << "," << GetHeight();
-   }
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (GetOptions() == (kSunkenFrame | kDoubleBorder)) {
-         out <<");" << std::endl;
-      } else {
-         out << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 }

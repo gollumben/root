@@ -13,18 +13,13 @@
 #ifndef ROOT_RVEC
 #define ROOT_RVEC
 
-#if __cplusplus > 201402L
-#define R__RVEC_NODISCARD [[nodiscard]]
-#else
-#define R__RVEC_NODISCARD
-#endif
-
 #ifdef _WIN32
    #ifndef M_PI
       #ifndef _USE_MATH_DEFINES
          #define _USE_MATH_DEFINES
       #endif
-      #include <math.h>
+      #include <math.h> // for M_PI
+      // TODO once minimum standard is C++20: replace with std::numbers::pi and remove this codeblock
       #undef _USE_MATH_DEFINES
    #endif
    #define _VECOPS_USE_EXTERN_TEMPLATES false
@@ -32,24 +27,23 @@
    #define _VECOPS_USE_EXTERN_TEMPLATES true
 #endif
 
+#include <Rtypes.h> // R__CLING_PTRCHECK
 #include <TError.h> // R__ASSERT
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <new>
+#include <iterator> // for std::make_move_iterator
+#include <limits> // for numeric_limits
+#include <memory> // uninitialized_value_construct
 #include <numeric> // for inner_product
-#include <sstream>
+#include <ostream>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
-
-#ifdef R__HAS_VDT
-#include <vdt/vdtMath.h>
-#endif
-
 
 namespace ROOT {
 
@@ -63,6 +57,22 @@ namespace VecOps {
 
 template<typename T>
 using RVec = ROOT::VecOps::RVec<T>;
+
+// clang-format off
+template <typename>
+struct IsRVec : std::false_type {};
+
+template <typename T>
+struct IsRVec<ROOT::VecOps::RVec<T>> : std::true_type {};
+// clang-format on
+
+constexpr bool All(const bool *vals, std::size_t size)
+{
+   for (auto i = 0u; i < size; ++i)
+      if (!vals[i])
+         return false;
+   return true;
+}
 
 template <typename... T>
 std::size_t GetVectorsSize(const std::string &id, const RVec<T> &... vs)
@@ -81,8 +91,8 @@ std::size_t GetVectorsSize(const std::string &id, const RVec<T> &... vs)
    return sizes[0];
 }
 
-template <typename F, typename... T>
-auto MapImpl(F &&f, const RVec<T> &... vs) -> RVec<decltype(f(vs[0]...))>
+template <typename F, typename... RVecs>
+auto MapImpl(F &&f, RVecs &&... vs) -> RVec<decltype(f(vs[0]...))>
 {
    const auto size = GetVectorsSize("Map", vs...);
    RVec<decltype(f(vs[0]...))> ret(size);
@@ -115,7 +125,7 @@ inline uint64_t NextPowerOf2(uint64_t A)
 }
 
 /// This is all the stuff common to all SmallVectors.
-class SmallVectorBase {
+class R__CLING_PTRCHECK(off) SmallVectorBase {
 public:
    // This limits the maximum size of an RVec<char> to ~4GB but we don't expect this to ever be a problem,
    // and we prefer the smaller Size_T to reduce the size of each RVec object.
@@ -147,14 +157,16 @@ protected:
    /// std::length_error or calls report_fatal_error.
    static void report_at_maximum_capacity();
 
-   /// If true, the RVec is in "memory adoption" mode, i.e. it is acting as a view on a memory buffer it does not own.
+   /// If false, the RVec is in "memory adoption" mode, i.e. it is acting as a view on a memory buffer it does not own.
    bool Owns() const { return fCapacity != -1; }
+
+   void SetSizeUnchecked(std::size_t N) { fSize = N; }
 
 public:
    size_t size() const { return fSize; }
    size_t capacity() const noexcept { return Owns() ? fCapacity : fSize; }
 
-   R__RVEC_NODISCARD bool empty() const { return !fSize; }
+   [[nodiscard]] bool empty() const { return !fSize; }
 
    /// Set the array size to \p N, which the current array must have enough
    /// capacity for.
@@ -170,13 +182,8 @@ public:
       if (N > capacity()) {
          throw std::runtime_error("Setting size to a value greater than capacity.");
       }
-      fSize = N;
+      SetSizeUnchecked(N);
    }
-
-   // LLVM SmallVector does not have a shrink_to_fit method, but RVec used to.
-   // It's technically ok to do nothing, but assuming no one uses this method for RVec anyway, I'd rather deprecate it
-   R__DEPRECATED(6, 28, "This method will be removed.")
-   void shrink_to_fit() { }
 };
 
 /// Used to figure out the offset of the first element of an RVec
@@ -188,7 +195,7 @@ struct SmallVectorAlignmentAndSize {
 
 /// This is the part of SmallVectorTemplateBase which does not depend on whether the type T is a POD.
 template <typename T>
-class SmallVectorTemplateCommon : public SmallVectorBase {
+class R__CLING_PTRCHECK(off) SmallVectorTemplateCommon : public SmallVectorBase {
    using Base = SmallVectorBase;
 
    /// Find the address of the first element.  For this pointer math to be valid
@@ -202,7 +209,12 @@ class SmallVectorTemplateCommon : public SmallVectorBase {
    // Space after 'FirstEl' is clobbered, do not add any instance vars after it.
 
 protected:
-   SmallVectorTemplateCommon(size_t Size) : Base(getFirstEl(), Size) {}
+   SmallVectorTemplateCommon(size_t Size) : Base(nullptr, Size)
+   {
+      // We delay the initialization of fBeginX until the constructor of the derived class, to avoid doing pointer math
+      // on an object that is not yet fully constructed.
+      fBeginX = getFirstEl();
+   }
 
    void grow_pod(size_t MinSize, size_t TSize) { Base::grow_pod(getFirstEl(), MinSize, TSize); }
 
@@ -310,7 +322,7 @@ public:
 template <typename T, bool = (std::is_trivially_copy_constructible<T>::value) &&
                              (std::is_trivially_move_constructible<T>::value) &&
                              std::is_trivially_destructible<T>::value>
-class SmallVectorTemplateBase : public SmallVectorTemplateCommon<T> {
+class R__CLING_PTRCHECK(off) SmallVectorTemplateBase : public SmallVectorTemplateCommon<T> {
 protected:
    SmallVectorTemplateBase(size_t Size) : SmallVectorTemplateCommon<T>(Size) {}
 
@@ -349,7 +361,7 @@ public:
       if (R__unlikely(this->size() >= this->capacity()))
          this->grow();
       ::new ((void *)this->end()) T(Elt);
-      this->set_size(this->size() + 1);
+      this->SetSizeUnchecked(this->size() + 1);
    }
 
    void push_back(T &&Elt)
@@ -357,19 +369,19 @@ public:
       if (R__unlikely(this->size() >= this->capacity()))
          this->grow();
       ::new ((void *)this->end()) T(::std::move(Elt));
-      this->set_size(this->size() + 1);
+      this->SetSizeUnchecked(this->size() + 1);
    }
 
    void pop_back()
    {
-      this->set_size(this->size() - 1);
+      this->SetSizeUnchecked(this->size() - 1);
       this->end()->~T();
    }
 };
 
 // Define this out-of-line to dissuade the C++ compiler from inlining it.
 template <typename T, bool TriviallyCopyable>
-void SmallVectorTemplateBase<T, TriviallyCopyable>::grow(size_t MinSize)
+void R__CLING_PTRCHECK(off) SmallVectorTemplateBase<T, TriviallyCopyable>::grow(size_t MinSize)
 {
    // Ensure we can fit the new capacity.
    // This is only going to be applicable when the capacity is 32 bit.
@@ -386,7 +398,7 @@ void SmallVectorTemplateBase<T, TriviallyCopyable>::grow(size_t MinSize)
    // Always grow, even from zero.
    size_t NewCapacity = size_t(NextPowerOf2(this->capacity() + 2));
    NewCapacity = std::min(std::max(NewCapacity, MinSize), this->SizeTypeMax());
-   T *NewElts = static_cast<T *>(malloc(NewCapacity * sizeof(T)));
+   T *NewElts = static_cast<T *>(::operator new(NewCapacity * sizeof(T), std::nothrow));
    R__ASSERT(NewElts != nullptr);
 
    // Move the elements over.
@@ -398,7 +410,7 @@ void SmallVectorTemplateBase<T, TriviallyCopyable>::grow(size_t MinSize)
 
       // If this wasn't grown from the inline copy, deallocate the old space.
       if (!this->isSmall())
-         free(this->begin());
+         ::operator delete(this->begin());
    }
 
    this->fBeginX = NewElts;
@@ -410,7 +422,7 @@ void SmallVectorTemplateBase<T, TriviallyCopyable>::grow(size_t MinSize)
 /// T's. This allows using memcpy in place of copy/move construction and
 /// skipping destruction.
 template <typename T>
-class SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
+class R__CLING_PTRCHECK(off) SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
    using SuperClass = SmallVectorTemplateCommon<T>;
 
 protected:
@@ -470,10 +482,10 @@ public:
       if (R__unlikely(this->size() >= this->capacity()))
          this->grow();
       memcpy(reinterpret_cast<void *>(this->end()), &Elt, sizeof(T));
-      this->set_size(this->size() + 1);
+      this->SetSizeUnchecked(this->size() + 1);
    }
 
-   void pop_back() { this->set_size(this->size() - 1); }
+   void pop_back() { this->SetSizeUnchecked(this->size() - 1); }
 };
 
 /// Storage for the SmallVector elements.  This is specialized for the N=0 case
@@ -496,12 +508,7 @@ struct alignas(T) SmallVectorStorage<T, 0> {
 template <typename T>
 struct RVecInlineStorageSize {
 private:
-#ifdef R__HAS_HARDWARE_INTERFERENCE_SIZE
-   constexpr std::size_t cacheLineSize = std::hardware_destructive_interference_size;
-#else
-   // safe bet: assume the typical 64 bytes
-   static constexpr std::size_t cacheLineSize = 64;
-#endif
+   static constexpr std::size_t cacheLineSize = R__HARDWARE_INTERFERENCE_SIZE;
    static constexpr unsigned elementsPerCacheLine = (cacheLineSize - sizeof(SmallVectorBase)) / sizeof(T);
    static constexpr unsigned maxInlineByteSize = 1024;
 
@@ -509,6 +516,18 @@ public:
    static constexpr unsigned value =
       elementsPerCacheLine >= 8 ? elementsPerCacheLine : (sizeof(T) * 8 > maxInlineByteSize ? 0 : 8);
 };
+
+/// An unsafe function to reset the buffer for which this RVec is acting as a view.
+///
+/// \note This is a low-level method that _must_ be called on RVecs that are already non-owning:
+/// - it does not put the RVec in "non-owning mode" (fCapacity == -1)
+/// - it does not free any owned buffer
+template <typename T>
+void ResetView(RVec<T> &v, T* addr, std::size_t sz)
+{
+   v.fBeginX = addr;
+   v.fSize = sz;
+}
 
 } // namespace VecOps
 } // namespace Internal
@@ -519,8 +538,9 @@ namespace VecOps {
 /// This class consists of common code factored out of the SmallVector class to
 /// reduce code duplication based on the SmallVector 'N' template parameter.
 template <typename T>
-class RVecImpl : public Internal::VecOps::SmallVectorTemplateBase<T> {
+class R__CLING_PTRCHECK(off) RVecImpl : public Internal::VecOps::SmallVectorTemplateBase<T> {
    using SuperClass = Internal::VecOps::SmallVectorTemplateBase<T>;
+   static constexpr bool kIsNoExcept = std::is_nothrow_destructible_v<T> && std::is_nothrow_move_constructible_v<T>;
 
 public:
    using iterator = typename SuperClass::iterator;
@@ -530,7 +550,7 @@ public:
 
 protected:
    // Default ctor - Initialize to empty.
-   explicit RVecImpl(unsigned N) : Internal::VecOps::SmallVectorTemplateBase<T>(N) {}
+   explicit RVecImpl(unsigned N) : ROOT::Internal::VecOps::SmallVectorTemplateBase<T>(N) {}
 
 public:
    RVecImpl(const RVecImpl &) = delete;
@@ -540,7 +560,7 @@ public:
       // Subclass has already destructed this vector's elements.
       // If this wasn't grown from the inline copy, deallocate the old space.
       if (!this->isSmall() && this->Owns())
-         free(this->begin());
+         ::operator delete(this->begin());
    }
 
    // also give up adopted memory if applicable
@@ -559,13 +579,13 @@ public:
       if (N < this->size()) {
          if (this->Owns())
             this->destroy_range(this->begin() + N, this->end());
-         this->set_size(N);
+         this->SetSizeUnchecked(N);
       } else if (N > this->size()) {
          if (this->capacity() < N)
             this->grow(N);
          for (auto I = this->end(), E = this->begin() + N; I != E; ++I)
             new (&*I) T();
-         this->set_size(N);
+         this->SetSizeUnchecked(N);
       }
    }
 
@@ -574,12 +594,12 @@ public:
       if (N < this->size()) {
          if (this->Owns())
             this->destroy_range(this->begin() + N, this->end());
-         this->set_size(N);
+         this->SetSizeUnchecked(N);
       } else if (N > this->size()) {
          if (this->capacity() < N)
             this->grow(N);
          std::uninitialized_fill(this->end(), this->begin() + N, NV);
-         this->set_size(N);
+         this->SetSizeUnchecked(N);
       }
    }
 
@@ -596,10 +616,10 @@ public:
       }
       if (this->Owns())
          this->destroy_range(this->end() - NumItems, this->end());
-      this->set_size(this->size() - NumItems);
+      this->SetSizeUnchecked(this->size() - NumItems);
    }
 
-   R__RVEC_NODISCARD T pop_back_val()
+   [[nodiscard]] T pop_back_val()
    {
       T Result = ::std::move(this->back());
       this->pop_back();
@@ -619,7 +639,7 @@ public:
          this->grow(this->size() + NumInputs);
 
       this->uninitialized_copy(in_start, in_end, this->end());
-      this->set_size(this->size() + NumInputs);
+      this->SetSizeUnchecked(this->size() + NumInputs);
    }
 
    /// Append \p NumInputs copies of \p Elt to the end.
@@ -629,7 +649,7 @@ public:
          this->grow(this->size() + NumInputs);
 
       std::uninitialized_fill_n(this->end(), NumInputs, Elt);
-      this->set_size(this->size() + NumInputs);
+      this->SetSizeUnchecked(this->size() + NumInputs);
    }
 
    void append(std::initializer_list<T> IL) { append(IL.begin(), IL.end()); }
@@ -643,7 +663,7 @@ public:
       clear();
       if (this->capacity() < NumElts)
          this->grow(NumElts);
-      this->set_size(NumElts);
+      this->SetSizeUnchecked(NumElts);
       std::uninitialized_fill(this->begin(), this->end(), Elt);
    }
 
@@ -695,7 +715,7 @@ public:
       // Drop the last elts.
       if (this->Owns())
          this->destroy_range(I, this->end());
-      this->set_size(I - this->begin());
+      this->SetSizeUnchecked(I - this->begin());
       return (N);
    }
 
@@ -719,7 +739,7 @@ public:
       ::new ((void *)this->end()) T(::std::move(this->back()));
       // Push everything else over.
       std::move_backward(I, this->end() - 1, this->end());
-      this->set_size(this->size() + 1);
+      this->SetSizeUnchecked(this->size() + 1);
 
       // If we just moved the element we're inserting, be sure to update
       // the reference.
@@ -750,7 +770,7 @@ public:
       ::new ((void *)this->end()) T(std::move(this->back()));
       // Push everything else over.
       std::move_backward(I, this->end() - 1, this->end());
-      this->set_size(this->size() + 1);
+      this->SetSizeUnchecked(this->size() + 1);
 
       // If we just moved the element we're inserting, be sure to update
       // the reference.
@@ -802,7 +822,7 @@ public:
 
       // Move over the elements that we're about to overwrite.
       T *OldEnd = this->end();
-      this->set_size(this->size() + NumToInsert);
+      this->SetSizeUnchecked(this->size() + NumToInsert);
       size_t NumOverwritten = OldEnd - I;
       this->uninitialized_move(I, OldEnd, this->end() - NumOverwritten);
 
@@ -859,7 +879,7 @@ public:
 
       // Move over the elements that we're about to overwrite.
       T *OldEnd = this->end();
-      this->set_size(this->size() + NumToInsert);
+      this->SetSizeUnchecked(this->size() + NumToInsert);
       size_t NumOverwritten = OldEnd - I;
       this->uninitialized_move(I, OldEnd, this->end() - NumOverwritten);
 
@@ -878,26 +898,18 @@ public:
    void insert(iterator I, std::initializer_list<T> IL) { insert(I, IL.begin(), IL.end()); }
 
    template <typename... ArgTypes>
-   R__DEPRECATED(6, 28, "Please use RVec::insert instead.")
-   reference emplace(iterator I, ArgTypes &&...Args)
-   {
-      // these are not the exact semantics of emplace, of course, hence the deprecation.
-      return insert(I, T(std::forward<Args>...));
-   }
-
-   template <typename... ArgTypes>
    reference emplace_back(ArgTypes &&...Args)
    {
       if (R__unlikely(this->size() >= this->capacity()))
          this->grow();
       ::new ((void *)this->end()) T(std::forward<ArgTypes>(Args)...);
-      this->set_size(this->size() + 1);
+      this->SetSizeUnchecked(this->size() + 1);
       return this->back();
    }
 
    RVecImpl &operator=(const RVecImpl &RHS);
 
-   RVecImpl &operator=(RVecImpl &&RHS);
+   RVecImpl &operator=(RVecImpl &&RHS) noexcept(kIsNoExcept);
 };
 
 template <typename T>
@@ -913,6 +925,23 @@ void RVecImpl<T>::swap(RVecImpl<T> &RHS)
       std::swap(this->fCapacity, RHS.fCapacity);
       return;
    }
+
+   // This block handles the swap of a small and a non-owning vector
+   // It is more efficient to first move the non-owning vector, hence the 2 cases
+   if (this->isSmall() && !RHS.Owns()) { // the right vector is non-owning
+      RVecImpl<T> temp(0);
+      temp = std::move(RHS);
+      RHS = std::move(*this);
+      *this = std::move(temp);
+      return;
+   } else if (RHS.isSmall() && !this->Owns()) { // the left vector is non-owning
+      RVecImpl<T> temp(0);
+      temp = std::move(*this);
+      *this = std::move(RHS);
+      RHS = std::move(temp);
+      return;
+   }
+
    if (RHS.size() > this->capacity())
       this->grow(RHS.size());
    if (this->size() > RHS.capacity())
@@ -923,23 +952,23 @@ void RVecImpl<T>::swap(RVecImpl<T> &RHS)
    if (NumShared > RHS.size())
       NumShared = RHS.size();
    for (size_type i = 0; i != NumShared; ++i)
-      std::swap((*this)[i], RHS[i]);
+      std::iter_swap(this->begin() + i, RHS.begin() + i);
 
    // Copy over the extra elts.
    if (this->size() > RHS.size()) {
       size_t EltDiff = this->size() - RHS.size();
       this->uninitialized_copy(this->begin() + NumShared, this->end(), RHS.end());
-      RHS.set_size(RHS.size() + EltDiff);
+      RHS.SetSizeUnchecked(RHS.size() + EltDiff);
       if (this->Owns())
          this->destroy_range(this->begin() + NumShared, this->end());
-      this->set_size(NumShared);
+      this->SetSizeUnchecked(NumShared);
    } else if (RHS.size() > this->size()) {
       size_t EltDiff = RHS.size() - this->size();
       this->uninitialized_copy(RHS.begin() + NumShared, RHS.end(), this->end());
-      this->set_size(this->size() + EltDiff);
+      this->SetSizeUnchecked(this->size() + EltDiff);
       if (RHS.Owns())
          this->destroy_range(RHS.begin() + NumShared, RHS.end());
-      RHS.set_size(NumShared);
+      RHS.SetSizeUnchecked(NumShared);
    }
 }
 
@@ -967,7 +996,7 @@ RVecImpl<T> &RVecImpl<T>::operator=(const RVecImpl<T> &RHS)
          this->destroy_range(NewEnd, this->end());
 
       // Trim.
-      this->set_size(RHSSize);
+      this->SetSizeUnchecked(RHSSize);
       return *this;
    }
 
@@ -980,7 +1009,7 @@ RVecImpl<T> &RVecImpl<T>::operator=(const RVecImpl<T> &RHS)
          // Destroy current elements.
          this->destroy_range(this->begin(), this->end());
       }
-      this->set_size(0);
+      this->SetSizeUnchecked(0);
       CurSize = 0;
       this->grow(RHSSize);
    } else if (CurSize) {
@@ -992,12 +1021,12 @@ RVecImpl<T> &RVecImpl<T>::operator=(const RVecImpl<T> &RHS)
    this->uninitialized_copy(RHS.begin() + CurSize, RHS.end(), this->begin() + CurSize);
 
    // Set end.
-   this->set_size(RHSSize);
+   this->SetSizeUnchecked(RHSSize);
    return *this;
 }
 
 template <typename T>
-RVecImpl<T> &RVecImpl<T>::operator=(RVecImpl<T> &&RHS)
+RVecImpl<T> &RVecImpl<T>::operator=(RVecImpl<T> &&RHS) noexcept(kIsNoExcept)
 {
    // Avoid self-assignment.
    if (this == &RHS)
@@ -1008,7 +1037,7 @@ RVecImpl<T> &RVecImpl<T>::operator=(RVecImpl<T> &&RHS)
       if (this->Owns()) {
          this->destroy_range(this->begin(), this->end());
          if (!this->isSmall())
-            free(this->begin());
+            ::operator delete(this->begin());
       }
       this->fBeginX = RHS.fBeginX;
       this->fSize = RHS.fSize;
@@ -1030,7 +1059,7 @@ RVecImpl<T> &RVecImpl<T>::operator=(RVecImpl<T> &&RHS)
       // Destroy excess elements and trim the bounds.
       if (this->Owns())
          this->destroy_range(NewEnd, this->end());
-      this->set_size(RHSSize);
+      this->SetSizeUnchecked(RHSSize);
 
       // Clear the RHS.
       RHS.clear();
@@ -1048,7 +1077,7 @@ RVecImpl<T> &RVecImpl<T>::operator=(RVecImpl<T> &&RHS)
          // Destroy current elements.
          this->destroy_range(this->begin(), this->end());
       }
-      this->set_size(0);
+      this->SetSizeUnchecked(0);
       CurSize = 0;
       this->grow(RHSSize);
    } else if (CurSize) {
@@ -1060,11 +1089,24 @@ RVecImpl<T> &RVecImpl<T>::operator=(RVecImpl<T> &&RHS)
    this->uninitialized_move(RHS.begin() + CurSize, RHS.end(), this->begin() + CurSize);
 
    // Set end.
-   this->set_size(RHSSize);
+   this->SetSizeUnchecked(RHSSize);
 
    RHS.clear();
    return *this;
 }
+
+template <typename T>
+bool IsSmall(const ROOT::VecOps::RVec<T> &v)
+{
+   return v.isSmall();
+}
+
+template <typename T>
+bool IsAdopting(const ROOT::VecOps::RVec<T> &v)
+{
+   return !v.Owns();
+}
+
 } // namespace VecOps
 } // namespace Detail
 
@@ -1072,8 +1114,9 @@ namespace VecOps {
 // Note that we open here with @{ the Doxygen group vecops and it is
 // closed again at the end of the C++ namespace VecOps
 /**
-  * \defgroup vecops VecOps
-  * A "std::vector"-like collection of values implementing handy operation to analyse them
+  * \defgroup vecops RVec and VecOps
+  * RVec is a "std::vector"-like collection of values that can adopt memory for fast data manipulation.
+  * This page lists functions to perform operations on RVecs to manipulate and analyse them.
   * @{
 */
 
@@ -1087,7 +1130,7 @@ namespace VecOps {
 // Note that this does not attempt to be exception safe.
 
 template <typename T, unsigned int N>
-class RVecN : public Detail::VecOps::RVecImpl<T>, Internal::VecOps::SmallVectorStorage<T, N> {
+class R__CLING_PTRCHECK(off) RVecN : public Detail::VecOps::RVecImpl<T>, Internal::VecOps::SmallVectorStorage<T, N> {
 public:
    RVecN() : Detail::VecOps::RVecImpl<T>(N) {}
 
@@ -1106,7 +1149,7 @@ public:
       if (Size > N)
          this->grow(Size);
       this->fSize = Size;
-      std::uninitialized_fill(this->begin(), this->end(), T{});
+      std::uninitialized_value_construct(this->begin(), this->end());
    }
 
    template <typename ItTy,
@@ -1131,7 +1174,7 @@ public:
       return *this;
    }
 
-   RVecN(RVecN &&RHS) : Detail::VecOps::RVecImpl<T>(N)
+   RVecN(RVecN &&RHS) noexcept(false) : Detail::VecOps::RVecImpl<T>(N)
    {
       if (!RHS.empty())
          Detail::VecOps::RVecImpl<T>::operator=(::std::move(RHS));
@@ -1145,7 +1188,7 @@ public:
 
    RVecN(const std::vector<T> &RHS) : RVecN(RHS.begin(), RHS.end()) {}
 
-   RVecN &operator=(RVecN &&RHS)
+   RVecN &operator=(RVecN &&RHS) noexcept(std::is_nothrow_move_assignable_v<Detail::VecOps::RVecImpl<T>>)
    {
       Detail::VecOps::RVecImpl<T>::operator=(::std::move(RHS));
       return *this;
@@ -1179,16 +1222,11 @@ public:
 
    reference operator[](size_type idx)
    {
-#ifndef NDEBUG
-      R__ASSERT(idx < size());
-#endif
       return begin()[idx];
    }
+
    const_reference operator[](size_type idx) const
    {
-#ifndef NDEBUG
-      R__ASSERT(idx < size());
-#endif
       return begin()[idx];
    }
 
@@ -1197,20 +1235,23 @@ public:
    {
       const size_type n = conds.size();
 
-      if (n != this->size())
-         throw std::runtime_error("Cannot index RVecN with condition vector of different size");
+      if (n != this->size()) {
+         std::string msg = "Cannot index RVecN of size " + std::to_string(this->size()) +
+                           " with condition vector of different size (" + std::to_string(n) + ").";
+         throw std::runtime_error(msg);
+      }
+
+      size_type n_true = 0ull;
+      for (auto c : conds)
+         n_true += c; // relies on bool -> int conversion, faster than branching
 
       RVecN ret;
-      ret.reserve(n);
-      size_type j = 0u;
+      ret.reserve(n_true);
       for (size_type i = 0u; i < n; ++i) {
          if (conds[i]) {
-            // the begin() is to go around the R__ASSERT in operator[]
-            ret.begin()[j] = this->operator[](i);
-            ++j;
+            ret.push_back(this->operator[](i));
          }
       }
-      ret.set_size(j);
       return ret;
    }
 
@@ -1223,15 +1264,21 @@ public:
 
    reference at(size_type pos)
    {
-      if (pos >= size_type(this->fSize))
-         throw std::out_of_range("RVecN");
+      if (pos >= size_type(this->fSize)) {
+         std::string msg = "RVecN::at: size is " + std::to_string(this->fSize) + " but out-of-bounds index " +
+                           std::to_string(pos) + " was requested.";
+         throw std::out_of_range(msg);
+      }
       return this->operator[](pos);
    }
 
    const_reference at(size_type pos) const
    {
-      if (pos >= size_type(this->fSize))
-         throw std::out_of_range("RVecN");
+      if (pos >= size_type(this->fSize)) {
+         std::string msg = "RVecN::at: size is " + std::to_string(this->fSize) + " but out-of-bounds index " +
+                           std::to_string(pos) + " was requested.";
+         throw std::out_of_range(msg);
+      }
       return this->operator[](pos);
    }
 
@@ -1260,8 +1307,9 @@ public:
 
 A RVec is a container designed to make analysis of values' collections fast and easy.
 Its storage is contiguous in memory and its interface is designed such to resemble to the one
-of the stl vector. In addition the interface features methods and external functions to ease
-the manipulation and analysis of the data in the RVec.
+of the stl vector. In addition the interface features methods and
+[external functions](https://root.cern/doc/master/namespaceROOT_1_1VecOps.html) to ease the manipulation and analysis
+of the data in the RVec.
 
 \note ROOT::VecOps::RVec can also be spelled simply ROOT::RVec. Shorthand aliases such as ROOT::RVecI or ROOT::RVecD
 are also available as template instantiations of RVec of fundamental types. The full list of available aliases:
@@ -1288,12 +1336,12 @@ to make RVec a drop-in replacement for `std::vector`.
 
 ## Table of Contents
 - [Example](\ref example)
+- [Arithmetic operations, logical operations and mathematical functions](\ref operationsandfunctions)
 - [Owning and adopting memory](\ref owningandadoptingmemory)
 - [Sorting and manipulation of indices](\ref sorting)
 - [Usage in combination with RDataFrame](\ref usagetdataframe)
 - [Reference for the RVec class](\ref RVecdoxyref)
-
-Also see the [reference for RVec helper functions](https://root.cern/doc/master/namespaceROOT_1_1VecOps.html).
+- [Reference for RVec helper functions](https://root.cern/doc/master/namespaceROOT_1_1VecOps.html)
 
 \anchor example
 ## Example
@@ -1325,6 +1373,42 @@ auto goodMuons_pt = mu_pt[ (mu_pt > 10.f && abs(mu_eta) <= 2.f && mu_charge == -
 ~~~
 Now the clean collection of transverse momenta can be used within the rest of the data analysis, for
 example to fill a histogram.
+
+\anchor operationsandfunctions
+## Arithmetic operations, logical operations and mathematical functions
+Arithmetic operations on RVec instances can be performed: for example, they can be added, subtracted, multiplied.
+~~~{.cpp}
+RVec<double> v1 {1.,2.,3.,4.};
+RVec<float> v2 {5.f,6.f,7.f,8.f};
+auto v3 = v1+v2;
+auto v4 = 3 * v1;
+~~~
+The supported operators are
+ - +, -, *, /
+ - +=, -=, *=, /=
+ - <, >, ==, !=, <=, >=, &&, ||
+ - ~, !
+ - &, |, ^
+ - &=, |=, ^=
+ - <<=, >>=
+
+The most common mathematical functions are supported. It is possible to invoke them passing
+RVecs as arguments.
+ - abs, fdim, fmod, remainder
+ - floor, ceil, trunc, round, lround, llround
+ - exp, exp2, expm1
+ - log, log10, log2, log1p
+ - pow
+ - sqrt, cbrt
+ - sin, cos, tan, asin, acos, atan, atan2, hypot
+ - sinh, cosh, tanh, asinh, acosh
+ - erf, erfc
+ - lgamma, tgamma
+
+If the VDT library is available, the following functions can be invoked. Internally the calculations
+are vectorized:
+ - fast_expf, fast_logf, fast_sinf, fast_cosf, fast_tanf, fast_asinf, fast_acosf, fast_atanf
+ - fast_exp, fast_log, fast_sin, fast_cos, fast_tan, fast_asin, fast_acos, fast_atan
 
 \anchor owningandadoptingmemory
 ## Owning and adopting memory
@@ -1367,8 +1451,8 @@ auto v1 = Take(v0, {1, 2, 0});
 will yield a new RVec<double> the content of which is the first, second and zeroth element of
 v0, i.e. `{7., 8., 9.}`.
 
-The `Argsort` helper extracts the indices which order the content of a `RVec`. For example,
-this snippet accomplish in a more expressive way what we just achieved:
+The `Argsort` and `StableArgsort` helper extracts the indices which order the content of a `RVec`.
+For example, this snippet accomplishes in a more expressive way what we just achieved:
 ~~~{.cpp}
 auto v1_indices = Argsort(v0); // The content of v1_indices is {1, 2, 0}.
 v1 = Take(v0, v1_indices);
@@ -1422,8 +1506,11 @@ hpt->Draw();
 // clang-format on
 
 template <typename T>
-class RVec : public RVecN<T, Internal::VecOps::RVecInlineStorageSize<T>::value> {
+class R__CLING_PTRCHECK(off) RVec : public RVecN<T, Internal::VecOps::RVecInlineStorageSize<T>::value> {
    using SuperClass = RVecN<T, Internal::VecOps::RVecInlineStorageSize<T>::value>;
+
+   friend void Internal::VecOps::ResetView<>(RVec<T> &v, T *addr, std::size_t sz);
+
 public:
    using reference = typename SuperClass::reference;
    using const_reference = typename SuperClass::const_reference;
@@ -1455,9 +1542,9 @@ public:
       return *this;
    }
 
-   RVec(RVec &&RHS) : SuperClass(std::move(RHS)) {}
+   RVec(RVec &&RHS) noexcept(std::is_nothrow_move_constructible_v<SuperClass>) : SuperClass(std::move(RHS)) {}
 
-   RVec &operator=(RVec &&RHS)
+   RVec &operator=(RVec &&RHS) noexcept(std::is_nothrow_move_assignable_v<SuperClass>)
    {
       SuperClass::operator=(std::move(RHS));
       return *this;
@@ -1491,6 +1578,10 @@ public:
    }
 
    using SuperClass::at;
+
+   friend bool ROOT::Detail::VecOps::IsSmall<T>(const RVec<T> &v);
+
+   friend bool ROOT::Detail::VecOps::IsAdopting<T>(const RVec<T> &v);
 };
 
 template <typename T, unsigned N>
@@ -1698,7 +1789,7 @@ using PromoteTypes = decltype(PromoteType<U>() + PromoteType<V>());
    RVec<PromoteTypes<T0, T1>> NAME(const RVec<T0> &v, const T1 &y)             \
    {                                                                           \
       RVec<PromoteTypes<T0, T1>> ret(v.size());                                \
-      auto f = [&y](const T1 &x) { return FUNC(x, y); };                       \
+      auto f = [&y](const T0 &x) { return FUNC(x, y); };                       \
       std::transform(v.begin(), v.end(), ret.begin(), f);                      \
       return ret;                                                              \
    }                                                                           \
@@ -1770,26 +1861,24 @@ RVEC_STD_UNARY_FUNCTION(tgamma)
 ///@{
 
 #ifdef R__HAS_VDT
-#define RVEC_VDT_UNARY_FUNCTION(F) RVEC_UNARY_FUNCTION(F, vdt::F)
 
-RVEC_VDT_UNARY_FUNCTION(fast_expf)
-RVEC_VDT_UNARY_FUNCTION(fast_logf)
-RVEC_VDT_UNARY_FUNCTION(fast_sinf)
-RVEC_VDT_UNARY_FUNCTION(fast_cosf)
-RVEC_VDT_UNARY_FUNCTION(fast_tanf)
-RVEC_VDT_UNARY_FUNCTION(fast_asinf)
-RVEC_VDT_UNARY_FUNCTION(fast_acosf)
-RVEC_VDT_UNARY_FUNCTION(fast_atanf)
+RVec<float> fast_expf(const RVec<float> &v);
+RVec<float> fast_logf(const RVec<float> &v);
+RVec<float> fast_sinf(const RVec<float> &v);
+RVec<float> fast_cosf(const RVec<float> &v);
+RVec<float> fast_tanf(const RVec<float> &v);
+RVec<float> fast_asinf(const RVec<float> &v);
+RVec<float> fast_acosf(const RVec<float> &v);
+RVec<float> fast_atanf(const RVec<float> &v);
 
-RVEC_VDT_UNARY_FUNCTION(fast_exp)
-RVEC_VDT_UNARY_FUNCTION(fast_log)
-RVEC_VDT_UNARY_FUNCTION(fast_sin)
-RVEC_VDT_UNARY_FUNCTION(fast_cos)
-RVEC_VDT_UNARY_FUNCTION(fast_tan)
-RVEC_VDT_UNARY_FUNCTION(fast_asin)
-RVEC_VDT_UNARY_FUNCTION(fast_acos)
-RVEC_VDT_UNARY_FUNCTION(fast_atan)
-#undef RVEC_VDT_UNARY_FUNCTION
+RVec<double> fast_exp(const RVec<double> &v);
+RVec<double> fast_log(const RVec<double> &v);
+RVec<double> fast_sin(const RVec<double> &v);
+RVec<double> fast_cos(const RVec<double> &v);
+RVec<double> fast_tan(const RVec<double> &v);
+RVec<double> fast_asin(const RVec<double> &v);
+RVec<double> fast_acos(const RVec<double> &v);
+RVec<double> fast_atan(const RVec<double> &v);
 
 #endif // R__HAS_VDT
 
@@ -1806,7 +1895,7 @@ RVEC_VDT_UNARY_FUNCTION(fast_atan)
 /// RVec<float> v2 {4., 5., 6.};
 /// auto v1_dot_v2 = Dot(v1, v2);
 /// v1_dot_v2
-/// // (float) 32.f
+/// // (float) 32.0000f
 /// ~~~
 template <typename T, typename V>
 auto Dot(const RVec<T> &v0, const RVec<V> &v1) -> decltype(v0[0] * v1[0])
@@ -1839,15 +1928,28 @@ auto Dot(const RVec<T> &v0, const RVec<V> &v1) -> decltype(v0[0] * v1[0])
 /// v_sum_lv
 /// // (ROOT::Math::LorentzVector<ROOT::Math::PtEtaPhiM4D<double> > &) (30.8489,2.46534,2.58947,361.084)
 /// ~~~
-template <typename T, typename R = T>
-R Sum(const RVec<T> &v, const R zero = R(0))
+template <typename T>
+T Sum(const RVec<T> &v, const T zero = T(0))
 {
    return std::accumulate(v.begin(), v.end(), zero);
+}
+
+inline std::size_t Sum(const RVec<bool> &v, std::size_t zero = 0ul)
+{
+   return std::accumulate(v.begin(), v.end(), zero);
+}
+
+/// Return the product of the elements of the RVec.
+template <typename T>
+T Product(const RVec<T> &v, const T init = T(1)) // initialize with identity
+{
+   return std::accumulate(v.begin(), v.end(), init, std::multiplies<T>());
 }
 
 /// Get the mean of the elements of an RVec
 ///
 /// The return type is a double precision floating point number.
+///
 /// Example code, at the ROOT prompt:
 /// ~~~{.cpp}
 /// using namespace ROOT::VecOps;
@@ -1866,6 +1968,7 @@ double Mean(const RVec<T> &v)
 /// Get the mean of the elements of an RVec with custom initial value
 ///
 /// The return type will be deduced from the `zero` parameter
+///
 /// Example code, at the ROOT prompt:
 /// ~~~{.cpp}
 /// using namespace ROOT::VecOps;
@@ -1897,13 +2000,13 @@ R Mean(const RVec<T> &v, const R zero)
 /// Get the greatest element of an RVec
 ///
 /// Example code, at the ROOT prompt:
-/// ~~~~{.cpp}
+/// ~~~{.cpp}
 /// using namespace ROOT::VecOps;
 /// RVecF v {1.f, 2.f, 4.f};
-/// auto v_max = Max(v)
+/// auto v_max = Max(v);
 /// v_max
-/// (float) 4.f
-/// ~~~~
+/// (float) 4.00000f
+/// ~~~
 template <typename T>
 T Max(const RVec<T> &v)
 {
@@ -1913,13 +2016,13 @@ T Max(const RVec<T> &v)
 /// Get the smallest element of an RVec
 ///
 /// Example code, at the ROOT prompt:
-/// ~~~~{.cpp}
+/// ~~~{.cpp}
 /// using namespace ROOT::VecOps;
 /// RVecF v {1.f, 2.f, 4.f};
-/// auto v_min = Min(v)
+/// auto v_min = Min(v);
 /// v_min
-/// (float) 1.f
-/// ~~~~
+/// (float) 1.00000f
+/// ~~~
 template <typename T>
 T Min(const RVec<T> &v)
 {
@@ -1931,13 +2034,13 @@ T Min(const RVec<T> &v)
 /// the index corresponding to the first occurrence is returned.
 ///
 /// Example code, at the ROOT prompt:
-/// ~~~~{.cpp}
+/// ~~~{.cpp}
 /// using namespace ROOT::VecOps;
 /// RVecF v {1.f, 2.f, 4.f};
 /// auto v_argmax = ArgMax(v);
 /// v_argmax
-/// // (int) 2
-/// ~~~~
+/// // (unsigned long) 2
+/// ~~~
 template <typename T>
 std::size_t ArgMax(const RVec<T> &v)
 {
@@ -1949,13 +2052,13 @@ std::size_t ArgMax(const RVec<T> &v)
 /// the index corresponding to the first occurrence is returned.
 ///
 /// Example code, at the ROOT prompt:
-/// ~~~~{.cpp}
+/// ~~~{.cpp}
 /// using namespace ROOT::VecOps;
 /// RVecF v {1.f, 2.f, 4.f};
 /// auto v_argmin = ArgMin(v);
 /// v_argmin
-/// // (int) 0
-/// ~~~~
+/// // (unsigned long) 0
+/// ~~~
 template <typename T>
 std::size_t ArgMin(const RVec<T> &v)
 {
@@ -2032,6 +2135,13 @@ auto Map(Args &&... args)
    1. Forward as tuple the pack to MapFromTuple
    2. Invoke the MapImpl helper which has the signature `template<...T, F> RVec MapImpl(F &&f, RVec<T>...)`
    */
+
+   // check the first N - 1 arguments are RVecs
+   constexpr auto nArgs = sizeof...(Args);
+   constexpr bool isRVec[]{ROOT::Internal::VecOps::IsRVec<std::remove_cv_t<std::remove_reference_t<Args>>>::value...};
+   static_assert(ROOT::Internal::VecOps::All(isRVec, nArgs - 1),
+                 "Map: the first N-1 arguments must be RVecs or references to RVecs");
+
    return ROOT::Internal::VecOps::MapFromTuple(std::forward_as_tuple(args...),
                                                std::make_index_sequence<sizeof...(args) - 1>());
 }
@@ -2073,7 +2183,7 @@ template <typename T>
 auto Any(const RVec<T> &v) -> decltype(v[0] == true)
 {
    for (auto &&e : v)
-      if (e == true)
+      if (static_cast<bool>(e) == true)
          return true;
    return false;
 }
@@ -2092,7 +2202,7 @@ template <typename T>
 auto All(const RVec<T> &v) -> decltype(v[0] == false)
 {
    for (auto &&e : v)
-      if (e == false)
+      if (static_cast<bool>(e) == false)
          return false;
    return true;
 }
@@ -2109,10 +2219,10 @@ void swap(RVec<T> &lhs, RVec<T> &rhs)
 /// ~~~{.cpp}
 /// using namespace ROOT::VecOps;
 /// RVecD v {2., 3., 1.};
-/// auto sortIndices = Argsort(v);
+/// auto sortIndices = Argsort(v)
 /// // (ROOT::VecOps::RVec<unsigned long> &) { 2, 0, 1 }
 /// auto values = Take(v, sortIndices)
-/// // (ROOT::VecOps::RVec<double> &) { 1., 2., 3. }
+/// // (ROOT::VecOps::RVec<double> &) { 1.0000000, 2.0000000, 3.0000000 }
 /// ~~~
 template <typename T>
 RVec<typename RVec<T>::size_type> Argsort(const RVec<T> &v)
@@ -2133,7 +2243,7 @@ RVec<typename RVec<T>::size_type> Argsort(const RVec<T> &v)
 /// auto sortIndices = Argsort(v, [](double x, double y) {return x > y;})
 /// // (ROOT::VecOps::RVec<unsigned long> &) { 1, 0, 2 }
 /// auto values = Take(v, sortIndices)
-/// // (ROOT::VecOps::RVec<double> &) { 3., 2., 1. }
+/// // (ROOT::VecOps::RVec<double> &) { 3.0000000, 2.0000000, 1.0000000 }
 /// ~~~
 template <typename T, typename Compare>
 RVec<typename RVec<T>::size_type> Argsort(const RVec<T> &v, Compare &&c)
@@ -2143,6 +2253,52 @@ RVec<typename RVec<T>::size_type> Argsort(const RVec<T> &v, Compare &&c)
    std::iota(i.begin(), i.end(), 0);
    std::sort(i.begin(), i.end(),
              [&v, &c](size_type i1, size_type i2) { return c(v[i1], v[i2]); });
+   return i;
+}
+
+/// Return an RVec of indices that sort the input RVec
+/// while keeping the order of equal elements.
+/// This is the stable variant of `Argsort`.
+///
+/// Example code, at the ROOT prompt:
+/// ~~~{.cpp}
+/// using namespace ROOT::VecOps;
+/// RVecD v {2., 3., 2., 1.};
+/// auto sortIndices = StableArgsort(v)
+/// // (ROOT::VecOps::RVec<unsigned long> &) { 3, 0, 2, 1 }
+/// auto values = Take(v, sortIndices)
+/// // (ROOT::VecOps::RVec<double> &) { 1.0000000, 2.0000000, 2.0000000, 3.0000000 }
+/// ~~~
+template <typename T>
+RVec<typename RVec<T>::size_type> StableArgsort(const RVec<T> &v)
+{
+   using size_type = typename RVec<T>::size_type;
+   RVec<size_type> i(v.size());
+   std::iota(i.begin(), i.end(), 0);
+   std::stable_sort(i.begin(), i.end(), [&v](size_type i1, size_type i2) { return v[i1] < v[i2]; });
+   return i;
+}
+
+/// Return an RVec of indices that sort the input RVec based on a comparison function
+/// while keeping the order of equal elements.
+/// This is the stable variant of `Argsort`.
+///
+/// Example code, at the ROOT prompt:
+/// ~~~{.cpp}
+/// using namespace ROOT::VecOps;
+/// RVecD v {2., 3., 2., 1.};
+/// auto sortIndices = StableArgsort(v, [](double x, double y) {return x > y;})
+/// // (ROOT::VecOps::RVec<unsigned long> &) { 1, 0, 2, 3 }
+/// auto values = Take(v, sortIndices)
+/// // (ROOT::VecOps::RVec<double> &) { 3.0000000, 2.0000000, 2.0000000, 1.0000000 }
+/// ~~~
+template <typename T, typename Compare>
+RVec<typename RVec<T>::size_type> StableArgsort(const RVec<T> &v, Compare &&c)
+{
+   using size_type = typename RVec<T>::size_type;
+   RVec<size_type> i(v.size());
+   std::iota(i.begin(), i.end(), 0);
+   std::stable_sort(i.begin(), i.end(), [&v, &c](size_type i1, size_type i2) { return c(v[i1], v[i2]); });
    return i;
 }
 
@@ -2156,6 +2312,7 @@ RVec<typename RVec<T>::size_type> Argsort(const RVec<T> &v, Compare &&c)
 /// vTaken
 /// // (ROOT::VecOps::RVec<double>) { 2.0000000, 1.0000000 }
 /// ~~~
+
 template <typename T>
 RVec<T> Take(const RVec<T> &v, const RVec<typename RVec<T>::size_type> &i)
 {
@@ -2167,9 +2324,26 @@ RVec<T> Take(const RVec<T> &v, const RVec<typename RVec<T>::size_type> &i)
    return r;
 }
 
-/// Return first or last `n` elements of an RVec
-///
-/// if `n > 0` and last elements if `n < 0`.
+/// Take version that defaults to (user-specified) output value if some index is out of range
+template <typename T>
+RVec<T> Take(const RVec<T> &v, const RVec<typename RVec<T>::size_type> &i, const T default_val)
+{
+   using size_type = typename RVec<T>::size_type;
+   const size_type isize = i.size();
+   RVec<T> r(isize);
+   for (size_type k = 0; k < isize; k++)
+   {
+      if (i[k] < v.size() && i[k]>=0){
+         r[k] = v[i[k]];
+      }
+      else {
+         r[k] = default_val;
+      }
+   }
+   return r;
+}
+
+/// Return first `n` elements of an RVec if `n > 0` and last `n` elements if `n < 0`.
 ///
 /// Example code, at the ROOT prompt:
 /// ~~~{.cpp}
@@ -2189,9 +2363,9 @@ RVec<T> Take(const RVec<T> &v, const int n)
    const size_type size = v.size();
    const size_type absn = std::abs(n);
    if (absn > size) {
-      std::stringstream ss;
-      ss << "Try to take " << absn << " elements but vector has only size " << size << ".";
-      throw std::runtime_error(ss.str());
+      const auto msg = std::to_string(absn) + " elements requested from Take but input contains only " +
+                       std::to_string(size) + " elements.";
+      throw std::runtime_error(msg);
    }
    RVec<T> r(absn);
    if (n < 0) {
@@ -2202,6 +2376,47 @@ RVec<T> Take(const RVec<T> &v, const int n)
          r[k] = v[k];
    }
    return r;
+}
+
+/// Return first `n` elements of an RVec if `n > 0` and last `n` elements if `n < 0`.
+///
+/// This Take version defaults to a user-specified value
+/// `default_val` if the absolute value of `n` is
+/// greater than the size of the RVec `v`
+///
+/// Example code, at the ROOT prompt:
+/// ~~~{.cpp}
+/// using ROOT::VecOps::RVec;
+/// RVec<int> x{1,2,3,4};
+/// Take(x,-5,1)
+/// // (ROOT::VecOps::RVec<int>) { 1, 1, 2, 3, 4 }
+/// Take(x,5,20)
+/// // (ROOT::VecOps::RVec<int>) { 1, 2, 3, 4, 20 }
+/// Take(x,-1,1)
+/// // (ROOT::VecOps::RVec<int>) { 4 }
+/// Take(x,4,1)
+/// // (ROOT::VecOps::RVec<int>) { 1, 2, 3, 4 }
+/// ~~~
+template <typename T>
+RVec<T> Take(const RVec<T> &v, const int n, const T default_val)
+{
+   using size_type = typename RVec<T>::size_type;
+   const size_type size = v.size();
+   const size_type absn = std::abs(n);
+   // Base case, can be handled by another overload of Take
+   if (absn <= size) {
+      return Take(v, n);
+   }
+   RVec<T> temp = v;
+   // Case when n is positive and n > v.size()
+   if (n > 0) {
+      temp.resize(n, default_val);
+      return temp;
+   }
+   // Case when n is negative and abs(n) > v.size()
+   const auto num_to_fill = absn - size;
+   ROOT::VecOps::RVec<T> fill_front(num_to_fill, default_val);
+   return Concatenate(fill_front, temp);
 }
 
 /// Return a copy of the container without the elements at the specified indices.
@@ -2238,7 +2453,7 @@ RVec<T> Drop(const RVec<T> &v, RVec<typename RVec<T>::size_type> idxs)
 /// RVecD v {2., 3., 1.};
 /// auto v_reverse = Reverse(v);
 /// v_reverse
-/// // (ROOT::VecOps::RVec<double>) { 1.0000000, 3.0000000, 2.0000000 }
+/// // (ROOT::VecOps::RVec<double> &) { 1.0000000, 3.0000000, 2.0000000 }
 /// ~~~
 template <typename T>
 RVec<T> Reverse(const RVec<T> &v)
@@ -2250,7 +2465,7 @@ RVec<T> Reverse(const RVec<T> &v)
 
 /// Return copy of RVec with elements sorted in ascending order
 ///
-/// This helper is different from ArgSort since it does not return an RVec of indices,
+/// This helper is different from Argsort since it does not return an RVec of indices,
 /// but an RVec of values.
 ///
 /// Example code, at the ROOT prompt:
@@ -2259,7 +2474,7 @@ RVec<T> Reverse(const RVec<T> &v)
 /// RVecD v {2., 3., 1.};
 /// auto v_sorted = Sort(v);
 /// v_sorted
-/// // (ROOT::VecOps::RVec<double>) { 1.0000000, 2.0000000, 3.0000000 }
+/// // (ROOT::VecOps::RVec<double> &) { 1.0000000, 2.0000000, 3.0000000 }
 /// ~~~
 template <typename T>
 RVec<T> Sort(const RVec<T> &v)
@@ -2271,11 +2486,11 @@ RVec<T> Sort(const RVec<T> &v)
 
 /// Return copy of RVec with elements sorted based on a comparison operator
 ///
-/// The comparison operator has to fullfill the same requirements of the
+/// The comparison operator has to fulfill the same requirements of the
 /// predicate of by std::sort.
 ///
 ///
-/// This helper is different from ArgSort since it does not return an RVec of indices,
+/// This helper is different from Argsort since it does not return an RVec of indices,
 /// but an RVec of values.
 ///
 /// Example code, at the ROOT prompt:
@@ -2284,13 +2499,73 @@ RVec<T> Sort(const RVec<T> &v)
 /// RVecD v {2., 3., 1.};
 /// auto v_sorted = Sort(v, [](double x, double y) {return 1/x < 1/y;});
 /// v_sorted
-/// // (ROOT::VecOps::RVec<double>) { 3.0000000, 2.0000000, 1.0000000 }
+/// // (ROOT::VecOps::RVec<double> &) { 3.0000000, 2.0000000, 1.0000000 }
 /// ~~~
 template <typename T, typename Compare>
 RVec<T> Sort(const RVec<T> &v, Compare &&c)
 {
    RVec<T> r(v);
    std::sort(r.begin(), r.end(), std::forward<Compare>(c));
+   return r;
+}
+
+/// Return copy of RVec with elements sorted in ascending order
+/// while keeping the order of equal elements.
+///
+/// This is the stable variant of `Sort`.
+///
+/// This helper is different from StableArgsort since it does not return an RVec of indices,
+/// but an RVec of values.
+///
+/// Example code, at the ROOT prompt:
+/// ~~~{.cpp}
+/// using namespace ROOT::VecOps;
+/// RVecD v {2., 3., 2, 1.};
+/// auto v_sorted = StableSort(v);
+/// v_sorted
+/// // (ROOT::VecOps::RVec<double> &) { 1.0000000, 2.0000000, 2.0000000, 3.0000000 }
+/// ~~~
+template <typename T>
+RVec<T> StableSort(const RVec<T> &v)
+{
+   RVec<T> r(v);
+   std::stable_sort(r.begin(), r.end());
+   return r;
+}
+
+// clang-format off
+/// Return copy of RVec with elements sorted based on a comparison operator
+/// while keeping the order of equal elements.
+///
+/// The comparison operator has to fulfill the same requirements of the
+/// predicate of std::stable_sort.
+///
+/// This helper is different from StableArgsort since it does not return an RVec of indices,
+/// but an RVec of values.
+///
+/// This is the stable variant of `Sort`.
+///
+/// Example code, at the ROOT prompt:
+/// ~~~{.cpp}
+/// using namespace ROOT::VecOps;
+/// RVecD v {2., 3., 2., 1.};
+/// auto v_sorted = StableSort(v, [](double x, double y) {return 1/x < 1/y;});
+/// v_sorted
+/// // (ROOT::VecOps::RVec<double> &) { 3.0000000, 2.0000000, 2.0000000, 1.0000000 }
+/// ~~~
+/// ~~~{.cpp}
+/// using namespace ROOT::VecOps;
+/// RVec<RVecD> v {{2., 4.}, {3., 1.}, {2, 1.}, {1., 4.}};
+/// auto v_sorted = StableSort(StableSort(v, [](const RVecD &x, const RVecD &y) {return x[1] < y[1];}), [](const RVecD &x, const RVecD &y) {return x[0] < y[0];});
+/// v_sorted
+/// // (ROOT::VecOps::RVec<ROOT::VecOps::RVec<double> > &) { { 1.0000000, 4.0000000 }, { 2.0000000, 1.0000000 }, { 2.0000000, 4.0000000 }, { 3.0000000, 1.0000000 } }
+/// ~~~
+// clang-format off
+template <typename T, typename Compare>
+RVec<T> StableSort(const RVec<T> &v, Compare &&c)
+{
+   RVec<T> r(v);
+   std::stable_sort(r.begin(), r.end(), std::forward<Compare>(c));
    return r;
 }
 
@@ -2304,7 +2579,7 @@ RVec<T> Sort(const RVec<T> &v, Compare &&c)
 /// using namespace ROOT::VecOps;
 /// auto comb_idx = Combinations(3, 2);
 /// comb_idx
-/// // (ROOT::VecOps::RVec<ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>::size_type> >) { { 0, 0, 1, 1, 2, 2 }, { 0, 1, 0, 1, 0, 1 } }
+/// // (ROOT::VecOps::RVec<ROOT::VecOps::RVec<unsigned long> > &) { { 0, 0, 1, 1, 2, 2 }, { 0, 1, 0, 1, 0, 1 } }
 /// ~~~
 inline RVec<RVec<std::size_t>> Combinations(const std::size_t size1, const std::size_t size2)
 {
@@ -2335,8 +2610,7 @@ inline RVec<RVec<std::size_t>> Combinations(const std::size_t size1, const std::
 /// RVecD v2 {-4., -5.};
 /// auto comb_idx = Combinations(v1, v2);
 /// comb_idx
-/// // (ROOT::VecOps::RVec<ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>::size_type> >) { { 0, 0, 1, 1, 2, 2 }, { 0, 1,
-/// 0, 1, 0, 1 } }
+/// // (ROOT::VecOps::RVec<ROOT::VecOps::RVec<unsigned long> > &) { { 0, 0, 1, 1, 2, 2 }, { 0, 1, 0, 1, 0, 1 } }
 /// ~~~
 template <typename T1, typename T2>
 RVec<RVec<typename RVec<T1>::size_type>> Combinations(const RVec<T1> &v1, const RVec<T2> &v2)
@@ -2352,16 +2626,16 @@ RVec<RVec<typename RVec<T1>::size_type>> Combinations(const RVec<T1> &v1, const 
 /// RVecD v {1., 2., 3., 4.};
 /// auto v_1 = Combinations(v, 1);
 /// v_1
-/// (ROOT::VecOps::RVec<ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>::size_type> >) { { 0, 1, 2, 3 } }
+/// (ROOT::VecOps::RVec<ROOT::VecOps::RVec<unsigned long> > &) { { 0, 1, 2, 3 } }
 /// auto v_2 = Combinations(v, 2);
-/// auto v_2
-/// (ROOT::VecOps::RVec<ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>::size_type> >) { { 0, 0, 0, 1, 1, 2 }, { 1, 2, 3, 2, 3, 3 } }
+/// v_2
+/// (ROOT::VecOps::RVec<ROOT::VecOps::RVec<unsigned long> > &) { { 0, 0, 0, 1, 1, 2 }, { 1, 2, 3, 2, 3, 3 } }
 /// auto v_3 = Combinations(v, 3);
 /// v_3
-/// (ROOT::VecOps::RVec<ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>::size_type> >) { { 0, 0, 0, 1 }, { 1, 1, 2, 2 }, { 2, 3, 3, 3 } }
+/// (ROOT::VecOps::RVec<ROOT::VecOps::RVec<unsigned long> > &) { { 0, 0, 0, 1 }, { 1, 1, 2, 2 }, { 2, 3, 3, 3 } }
 /// auto v_4 = Combinations(v, 4);
 /// v_4
-/// (ROOT::VecOps::RVec<ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>::size_type> >) { { 0 }, { 1 }, { 2 }, { 3 } }
+/// (ROOT::VecOps::RVec<ROOT::VecOps::RVec<unsigned long> > &) { { 0 }, { 1 }, { 2 }, { 3 } }
 /// ~~~
 template <typename T>
 RVec<RVec<typename RVec<T>::size_type>> Combinations(const RVec<T>& v, const typename RVec<T>::size_type n)
@@ -2369,16 +2643,33 @@ RVec<RVec<typename RVec<T>::size_type>> Combinations(const RVec<T>& v, const typ
    using size_type = typename RVec<T>::size_type;
    const size_type s = v.size();
    if (n > s) {
-      std::stringstream ss;
-      ss << "Cannot make unique combinations of size " << n << " from vector of size " << s << ".";
-      throw std::runtime_error(ss.str());
+      throw std::runtime_error("Cannot make unique combinations of size " + std::to_string(n) +
+                               " from vector of size " + std::to_string(s) + ".");
    }
+
    RVec<size_type> indices(s);
    for(size_type k=0; k<s; k++)
       indices[k] = k;
-   RVec<RVec<size_type>> c(n);
-   for(size_type k=0; k<n; k++)
-      c[k].emplace_back(indices[k]);
+
+   const auto innersize = [=] {
+      size_type inners = s - n + 1;
+      for (size_type m = s - n + 2; m <= s; ++m)
+         inners *= m;
+
+      size_type factn = 1;
+      for (size_type i = 2; i <= n; ++i)
+         factn *= i;
+      inners /= factn;
+
+      return inners;
+   }();
+
+   RVec<RVec<size_type>> c(n, RVec<size_type>(innersize));
+   size_type inneridx = 0;
+   for (size_type k = 0; k < n; k++)
+      c[k][inneridx] = indices[k];
+   ++inneridx;
+
    while (true) {
       bool run_through = true;
       long i = n - 1;
@@ -2394,8 +2685,9 @@ RVec<RVec<typename RVec<T>::size_type>> Combinations(const RVec<T>& v, const typ
       indices[i]++;
       for (long j=i+1; j<(long)n; j++)
          indices[j] = indices[j-1] + 1;
-      for(size_type k=0; k<n; k++)
-         c[k].emplace_back(indices[k]);
+      for (size_type k = 0; k < n; k++)
+         c[k][inneridx] = indices[k];
+      ++inneridx;
    }
 }
 
@@ -2407,7 +2699,7 @@ RVec<RVec<typename RVec<T>::size_type>> Combinations(const RVec<T>& v, const typ
 /// RVecD v {2., 0., 3., 0., 1.};
 /// auto nonzero_idx = Nonzero(v);
 /// nonzero_idx
-/// // (ROOT::VecOps::RVec<ROOT::VecOps::RVec<double>::size_type>) { 0, 2, 4 }
+/// // (ROOT::VecOps::RVec<unsigned long> &) { 0, 2, 4 }
 /// ~~~
 template <typename T>
 RVec<typename RVec<T>::size_type> Nonzero(const RVec<T> &v)
@@ -2438,7 +2730,7 @@ RVec<typename RVec<T>::size_type> Nonzero(const RVec<T> &v)
 /// RVecD v2 {-4., -5., 2., 1.};
 /// auto v1_intersect_v2 = Intersect(v1, v2);
 /// v1_intersect_v2
-/// // (ROOT::VecOps::RVec<double>) { 1.0000000, 2.0000000 }
+/// // (ROOT::VecOps::RVec<double> &) { 1.0000000, 2.0000000 }
 /// ~~~
 template <typename T>
 RVec<T> Intersect(const RVec<T>& v1, const RVec<T>& v2, bool v2_is_sorted = false)
@@ -2503,7 +2795,7 @@ RVec<T> Where(const RVec<int>& c, const RVec<T>& v1, const RVec<T>& v2)
 /// // (ROOT::VecOps::RVec<double>) { 4.0000000, 2.0000000, 3.0000000 }
 /// ~~~
 template <typename T>
-RVec<T> Where(const RVec<int>& c, const RVec<T>& v1, T v2)
+RVec<T> Where(const RVec<int> &c, const RVec<T> &v1, typename RVec<T>::value_type v2)
 {
    using size_type = typename RVec<T>::size_type;
    const size_type size = c.size();
@@ -2531,7 +2823,7 @@ RVec<T> Where(const RVec<int>& c, const RVec<T>& v1, T v2)
 /// // (ROOT::VecOps::RVec<double>) { 1.0000000, 4.0000000, 4.0000000 }
 /// ~~~
 template <typename T>
-RVec<T> Where(const RVec<int>& c, T v1, const RVec<T>& v2)
+RVec<T> Where(const RVec<int>& c, typename RVec<T>::value_type v1, const RVec<T>& v2)
 {
    using size_type = typename RVec<T>::size_type;
    const size_type size = c.size();
@@ -2576,8 +2868,8 @@ RVec<T> Where(const RVec<int>& c, T v1, T v2)
 /// using namespace ROOT::VecOps;
 /// RVecF rvf {0.f, 1.f, 2.f};
 /// RVecI rvi {7, 8, 9};
-/// Concatenate(rvf, rvi);
-/// // (ROOT::VecOps::RVec<float>) { 2.0000000, 4.0000000, 4.0000000 }
+/// Concatenate(rvf, rvi)
+/// // (ROOT::VecOps::RVec<float>) { 0.00000f, 1.00000f, 2.00000f, 7.00000f, 8.00000f, 9.00000f }
 /// ~~~
 template <typename T0, typename T1, typename Common_t = typename std::common_type<T0, T1>::type>
 RVec<Common_t> Concatenate(const RVec<T0> &v0, const RVec<T1> &v1)
@@ -2595,10 +2887,10 @@ RVec<Common_t> Concatenate(const RVec<T0> &v0, const RVec<T1> &v1)
 /// therefore in the range \f$[-\pi, \pi]\f$.
 /// The computation is done per default in radians \f$c = \pi\f$ but can be switched
 /// to degrees \f$c = 180\f$.
-template <typename T>
-T DeltaPhi(T v1, T v2, const T c = M_PI)
+template <typename T0, typename T1 = T0, typename Common_t = std::common_type_t<T0, T1>>
+Common_t DeltaPhi(T0 v1, T1 v2, const Common_t c = M_PI)
 {
-   static_assert(std::is_floating_point<T>::value,
+   static_assert(std::is_floating_point<T0>::value && std::is_floating_point<T1>::value,
                  "DeltaPhi must be called with floating point values.");
    auto r = std::fmod(v2 - v1, 2.0 * c);
    if (r < -c) {
@@ -2616,12 +2908,12 @@ T DeltaPhi(T v1, T v2, const T c = M_PI)
 /// therefore in the range \f$[-\pi, \pi]\f$.
 /// The computation is done per default in radians \f$c = \pi\f$ but can be switched
 /// to degrees \f$c = 180\f$.
-template <typename T>
-RVec<T> DeltaPhi(const RVec<T>& v1, const RVec<T>& v2, const T c = M_PI)
+template <typename T0, typename T1 = T0, typename Common_t = typename std::common_type_t<T0, T1>>
+RVec<Common_t> DeltaPhi(const RVec<T0>& v1, const RVec<T1>& v2, const Common_t c = M_PI)
 {
-   using size_type = typename RVec<T>::size_type;
+   using size_type = typename RVec<T0>::size_type;
    const size_type size = v1.size();
-   auto r = RVec<T>(size);
+   auto r = RVec<Common_t>(size);
    for (size_type i = 0; i < size; i++) {
       r[i] = DeltaPhi(v1[i], v2[i], c);
    }
@@ -2634,12 +2926,12 @@ RVec<T> DeltaPhi(const RVec<T>& v1, const RVec<T>& v2, const T c = M_PI)
 /// therefore in the range \f$[-\pi, \pi]\f$.
 /// The computation is done per default in radians \f$c = \pi\f$ but can be switched
 /// to degrees \f$c = 180\f$.
-template <typename T>
-RVec<T> DeltaPhi(const RVec<T>& v1, T v2, const T c = M_PI)
+template <typename T0, typename T1 = T0, typename Common_t = typename std::common_type_t<T0, T1>>
+RVec<Common_t> DeltaPhi(const RVec<T0>& v1, T1 v2, const Common_t c = M_PI)
 {
-   using size_type = typename RVec<T>::size_type;
+   using size_type = typename RVec<T0>::size_type;
    const size_type size = v1.size();
-   auto r = RVec<T>(size);
+   auto r = RVec<Common_t>(size);
    for (size_type i = 0; i < size; i++) {
       r[i] = DeltaPhi(v1[i], v2, c);
    }
@@ -2652,12 +2944,12 @@ RVec<T> DeltaPhi(const RVec<T>& v1, T v2, const T c = M_PI)
 /// therefore in the range \f$[-\pi, \pi]\f$.
 /// The computation is done per default in radians \f$c = \pi\f$ but can be switched
 /// to degrees \f$c = 180\f$.
-template <typename T>
-RVec<T> DeltaPhi(T v1, const RVec<T>& v2, const T c = M_PI)
+template <typename T0, typename T1 = T0, typename Common_t = typename std::common_type_t<T0, T1>>
+RVec<Common_t> DeltaPhi(T0 v1, const RVec<T1>& v2, const Common_t c = M_PI)
 {
-   using size_type = typename RVec<T>::size_type;
+   using size_type = typename RVec<T1>::size_type;
    const size_type size = v2.size();
-   auto r = RVec<T>(size);
+   auto r = RVec<Common_t>(size);
    for (size_type i = 0; i < size; i++) {
       r[i] = DeltaPhi(v1, v2[i], c);
    }
@@ -2671,8 +2963,8 @@ RVec<T> DeltaPhi(T v1, const RVec<T>& v2, const T c = M_PI)
 /// of the given collections eta1, eta2, phi1 and phi2. The angle \f$\phi\f$ can
 /// be set to radian or degrees using the optional argument c, see the documentation
 /// of the DeltaPhi helper.
-template <typename T>
-RVec<T> DeltaR2(const RVec<T>& eta1, const RVec<T>& eta2, const RVec<T>& phi1, const RVec<T>& phi2, const T c = M_PI)
+template <typename T0, typename T1 = T0, typename T2 = T0, typename T3 = T0, typename Common_t = std::common_type_t<T0, T1, T2, T3>>
+RVec<Common_t> DeltaR2(const RVec<T0>& eta1, const RVec<T1>& eta2, const RVec<T2>& phi1, const RVec<T3>& phi2, const Common_t c = M_PI)
 {
    const auto dphi = DeltaPhi(phi1, phi2, c);
    return (eta1 - eta2) * (eta1 - eta2) + dphi * dphi;
@@ -2685,8 +2977,8 @@ RVec<T> DeltaR2(const RVec<T>& eta1, const RVec<T>& eta2, const RVec<T>& phi1, c
 /// of the given collections eta1, eta2, phi1 and phi2. The angle \f$\phi\f$ can
 /// be set to radian or degrees using the optional argument c, see the documentation
 /// of the DeltaPhi helper.
-template <typename T>
-RVec<T> DeltaR(const RVec<T>& eta1, const RVec<T>& eta2, const RVec<T>& phi1, const RVec<T>& phi2, const T c = M_PI)
+template <typename T0, typename T1 = T0, typename T2 = T0, typename T3 = T0, typename Common_t = std::common_type_t<T0, T1, T2, T3>>
+RVec<Common_t> DeltaR(const RVec<T0>& eta1, const RVec<T1>& eta2, const RVec<T2>& phi1, const RVec<T3>& phi2, const Common_t c = M_PI)
 {
    return sqrt(DeltaR2(eta1, eta2, phi1, phi2, c));
 }
@@ -2698,11 +2990,115 @@ RVec<T> DeltaR(const RVec<T>& eta1, const RVec<T>& eta2, const RVec<T>& phi1, co
 /// of the given scalars eta1, eta2, phi1 and phi2. The angle \f$\phi\f$ can
 /// be set to radian or degrees using the optional argument c, see the documentation
 /// of the DeltaPhi helper.
-template <typename T>
-T DeltaR(T eta1, T eta2, T phi1, T phi2, const T c = M_PI)
+template <typename T0, typename T1 = T0, typename T2 = T0, typename T3 = T0, typename Common_t = std::common_type_t<T0, T1, T2, T3>>
+Common_t DeltaR(T0 eta1, T1 eta2, T2 phi1, T3 phi2, const Common_t c = M_PI)
 {
    const auto dphi = DeltaPhi(phi1, phi2, c);
    return std::sqrt((eta1 - eta2) * (eta1 - eta2) + dphi * dphi);
+}
+
+/// Return the angle between two three-vectors given the quantities
+/// x coordinate (x), y coordinate (y), z coordinate (y).
+///
+/// The function computes the angle between two three-vectors
+/// (x1, y2, z1) and (x2, y2, z2).
+template <typename T0, typename T1 = T0, typename T2 = T0, typename T3 = T0, typename T4 = T0,
+          typename T5 = T0, typename Common_t = std::common_type_t<T0, T1>>
+Common_t Angle(T0 x1, T1 y1, T2 z1, T3 x2, T4 y2, T5 z2){
+    // cross product
+    const auto cx = y1 * z2 - y2 * z1;
+    const auto cy = x1 * z2 - x2 * z1;
+    const auto cz = x1 * y2 - x2 * y1;
+
+    // norm of cross product
+    const auto c = std::sqrt(cx * cx + cy * cy + cz * cz);
+
+    // dot product
+    const auto  d = x1 * x2 + y1 * y2 + z1 * z2;
+
+    return std::atan2(c, d);
+}
+
+/// Return the invariant mass of two particles given
+/// x coordinate (px), y coordinate (py), z coordinate (pz) and mass.
+///
+/// The function computes the invariant mass of two particles with the four-vectors
+/// (x1, y2, z1, mass1) and (x2, py2, pz2, mass2).
+template <typename T0, typename T1 = T0, typename T2 = T0, typename T3 = T0, typename T4 = T0,
+          typename T5 = T0, typename T6 = T0, typename T7 = T0, typename Common_t = std::common_type_t<T0, T1, T2, T3, T4, T5, T6, T7>>
+Common_t InvariantMasses_PxPyPzM(
+   const T0& x1, const T1& y1, const T2& z1, const T3& mass1,
+   const T4& x2, const T5& y2, const T6& z2, const T7& mass2)
+{
+
+      // Numerically stable computation of Invariant Masses
+      const auto p1_sq = x1 * x1 + y1 * y1 + z1 * z1;
+      const auto p2_sq = x2 * x2 + y2 * y2 + z2 * z2;
+
+      if (p1_sq <= 0 && p2_sq <= 0)
+         return (mass1 + mass2);
+      if (p1_sq <= 0) {
+         auto mm = mass1 + std::sqrt(mass2*mass2 + p2_sq);
+         auto m2 = mm*mm - p2_sq;
+         if (m2 >= 0)
+            return std::sqrt( m2 );
+         else
+            return std::sqrt( -m2 );
+      }
+      if (p2_sq <= 0) {
+         auto mm = mass2 + std::sqrt(mass1*mass1 + p1_sq);
+         auto m2 = mm*mm - p1_sq;
+         if (m2 >= 0)
+            return std::sqrt( m2 );
+         else
+            return std::sqrt( -m2 );
+      }
+
+      const auto m1_sq =  mass1 * mass1;
+      const auto m2_sq =  mass2 * mass2;
+
+      const auto r1 = m1_sq / p1_sq;
+      const auto r2 = m2_sq / p2_sq;
+      const auto x = r1 + r2 + r1 * r2;
+      const auto a = Angle(x1, y1, z1, x2, y2, z2);
+      const auto cos_a = std::cos(a);
+      auto y = x;
+      if ( cos_a >= 0){
+         y = (x + std::sin(a) * std::sin(a)) / (std::sqrt(x + 1) + cos_a);
+      } else {
+         y = std::sqrt(x + 1) - cos_a;
+      }
+
+      const auto z = 2 * std::sqrt(p1_sq * p2_sq);
+
+   // Return invariant mass with (+, -, -, -) metric
+   return std::sqrt(m1_sq + m2_sq + y * z);
+}
+
+/// Return the invariant mass of two particles given the collections of the quantities
+/// x coordinate (px), y coordinate (py), z coordinate (pz) and mass.
+///
+/// The function computes the invariant mass of two particles with the four-vectors
+/// (px1, py2, pz1, mass1) and (px2, py2, pz2, mass2).
+template <typename T0, typename T1 = T0, typename T2 = T0, typename T3 = T0, typename T4 = T0,
+          typename T5 = T0, typename T6 = T0, typename T7 = T0, typename Common_t = std::common_type_t<T0, T1, T2, T3, T4, T5, T6, T7>>
+RVec<Common_t> InvariantMasses_PxPyPzM(
+   const RVec<T0>& px1, const RVec<T1>& py1, const RVec<T2>& pz1, const RVec<T3>& mass1,
+   const RVec<T4>& px2, const RVec<T5>& py2, const RVec<T6>& pz2, const RVec<T7>& mass2)
+{
+   std::size_t size = px1.size();
+
+   R__ASSERT(py1.size() == size && pz1.size() == size && mass1.size() == size);
+   R__ASSERT(px2.size() == size && py2.size() == size && pz2.size() == size && mass2.size() == size);
+
+   RVec<Common_t> inv_masses(size);
+
+   for (std::size_t i = 0u; i < size; ++i) {
+      inv_masses[i] = InvariantMasses_PxPyPzM(px1[i], py1[i], pz1[i], mass1[i], px2[i], py2[i], pz2[i], mass2[i]);
+   }
+
+   // Return invariant mass with (+, -, -, -) metric
+   return inv_masses;
 }
 
 /// Return the invariant mass of two particles given the collections of the quantities
@@ -2710,37 +3106,31 @@ T DeltaR(T eta1, T eta2, T phi1, T phi2, const T c = M_PI)
 ///
 /// The function computes the invariant mass of two particles with the four-vectors
 /// (pt1, eta2, phi1, mass1) and (pt2, eta2, phi2, mass2).
-template <typename T>
-RVec<T> InvariantMasses(
-        const RVec<T>& pt1, const RVec<T>& eta1, const RVec<T>& phi1, const RVec<T>& mass1,
-        const RVec<T>& pt2, const RVec<T>& eta2, const RVec<T>& phi2, const RVec<T>& mass2)
+template <typename T0, typename T1 = T0, typename T2 = T0, typename T3 = T0, typename T4 = T0,
+          typename T5 = T0, typename T6 = T0, typename T7 = T0, typename Common_t = std::common_type_t<T0, T1, T2, T3, T4, T5, T6, T7>>
+RVec<Common_t> InvariantMasses(
+   const RVec<T0>& pt1, const RVec<T1>& eta1, const RVec<T2>& phi1, const RVec<T3>& mass1,
+   const RVec<T4>& pt2, const RVec<T5>& eta2, const RVec<T6>& phi2, const RVec<T7>& mass2)
 {
    std::size_t size = pt1.size();
 
    R__ASSERT(eta1.size() == size && phi1.size() == size && mass1.size() == size);
    R__ASSERT(pt2.size() == size && phi2.size() == size && mass2.size() == size);
 
-   RVec<T> inv_masses(size);
+   RVec<Common_t> inv_masses(size);
 
    for (std::size_t i = 0u; i < size; ++i) {
-      // Conversion from (pt, eta, phi, mass) to (x, y, z, e) coordinate system
+      // Conversion from (pt, eta, phi, mass) to (x, y, z, mass) coordinate system
       const auto x1 = pt1[i] * std::cos(phi1[i]);
       const auto y1 = pt1[i] * std::sin(phi1[i]);
       const auto z1 = pt1[i] * std::sinh(eta1[i]);
-      const auto e1 = std::sqrt(x1 * x1 + y1 * y1 + z1 * z1 + mass1[i] * mass1[i]);
 
       const auto x2 = pt2[i] * std::cos(phi2[i]);
       const auto y2 = pt2[i] * std::sin(phi2[i]);
       const auto z2 = pt2[i] * std::sinh(eta2[i]);
-      const auto e2 = std::sqrt(x2 * x2 + y2 * y2 + z2 * z2 + mass2[i] * mass2[i]);
 
-      // Addition of particle four-vector elements
-      const auto e = e1 + e2;
-      const auto x = x1 + x2;
-      const auto y = y1 + y2;
-      const auto z = z1 + z2;
-
-      inv_masses[i] = std::sqrt(e * e - x * x - y * y - z * z);
+      // Numerically stable computation of Invariant Masses
+      inv_masses[i] = InvariantMasses_PxPyPzM(x1, y1, z1, mass1[i], x2, y2, z2, mass2[i]);
    }
 
    // Return invariant mass with (+, -, -, -) metric
@@ -2752,17 +3142,17 @@ RVec<T> InvariantMasses(
 ///
 /// The function computes the invariant mass of multiple particles with the
 /// four-vectors (pt, eta, phi, mass).
-template <typename T>
-T InvariantMass(const RVec<T>& pt, const RVec<T>& eta, const RVec<T>& phi, const RVec<T>& mass)
+template <typename T0, typename T1 = T0, typename T2 = T0, typename T3 = T0, typename Common_t = std::common_type_t<T0, T1, T2, T3>>
+Common_t InvariantMass(const RVec<T0>& pt, const RVec<T1>& eta, const RVec<T2>& phi, const RVec<T3>& mass)
 {
    const std::size_t size = pt.size();
 
    R__ASSERT(eta.size() == size && phi.size() == size && mass.size() == size);
 
-   T x_sum = 0.;
-   T y_sum = 0.;
-   T z_sum = 0.;
-   T e_sum = 0.;
+   Common_t x_sum = 0.;
+   Common_t y_sum = 0.;
+   Common_t z_sum = 0.;
+   Common_t e_sum = 0.;
 
    for (std::size_t i = 0u; i < size; ++ i) {
       // Convert to (e, x, y, z) coordinate system and update sums
@@ -2809,6 +3199,363 @@ RVec<T> Construct(const RVec<Args_t> &... args)
    }
    return ret;
 }
+
+/// For any Rvec v produce another RVec with entries starting from 0, and incrementing by 1 until a N = v.size() is reached.
+/// Example code, at the ROOT prompt:
+/// ~~~{.cpp}
+/// using namespace ROOT::VecOps;
+/// RVecF v = {1., 2., 3.};
+/// cout << Enumerate(v1) << "\n";
+/// // { 0, 1, 2 }
+/// ~~~
+template <typename T>
+RVec<typename RVec<T>::size_type> Enumerate(const RVec<T> &v)
+{
+   const auto size = v.size();
+   RVec<T> ret;
+   ret.reserve(size);
+   for (auto i = 0UL; i < size; ++i) {
+      ret.emplace_back(i);
+   }
+   return ret;
+}
+
+/**
+ * \brief Produce RVec with N evenly-spaced entries from start to end.
+ *
+ * This function generates a vector of evenly spaced values, starting at \p start and (depending on the
+ * \p endpoint parameter) either including or excluding \p end. If \p endpoint is true (default),
+ * the vector contains \p n values with \p end as the final element, and the spacing is computed as
+ * \f$\text{step} = \frac{\text{end} - \text{start}}{n-1}\f$. If \p endpoint is false,
+ * the sequence consists of n values computed as if there were n+1 evenly spaced samples, with the final
+ * value (\p end) omitted; in this case, \f$\text{step} = \frac{\text{end} - \text{start}}{n}\f$.
+ *
+ * The function is templated to allow for different return types. The return type \c Ret_t, if
+ * not explicitly specified, is determined as follows: if \p T is a floating point type, that type is used;
+ * otherwise, the return type is \c double.
+ *
+ * \tparam T Type of the start and end value. Default is double.
+ * \tparam Ret_t Return type used, which, if not explicitly specified
+ * in the template, is \p T if that is a floating point type, or double otherwise.
+ *
+ * \param start The first value in the sequence.
+ * \param end The last value in the sequence if \p endpoint is true; otherwise, \p end is excluded.
+ * \param n The number of evenly spaced entries to produce. The default value is 128, which is different than numpy's default value of 50.
+ * \param endpoint If true (default), \p end is included as the final element; if false, \p end is excluded.
+ *
+ * \return A vector (RVec<Ret_t>) containing \p n evenly spaced values.
+ *
+ * \note If \p n is 1, the resulting vector will contain only the value \p start.
+ * \note The check `if (!n || (n > std::numeric_limits<long long>::max()))` is used to ensure that:
+ *   - division by zero is avoided when calculating `step`
+ *   - n does not exceed std::numeric_limits<long long>::max(), which would indicate that a negative range (or other arithmetic issue)
+ *     has resulted in an extremely large unsigned value, thereby preventing an attempt to reserve an absurd
+ *     amount of memory.
+ * \note If the template parameter \c Ret_t is explicitly overridden with an integral type, the returned results are rounded towards negative (std::floor) and then cast to the integer type. This is equivalent to setting `dtype = int` in numpy.linspace. To cast to integer without rounding, use instead `RVec<integral_type>(Linspace(...))`, which would be equivalent to `np.linspace(...).astype(integral_type)` in numpy.
+ *
+ * \par C++23 Enumerate Support:
+ * With C++23, you can use the range-based enumerate view to iterate over the resulting vector with both the index
+ * and the value, similar to Python's `enumerate`. For example:
+ * ~~~{.cpp}
+ * for (auto const [index, val] : std::views::enumerate(ROOT::VecOps::Linspace(6, 10, 16))) {
+ *     // Process index and val.
+ * }
+ * ~~~
+ *
+ * \par Example code, at the ROOT prompt:
+ * ~~~{.cpp}
+ * using namespace ROOT::VecOps;
+ * cout << Linspace(-1, 5, 5) << "\n";
+ * // { -1, 0.5, 2, 3.5, 5 }
+ * cout << Linspace(3, 12, 5) << "\n";
+ * // { 3, 5.25, 7.5, 9.75, 12 }
+ * cout << Linspace(3, 12, 5, false) << "\n";
+ * // { 3, 4.8, 6.6, 8.4, 10.2 }
+ * cout << Linspace<int, int>(1, 10, 3) << "\n";
+ * // { 1, 5, 10 }
+ * ~~~
+ */
+template <typename T = double, typename Ret_t = std::conditional_t<std::is_floating_point_v<T>, T, double>>
+inline RVec<Ret_t> Linspace(T start, T end, unsigned long long n = 128, const bool endpoint = true)
+{
+    if (!n || (n > std::numeric_limits<long long>::max())) // Check for invalid or absurd n.
+    {
+        return {};
+    }
+
+    long double step = std::is_floating_point_v<Ret_t> ?
+    (end - start) / static_cast<long double>(n - endpoint) :
+    (end >= start ? static_cast<long double>(end - start) / (n - endpoint) : (static_cast<long double>(end) - start) / (n - endpoint));
+
+    RVec<Ret_t> temp(n);
+    temp[0] = std::is_floating_point_v<Ret_t> ? static_cast<Ret_t>(start) : std::floor(start);
+    if constexpr (std::is_floating_point_v<Ret_t>)
+    {
+        for (unsigned long long i = 1; i < n; i++)
+        {
+            temp[i] = static_cast<Ret_t>(start + i * step);
+        }
+    }
+    else
+    {
+        for (unsigned long long i = 1; i < n; i++)
+        {
+            temp[i] = std::floor(start + i * step);
+        }
+    }
+    return temp;
+}
+
+/**
+ * \brief Produce RVec with n log-spaced entries from base^{start} to base^{end}.
+ *
+ * This function generates a vector of values where the exponents are evenly spaced, and then returns the
+ * corresponding values of base raised to these exponents. If \p endpoint is true (default), the vector
+ * contains \p n values with the last element equal to \f$base^{end}\f$. If \p endpoint is false, the
+ * sequence is computed as if there were n+1 evenly spaced samples over the interval in the exponent space,
+ * and the final value (\f$base^{end}\f$) is excluded, resulting in a sequence of n values.
+ *
+ * The function is templated to allow for different return types. The return type \c Ret_t, if not explicitly specified,
+ * is determined as follows: if \p T is a floating point type, that type is used; otherwise, the return type is \c double.
+ *
+ * \tparam T Type of the start and end exponents and the base. Default is double.
+ * \tparam Ret_t Deduced type used for return type, which, if not explicitly specified, is \p T if that is a floating point type, or double otherwise.
+ *
+ * \param start The exponent corresponding to the first element (i.e., the first element is \f$base^{start}\f$).
+ * \param end The exponent corresponding to the final element if \p endpoint is true; otherwise, \p end is excluded.
+ * \param n The number of log-spaced entries to produce. The default value is 128, which is different than numpy's default value of 50.
+ * \param endpoint If true (default), \f$base^{end}\f$ is included as the final element; if false, \f$base^{end}\f$ is excluded.
+ * \param base The base to be used in the exponentiation (default is 10.0).
+ *
+ * \return A vector (RVec<Ret_t>) containing n log-spaced values.
+ *
+ * \note If \p n is 1, the resulting vector will contain only the value \f$base^{start}\f$.
+ * \note The check `if (!n || (n > std::numeric_limits<long long>::max()))` is used to ensure that:
+ *   - division by zero is avoided when calculating `step`
+ *   - n does not exceed std::numeric_limits<long long>::max(), which would indicate that a negative range (or other arithmetic issue)
+ *     has resulted in an extremely large unsigned value, thereby preventing an attempt to reserve an absurd
+ *     amount of memory.
+ * \note If the template parameter \c Ret_t is explicitly overridden with an integral type, the returned results are rounded towards negative (`std::floor`) and then cast to the integer type. This is equivalent to setting `dtype = int` in `numpy.linspace`. To cast to integer without rounding, use instead `RVec<integral_type>(Logspace(...))`, which would be equivalent to `np.logspace(...).astype(integral_type)` in numpy.
+ *
+ * \par C++23 Enumerate Support:
+ * With C++23, you can use the range-based enumerate view to iterate over the resulting vector with both the index
+ * and the value, similar to Python's `enumerate`. For example:
+ * ~~~{.cpp}
+ * for (auto const [index, val] : std::views::enumerate(ROOT::VecOps::Logspace(4, 10, 12))) {
+ *     // Process index and val.
+ * }
+ * ~~~
+ *
+ * \par Example code, at the ROOT prompt:
+ * ~~~{.cpp}
+ * using namespace ROOT::VecOps;
+ * cout << Logspace(4, 10, 12) << '\n';
+ * // { 10000, 35111.9, 123285, 432876, 1.51991e+06, 5.3367e+06, 1.87382e+07, 6.57933e+07, 2.31013e+08, 8.11131e+08, 2.84804e+09, 1e+10 }
+ * cout << Logspace(0, 0, 50) << '\n';
+ * // { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }
+ * cout << Logspace(0, 0, 0) << '\n';
+ * // {  }
+ * cout << Logspace(4, 10, 12, 10.0, false) << '\n';
+ * // { 10000, 31622.8, 100000, 316228, 1e+06, 3.16228e+06, 1e+07, 3.16228e+07, 1e+08, 3.16228e+08, 1e+09, 3.16228e+09 }
+ * cout << Logspace<int, int>(1, 5, 3) << '\n';
+ * // { 10, 1000, 100000 }
+ * ~~~
+ */
+template <typename T = double, typename Ret_t = std::conditional_t<std::is_floating_point_v<T>, T, double>>
+inline RVec<Ret_t> Logspace(T start, T end, unsigned long long n = 128, const bool endpoint = true, T base = 10.0)
+{
+    if (!n || (n > std::numeric_limits<long long>::max())) // Check for invalid or absurd n.
+    {
+        return {};
+    }
+    RVec<Ret_t> temp(n);
+
+    long double start_c = start;
+    long double end_c   = end;
+    long double base_c  = base;
+
+    long double step = (end_c - start_c) / (n - endpoint);
+
+    temp[0] = std::is_floating_point_v<Ret_t> ?
+    static_cast<Ret_t>(std::pow(base_c, start_c)) :
+    std::floor(std::pow(base_c, start_c));
+
+    if constexpr (std::is_floating_point_v<Ret_t>)
+    {
+        for (unsigned long long i = 1; i < n; i++)
+        {
+            auto exponent = start_c + i * step;
+            temp[i] = static_cast<Ret_t>(std::pow(base_c, exponent));
+        }
+    }
+    else
+    {
+        for (unsigned long long i = 1; i < n; i++)
+        {
+            auto exponent = start_c + i * step;
+            temp[i] = std::floor(std::pow(base_c, exponent));
+        }
+    }
+
+    return temp;
+}
+
+/**
+ * \brief Produce RVec with entries in the range [start, end) in increments of step.
+ *
+ * This function generates a vector of values starting at \p start and incremented by \p step,
+ * continuing until the values reach or exceed \p end (the interval is half-open: [start, end)).
+ * The number of elements is computed as:
+ * \f[
+ * n = \lceil \frac{\text{end} - \text{start}}{\text{step}} \rceil
+ * \f]
+ * ensuring that the arithmetic is performed in a floating-point context when needed.
+ *
+ * The function is templated to allow for different return types. The return type \c Ret_t, if not
+ * explicitly specified, is determined as follows: if \p T is a floating point type, that type is used;
+ * otherwise, the return type is \c double.
+ *
+ * \tparam T Type of the start, end, and step values. Default is double.
+ * \tparam Ret_t Return type, which, if not explicitly
+ * specified, is \p T if that is a floating point type, or double otherwise.
+ *
+ * \param start The first value in the range.
+ * \param end The end of the range (exclusive).
+ * \param step The increment between consecutive values.
+ *
+ * \return A vector (RVec<Ret_t>) containing values starting at \p start, each incremented by \p step,
+ *         up to but not including any value equal to or greater than \p end.
+ *
+ * \note The check `if (!n || (n > std::numeric_limits<long long>::max()))` is used to ensure that:
+ *   - n is nonzero, and
+ *   - n does not exceed std::numeric_limits<long long>::max(), which would indicate that a negative range (or other arithmetic issue)
+ *     has resulted in an extremely large unsigned value, thereby preventing an attempt to reserve an absurd
+ *     amount of memory.
+ * \note If the template parameter \c Ret_t is explicitly overridden with an integral type, the returned results are rounded towards negative (`std::floor`) and then cast to the integer type. This is equivalent to setting `dtype = int` in numpy. To cast to integer without rounding, use instead `RVec<integral_type>(Arange(...))`, which would be equivalent to `np.arange(...).astype(integral_type)` in numpy.
+ *
+ * \par C++23 Enumerate Support:
+ * With C++23, you can use the range-based enumerate view to iterate over the resulting vector with both the index
+ * and the value, similar to Python's `enumerate`. For example:
+ * ~~~{.cpp}
+ * for (auto const [index, val] : std::views::enumerate(ROOT::VecOps::Arange(1, 13, 5))) {
+ *     // Process index and val.
+ * }
+ * ~~~
+ *
+ * \par Example code, at the ROOT prompt:
+ * ~~~{.cpp}
+ * using namespace ROOT::VecOps;
+ * cout << Arange(0, 0, 5) << '\n';
+ * // {  }
+ * cout << Arange(-7, 20, 4) << '\n';
+ * // { -7, -3, 1, 5, 9, 13, 17 }
+ * cout << Arange(1, 13, 5) << '\n';
+ * // { 1, 6, 11 }
+ * cout << Arange<unsigned int, unsigned int>(5, 9, 1) << '\n';
+ * // { 5, 6, 7, 8 }
+ * ~~~
+ */
+template <typename T = double, typename Ret_t = std::conditional_t<std::is_floating_point_v<T>, T, double>>
+inline RVec<Ret_t> Arange(T start, T end, T step)
+{
+    unsigned long long n = std::ceil(( end >= start ? (end - start) : static_cast<long double>(end)-start)/static_cast<long double>(step)); // Ensure floating-point division.
+
+    if (!n || (n > std::numeric_limits<long long>::max())) // Check for invalid or absurd n.
+    {
+        return {};
+    }
+
+    RVec<Ret_t> temp(n);
+
+    long double start_c = start;
+    long double step_c = step;
+
+    temp[0] = std::is_floating_point_v<Ret_t> ? static_cast<Ret_t>(start) : std::floor(start);
+    if constexpr (std::is_floating_point_v<Ret_t>)
+    {
+        for (unsigned long long i = 1; i < n; i++)
+        {
+            temp[i] = static_cast<Ret_t>(start_c + i * step_c);
+        }
+    }
+    else
+    {
+        for (unsigned long long i = 1; i < n; i++)
+        {
+            temp[i] = std::floor(start_c + i * step_c);
+        }
+    }
+    return temp;
+}
+
+/// Produce RVec with entries starting from 0, and incrementing by 1 until a user-specified N is reached.
+/// Example code, at the ROOT prompt:
+/// ~~~{.cpp}
+/// using namespace ROOT::VecOps;
+/// cout << Range(3) << "\n";
+/// // { 0, 1, 2 }
+/// ~~~
+inline RVec<std::size_t> Range(std::size_t length)
+{
+   RVec<std::size_t> ret;
+   ret.reserve(length);
+   for (auto i = 0UL; i < length; ++i) {
+      ret.emplace_back(i);
+   }
+   return ret;
+}
+
+/// Produce RVec with entries equal to begin, begin+1, ..., end-1.
+/// An empty RVec is returned if begin >= end.
+inline RVec<std::size_t> Range(std::size_t begin, std::size_t end)
+{
+   RVec<std::size_t> ret;
+   ret.reserve(begin < end ? end - begin : 0u);
+   for (auto i = begin; i < end; ++i)
+      ret.push_back(i);
+   return ret;
+}
+
+/// Allows for negative begin, end, and/or stride. Produce RVec<int> with entries equal to begin, begin+stride, ... , N,
+/// where N is the first integer such that N+stride exceeds or equals N in the positive or negative direction (same as in Python).
+/// An empty RVec is returned if begin >= end and stride > 0 or if
+/// begin < end and stride < 0. Throws a runtime_error if stride==0
+/// Example code, at the ROOT prompt:
+/// ~~~{.cpp}
+/// using namespace ROOT::VecOps;
+/// cout << Range(1, 5, 2) << "\n";
+/// // { 1, 3 }
+/// cout << Range(-1, -11, -4) << "\n";
+/// // { -1, -5, -9 }
+/// ~~~
+inline RVec<long long int> Range(long long int begin, long long int end, long long int stride)
+{
+   if (stride==0ll)
+   {
+      throw std::runtime_error("Range: the stride must not be zero");
+   }
+   RVec<long long int> ret;
+   float ret_cap = std::ceil(static_cast<float>(end-begin) / stride); //the capacity to reserve
+   //ret_cap < 0 if either begin > end & stride > 0, or begin < end & stride < 0. In both cases, an empty RVec should be returned
+   if (ret_cap < 0)
+   {
+      return ret;
+   }
+   ret.reserve(static_cast<size_t>(ret_cap));
+   if (stride > 0)
+   {
+      for (auto i = begin; i < end; i+=stride)
+         ret.push_back(i);
+   }
+   else
+   {
+      for (auto i = begin; i > end; i+=stride)
+         ret.push_back(i);
+   }
+   return ret;
+}
+
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Print a RVec at the prompt:
@@ -2986,30 +3733,6 @@ RVEC_EXTERN_STD_FUNCTIONS(double)
 #undef RVEC_EXTERN_STD_UNARY_FUNCTION
 #undef RVEC_EXTERN_STD_BINARY_FUNCTION
 #undef RVEC_EXTERN_STD_UNARY_FUNCTIONS
-
-#ifdef R__HAS_VDT
-
-#define RVEC_EXTERN_VDT_UNARY_FUNCTION(T, F) RVEC_EXTERN_UNARY_FUNCTION(T, F, vdt::F)
-
-RVEC_EXTERN_VDT_UNARY_FUNCTION(float, fast_expf)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(float, fast_logf)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(float, fast_sinf)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(float, fast_cosf)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(float, fast_tanf)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(float, fast_asinf)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(float, fast_acosf)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(float, fast_atanf)
-
-RVEC_EXTERN_VDT_UNARY_FUNCTION(double, fast_exp)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(double, fast_log)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(double, fast_sin)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(double, fast_cos)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(double, fast_tan)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(double, fast_asin)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(double, fast_acos)
-RVEC_EXTERN_VDT_UNARY_FUNCTION(double, fast_atan)
-
-#endif // R__HAS_VDT
 
 #endif // _VECOPS_USE_EXTERN_TEMPLATES
 

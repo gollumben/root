@@ -67,15 +67,15 @@ protected:
    void                 MakeBrowse();
 
 public:
-   TSpiderEditor(const TGWindow *p = 0,
+   TSpiderEditor(const TGWindow *p = nullptr,
                  Int_t width = 140, Int_t height = 30,
                  UInt_t options = kChildFrame,
                  Pixel_t back = GetDefaultFrameBackground());
-   ~TSpiderEditor();
+   ~TSpiderEditor() override;
 
    virtual void         DoAddVar();
    virtual void         DoDeleteVar();
-   virtual void         DoDisplayAverage(Bool_t av);
+   virtual void         DoDisplayAverage(bool av);
    virtual void         DoGotoEntry();
    virtual void         DoGotoNext();
    virtual void         DoGotoPrevious();
@@ -84,14 +84,14 @@ public:
    virtual void         DoSetNx();
    virtual void         DoSetNy();
    virtual void         DoSetPlotType();
-   virtual void         SetModel(TObject* obj);
+   void         SetModel(TObject* obj) override;
    virtual void         DoAvLineStyle(Int_t);
    virtual void         DoAvLineWidth(Int_t);
    virtual void         DoAvLineColor(Pixel_t);
    virtual void         DoAvFillColor(Pixel_t);
    virtual void         DoAvFillPattern(Style_t);
 
-   ClassDef(TSpiderEditor,0) // GUI for editing the spider plot attributes.
+   ClassDefOverride(TSpiderEditor,0) // GUI for editing the spider plot attributes.
 };
 
 #endif

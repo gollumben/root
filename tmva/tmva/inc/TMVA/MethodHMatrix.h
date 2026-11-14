@@ -1,11 +1,11 @@
-// @(#)root/tmva $Id$    
-// Author: Andreas Hoecker, Joerg Stelzer, Helge Voss, Kai Voss 
+// @(#)root/tmva $Id$
+// Author: Andreas Hoecker, Joerg Stelzer, Helge Voss, Kai Voss
 
 /**********************************************************************************
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodHMatrix                                                         *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      H-Matrix method, which is implemented as a simple comparison of           *
@@ -21,13 +21,13 @@
  *      Kai Voss        <Kai.Voss@cern.ch>       - U. of Victoria, Canada         *
  *                                                                                *
  * Copyright (c) 2005:                                                            *
- *      CERN, Switzerland                                                         * 
- *      U. of Victoria, Canada                                                    * 
- *      MPI-K Heidelberg, Germany                                                 * 
+ *      CERN, Switzerland                                                         *
+ *      U. of Victoria, Canada                                                    *
+ *      MPI-K Heidelberg, Germany                                                 *
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodHMatrix
@@ -37,7 +37,7 @@
 //                                                                      //
 // MethodHMatrix                                                        //
 //                                                                      //
-// H-Matrix method, which is implemented as a simple comparison of      // 
+// H-Matrix method, which is implemented as a simple comparison of      //
 // chi-squared estimators for signal and background, taking into        //
 // account the linear correlations between the input variables          //
 //                                                                      //
@@ -53,48 +53,48 @@ namespace TMVA {
 
    public:
 
-      MethodHMatrix( const TString& jobName, 
-                     const TString& methodTitle, 
+      MethodHMatrix( const TString& jobName,
+                     const TString& methodTitle,
                      DataSetInfo& theData,
                      const TString& theOption = "");
 
-      MethodHMatrix( DataSetInfo& theData, 
+      MethodHMatrix( DataSetInfo& theData,
                      const TString& theWeightFile);
 
       virtual ~MethodHMatrix();
-    
-      virtual Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets );
+
+      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets ) override;
 
       // training method
-      void Train();
+      void Train() override;
 
       using MethodBase::ReadWeightsFromStream;
 
       // write weights to file
-      void AddWeightsXMLTo( void* parent ) const;
+      void AddWeightsXMLTo( void* parent ) const override;
 
       // read weights from file
-      void ReadWeightsFromStream( std::istream& istr );
-      void ReadWeightsFromXML( void* wghtnode );
+      void ReadWeightsFromStream( std::istream& istr ) override;
+      void ReadWeightsFromXML( void* wghtnode ) override;
       // calculate the MVA value
-      Double_t GetMvaValue( Double_t* err = 0, Double_t* errUpper = 0 );
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
 
       // ranking of input variables
-      const Ranking* CreateRanking() { return 0; }
+      const Ranking* CreateRanking() override { return nullptr; }
 
    protected:
 
       // make ROOT-independent C++ class for classifier response (classifier-specific implementation)
-      void MakeClassSpecific( std::ostream&, const TString& ) const;
+      void MakeClassSpecific( std::ostream&, const TString& ) const override;
 
       // get help message text
-      void GetHelpMessage() const;
+      void GetHelpMessage() const override;
 
    private:
 
       // the option handling methods
-      void DeclareOptions();
-      void ProcessOptions();
+      void DeclareOptions() override;
+      void ProcessOptions() override;
 
       // returns chi2 estimator for given type (signal or background)
       Double_t GetChi2( Types::ESBType );
@@ -102,17 +102,17 @@ namespace TMVA {
       // compute correlation matrices
       void     ComputeCovariance( Bool_t, TMatrixD* );
 
-      // arrays of input evt vs. variable 
-      TMatrixD* fInvHMatrixS; // inverse H-matrix (signal)
-      TMatrixD* fInvHMatrixB; // inverse H-matrix (background)
-      TVectorD* fVecMeanS;    // vector of mean values (signal)
-      TVectorD* fVecMeanB;    // vector of mean values (background)
+      // arrays of input evt vs. variable
+      TMatrixD* fInvHMatrixS; ///< inverse H-matrix (signal)
+      TMatrixD* fInvHMatrixB; ///< inverse H-matrix (background)
+      TVectorD* fVecMeanS;    ///< vector of mean values (signal)
+      TVectorD* fVecMeanB;    ///< vector of mean values (background)
 
       // default initialisation method called by all constructors
-      void Init(); 
+      void Init() override;
 
-      ClassDef(MethodHMatrix,0); // H-Matrix method, a simple comparison of chi-squared estimators for signal and background
-   }; 
+      ClassDefOverride(MethodHMatrix,0); // H-Matrix method, a simple comparison of chi-squared estimators for signal and background
+   };
 
 } // namespace TMVA
 

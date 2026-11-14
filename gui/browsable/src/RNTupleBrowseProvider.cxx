@@ -1,5 +1,5 @@
 /*************************************************************************
- * Copyright (C) 1995-2021, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2025, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -10,74 +10,249 @@
 #include <ROOT/Browsable/RProvider.hxx>
 #include <ROOT/Browsable/RLevelIter.hxx>
 #include <ROOT/Browsable/RItem.hxx>
+#include <ROOT/Browsable/RNTupleItem.hxx>
 
+#include <ROOT/RNTupleReader.hxx>
+#include <ROOT/RNTupleBrowseUtils.hxx>
 #include <ROOT/RNTupleDescriptor.hxx>
-#include <ROOT/RNTupleOptions.hxx>
-#include <ROOT/RPageStorage.hxx>
 
 #include "TClass.h"
 #include "RFieldHolder.hxx"
 
+#include "RVisualizationHolder.hxx"
 
+namespace ROOT::Experimental {
+class TObjectDrawable;
+}
 using namespace std::string_literals;
+using namespace ROOT::Browsable;
 
-using namespace ROOT::Experimental::Browsable;
+// ==============================================================================================
+/** \class RTreeMapElement
+\ingroup rbrowser
+\brief Browsing element representing TreeMap visualization for RNTuple
+\author Patryk Pilichowski
+\date 2025
+\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is
+welcome!
+*/
 
+class RTreeMapElement : public RElement {
+protected:
+   std::shared_ptr<ROOT::RNTupleReader> fNtplReader;
+   std::string fFileName;
+
+public:
+   RTreeMapElement(std::shared_ptr<ROOT::RNTupleReader> ntplReader, const std::string &fileName = "")
+      : RElement(), fNtplReader(ntplReader), fFileName(fileName)
+   {
+   }
+
+   ~RTreeMapElement() override = default;
+
+   /** Name of TreeMap visualization */
+   std::string GetName() const override { return "TreeMap"; }
+
+   /** Title of TreeMap visualization */
+   std::string GetTitle() const override { return "TreeMap visualization of RNTuple structure and disk usage"; }
+
+   /** No children for TreeMap visualization */
+   std::unique_ptr<RLevelIter> GetChildsIter() override { return nullptr; }
+
+   /** Return class of RNTuple for consistency */
+   const TClass *GetClass() const { return TClass::GetClass<ROOT::RNTuple>(); }
+
+   /** Return holder with visualization data */
+   std::unique_ptr<RHolder> GetObject() override
+   {
+      return std::make_unique<RVisualizationHolder>(fNtplReader, fFileName, fNtplReader->GetDescriptor().GetName());
+   }
+
+   /** Default action is to draw the treemap */
+   EActionKind GetDefaultAction() const override { return kActDraw7; }
+
+   /** Check if visualization is capable of being drawn */
+   bool IsCapable(EActionKind kind) const override { return kind == kActDraw6 || kind == kActDraw7; }
+
+   /** Create item with TreeMap icon */
+   std::unique_ptr<RItem> CreateItem() const override
+   {
+      auto item = std::make_unique<RNTupleItem>(GetName(), 0, "sap-icon://Chart-Tree-Map");
+      item->SetTitle(GetTitle());
+      return item;
+   }
+
+   /** Not expandable by default */
+   bool IsFolder() const override { return false; }
+
+   /** Set filename for treemap creation */
+   void SetFileName(const std::string &fileName) { fFileName = fileName; }
+};
+
+// ==============================================================================================
+/** \class RVisualizationElement
+\ingroup rbrowser
+\brief Browsing element representing visualization folder for RNTuple
+\author Patryk Pilichowski
+\date 2025
+\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is
+welcome!
+*/
+
+class RVisualizationElement : public RElement {
+protected:
+   std::shared_ptr<ROOT::RNTupleReader> fNtplReader;
+   std::string fFileName;
+
+public:
+   RVisualizationElement(std::shared_ptr<ROOT::RNTupleReader> ntplReader, const std::string &fileName = "")
+      : RElement(), fNtplReader(ntplReader), fFileName(fileName)
+   {
+   }
+
+   ~RVisualizationElement() override = default;
+
+   /** Name of visualization folder */
+   std::string GetName() const override { return "Visualization"; }
+
+   /** Title of visualization folder */
+   std::string GetTitle() const override { return "Visualization tools and options for RNTuple data"; }
+
+   /** Create iterator for visualization children */
+   std::unique_ptr<RLevelIter> GetChildsIter() override;
+
+   /** Return class of RNTuple for consistency */
+   const TClass *GetClass() const { return TClass::GetClass<ROOT::RNTuple>(); }
+
+   /** No direct object for folder */
+   std::unique_ptr<RHolder> GetObject() override { return nullptr; }
+
+   /** Default action is none for folder */
+   EActionKind GetDefaultAction() const override { return kActNone; }
+
+   /** Create item with visualization folder icon */
+   std::unique_ptr<RItem> CreateItem() const override
+   {
+      auto item =
+         std::make_unique<RNTupleItem>(GetName(), 1, "sap-icon://show", RNTupleItem::ECategory::kVisualization);
+      item->SetTitle(GetTitle());
+      return item;
+   }
+
+   /** This is a folder */
+   bool IsFolder() const override { return true; }
+
+   /** Set filename for child elements */
+   void SetFileName(const std::string &fileName) { fFileName = fileName; }
+};
+
+// ==============================================================================================
+/** \class RVisualizationIterator
+\ingroup rbrowser
+\brief Iterator over visualization options
+\author Patryk Pilichowski
+\date 2025
+\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is
+welcome!
+*/
+
+class RVisualizationIterator : public RLevelIter {
+   std::shared_ptr<ROOT::RNTupleReader> fNtplReader;
+   std::string fFileName;
+   int fCounter{-1};
+   int fTotalItems{1};
+
+public:
+   RVisualizationIterator(std::shared_ptr<ROOT::RNTupleReader> ntplReader, const std::string &fileName = "")
+      : fNtplReader(ntplReader), fFileName(fileName)
+   {
+   }
+
+   ~RVisualizationIterator() override = default;
+
+   bool Next() override { return ++fCounter < fTotalItems; }
+
+   std::string GetItemName() const override
+   {
+      if (fCounter == 0) {
+         return "TreeMap";
+      }
+      return "";
+   }
+
+   bool CanItemHaveChilds() const override { return false; }
+
+   /** Create item for the browser */
+   std::unique_ptr<RItem> CreateItem() override
+   {
+      if (fCounter == 0) {
+         auto item = std::make_unique<RNTupleItem>("TreeMap", 0, "sap-icon://Chart-Tree-Map");
+         item->SetTitle("TreeMap visualization of RNTuple structure and disk usage");
+         return item;
+      }
+      return nullptr;
+   }
+
+   std::shared_ptr<RElement> GetElement() override
+   {
+      if (fCounter == 0) {
+         return std::make_shared<RTreeMapElement>(fNtplReader, fFileName);
+      }
+      return nullptr;
+   }
+};
+
+std::unique_ptr<RLevelIter> RVisualizationElement::GetChildsIter()
+{
+   return std::make_unique<RVisualizationIterator>(fNtplReader, fFileName);
+}
 
 // ==============================================================================================
 
-/** \class RFieldElement
-\ingroup rbrowser
-\brief Browsing element representing of RField
-\author Sergey Linev <S.Linev@gsi.de>
-\date 2021-03-08
-\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
-*/
-
 class RFieldElement : public RElement {
 protected:
-   std::shared_ptr<ROOT::Experimental::Detail::RPageSource> fNtplSource;
-
+   std::shared_ptr<ROOT::RNTupleReader> fNtplReader;
    std::string fParentName;
-
-   ROOT::Experimental::DescriptorId_t fFieldId;
+   ROOT::DescriptorId_t fFieldId;
+   std::string fDisplayName;
 
 public:
+   RFieldElement(std::shared_ptr<ROOT::RNTupleReader> ntplReader, const std::string &parent_name,
+                 const ROOT::DescriptorId_t id, const std::string &displayName)
+      : RElement(), fNtplReader(ntplReader), fParentName(parent_name), fFieldId(id), fDisplayName(displayName)
+   {
+   }
 
-   RFieldElement(std::shared_ptr<ROOT::Experimental::Detail::RPageSource> ntplSource,
-                 const std::string &parent_name,
-                 const ROOT::Experimental::DescriptorId_t id)
-                 : RElement(), fNtplSource(ntplSource), fParentName(parent_name), fFieldId(id) {}
-
-   virtual ~RFieldElement() = default;
+   ~RFieldElement() override = default;
 
    /** Name of RField */
    std::string GetName() const override
    {
-      return fNtplSource->GetDescriptor().GetFieldDescriptor(fFieldId).GetFieldName();
+      return fNtplReader->GetDescriptor().GetFieldDescriptor(fFieldId).GetFieldName();
    }
 
    /** Title of RField */
    std::string GetTitle() const override
    {
-      auto &fld = fNtplSource->GetDescriptor().GetFieldDescriptor(fFieldId);
+      auto &fld = fNtplReader->GetDescriptor().GetFieldDescriptor(fFieldId);
       return "RField name "s + fld.GetFieldName() + " type "s + fld.GetTypeName();
    }
 
    std::unique_ptr<RLevelIter> GetChildsIter() override;
 
    /** Return class of field  - for a moment using RNTuple class as dummy */
-   const TClass *GetClass() const { return TClass::GetClass<ROOT::Experimental::RNTuple>(); }
+   const TClass *GetClass() const { return TClass::GetClass<ROOT::RNTuple>(); }
 
    std::unique_ptr<RHolder> GetObject() override
    {
-      return std::make_unique<RFieldHolder>(fNtplSource, fParentName, fFieldId);
+      return std::make_unique<RFieldHolder>(fNtplReader, fParentName, fFieldId, fDisplayName);
    }
 
    EActionKind GetDefaultAction() const override
    {
-      auto range = fNtplSource->GetDescriptor().GetFieldIterable(fFieldId);
-      if (range.begin() != range.end()) return kActNone;
+      auto range = fNtplReader->GetDescriptor().GetFieldIterable(fFieldId);
+      if (range.begin() != range.end())
+         return kActNone;
       return kActDraw7;
    }
 
@@ -88,7 +263,6 @@ public:
 
       return false;
    }
-
 };
 
 // ==============================================================================================
@@ -98,138 +272,184 @@ public:
 \brief Browsing element representing of RNTuple
 \author Sergey Linev <S.Linev@gsi.de>
 \date 2021-03-08
-\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
+\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is
+welcome!
 */
 
 class RNTupleElement : public RElement {
 protected:
-   std::shared_ptr<ROOT::Experimental::Detail::RPageSource> fNtplSource;
+   std::shared_ptr<ROOT::RNTupleReader> fNtplReader;
+   std::string fFileName;
 
 public:
-   RNTupleElement(const std::string &ntplName, const std::string &filename)
+   RNTupleElement(const std::string &ntplName, const std::string &filename) : fFileName(filename)
    {
-      ROOT::Experimental::RNTupleReadOptions options;
-      fNtplSource = ROOT::Experimental::Detail::RPageSource::Create(ntplName, filename, options);
-      fNtplSource->Attach();
+      fNtplReader = ROOT::RNTupleReader::Open(ntplName, filename);
    }
 
-   virtual ~RNTupleElement() = default;
+   ~RNTupleElement() override = default;
 
    /** Returns true if no ntuple found */
-   bool IsNull() const { return !fNtplSource; }
+   bool IsNull() const { return !fNtplReader; }
 
    /** Name of NTuple */
-   std::string GetName() const override { return fNtplSource->GetDescriptor().GetName(); }
+   std::string GetName() const override { return fNtplReader->GetDescriptor().GetName(); }
 
    /** Title of NTuple */
    std::string GetTitle() const override { return "RNTuple title"s; }
 
+   /** Get the filename */
+   const std::string &GetFileName() const { return fFileName; }
+
    /** Create iterator for childs elements if any */
    std::unique_ptr<RLevelIter> GetChildsIter() override;
 
-   const TClass *GetClass() const { return TClass::GetClass<ROOT::Experimental::RNTuple>(); }
+   const TClass *GetClass() const { return TClass::GetClass<ROOT::RNTuple>(); }
 
-   //EActionKind GetDefaultAction() const override;
-
-   //bool IsCapable(EActionKind) const override;
+   std::unique_ptr<RItem> CreateItem() const override
+   {
+      auto item = std::make_unique<RNTupleItem>(GetName(), -1, "sap-icon://table-chart");
+      item->SetTitle(GetTitle());
+      return item;
+   }
 };
-
 
 // ==============================================================================================
 
-/** \class RFieldsIterator
+/** \class RNTupleIterator
 \ingroup rbrowser
-\brief Iterator over RNTuple fields
+\brief Iterator over RNTuple fields & visualization entry
 \author Sergey Linev <S.Linev@gsi.de>
 \date 2021-03-08
-\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
+\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is
+welcome!
 */
 
-
-class RFieldsIterator : public RLevelIter {
-
-   std::shared_ptr<ROOT::Experimental::Detail::RPageSource> fNtplSource;
-   std::vector<ROOT::Experimental::DescriptorId_t> fFieldIds;
+class RNTupleIterator : public RLevelIter {
+   std::shared_ptr<ROOT::RNTupleReader> fNtplReader;
+   std::vector<ROOT::DescriptorId_t> fProvidedFieldIds;
+   std::vector<ROOT::DescriptorId_t> fActualFieldIds;
    std::string fParentName;
+   std::string fFileName;
    int fCounter{-1};
+   bool fHasVisualization{false};
+   int fTotalItems{0};
 
 public:
-   RFieldsIterator(std::shared_ptr<ROOT::Experimental::Detail::RPageSource> ntplSource,
-                   std::vector<ROOT::Experimental::DescriptorId_t> &&ids,
-                   const std::string &parent_name = ""s)
-                   : fNtplSource(ntplSource), fFieldIds(ids), fParentName(parent_name)
+   RNTupleIterator(std::shared_ptr<ROOT::RNTupleReader> ntplReader, std::vector<ROOT::DescriptorId_t> &&ids,
+                   const std::string &parent_name = "", bool includeVisualization = false,
+                   const std::string &fileName = "")
+      : fNtplReader(ntplReader),
+        fProvidedFieldIds(ids),
+        fParentName(parent_name),
+        fFileName(fileName),
+        fHasVisualization(includeVisualization)
    {
+      const auto &desc = fNtplReader->GetDescriptor();
+      fActualFieldIds.reserve(fProvidedFieldIds.size());
+      for (auto fid : fProvidedFieldIds) {
+         fActualFieldIds.emplace_back(ROOT::Internal::GetNextBrowsableField(fid, desc));
+      }
+
+      fTotalItems = fProvidedFieldIds.size();
+      if (fHasVisualization) {
+         fTotalItems++;
+      }
    }
 
-   virtual ~RFieldsIterator() = default;
+   ~RNTupleIterator() override = default;
 
-   bool Next() override
-   {
-      return ++fCounter < (int) fFieldIds.size();
-   }
+   bool Next() override { return ++fCounter < fTotalItems; }
 
    std::string GetItemName() const override
    {
-      return fNtplSource->GetDescriptor().GetFieldDescriptor(fFieldIds[fCounter]).GetFieldName();
+      if (fHasVisualization && fCounter == 0) {
+         return "Visualization";
+      }
+      int fieldIndex = fHasVisualization ? fCounter - 1 : fCounter;
+      return fNtplReader->GetDescriptor().GetFieldDescriptor(fProvidedFieldIds[fieldIndex]).GetFieldName();
    }
 
    bool CanItemHaveChilds() const override
    {
-      auto subrange = fNtplSource->GetDescriptor().GetFieldIterable(fFieldIds[fCounter]);
+      if (fHasVisualization && fCounter == 0) {
+         return true;
+      }
+      int fieldIndex = fHasVisualization ? fCounter - 1 : fCounter;
+      auto subrange = fNtplReader->GetDescriptor().GetFieldIterable(fActualFieldIds[fieldIndex]);
       return subrange.begin() != subrange.end();
    }
 
    /** Create element for the browser */
    std::unique_ptr<RItem> CreateItem() override
    {
+      if (fHasVisualization && fCounter == 0) {
+         auto item = std::make_unique<RNTupleItem>("Visualization", 1, "sap-icon://show",
+                                                   RNTupleItem::ECategory::kVisualization);
+         item->SetTitle("Visualization tools and options for RNTuple data");
+         return item;
+      }
 
+      int fieldIndex = fHasVisualization ? fCounter - 1 : fCounter;
       int nchilds = 0;
-      for (auto &sub: fNtplSource->GetDescriptor().GetFieldIterable(fFieldIds[fCounter])) { (void) sub; nchilds++; }
+      for (auto &sub : fNtplReader->GetDescriptor().GetFieldIterable(fActualFieldIds[fieldIndex])) {
+         (void)sub;
+         nchilds++;
+      }
 
-      auto &field = fNtplSource->GetDescriptor().GetFieldDescriptor(fFieldIds[fCounter]);
+      const auto &field = fNtplReader->GetDescriptor().GetFieldDescriptor(fProvidedFieldIds[fieldIndex]);
 
-      auto item = std::make_unique<RItem>(field.GetFieldName(), nchilds, nchilds > 0 ? "sap-icon://split" : "sap-icon://e-care");
+      auto item = std::make_unique<RNTupleItem>(field.GetFieldName(), nchilds,
+                                                nchilds > 0 ? "sap-icon://split" : "sap-icon://e-care");
 
       item->SetTitle("RField name "s + field.GetFieldName() + " type "s + field.GetTypeName());
-
       return item;
    }
 
    std::shared_ptr<RElement> GetElement() override
    {
-      return std::make_shared<RFieldElement>(fNtplSource, fParentName, fFieldIds[fCounter]);
+      if (fHasVisualization && fCounter == 0) {
+         return std::make_shared<RVisualizationElement>(fNtplReader, fFileName);
+      }
+
+      int fieldIndex = fHasVisualization ? fCounter - 1 : fCounter;
+      const auto name = fNtplReader->GetDescriptor().GetFieldDescriptor(fProvidedFieldIds[fieldIndex]).GetFieldName();
+      return std::make_shared<RFieldElement>(fNtplReader, fParentName, fActualFieldIds[fieldIndex], name);
    }
 };
 
-
 std::unique_ptr<RLevelIter> RFieldElement::GetChildsIter()
 {
-   std::vector<ROOT::Experimental::DescriptorId_t> ids;
+   std::vector<ROOT::DescriptorId_t> ids;
+   std::string prefix;
 
-   for (auto &f : fNtplSource->GetDescriptor().GetFieldIterable(fFieldId))
+   const auto &desc = fNtplReader->GetDescriptor();
+   for (auto &f : fNtplReader->GetDescriptor().GetFieldIterable(ROOT::Internal::GetNextBrowsableField(fFieldId, desc)))
       ids.emplace_back(f.GetId());
 
-   if (ids.size() == 0) return nullptr;
+   if (ids.size() == 0)
+      return nullptr;
 
-   std::string prefix = fParentName;
-   auto &fld = fNtplSource->GetDescriptor().GetFieldDescriptor(fFieldId);
+   prefix = fParentName;
+   const auto &fld = desc.GetFieldDescriptor(fFieldId);
    prefix.append(fld.GetFieldName());
    prefix.append(".");
 
-   return std::make_unique<RFieldsIterator>(fNtplSource, std::move(ids), prefix);
+   return std::make_unique<RNTupleIterator>(fNtplReader, std::move(ids), prefix);
 }
 
 std::unique_ptr<RLevelIter> RNTupleElement::GetChildsIter()
 {
-   std::vector<ROOT::Experimental::DescriptorId_t> ids;
+   std::vector<ROOT::DescriptorId_t> ids;
 
-   for (auto &f : fNtplSource->GetDescriptor().GetTopLevelFields())
+   for (auto &f : fNtplReader->GetDescriptor().GetTopLevelFields())
       ids.emplace_back(f.GetId());
 
-   if (ids.size() == 0) return nullptr;
-   return std::make_unique<RFieldsIterator>(fNtplSource, std::move(ids));
-}
+   if (ids.size() == 0)
+      return nullptr;
 
+   return std::make_unique<RNTupleIterator>(fNtplReader, std::move(ids), "", true, fFileName);
+}
 
 // ==============================================================================================
 
@@ -238,13 +458,13 @@ std::unique_ptr<RLevelIter> RNTupleElement::GetChildsIter()
 \brief Provider for browsing RNTuple classes
 \author Sergey Linev <S.Linev@gsi.de>
 \date 2021-03-08
-\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
+\warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is
+welcome!
 */
 
 class RNTupleBrowseProvider : public RProvider {
 
 public:
-
    RNTupleBrowseProvider()
    {
       RegisterNTupleFunc([](const std::string &tuple_name, const std::string &filename) -> std::shared_ptr<RElement> {
@@ -253,10 +473,6 @@ public:
       });
    }
 
-   virtual ~RNTupleBrowseProvider()
-   {
-      RegisterNTupleFunc(nullptr);
-   }
+   ~RNTupleBrowseProvider() override { RegisterNTupleFunc(nullptr); }
 
 } newRNTupleBrowseProvider;
-

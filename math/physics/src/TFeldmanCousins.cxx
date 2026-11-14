@@ -11,6 +11,7 @@
  *************************************************************************/
 
 /** \class TFeldmanCousins
+    \legacy{TFeldmanCousins, Consider switching to RooStats for non-trivial cases.}
     \ingroup Physics
 
 Class to calculate the CL upper limit using
@@ -35,7 +36,7 @@ fMuMax, fMuStep and fNMax are those used in the PRD:
 but there is total flexibility in changing this should you desire.
 
 
-see example of use in $ROOTSYS/tutorials/math/FeldmanCousins.C
+see example of use in FeldmanCousins.C
 
 see note about: "Should I use TRolke, TFeldmanCousins, TLimit?"
  in the TRolke class description.
@@ -49,7 +50,6 @@ Copyright Liverpool University 2001       bevan@slac.stanford.edu
 #include "TMath.h"
 #include "TFeldmanCousins.h"
 
-ClassImp(TFeldmanCousins);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -123,7 +123,7 @@ Double_t TFeldmanCousins::CalculateUpperLimit(Double_t Nobserved, Double_t Nback
 
    //==================================================================
    // For quicker evaluation, assume that you get the same results when
-   // you expect the uppper limit to be > Nobserved-Nbackground.
+   // you expect the upper limit to be > Nobserved-Nbackground.
    // This is certainly true for all of the published tables in the PRD
    // and is a reasonable assumption in any case.
    //==================================================================

@@ -2,61 +2,73 @@
 // Authors: Stephan Hageboeck, CERN 04/2020
 //          Jonas Rembser, CERN 04/2021
 
-#include "RooRealVar.h"
-#include "RooGenericPdf.h"
-#include "RooFormulaVar.h"
-#include "RooDataSet.h"
-#include "RooDataHist.h"
-#include "RooFitResult.h"
-#include "RooAddPdf.h"
-#include "RooProduct.h"
-#include "RooHelpers.h"
-#include "RooGaussian.h"
-#include "RooPoisson.h"
-#include "RooConstVar.h"
-#include "RooProdPdf.h"
-#include "RooPolynomial.h"
+#include <RooAddPdf.h>
+#include <RooAddition.h>
+#include <RooCategory.h>
+#include <RooConstVar.h>
+#include <RooDataHist.h>
+#include <RooDataSet.h>
+#include <RooExponential.h>
+#include <RooFitResult.h>
+#include <RooFormulaVar.h>
+#include <RooGaussian.h>
+#include <RooGenericPdf.h>
+#include <RooHelpers.h>
+#include <RooLandau.h>
+#include <RooNumIntConfig.h>
+#include <RooParametricStepFunction.h>
+#include <RooProdPdf.h>
+#include <RooProduct.h>
+#include <RooRandom.h>
+#include <RooRealVar.h>
+#include <RooSimultaneous.h>
+#include <RooWorkspace.h>
 
-#include "TClass.h"
-#include "TRandom.h"
+#include <TArrayD.h>
+#include <TClass.h>
+#include <TMath.h>
+#include <TRandom.h>
 
-#include "gtest/gtest.h"
+#include "gtest_wrapper.h"
 
+#include <cmath>
 #include <memory>
+#include <utility>
+#include <vector>
 
+using FitTest = RooFitEvalBackendTest;
 
 // ROOT-10668: Asympt. correct errors don't work when title and name differ
-TEST(RooAbsPdf, AsymptoticallyCorrectErrors)
+TEST_P(FitTest, AsymptoticallyCorrectErrors)
 {
-  auto& msg = RooMsgService::instance();
-  msg.setGlobalKillBelow(RooFit::WARNING);
+   using namespace RooFit;
 
-  RooRealVar x("x", "xxx", 0, 0, 10);
-  RooRealVar a("a", "aaa", 2, 0, 10);
-  // Cannot play with RooAbsPdf, since abstract.
-  RooGenericPdf pdf("pdf", "std::pow(x,a)", RooArgSet(x, a));
-  RooFormulaVar formula("w", "(x-5)*(x-5)*1.2", RooArgSet(x));
+   RooRealVar x("x", "xxx", 0, 0, 10);
+   RooRealVar a("a", "aaa", 2, 0, 10);
+   // Cannot play with RooAbsPdf, since abstract.
+   RooGenericPdf pdf("pdf", "std::pow(x,a)", RooArgSet(x, a));
+   RooFormulaVar formula("w", "(x-5)*(x-5)*1.2", RooArgSet(x));
 
-  std::unique_ptr<RooDataSet> data(pdf.generate(x, 5000));
-  data->addColumn(formula);
-  RooRealVar w("w", "weight", 1, 0, 20);
-  RooDataSet weightedData("weightedData", "weightedData",
-      RooArgSet(x, w), RooFit::Import(*data), RooFit::WeightVar(w));
+   std::unique_ptr<RooDataSet> data(pdf.generate(x, 5000));
+   data->addColumn(formula);
+   RooRealVar w("w", "weight", 1, 0, 20);
+   RooDataSet weightedData("weightedData", "weightedData", {x, w}, Import(*data), WeightVar(w));
 
-  ASSERT_TRUE(weightedData.isWeighted());
-  weightedData.get(0);
-  ASSERT_NE(weightedData.weight(), 1);
+   ASSERT_TRUE(weightedData.isWeighted());
+   weightedData.get(0);
+   ASSERT_NE(weightedData.weight(), 1);
 
-  a = 1.2;
-  auto result = pdf.fitTo(weightedData, RooFit::Save(), RooFit::AsymptoticError(true), RooFit::PrintLevel(-1));
-  const double aError = a.getError();
-  a = 1.2;
-  auto result2 = pdf.fitTo(weightedData, RooFit::Save(), RooFit::SumW2Error(false), RooFit::PrintLevel(-1));
+   a = 1.2;
+   auto result = pdf.fitTo(weightedData, Save(), AsymptoticError(true), PrintLevel(-1), _evalBackend);
+   a = 1.2;
+   auto result2 = pdf.fitTo(weightedData, Save(), SumW2Error(false), PrintLevel(-1), _evalBackend);
 
-  EXPECT_TRUE(result->isIdentical(*result2)) << "Fit results should be very similar.";
-  EXPECT_GT(aError, a.getError()*2.) << "Asymptotically correct errors should be significantly larger.";
+   // Set relative tolerance for errors to large value to only check for values
+   EXPECT_TRUE(result->isIdenticalNoCov(*result2, 1e-6, 10.0)) << "Fit results should be very similar.";
+   // Set non-verbose because we expect the comparison to fail
+   EXPECT_FALSE(result->isIdenticalNoCov(*result2, 1e-6, 1e-3, false))
+      << "Asymptotically correct errors should be significantly larger.";
 }
-
 
 // Test a conditional fit with batch mode
 //
@@ -71,160 +83,212 @@ TEST(RooAbsPdf, AsymptoticallyCorrectErrors)
 // checked by hijacking the FastEvaluations log. If a RooRealIntegral is
 // evaluated in batch mode and data size is greater than one, the batch mode
 // will inform that a batched evaluation function is missing.
+//
 TEST(RooAbsPdf, ConditionalFitBatchMode)
 {
-  using namespace RooFit;
-  constexpr bool verbose = false;
-  auto& msg = RooMsgService::instance();
-  msg.getStream(1).removeTopic(RooFit::Minimization);
+   using namespace RooFit;
+   constexpr bool verbose = false;
 
-  auto makeFakeDataXY = []() {
-    RooRealVar x("x", "x", 0, 10);
-    RooRealVar y("y", "y", 1.0, 5);
-    RooArgSet coord(x, y);
+   if (!verbose) {
+      auto &msg = RooMsgService::instance();
+      msg.getStream(1).removeTopic(RooFit::Minimization);
+      msg.getStream(1).removeTopic(RooFit::Fitting);
+   }
 
-    auto d = std::make_unique<RooDataSet>("d", "d", RooArgSet(x, y));
+   auto makeFakeDataXY = []() {
+      RooRealVar x("x", "x", 0, 10);
+      RooRealVar y("y", "y", 1.0, 5);
+      RooArgSet coord(x, y);
 
-    for (int i = 0; i < 10000; i++) {
-      Double_t tmpy = gRandom->Gaus(3, 2);
-      Double_t tmpx = gRandom->Poisson(tmpy);
-      if (fabs(tmpy) > 1 && fabs(tmpy) < 5 && fabs(tmpx) < 10) {
-        x = tmpx;
-        y = tmpy;
-        d->add(coord);
+      auto d = std::make_unique<RooDataSet>("d", "d", RooArgSet(x, y));
+
+      for (int i = 0; i < 10000; i++) {
+         double tmpy = gRandom->Gaus(3, 2);
+         double tmpx = gRandom->Poisson(tmpy);
+         if (std::abs(tmpy) > 1 && std::abs(tmpy) < 5 && std::abs(tmpx) < 10) {
+            x = tmpx;
+            y = tmpy;
+            d->add(coord);
+         }
       }
-    }
 
-    return d;
-  };
+      return d;
+   };
 
-  auto data = makeFakeDataXY();
+   auto data = makeFakeDataXY();
 
-  RooRealVar x("x", "x", 0, 10);
-  RooRealVar y("y", "y", 1.0, 5);
+   // The model x range is wider than the support of the data so that the
+   // Poisson normalisation integral over x is unity to high precision for any
+   // mean value encountered. With that simplification, the conditional MLE for
+   // `factor` has a closed form (see below) and the legacy evaluation backend
+   // is no longer needed as a reference.
+   RooWorkspace ws;
+   ws.factory("Product::mean1({factor[1.0, 0.0, 10.0], y[1.0, 5]})");
+   ws.factory("Product::mean2({factor})");
+   ws.factory("Poisson::model1(x[0, 30], mean1)");
+   ws.factory("Poisson::model2(x, mean2)");
 
-  RooRealVar factor("factor", "factor", 1.0, 0.0, 10.0);
+   RooRealVar &factor = *ws.var("factor");
+   RooRealVar &y = *ws.var("y");
 
-  std::vector<RooProduct> means{{"mean", "mean", {factor, y}},
-                                {"mean", "mean", {factor}}};
-  std::vector<bool> expectFastEvaluationsWarnings{true, false};
+   double sumX = 0.0;
+   double sumY = 0.0;
+   for (int i = 0; i < data->numEntries(); ++i) {
+      const RooArgSet *row = data->get(i);
+      sumX += row->getRealValue("x");
+      sumY += row->getRealValue("y");
+   }
+   const double nEntries = data->numEntries();
 
-  int iMean = 0;
-  for(auto& mean : means) {
+   // For each event, the conditional log-likelihood term is
+   //    log Poisson(x_i; factor * y_i) = x_i log(factor*y_i) - factor*y_i + const
+   // (the Poisson normalisation integral over x is unity by construction of
+   // the wide x range). Setting d(NLL)/d(factor) = 0 gives:
+   //    model1: factor_MLE = sum_i x_i / sum_i y_i           (mean depends on y)
+   //    model2: factor_MLE = sum_i x_i / N                   (mean is just factor)
+   // and the standard error from the inverse Hessian is in both cases
+   //    sigma(factor) = sqrt(sum_i x_i) / (sum_i y_i  or  N).
+   const std::vector<double> expectedFactor{sumX / sumY, sumX / nEntries};
+   const std::vector<double> expectedFactorErr{std::sqrt(sumX) / sumY, std::sqrt(sumX) / nEntries};
+   const std::vector<bool> expectFastEvaluationsWarnings{true, false};
 
-    RooPoisson model("model", "model", x, mean);
+   int iMean = 0;
+   for (RooAbsPdf *model : {ws.pdf("model1"), ws.pdf("model2")}) {
 
-    std::vector<std::unique_ptr<RooFitResult>> fitResults;
+      RooHelpers::HijackMessageStream hijack(RooFit::INFO, RooFit::FastEvaluations);
 
-    RooHelpers::HijackMessageStream hijack(RooFit::INFO, RooFit::FastEvaluations);
-
-    for(bool batchMode : {false, true}) {
       factor.setVal(1.0);
-      fitResults.emplace_back(
-        model.fitTo(
-              *data,
-              ConditionalObservables(y),
-              Save(),
-              PrintLevel(-1),
-              BatchMode(batchMode)
-         ));
-      if (verbose) fitResults.back()->Print();
-    }
+      factor.setError(0.0);
+      auto fitResult = std::unique_ptr<RooFitResult>{
+         model->fitTo(*data, ConditionalObservables(y), Save(), PrintLevel(-1), EvalBackend::Cpu())};
+      if (verbose) {
+         fitResult->Print();
+      }
 
-    EXPECT_TRUE(fitResults[1]->isIdentical(*fitResults[0]));
-    EXPECT_TRUE(hijack.str().empty() != expectFastEvaluationsWarnings[iMean]) << "Stream contents: " << hijack.str();
-    ++iMean;
-  }
+      auto *factorFinal = static_cast<RooRealVar *>(fitResult->floatParsFinal().find("factor"));
+      ASSERT_NE(factorFinal, nullptr);
+      EXPECT_NEAR(factorFinal->getVal(), expectedFactor[iMean], 1e-4 * expectedFactor[iMean])
+         << "value mismatch for " << model->GetName();
+      EXPECT_NEAR(factorFinal->getError(), expectedFactorErr[iMean], 1e-3 * expectedFactorErr[iMean])
+         << "error mismatch for " << model->GetName();
+
+      EXPECT_EQ(hijack.str().find("does not implement the faster batch") != std::string::npos,
+                expectFastEvaluationsWarnings[iMean])
+         << "Stream contents: " << hijack.str();
+      ++iMean;
+   }
 }
 
 // ROOT-9530: RooFit side-band fit inconsistent with fit to full range
-TEST(RooAbsPdf, MultiRangeFit)
+TEST_P(FitTest, MultiRangeFit)
 {
-  using namespace RooFit;
-  auto& msg = RooMsgService::instance();
-  msg.setGlobalKillBelow(RooFit::WARNING);
+   using namespace RooFit;
 
-  RooRealVar x("x","x",-10,10);
+   RooWorkspace ws;
 
-  double cut = -5;
-  x.setRange("full", -10, 10);
-  x.setRange("low", -10, cut);
-  x.setRange("high", cut, 10);
+   ws.factory("Gaussian::model_simple(x[-10., 10.], mean[-1, -10, 10], width[3, 0.1, 10])");
+   // model for extended fit
+   ws.factory("AddPdf::model_extended({model_simple}, {nsig[100, 0, 2000]})");
 
-  RooRealVar mean("mean", "mean",-1, -10, 10);
-  RooRealVar width("width", "width", 3., 0.1, 10);
-  RooGaussian modelSimple("model_simple","model_simple",x,mean,width);
+   auto &x = *ws.var("x");
+   auto &mean = *ws.var("mean");
+   auto &width = *ws.var("width");
+   auto &nsig = *ws.var("nsig");
 
-  std::size_t nEvents = 100;
+   RooAbsPdf &modelSimple = *ws.pdf("model_simple");
+   RooAbsPdf &modelExtended = *ws.pdf("model_extended");
 
-  // model for extended fit
-  RooRealVar nsig("nsig","nsig",nEvents,0.,2000) ;    
-  RooAddPdf  modelExtended("model_extended","model_simple+a",RooArgList(modelSimple),RooArgList(nsig)) ;
+   const double cut = -5;
+   x.setRange("full", -10, 10);
+   x.setRange("low", -10, cut);
+   x.setRange("high", cut, 10);
 
-  auto resetValues = [&](){
-    mean.setVal(-1);
-    width.setVal(3);
-  };
+   const std::size_t nEvents = nsig.getVal();
 
-  // loop over non-extended and extended fit
-  for (auto* model : {static_cast<RooAbsPdf*>(&modelSimple),
-                      static_cast<RooAbsPdf*>(&modelExtended)}) {
+   auto resetValues = [&]() {
+      mean.setVal(-1);
+      width.setVal(3);
+      nsig.setVal(nEvents);
+      mean.setError(0.0);
+      width.setError(0.0);
+      nsig.setError(0.0);
+   };
 
-    std::unique_ptr<RooDataSet> dataSet{model->generate(x, nEvents)};
-    std::unique_ptr<RooDataHist> dataHist{dataSet->binnedClone()};
+   std::unique_ptr<RooAbsData> dataSet{modelSimple.generate(x, nEvents)};
+   std::unique_ptr<RooAbsData> dataHist{static_cast<RooDataSet &>(*dataSet).binnedClone()};
 
-    // loop over binned fit and unbinned fit
-    for (auto* data : {static_cast<RooAbsData*>(dataSet.get()),
-                       static_cast<RooAbsData*>(dataHist.get())}) {
-      // full range
-      resetValues();
-      std::unique_ptr<RooFitResult> fitResultFull{
-        model->fitTo(*data, Range("full"), Save(), PrintLevel(-1))
-      };
+   // loop over non-extended and extended fit
+   for (auto *model : {&modelSimple, &modelExtended}) {
 
-      // part (side band fit, but the union of the side bands is the full range)
-      resetValues();
-      std::unique_ptr<RooFitResult> fitResultPart{
-        model->fitTo(*data, Range("low,high"), Save(), PrintLevel(-1))
-      };
+      // loop over binned fit and unbinned fit
+      for (auto *data : {dataSet.get(), dataHist.get()}) {
+         // full range
+         resetValues();
+         std::unique_ptr<RooFitResult> fitResultFull{
+            model->fitTo(*data, Range("full"), Save(), PrintLevel(-1), _evalBackend)};
 
-      EXPECT_TRUE(fitResultPart->isIdentical(*fitResultFull))
-          << "Results of fitting " << model->GetName() << " to a "
-          << data->IsA()->GetName() <<  " should be very similar.";
-    }
-  }
+         // part (side band fit, but the union of the side bands is the full range)
+         resetValues();
+         std::unique_ptr<RooFitResult> fitResultPart{
+            model->fitTo(*data, Range("low,high"), Save(), PrintLevel(-1), _evalBackend)};
+
+         EXPECT_TRUE(fitResultPart->isIdentical(*fitResultFull))
+            << "Results of fitting " << model->GetName() << " to a " << data->ClassName() << " should be very similar.";
+      }
+   }
+
+   // Same cross-check, now for chi2FitTo on the RooDataHist.
+   {
+      auto &dh = static_cast<RooDataHist &>(*dataHist);
+
+      // loop over non-extended and extended fit
+      for (auto *model : {&modelSimple, &modelExtended}) {
+
+         // full range
+         resetValues();
+         std::unique_ptr<RooFitResult> fitResultFull{
+            model->chi2FitTo(dh, Range("full"), _evalBackend, Save(), PrintLevel(-1))};
+
+         // part (side band fit, but the union of the side bands is the full range)
+         resetValues();
+         std::unique_ptr<RooFitResult> fitResultPart{
+            model->chi2FitTo(dh, Range("low,high"), _evalBackend, Save(), PrintLevel(-1))};
+
+         EXPECT_TRUE(fitResultPart->isIdentical(*fitResultFull))
+            << "Results of fitting " << model->GetName()
+            << " to a RooDataHist should be very similar also for chi2FitTo().";
+      }
+   }
 }
 
 // ROOT-9530: RooFit side-band fit inconsistent with fit to full range (2D case)
-TEST(RooAbsPdf, MultiRangeFit2D)
+TEST_P(FitTest, MultiRangeFit2D)
 {
    using namespace RooFit;
-   auto &msg = RooMsgService::instance();
-   msg.setGlobalKillBelow(RooFit::WARNING);
 
    // model taken from the rf312_multirangefit.C tutorial
-
-   // Define observables x,y
-   RooRealVar x("x", "x", -10, 10);
-   RooRealVar y("y", "y", -10, 10);
+   RooWorkspace ws;
 
    // Construct the signal pdf gauss(x)*gauss(y)
-   RooRealVar mx("mx", "mx", 1, -10, 10);
-   RooRealVar my("my", "my", 1, -10, 10);
-
-   RooGaussian gx("gx", "gx", x, mx, RooConst(1));
-   RooGaussian gy("gy", "gy", y, my, RooConst(1));
-
-   RooProdPdf sig("sig", "sig", gx, gy);
+   ws.factory("Gaussian::gx(x[-10, 10], mx[1, -10, 10], 1.0)");
+   ws.factory("Gaussian::gy(y[-10, 10], my[1, -10, 10], 1.0)");
+   ws.factory("ProdPdf::sig(gx, gy)");
 
    // Construct the background pdf (flat in x,y)
-   RooPolynomial px("px", "px", x);
-   RooPolynomial py("py", "py", y);
-   RooProdPdf bkg("bkg", "bkg", px, py);
+   ws.factory("Polynomial::px(x)");
+   ws.factory("Polynomial::py(y)");
+   ws.factory("ProdPdf::bkg(px, py)");
 
    // Construct the composite model sig+bkg
-   RooRealVar f("f", "f", 0.5, 0., 1.);
-   RooAddPdf model("model", "model", RooArgList(sig, bkg), f);
+   ws.factory("AddPdf::model({sig, bkg}, f[0.5, 0., 1.])");
+
+   RooRealVar &x = *ws.var("x");
+   RooRealVar &y = *ws.var("y");
+   RooRealVar &mx = *ws.var("mx");
+   RooRealVar &my = *ws.var("my");
+   RooRealVar &f = *ws.var("f");
+
+   RooAbsPdf &model = *ws.pdf("model");
 
    x.setRange("SB1", -10, +10);
    y.setRange("SB1", -10, 0);
@@ -242,6 +306,9 @@ TEST(RooAbsPdf, MultiRangeFit2D)
       mx.setVal(1.0);
       my.setVal(1.0);
       f.setVal(0.5);
+      mx.setError(0.0);
+      my.setError(0.0);
+      f.setError(0.0);
    };
 
    std::size_t nEvents = 100;
@@ -254,13 +321,329 @@ TEST(RooAbsPdf, MultiRangeFit2D)
    for (auto *data : {static_cast<RooAbsData *>(dataSet.get()), static_cast<RooAbsData *>(dataHist.get())}) {
       // full range
       resetValues();
-      std::unique_ptr<RooFitResult> fitResultFull{model.fitTo(*data, Range("FULL"), Save(), PrintLevel(-1))};
+      std::unique_ptr<RooFitResult> fitResultFull{
+         model.fitTo(*data, Range("FULL"), Save(), PrintLevel(-1), _evalBackend)};
 
       // part (side band fit, but the union of the side bands is the full range)
       resetValues();
-      std::unique_ptr<RooFitResult> fitResultPart{model.fitTo(*data, Range("SB1,SB2,SIG"), Save(), PrintLevel(-1))};
+      std::unique_ptr<RooFitResult> fitResultPart{
+         model.fitTo(*data, Range("SB1,SB2,SIG"), Save(), PrintLevel(-1), _evalBackend)};
 
-      EXPECT_TRUE(fitResultPart->isIdentical(*fitResultFull)) << "Results of fitting " << model.GetName() << " to a "
-                                                              << data->IsA()->GetName() << " should be very similar.";
+      EXPECT_TRUE(fitResultPart->isIdentical(*fitResultFull))
+         << "Results of fitting " << model.GetName() << " to a " << data->ClassName() << " should be very similar.";
+   }
+
+}
+
+// This test will crash if the cached normalization sets are not reset
+// correctly after servers are redirected. This is a reduced version of a code
+// provided in the ROOT forum that originally unveiled this problem:
+// https://root-forum.cern.ch/t/problems-with-2d-simultaneous-fit/48249/4
+TEST_P(FitTest, ProblemsWith2DSimultaneousFit)
+{
+   using namespace RooFit;
+
+   RooWorkspace ws;
+   ws.factory("Uniform::uniform1({x[1.0, 2.], y[1.0, 2.]})");
+   ws.factory("Uniform::uniform2({x, y})");
+   ws.factory("Gaussian::gauss1(x, mu1[2., 0., 5.], 0.1)");
+   ws.factory("Gaussian::gauss2(x, mu1[2., 0., 5.], 0.1)");
+   ws.factory("Gaussian::gauss3(x, mu1[2., 0., 5.], 0.1)");
+   ws.factory("AddPdf::gauss12(gauss1, gauss2, 0.1)");
+   ws.factory("AddPdf::sig_x(gauss3, gauss12, 0.1)");
+   ws.factory("Uniform::sig_y(y)");
+   ws.factory("ProdPdf::sig(sig_y, sig_x)");
+
+   // Complete model
+   ws.factory("AddPdf::model({sig, sig_y, uniform2, uniform1}, {yield[100], yield, yield, yield})");
+
+   // Define category to distinguish d0 and d0bar samples events
+   RooCategory sample("sample", "sample", {{"cat0", 0}, {"cat1", 1}});
+
+   // Construct a simultaneous pdf using category sample as index
+   RooSimultaneous simPdf("simPdf", "simultaneous pdf", sample);
+   simPdf.addPdf(*ws.pdf("model"), "cat0");
+   simPdf.addPdf(*ws.pdf("model"), "cat1");
+
+   // Construct a dummy dataset
+   std::unique_ptr<RooDataSet> data{simPdf.generate({sample, *ws.var("x"), *ws.var("y")})};
+
+   simPdf.fitTo(*data, PrintLevel(-1), _evalBackend);
+}
+
+// This test covers a usecase by an ATLAS collaborator. The unnormalized shape
+// of a RooFit pdf is used as a function inside a RooFormulaVar, which is used
+// for the bins of a RooParametricStep function. This case is potentially
+// fragile, because it requires that the top-level normalization set is ignored
+// for the inner pdfs that don't depend on the observable, as normalizing over
+// a non-dependent is a corner case where the variable should be dropped.
+TEST_P(FitTest, PdfAsFunctionInFormulaVar)
+{
+   using namespace RooFit;
+
+   RooRealVar x{"x", "x", 0., 1.};
+
+   const double arg = std::sqrt(-8 * std::log(0.5));
+   RooGaussian gauss1{"gauss1", "", 10 - arg, 10, 2};
+
+   RooFormulaVar func1{"func1", "x[0]", {gauss1}};
+
+   // The parametric step function doesn't make any attempt at self
+   // normalization, so the pdf value in the first bin is just the value of the
+   // unnormalized Gaussian. And the first bin is the almost the whole domain.
+   TArrayD limits(3);
+   limits[0] = 0.;
+   limits[1] = 1 - 1e-9;
+   limits[2] = 1.;
+   RooParametricStepFunction pdf("pdf", "pdf", x, {func1}, limits, limits.size() - 1);
+
+   int nEvents = 10000;
+   std::unique_ptr<RooAbsData> data{pdf.generateBinned(x, nEvents)};
+
+   std::unique_ptr<RooAbsReal> nll{pdf.createNLL(*data, _evalBackend)};
+
+   // The test is designed to have an analytical reference value
+   double ref = nEvents * -std::log(0.5);
+   EXPECT_FLOAT_EQ(nll->getVal(), ref);
+}
+
+// If an observable's range is shrunk after a dataset was already filled, the
+// dataset still contains entries that are now outside of the range over which
+// the pdf is normalized. Evaluating the likelihood anyway would silently bias
+// the fit. The vectorizing evaluation backends must detect this and throw a
+// descriptive error, while the correct workaround (a named range) keeps
+// working for all backends. Covers GitHub issue #22740.
+TEST_P(FitTest, OutOfRangeDataThrows)
+{
+   using namespace RooFit;
+
+   RooWorkspace ws;
+   ws.factory("Gaussian::gauss(x[0, 5], mean[0.5, -10, 10], sigma[1.0, 0.1, 10.0])");
+
+   auto &x = *ws.var("x");
+   auto &mean = *ws.var("mean");
+   RooAbsPdf &gauss = *ws.pdf("gauss");
+
+   // Fill a dataset with entries at 1, 2 and 3 while the range is still [0, 5].
+   RooDataSet data{"data", "data", x};
+   for (double val : {1.0, 2.0, 3.0}) {
+      x.setVal(val);
+      for (int i = 0; i < 50; ++i) {
+         data.add(x);
+      }
+   }
+
+   // Shrink the range so that the entries at 3 are now out of range, while the
+   // dataset's internal clone of the observable still remembers [0, 5].
+   x.setMax(2.5);
+
+   {
+      // Normalizing over [0, 2.5] while still evaluating the entries at 3 would
+      // bias the fit, so the backends throw.
+      RooHelpers::HijackMessageStream hijack(RooFit::ERROR, RooFit::InputArguments);
+      auto doFit = [&]() {
+         std::unique_ptr<RooFitResult>{gauss.fitTo(data, _evalBackend, Save(), PrintLevel(-1))};
+      };
+      EXPECT_THROW(doFit(), std::runtime_error);
+   }
+
+   // Restricting the fit with a named range is the correct approach: the
+   // out-of-range entries at 3 are dropped consistently for both normalization
+   // and evaluation. This must work for every backend and recover a mean close
+   // to the mean of the clipped data (50 entries at 1 and 50 at 2).
+   mean.setVal(0.5);
+   x.setRange("fitRange", 0, 2.5);
+   std::unique_ptr<RooFitResult> result{gauss.fitTo(data, _evalBackend, Range("fitRange"), Save(), PrintLevel(-1))};
+   ASSERT_NE(result, nullptr);
+   EXPECT_EQ(result->status(), 0);
+   EXPECT_NEAR(mean.getVal(), 1.5, 0.2);
+}
+
+// Verifies that a server pdf gets correctly reevaluated when the normalization
+// set is changed.
+TEST(RooAbsPdf, NormSetChange)
+{
+   using namespace RooFit;
+
+   RooWorkspace ws;
+   ws.factory("Gaussian::gauss(x[0, -10, 10], 0., 2.)");
+
+   RooRealVar &x = *ws.var("x");
+   RooAbsPdf &gauss = *ws.pdf("gauss");
+
+   RooAddition add("add", "add", {gauss});
+
+   RooArgSet normSet{x};
+
+   double v1 = add.getVal();
+   double v2 = add.getVal(normSet);
+
+   // The change of normalization set should trigger a recomputation of the
+   // value, so val2 should be different from val1. }
+   EXPECT_NE(v1, v2);
+}
+
+namespace {
+
+/// Integral of an unnormalized Gaussian exp(-0.5 ((x - mean) / sigma)^2) over [lo, hi].
+double gaussInt(double lo, double hi, double mean, double sigma)
+{
+   const double sqrt2 = std::sqrt(2.0);
+   return sigma * std::sqrt(TMath::Pi() / 2.) *
+          (std::erf((hi - mean) / (sqrt2 * sigma)) - std::erf((lo - mean) / (sqrt2 * sigma)));
+}
+
+} // namespace
+
+/// Normalization, integration and cdf of a pdf in one dimension, checked
+/// against the analytically known Gaussian integrals. Replaces the former
+/// stressRooFit test based on the rf110 tutorial, which compared against
+/// stored reference values.
+TEST(RooAbsPdf, Normalization1D)
+{
+   RooRealVar x("x", "x", -10, 10);
+   RooGaussian gx("gx", "gx", x, -2.0, 3.0);
+
+   const double rawVal = std::exp(-0.5 * std::pow((x.getVal() + 2.) / 3., 2));
+   const double normInt = gaussInt(-10, 10, -2., 3.);
+
+   // Raw unnormalized value and value normalized over x in [-10, 10]
+   EXPECT_NEAR(gx.getVal(), rawVal, 1e-10);
+   RooArgSet nset{x};
+   EXPECT_NEAR(gx.getVal(&nset), rawVal / normInt, 1e-10);
+
+   // Integral over the full range
+   std::unique_ptr<RooAbsReal> igx{gx.createIntegral(x)};
+   EXPECT_NEAR(igx->getVal(), normInt, 1e-6 * normInt);
+
+   // Fraction of the normalized pdf contained in the "signal" sub range
+   x.setRange("signal", -5, 5);
+   std::unique_ptr<RooAbsReal> igxSig{gx.createIntegral(x, RooFit::NormSet(x), RooFit::Range("signal"))};
+   const double sigFrac = gaussInt(-5, 5, -2., 3.) / normInt;
+   EXPECT_NEAR(igxSig->getVal(), sigFrac, 1e-6);
+
+   // Cumulative distribution function
+   std::unique_ptr<RooAbsReal> cdf{gx.createCdf(x)};
+   for (double xVal : {-10., -5., -2., 0., 3., 10.}) {
+      x.setVal(xVal);
+      EXPECT_NEAR(cdf->getVal(), gaussInt(-10, xVal, -2., 3.) / normInt, 1e-6) << "cdf at x = " << xVal;
    }
 }
+
+/// Normalization and integration of a product pdf in two dimensions, checked
+/// against the analytically known Gaussian integrals. Replaces the former
+/// stressRooFit test based on the rf308 tutorial, which compared against
+/// stored reference values.
+TEST(RooAbsPdf, Normalization2D)
+{
+   RooRealVar x("x", "x", -10, 10);
+   RooRealVar y("y", "y", -10, 10);
+
+   RooGaussian gx("gx", "gx", x, -2.0, 3.0);
+   RooGaussian gy("gy", "gy", y, +2.0, 2.0);
+   RooProdPdf gxy("gxy", "gxy", RooArgSet(gx, gy));
+
+   const double rawX = std::exp(-0.5 * std::pow((x.getVal() + 2.) / 3., 2));
+   const double rawY = std::exp(-0.5 * std::pow((y.getVal() - 2.) / 2., 2));
+   const double intX = gaussInt(-10, 10, -2., 3.);
+   const double intY = gaussInt(-10, 10, +2., 2.);
+
+   EXPECT_NEAR(gxy.getVal(), rawX * rawY, 1e-10);
+
+   // Normalized over both, or only one of the observables (the other one is
+   // then treated as a parameter)
+   RooArgSet nsetXY{x, y};
+   RooArgSet nsetX{x};
+   RooArgSet nsetY{y};
+   EXPECT_NEAR(gxy.getVal(&nsetXY), rawX * rawY / (intX * intY), 1e-10);
+   EXPECT_NEAR(gxy.getVal(&nsetX), rawX / intX, 1e-10);
+   EXPECT_NEAR(gxy.getVal(&nsetY), rawY / intY, 1e-10);
+
+   std::unique_ptr<RooAbsReal> igxy{gxy.createIntegral({x, y})};
+   EXPECT_NEAR(igxy->getVal(), intX * intY, 1e-6 * intX * intY);
+
+   // Fraction of the normalized pdf contained in the rectangular "signal" range
+   x.setRange("signal", -5, 5);
+   y.setRange("signal", -3, 3);
+   std::unique_ptr<RooAbsReal> igxySig{gxy.createIntegral({x, y}, RooFit::NormSet(RooArgSet{x, y}), RooFit::Range("signal"))};
+   const double sigFrac = gaussInt(-5, 5, -2., 3.) * gaussInt(-3, 3, 2., 2.) / (intX * intY);
+   EXPECT_NEAR(igxySig->getVal(), sigFrac, 1e-6);
+
+   // The cdf of the product of two independent pdfs factorizes into the
+   // product of the marginal cdfs
+   std::unique_ptr<RooAbsReal> cdf{gxy.createCdf({x, y})};
+   const std::vector<std::pair<double, double>> cdfPoints{{-5., -2.}, {0., 0.}, {2.5, 4.}, {10., 10.}};
+   for (auto const &[xVal, yVal] : cdfPoints) {
+      x.setVal(xVal);
+      y.setVal(yVal);
+      const double ref = gaussInt(-10, xVal, -2., 3.) / intX * gaussInt(-10, yVal, 2., 2.) / intY;
+      EXPECT_NEAR(cdf->getVal(), ref, 1e-6) << "cdf at (x, y) = (" << xVal << ", " << yVal << ")";
+   }
+}
+
+/// Configuration of numeric integration, validated against the analytical
+/// integral of the Landau pdf instead of stored reference values. Replaces the
+/// former stressRooFit test based on the rf111 tutorial.
+TEST(RooAbsPdf, NumIntConfig)
+{
+   RooRealVar x("x", "x", -10, 10);
+   RooLandau landau("landau", "landau", x, 0.0, 0.1);
+
+   // The analytical integral serves as the reference
+   const double refVal = std::unique_ptr<RooAbsReal>{landau.createIntegral(x)}->getVal();
+
+   // Disable analytic integration and integrate with the default numeric
+   // integrator configuration
+   landau.forceNumInt(true);
+   const double val1 = std::unique_ptr<RooAbsReal>{landau.createIntegral(x)}->getVal();
+   EXPECT_NEAR(val1, refVal, 1e-3 * refVal);
+
+   // Use a custom configuration, once passed explicitly to createIntegral()
+   // and once set as the default configuration of the pdf object
+   RooNumIntConfig customConfig(*RooAbsReal::defaultIntegratorConfig());
+   customConfig.setEpsAbs(1e-8);
+   customConfig.setEpsRel(1e-8);
+
+   const double val2 =
+      std::unique_ptr<RooAbsReal>{landau.createIntegral(x, RooFit::NumIntConfig(customConfig))}->getVal();
+   EXPECT_NEAR(val2, refVal, 1e-3 * refVal);
+
+   landau.setIntegratorConfig(customConfig);
+   const double val3 = std::unique_ptr<RooAbsReal>{landau.createIntegral(x)}->getVal();
+
+   // Both ways of passing the custom configuration must give the identical result
+   EXPECT_DOUBLE_EQ(val3, val2);
+}
+
+/// Unbinned fit with a per-event acceptance region, implemented via a range
+/// that is parameterized by another observable in the dataset. The fit must
+/// recover the generating decay constant without bias. Replaces the former
+/// stressRooFit test based on the rf314 tutorial.
+TEST_P(FitTest, ParameterizedRangeFit)
+{
+   using namespace RooFit;
+
+   RooRealVar t("t", "t", 0, 5);
+   RooRealVar tmin("tmin", "tmin", 0, 0, 5);
+
+   // Parameterized range in t : [tmin, 5]
+   t.setRange(tmin, RooConst(t.getMax()));
+
+   RooRealVar tau("tau", "tau", -1.54, -10, -0.1);
+   RooExponential model("model", "model", t, tau);
+
+   // Prototype dataset with per-event acceptance limit values
+   RooGaussian gmin("gmin", "gmin", tmin, 0.0, 0.5);
+   std::unique_ptr<RooDataSet> proto{gmin.generate(tmin, 5000)};
+
+   // Dataset with t values that observe t > tmin
+   std::unique_ptr<RooDataSet> data{model.generate(t, ProtoData(*proto))};
+
+   std::unique_ptr<RooFitResult> res{model.fitTo(*data, Save(), PrintLevel(-1), _evalBackend)};
+
+   EXPECT_EQ(res->status(), 0);
+   EXPECT_EQ(res->covQual(), 3);
+   expectParamNear(*res, "tau", -1.54);
+}
+
+INSTANTIATE_TEST_SUITE_P(RooAbsPdf, FitTest, testing::Values(ROOFIT_EVAL_BACKENDS), EvalBackendParamName{});

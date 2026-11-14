@@ -1,9 +1,8 @@
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2017-06-29
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
- * Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2023, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -14,7 +13,6 @@
 #include <QWebEngineView>
 #include <qtwebenginecoreglobal.h>
 #include <QWebEngineDownloadRequest>
-// #include <qtwebenginequickglobal.h>
 
 #include <QThread>
 #include <QWebEngineSettings>
@@ -31,14 +29,17 @@
 #include "THttpServer.h"
 #include "TSystem.h"
 
-#include "../qt5webdisplay/rootwebview.h"
-#include "../qt5webdisplay/rootwebpage.h"
-#include "../qt5webdisplay/rooturlschemehandler.h"
+#include "rootwebview.h"
+#include "rootwebpage.h"
+#include "rooturlschemehandler.h"
 
 #include <memory>
 
 #include <ROOT/RWebDisplayHandle.hxx>
 #include <ROOT/RLogger.hxx>
+
+QWebEngineUrlScheme gRootScheme("rootscheme");
+
 
 /** \class TQt6Timer
 \ingroup qt6webdisplay
@@ -58,7 +59,6 @@ public:
 };
 
 namespace ROOT {
-namespace Experimental {
 
 /** \class RQt6WebDisplayHandle
 \ingroup qt6webdisplay
@@ -67,27 +67,31 @@ namespace Experimental {
 class RQt6WebDisplayHandle : public RWebDisplayHandle {
 protected:
 
-   RootWebView *fView{nullptr};  ///< pointer on widget, need to release when handle is destroyed
+   RootWebView *fView = nullptr;  ///< pointer on widget, need to release when handle is destroyed
+   bool fDeleteView = true;       ///< is view must be deleted
 
    class Qt6Creator : public Creator {
-      int fCounter{0}; ///< counter used to number handlers
-      QApplication *qapp{nullptr};  ///< created QApplication
-      int qargc{1};                 ///< arg counter
-      char *qargv[2];               ///< arg values
-      std::unique_ptr<TQt6Timer> fTimer; ///< timer to process ROOT events
+      QApplication *qapp = nullptr;        ///< created QApplication
+      int qargc = 1;                       ///< arg counter
+      char *qargv[2] = {nullptr, nullptr}; ///< arg values
+      std::unique_ptr<TQt6Timer> fTimer;   ///< timer to process ROOT events
       std::unique_ptr<RootUrlSchemeHandler> fHandler; ///< specialized handler
    public:
 
       Qt6Creator() = default;
 
-      virtual ~Qt6Creator()
+      ~Qt6Creator() override
       {
-         /** Code executed during exit and sometime crashes.
-          *  Disable it, while not clear if defaultProfile can be still used - seems to be not */
-         // if (fHandler)
-         //   QWebEngineProfile::defaultProfile()->removeUrlSchemeHandler(fHandler.get());
+         /** Code executed during program exit and sometime crashes.
+          * It can be that ROOT libraries already partially unloaded
+          * Therefore disable objects cleanup when gSystem already vansihed */
 
-         R__LOG_DEBUG(0, QtWebDisplayLog()) << "Deleting Qt6Creator";
+         if (!gSystem) {
+            fHandler.release();
+            fTimer.release();
+         } else  if (fHandler && QWebEngineProfile::defaultProfile()) {
+            QWebEngineProfile::defaultProfile()->removeUrlSchemeHandler(fHandler.get());
+         }
       }
 
       std::unique_ptr<RWebDisplayHandle> Display(const RWebDisplayArgs &args) override
@@ -102,12 +106,6 @@ protected:
             // initialize web engine only before creating QApplication
             // QtWebEngineQuick::initialize();
 
-            QWebEngineUrlScheme scheme("rootscheme");
-            scheme.setSyntax(QWebEngineUrlScheme::Syntax::HostAndPort);
-            scheme.setDefaultPort(2345);
-            scheme.setFlags(QWebEngineUrlScheme::SecureScheme);
-            QWebEngineUrlScheme::registerScheme(scheme);
-
             qargv[0] = gApplication->Argv(0);
             qargv[1] = nullptr;
 
@@ -117,7 +115,7 @@ protected:
          // create timer to process Qt events from inside ROOT process events
          // very much improve performance, even when Qt even loop runs by QApplication normally
          if (!fTimer && !args.IsHeadless()) {
-            Int_t interval = gEnv->GetValue("WebGui.Qt5Timer", 1);
+            Int_t interval = gEnv->GetValue("WebGui.Qt6Timer", 10);
             if (interval > 0) {
                fTimer = std::make_unique<TQt6Timer>(interval, kTRUE);
                fTimer->TurnOn();
@@ -145,7 +143,13 @@ protected:
          RootWebView *view = new RootWebView(qparent, args.GetWidth(), args.GetHeight(), args.GetX(), args.GetY());
 
          if (!args.IsHeadless()) {
-            if (!qparent) handle->fView = view;
+            if (!qparent) {
+               handle->fView = view;
+               if (!args.IsStandalone()) {
+                  handle->fDeleteView = false;
+                  view->setAttribute(Qt::WA_DeleteOnClose);
+               }
+            }
             view->load(QUrl(fullurl));
             view->show();
          } else {
@@ -220,13 +224,21 @@ protected:
 public:
    RQt6WebDisplayHandle(const std::string &url) : RWebDisplayHandle(url) {}
 
-   virtual ~RQt6WebDisplayHandle()
+   ~RQt6WebDisplayHandle() override
    {
       // now view can be safely destroyed
-      if (fView) {
+      if (fView && fDeleteView) {
          delete fView;
          fView = nullptr;
       }
+   }
+
+   bool Resize(int width, int height) override
+   {
+      if (!fView)
+         return false;
+      fView->resize(QSize(width, height));
+      return true;
    }
 
    static void AddCreator()
@@ -239,8 +251,16 @@ public:
 };
 
 struct RQt6CreatorReg {
-   RQt6CreatorReg() { RQt6WebDisplayHandle::AddCreator(); }
+   RQt6CreatorReg()
+   {
+      RQt6WebDisplayHandle::AddCreator();
+
+      gRootScheme.setSyntax(QWebEngineUrlScheme::Syntax::HostAndPort);
+      gRootScheme.setDefaultPort(2345);
+      gRootScheme.setFlags(QWebEngineUrlScheme::SecureScheme);
+      QWebEngineUrlScheme::registerScheme(gRootScheme);
+
+   }
 } newRQt6CreatorReg;
 
-}
-}
+} // namespace ROOT

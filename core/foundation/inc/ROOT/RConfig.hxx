@@ -19,7 +19,7 @@
  *                                                                       *
  *************************************************************************/
 
-#include "../RVersion.h"
+#include "RVersion.hxx"
 #include "RConfigure.h"
 
 
@@ -44,10 +44,10 @@
 #  define R__NULLPTR
 # endif
 #else
-# if defined(__cplusplus) && (__cplusplus < 201402L)
-#  error "ROOT requires support for C++14 or higher."
+#if defined(__cplusplus) && (__cplusplus < 201703L)
+#error "ROOT requires support for C++17 or higher."
 #  if defined(__GNUC__) || defined(__clang__)
-#   error "Pass `-std=c++14` as compiler argument."
+#error "Pass `-std=c++17` as compiler argument."
 #  endif
 # endif
 #endif
@@ -62,18 +62,6 @@
 #   ifdef __LP64__
 #      define R__B64
 #   endif
-#   ifdef R__HPUX10
-#      define NEED_SNPRINTF
-#   endif
-#endif
-
-#ifdef _AIX
-#   define R__AIX
-#   define R__UNIX
-#   define ANSICPP
-#   define R__SEEK64
-#   define R__PLACEMENTINLINE /* placement new/delete is inline in <new> */
-#   define NEED_STRCASECMP
 #endif
 
 #if defined(__linux) || defined(__linux__)
@@ -105,14 +93,12 @@
 #      endif
 #   else
 #      define R__SUN
-#      include <stdlib.h>
+#      include <cstdlib>
 #   endif
 #   define R__UNIX
-#   define NEED_STRING
 #   define NEED_SIGJMP
 #   if __SUNPRO_CC > 0x420
 #      define R__SOLARIS_CC50
-#      define R__PLACEMENTINLINE /* placement new/delete is inline in <new> */
 #   endif
 #   if __SUNPRO_CC >= 0x420
 #      define R__SUNCCBUG        /* to work around a compiler bug */
@@ -127,7 +113,6 @@
 #   define R__SEEK64
 #   define ANSICPP
 #   define R__UNIX
-#   define NEED_STRING
 #   define NEED_SIGJMP
 #endif
 
@@ -145,6 +130,9 @@
 #      define R__NONSCALARFPOS2
 #      define R__USESTHROW
 #      define R__SEEK64
+#   endif
+#   if __GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38)
+#      define HAS_STRLCPY
 #   endif
 #endif
 
@@ -227,6 +215,24 @@
 #   define NEED_SIGJMP
 #endif
 
+#if defined(linux) && defined(__riscv)
+#   define R__LINUX
+#   define R__UNIX
+#   define R__BYTESWAP
+#   if __riscv_xlen >= 64
+#      define R__B64
+#   endif
+#   define NEED_SIGJMP
+#endif
+
+#if defined(linux) && defined(__loongarch_lp64)
+#   define R__LINUX
+#   define R__UNIX
+#   define R__BYTESWAP
+#   define R__B64
+#   define NEED_SIGJMP
+#endif
+
 #if defined(__MACH__) && defined(__i386__) && !defined(__APPLE__)
 #   define R__HURD
 #   define f2cFortran   /* cfortran.h does not know HURD - sigh */
@@ -242,7 +248,6 @@
 #   define ANSICPP
 #   define NEED_SIGJMP
 #   define NEED_STRCASECMP
-#   define NEED_SNPRINTF
 #endif
 
 #if defined(__FreeBSD__)
@@ -277,14 +282,11 @@
 
 #if defined(__APPLE__)       /* MacOS X support, initially following FreeBSD */
 #   include <AvailabilityMacros.h>
-#   ifndef __CINT__
 #   include <TargetConditionals.h>
-#   endif
 #   define R__MACOSX
 #   define R__UNIX
 #   if defined(__xlC__) || defined(__xlc__)
 #      define ANSICPP
-#      define R__PLACEMENTINLINE /* placement new/delete is inline in <new> */
 #   endif
 #   if defined(__ppc64__)
 #      define R__B64      /* enable when 64 bit machine */
@@ -310,37 +312,18 @@
 #   define R__HIUX
 #   define R__UNIX
 #   define NEED_SIGJMP
-#   define NEED_SNPRINTF
 #   define ANSICPP
 #endif
 
 #ifdef __GNUC__
 #   define R__GNU
 #   define ANSICPP
-#   if __GNUC__ >= 3 || __GNUC_MINOR__ >= 90    /* egcs 1.0.3 */
-#      define R__VECNEWDELETE    /* supports overloading of new[] and delete[] */
-#      define R__PLACEMENTDELETE /* supports overloading placement delete */
-#   endif
-#   if __GNUC__ >= 3 || ( __GNUC__ == 2 && __GNUC_MINOR__ >= 95)
-#         define R__PLACEMENTINLINE /* placement new/delete is inline in <new> */
-#   endif
-#   if defined(__ia64__) &&  __GNUC__ < 3       /* gcc 2.9x (MINOR is 9!) */
-#      define R__VECNEWDELETE    /* supports overloading of new[] and delete[] */
-#      define R__PLACEMENTDELETE /* supports overloading placement delete */
-#   endif
 #   if __GNUC__ > 4 || ( __GNUC__ == 4 && __GNUC_MINOR__ > 1)
 #      define R__PRAGMA_DIAGNOSTIC
 #   endif
-#endif
-
-#if defined(R__MACOSX) && !defined(MAC_OS_X_VERSION_10_12)
-   // At least on 10.11, the compiler defines but the c++ library does not provide the size operator delete.
-   // See for example https://llvm.org/bugs/show_bug.cgi?id=22951 or
-   // https://github.com/gperftools/gperftools/issues/794.
-#elif !defined(__GNUC__)
-#   define R__SIZEDDELETE
-#elif __GNUC__ > 4
-#   define R__SIZEDDELETE
+#   if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#      define R__BYTESWAP
+#   endif
 #endif
 
 /* allows symbols to be hidden from the shared library export symbol table */
@@ -353,23 +336,17 @@
 
 #ifdef __INTEL_COMPILER
 #   define R__INTEL_COMPILER
-#   define R__VECNEWDELETE    /* supports overloading of new[] and delete[] */
-#   define R__PLACEMENTDELETE /* supports overloading placement delete */
-#   define R__PLACEMENTINLINE /* placement new/delete is inline in <new> */
 #   define ANSICPP
 #endif
 
 #ifdef __HP_aCC
 #   define R__ACC
-#   define R__VECNEWDELETE    /* supports overloading of new[] and delete[] */
-#   define R__PLACEMENTINLINE /* placement new/delete is inline in <new> */
 #   if __HP_aCC <= 015000
 #      define R__OLDHPACC
 #      define R__TEMPLATE_OVERLOAD_BUG
 #      define R__GLOBALSTL       /* STL in global name space */
-#      error "ROOT requires proper support for C++11 or higher"
+#error "ROOT requires proper support for C++17 or higher"
 #   else
-#      define R__PLACEMENTDELETE /* supports overloading placement delete */
 #      define R__TMPLTSTREAM     /* std::iostream implemented with templates */
 #   endif
 #   ifndef _INCLUDE_LONGLONG
@@ -392,7 +369,7 @@
 #   ifndef WIN64
 #      define WIN64
 #   endif
-#   define __x86_64__ 1
+#   define R__x86_64__ 1
 #   define R__B64      /* enable when 64 bit machine */
 #endif
 
@@ -400,9 +377,7 @@
 #   define SC
 #   define R__SC
 #   if defined(WIN32)
-#      define NEED_STRING
 #      define NEED_STRCASECMP
-#      define NEED_SNPRINTF
 #      define ANSICPP
 #   else
 #      define MSDOS
@@ -413,18 +388,8 @@
 
 #ifdef _MSC_VER
 #   define R__VISUAL_CPLUSPLUS
-#   define NEED_STRING
 #   define NEED_STRCASECMP
-#   if _MSC_VER < 1900
-#     define NEED_SNPRINTF
-#   endif
 #   define ANSICPP
-#   define R__VECNEWDELETE    /* supports overloading of new[] and delete[] */
-#   define R__PLACEMENTDELETE /* supports overloading placement delete */
-#   define R__PLACEMENTINLINE /* placement new/delete is inline in <new> */
-#   if _MSC_VER >= 1400
-#     define DONTNEED_VSNPRINTF
-#   endif
 #   if _MSC_VER < 1310
 #      define R__NO_CLASS_TEMPLATE_SPECIALIZATION
 #   endif
@@ -458,28 +423,24 @@
 
 #endif
 
+#define _R_QUOTEVAL_(string) _QUOTE_(string)
+
 /* produce an identifier that is almost unique inside a file */
-#ifndef __CINT__
 #   define _R__JOIN_(X,Y) _NAME2_(X,Y)
 #   define _R__JOIN3_(F,X,Y) _NAME3_(F,X,Y)
 #   define _R__UNIQUE_DICT_(X) _R__JOIN3_(R__DICTIONARY_FILENAME,X,__LINE__)
 #   define _R__UNIQUE_(X) _R__JOIN_(X,__LINE__)
-#else
-    /* Currently CINT does not really mind to have duplicates and     */
-    /* does not work correctly as far as merging tokens is concerned. */
-#   define _R__UNIQUE_(X) X
-#endif
 
 /*---- deprecation -----------------------------------------------------------*/
 #if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
 # if (__GNUC__ == 5 && (__GNUC_MINOR__ == 1 || __GNUC_MINOR__ == 2)) || defined(R__NO_DEPRECATION)
-/* GCC 5.1, 5.2: false positives due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=15269 
+/* GCC 5.1, 5.2: false positives due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=15269
    or deprecation turned off */
 #   define _R__DEPRECATED_LATER(REASON)
 # else
 #   define _R__DEPRECATED_LATER(REASON) __attribute__((deprecated(REASON)))
 # endif
-#elif defined(_MSC_VER) || !defined(R__NO_DEPRECATION)
+#elif defined(_MSC_VER) && !defined(R__NO_DEPRECATION)
 #   define _R__DEPRECATED_LATER(REASON) __pragma(deprecated(REASON))
 #else
 /* Deprecation not supported for this compiler. */
@@ -492,12 +453,24 @@
 #define _R_DEPRECATED_REMOVE_NOW(REASON) __attribute__((REMOVE_THIS_NOW))
 #endif
 
-/* USE AS `R__DEPRECATED(6,28, "Not threadsafe; use TFoo::Bar().")`
-   To be removed by 6.28 */
-#if ROOT_VERSION_CODE <= ROOT_VERSION(6,27,0)
-# define _R__DEPRECATED_628(REASON) _R__DEPRECATED_LATER(REASON)
+/* USE AS `R__DEPRECATED(6,42, "Not threadsafe; use TFoo::Bar().")`
+   To be removed by 6.42 */
+#if ROOT_VERSION_CODE < ROOT_VERSION(6, 41, 2)
+#define _R__DEPRECATED_642(REASON) _R__DEPRECATED_LATER(REASON)
 #else
-# define _R__DEPRECATED_628(REASON) _R_DEPRECATED_REMOVE_NOW(REASON)
+#define _R__DEPRECATED_642(REASON) _R_DEPRECATED_REMOVE_NOW(REASON)
+#endif
+
+#if ROOT_VERSION_CODE <= ROOT_VERSION(6, 43, 0)
+#define _R__DEPRECATED_644(REASON) _R__DEPRECATED_LATER(REASON)
+#else
+#define _R__DEPRECATED_644(REASON) _R_DEPRECATED_REMOVE_NOW(REASON)
+#endif
+
+#if ROOT_VERSION_CODE <= ROOT_VERSION(6, 45, 0)
+#define _R__DEPRECATED_646(REASON) _R__DEPRECATED_LATER(REASON)
+#else
+#define _R__DEPRECATED_646(REASON) _R_DEPRECATED_REMOVE_NOW(REASON)
 #endif
 
 /* USE AS `R__DEPRECATED(7,00, "Not threadsafe; use TFoo::Bar().")`

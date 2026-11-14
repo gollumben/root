@@ -11,6 +11,7 @@
 #ifndef ROOT_PosixThreadInc
 #define ROOT_PosixThreadInc
 
+#warning "This header is deprecated and will be removed after ROOT 7. Use instead <cstdlib> and <ctime>"
 
 //////////////////////////////////////////////////////////////////////////
 //                                                                      //
@@ -20,11 +21,7 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef __CINT__
-
-#include <stdlib.h>
-#include <time.h>
-
-#endif /* __CINT__ */
+#include <cstdlib>
+#include <ctime>
 
 #endif

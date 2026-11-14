@@ -15,13 +15,15 @@
 #include "TNamed.h"
 #include "TBits.h"
 #include "TInterpreter.h"
+#include "TMath.h"
+#include <Math/Types.h>
+
+#include <atomic>
 #include <cassert>
-#include <vector>
 #include <list>
 #include <map>
 #include <string>
-#include <atomic>
-#include <Math/Types.h>
+#include <vector>
 
 class TMethodCall;
 
@@ -121,15 +123,12 @@ private:
    static Bool_t   IsDefaultVariableName(const TString &name);
    void ReplaceAllNames(TString &formula, std::map<TString, TString> &substitutions);
    void FillParametrizedFunctions(std::map<std::pair<TString, Int_t>, std::pair<TString, TString>> &functions);
-   void FillVecFunctionsShurtCuts();
    void ReInitializeEvalMethod();
    std::string GetGradientFuncName() const {
-      assert(fClingName.Length() && "TFormula is not initialized yet!");
-      return std::string(fClingName.Data()) + "_grad_1";
+      return std::string(GetUniqueFuncName().Data()) + "_grad_1";
    }
    std::string GetHessianFuncName() const {
-      assert(fClingName.Length() && "TFormula is not initialized yet!");
-      return std::string(fClingName.Data()) + "_hessian_1";
+      return std::string(GetUniqueFuncName().Data()) + "_hessian_1";
    }
    bool HasGradientGenerationFailed() const {
       return !fGradFuncPtr && !fGradGenerationInput.empty();
@@ -148,7 +147,7 @@ protected:
    TString                             fFormula;            ///<   String representing the formula expression
    Int_t                               fNdim;               ///<   Dimension - needed for lambda expressions
    Int_t                               fNpar;               ///<!  Number of parameter (transient since we save the vector)
-   Int_t                               fNumber;             ///<!
+   Int_t                               fNumber;             ///<   Number used to identify pre-defined functions (gaus, expo,..)
    std::vector<TObject*>               fLinearParts;        ///<   Vector of linear functions
    Bool_t                              fVectorized = false; ///<   Whether we should use vectorized or regular variables
    // (we default to false since a lot of functions still cannot be expressed in vectorized form)
@@ -156,7 +155,6 @@ protected:
    static Bool_t IsOperator(const char c);
    static Bool_t IsBracket(const char c);
    static Bool_t IsFunctionNameChar(const char c);
-   static Bool_t IsScientificNotation(const TString & formula, int ipos);
    static Bool_t IsHexadecimal(const TString & formula, int ipos);
    static Bool_t IsAParameterName(const TString & formula, int ipos);
    void   ExtractFunctors(TString &formula);
@@ -169,7 +167,7 @@ protected:
    void   SetPredefinedParamNames();
 
    Double_t       DoEval(const Double_t * x, const Double_t * p = nullptr) const;
-#ifdef R__HAS_VECCORE
+#ifdef R__HAS_STD_EXPERIMENTAL_SIMD
    ROOT::Double_v DoEvalVec(const ROOT::Double_v *x, const Double_t *p = nullptr) const;
 #endif
 
@@ -184,7 +182,7 @@ public:
    using CladStorage = std::vector<Double_t>;
 
                   TFormula();
-   virtual        ~TFormula();
+          ~TFormula() override;
    TFormula&      operator=(const TFormula &rhs);
    TFormula(const char *name, const char * formula = "", bool addToGlobList = true, bool vectorize = false);
    TFormula(const char *name, const char * formula, int ndim, int npar, bool addToGlobList = true);
@@ -195,13 +193,15 @@ public:
    void           AddVariable(const TString &name, Double_t value = 0);
    void           AddVariables(const TString *vars, const Int_t size);
    Int_t          Compile(const char *expression="");
-   virtual void   Copy(TObject &f1) const;
-   virtual void   Clear(Option_t * option="");
-   Double_t       Eval(Double_t x) const;
-   Double_t       Eval(Double_t x, Double_t y) const;
-   Double_t       Eval(Double_t x, Double_t y , Double_t z) const;
-   Double_t       Eval(Double_t x, Double_t y , Double_t z , Double_t t ) const;
-   Double_t       EvalPar(const Double_t *x, const Double_t *params=0) const;
+   void   Copy(TObject &f1) const override;
+   void   Clear(Option_t * option="") override;
+   template <typename... Args>
+   Double_t       Eval(Args... args) const;
+   Double_t       EvalPar(const Double_t *x, const Double_t *params = nullptr) const;
+   Double_t EvalPar(std::nullptr_t, const Double_t *params = nullptr) const
+   {
+      return EvalPar(static_cast<double const *>(nullptr), params);
+   }
 
    /// Generate gradient computation routine with respect to the parameters.
    /// \returns true if a gradient was generated and GradientPar can be called.
@@ -240,18 +240,23 @@ public:
       return fHessFuncPtr != nullptr;
    }
 
-   // template <class T>
-   // T Eval(T x, T y = 0, T z = 0, T t = 0) const;
-   template <class T>
-   T EvalPar(const T *x, const Double_t *params = 0) const {
+   static Bool_t IsScientificNotation(const TString & formula, int ipos);
+
+#ifdef R__HAS_STD_EXPERIMENTAL_SIMD
+   ROOT::Double_v EvalPar(const ROOT::Double_v *x, const Double_t *params = nullptr) const
+   {
       return  EvalParVec(x, params);
    }
-#ifdef R__HAS_VECCORE
-   ROOT::Double_v EvalParVec(const ROOT::Double_v *x, const Double_t *params = 0) const;
+   ROOT::Double_v EvalParVec(const ROOT::Double_v *x, const Double_t *params = nullptr) const;
 #endif
-   TString        GetExpFormula(Option_t *option="") const;
+   TString        GetExpFormula(Option_t *option = "") const;
    TString        GetGradientFormula() const;
    TString        GetHessianFormula() const;
+   TString        GetUniqueFuncName() const {
+      assert(fClingName.Length() && "TFormula is not initialized yet!");
+      return fClingName;
+   }
+
    const TObject *GetLinearPart(Int_t i) const;
    Int_t          GetNdim() const {return fNdim;}
    Int_t          GetNpar() const {return fNpar;}
@@ -268,24 +273,63 @@ public:
    Bool_t         IsValid() const { return fReadyToExecute && fClingInitialized; }
    Bool_t IsVectorized() const { return fVectorized; }
    Bool_t         IsLinear() const { return TestBit(kLinear); }
-   void           Print(Option_t *option = "") const;
-   void           SetName(const char* name);
+   void           Print(Option_t *option = "") const override;
+   void           SetName(const char* name) override;
    void           SetParameter(const char* name, Double_t value);
    void           SetParameter(Int_t param, Double_t value);
    void           SetParameters(const Double_t *params);
    //void           SetParameters(const pair<TString,Double_t> *params, const Int_t size);
-   void           SetParameters(Double_t p0,Double_t p1,Double_t p2=0,Double_t p3=0,Double_t p4=0,
-                                     Double_t p5=0,Double_t p6=0,Double_t p7=0,Double_t p8=0,
-                                     Double_t p9=0,Double_t p10=0); // *MENU*
+   template <typename... Args>
+   void           SetParameters(Double_t arg1, Args &&... args);
    void           SetParName(Int_t ipar, const char *name);
-   void           SetParNames(const char *name0="p0",const char *name1="p1",const char
-                             *name2="p2",const char *name3="p3",const char
-                             *name4="p4", const char *name5="p5",const char *name6="p6",const char *name7="p7",const char
-                             *name8="p8",const char *name9="p9",const char *name10="p10"); // *MENU*
+   template <typename... Args>
+   void           SetParNames(Args &&... args);
    void           SetVariable(const TString &name, Double_t value);
    void           SetVariables(const std::pair<TString,Double_t> *vars, const Int_t size);
    void SetVectorized(Bool_t vectorized);
 
-   ClassDef(TFormula,13)
+   ClassDefOverride(TFormula,14)
 };
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set a list of parameters.
+/// The order is by default the alphabetic order given to the parameters,
+/// apart if the users has defined explicitly the parameter names.
+/// NaN values will be skipped, meaning that the corresponding parameters will not be changed.
+
+template <typename... Args>
+void TFormula::SetParameters(Double_t arg1, Args &&...args)
+{
+   int i = 0;
+   for (double val : {arg1, static_cast<Double_t>(args)...}) {
+      if(!TMath::IsNaN(val)) SetParameter(i++, val);
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set parameter names.
+/// Empty strings will be skipped, meaning that the corresponding name will not be changed.
+template <typename... Args>
+void TFormula::SetParNames(Args &&...args)
+{
+   int i = 0;
+   for (auto name : {static_cast<std::string const&>(args)...}) {
+      if(!name.empty()) SetParName(i++, name.c_str());
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set first 1, 2, 3 or 4 variables (e.g. x, y, z and t)
+/// and evaluate formula.
+
+template <typename... Args>
+Double_t TFormula::Eval(Args... args) const
+{
+   if (sizeof...(args) > 4) {
+      Error("Eval", "Eval() only support setting up to 4 variables");
+   }
+   double xxx[] = {static_cast<Double_t>(args)...};
+   return EvalPar(xxx, nullptr);
+}
+
 #endif

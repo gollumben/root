@@ -29,10 +29,40 @@ TCollection inherits from TObject since we want to be able to have
 collections of collections.
 
 In a later release the collections may become templatized.
+
+The following describes how you can access the elements in case
+an interface returns a ROOT collection type such as TList or TObjArray.
+These type of ROOT collections hold pointers to TObject. In other words,
+to store an object in a ROOT collection, it must inherit from TObject.
+You can think of a TList as a std::list<TObject*>.
+
+\note For historical reasons, some of ROOT’s interfaces use ROOT’s
+own collection types such as TList and TObjArray. In modern code
+(within ROOT and your own), it's recommended to rather use
+std::array or std::vector etc. from the C++ Standard Library, and
+their standard iterators.
+
+Traditional ways of iterating through these elements rely on the use of
+TIter, R__FOR_EACH, std::for_each, range-based for, TObjLink::Next or
+TList::After, as described in the 6 examples of TList documentation.
+
+However, these ways of retrieval through the parent class TObject* are
+often not useful, since those pointers have to be cast back to the
+correct subclass. For instance, with TTree::GetListOfBranches(),
+you know that the derived class is of type TBranch*. For this purpose,
+ROOT offers a specific tools for range-based for loops: such as
+ROOT::RRangeCast, TRangeStaticCast and TRangeDynCast (in this example):
+
+```{.cpp}
+for (auto br : TRangeDynCast<TBranch>( tree->GetListOfBranches() )) {
+    if (!br) continue;
+    // Use br as a TBranch*
+}
+```
+
 */
 
 #include "TCollection.h"
-#include "Varargs.h"
 #include "TBuffer.h"
 #include "TClass.h"
 #include "TROOT.h"
@@ -44,6 +74,9 @@ In a later release the collections may become templatized.
 #include "TError.h"
 #include "TSystem.h"
 #include "TObjArray.h"
+#include "TMathBase.h"
+
+#include <cstdarg>
 #include <iostream>
 #include <sstream>
 
@@ -56,8 +89,6 @@ TObjectTable  *TCollection::fgGarbageCollection = nullptr;
 Bool_t         TCollection::fgEmptyingGarbage   = kFALSE;
 Int_t          TCollection::fgGarbageStack      = 0;
 
-ClassImp(TCollection);
-ClassImp(TIter);
 
 #ifdef R__CHECK_COLLECTION_MULTI_ACCESS
 
@@ -205,13 +236,13 @@ void TCollection::AddAll(const TCollection *col)
 /// Add all arguments to the collection. The list of objects must be
 /// terminated by 0, e.g.: l.AddVector(o1, o2, o3, o4, 0);
 
-void TCollection::AddVector(TObject *va_(obj1), ...)
+void TCollection::AddVector(TObject *obj1, ...)
 {
    va_list ap;
-   va_start(ap, va_(obj1));
+   va_start(ap, obj1);
    TObject *obj;
 
-   Add(va_(obj1));
+   Add(obj1);
    while ((obj = va_arg(ap, TObject *)))
       Add(obj);
    va_end(ap);
@@ -316,7 +347,7 @@ TObject *TCollection::FindObject(const char *name) const
 
    while ((obj = next()))
       if (!strcmp(name, obj->GetName())) return obj;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -341,7 +372,7 @@ TObject *TCollection::FindObject(const TObject *obj) const
 
    while ((ob = next()))
       if (ob->IsEqual(obj)) return ob;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -388,7 +419,7 @@ void TCollection::ls(Option_t *option) const
    TRegexp re(option,kTRUE);
    TIter next(this);
    TObject *object;
-   char *star = 0;
+   char *star = nullptr;
    if (option) star = (char*)strchr(option,'*');
 
    TROOT::IncreaseDirLevel();
@@ -584,7 +615,7 @@ void TCollection::RecursiveRemove(TObject *obj)
    TObject *object;
 
    while ((object = next())) {
-      if (object->TestBit(kNotDeleted)) object->RecursiveRemove(obj);
+      if (!ROOT::Detail::HasBeenDeleted(object)) object->RecursiveRemove(obj);
    }
 }
 
@@ -645,17 +676,17 @@ void TCollection::Streamer(TBuffer &b)
 /// objects using a single key specify a name and set option to
 /// TObject::kSingleKey (i.e. 1).
 
-Int_t TCollection::Write(const char *name, Int_t option, Int_t bsize) const
+Int_t TCollection::Write(const char *name, Int_t option, Int_t bufsize) const
 {
    if ((option & kSingleKey)) {
-      return TObject::Write(name, option, bsize);
+      return TObject::Write(name, option, bufsize);
    } else {
       option &= ~kSingleKey;
       Int_t nbytes = 0;
       TIter next(this);
       TObject *obj;
       while ((obj = next())) {
-         nbytes += obj->Write(name, option, bsize);
+         nbytes += obj->Write(name, option, bufsize);
       }
       return nbytes;
    }
@@ -669,9 +700,9 @@ Int_t TCollection::Write(const char *name, Int_t option, Int_t bsize) const
 /// objects using a single key specify a name and set option to
 /// TObject::kSingleKey (i.e. 1).
 
-Int_t TCollection::Write(const char *name, Int_t option, Int_t bsize)
+Int_t TCollection::Write(const char *name, Int_t option, Int_t bufsize)
 {
-   return ((const TCollection*)this)->Write(name,option,bsize);
+   return ((const TCollection*)this)->Write(name,option,bufsize);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -758,10 +789,14 @@ void TCollection::SetOwner(Bool_t enable)
 /// Note: To test whether the usage is enabled do:
 ///    collection->TestBit(TCollection::kUseRWLock);
 
-bool TCollection::UseRWLock()
+bool TCollection::UseRWLock(Bool_t enable)
 {
    bool prev = TestBit(TCollection::kUseRWLock);
-   SetBit(TCollection::kUseRWLock);
+   if (enable) {
+      SetBit(TCollection::kUseRWLock);
+   } else {
+      ResetBit(TCollection::kUseRWLock);
+   }
    return prev;
 }
 
@@ -775,7 +810,7 @@ TIter::TIter(const TIter &iter)
       fIterator = iter.GetCollection()->MakeIterator();
       fIterator->operator=(*iter.fIterator);
    } else
-      fIterator = 0;
+      fIterator = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -64,14 +64,15 @@ protected:
    UInt_t CheckObject(UInt_t offset, const TClass *cl, Bool_t readClass = kFALSE);
 
    void  WriteObjectClass(const void *actualObjStart, const TClass *actualClass, Bool_t cacheReuse) override;
+   bool ShouldNotReadCollection(Int_t lengthInBytes, Int_t nElements=1) const;
 
 public:
    enum { kStreamedMemberWise = BIT(14) }; //added to version number to know if a collection has been stored member-wise
 
    TBufferFile(TBuffer::EMode mode);
-   TBufferFile(TBuffer::EMode mode, Int_t bufsiz);
-   TBufferFile(TBuffer::EMode mode, Int_t bufsiz, void *buf, Bool_t adopt = kTRUE, ReAllocCharFun_t reallocfunc = nullptr);
-   virtual ~TBufferFile();
+   TBufferFile(TBuffer::EMode mode, Int_t bufsize);
+   TBufferFile(TBuffer::EMode mode, Int_t bufsize, void *buf, Bool_t adopt = kTRUE, ReAllocCharFun_t reallocfunc = nullptr);
+   ~TBufferFile() override;
 
    Int_t      CheckByteCount(UInt_t startpos, UInt_t bcnt, const TClass *clss) override;
    Int_t      CheckByteCount(UInt_t startpos, UInt_t bcnt, const char *classname) override;
@@ -93,7 +94,7 @@ public:
    TVirtualStreamerInfo  *GetInfo() override { return (TVirtualStreamerInfo*)fInfo; }
    void       ClassBegin(const TClass*, Version_t = -1) override {}
    void       ClassEnd(const TClass*) override {}
-   void       ClassMember(const char*, const char* = 0, Int_t = -1, Int_t = -1) override {}
+   void       ClassMember(const char*, const char * = nullptr, Int_t = -1, Int_t = -1) override {}
 
    Int_t      ReadBuf(void *buf, Int_t max) override;
    void       WriteBuf(const void *buf, Int_t max) override;
@@ -189,24 +190,24 @@ public:
    void     WriteArrayFloat16(const Float_t  *f, Int_t n, TStreamerElement *ele = nullptr) override;
    void     WriteArrayDouble32(const Double_t  *d, Int_t n, TStreamerElement *ele = nullptr) override;
 
-   void     WriteFastArray(const Bool_t    *b, Int_t n) override;
-   void     WriteFastArray(const Char_t    *c, Int_t n) override;
-   void     WriteFastArrayString(const Char_t    *c, Int_t n) override;
-   void     WriteFastArray(const UChar_t   *c, Int_t n) override;
-   void     WriteFastArray(const Short_t   *h, Int_t n) override;
-   void     WriteFastArray(const UShort_t  *h, Int_t n) override;
-   void     WriteFastArray(const Int_t     *i, Int_t n) override;
-   void     WriteFastArray(const UInt_t    *i, Int_t n) override;
-   void     WriteFastArray(const Long_t    *l, Int_t n) override;
-   void     WriteFastArray(const ULong_t   *l, Int_t n) override;
-   void     WriteFastArray(const Long64_t  *l, Int_t n) override;
-   void     WriteFastArray(const ULong64_t *l, Int_t n) override;
-   void     WriteFastArray(const Float_t   *f, Int_t n) override;
-   void     WriteFastArray(const Double_t  *d, Int_t n) override;
-   void     WriteFastArrayFloat16(const Float_t  *f, Int_t n, TStreamerElement *ele = nullptr) override;
-   void     WriteFastArrayDouble32(const Double_t  *d, Int_t n, TStreamerElement *ele = nullptr) override;
-   void     WriteFastArray(void  *start,  const TClass *cl, Int_t n=1, TMemberStreamer *s = nullptr) override;
-   Int_t    WriteFastArray(void **startp, const TClass *cl, Int_t n=1, Bool_t isPreAlloc=kFALSE, TMemberStreamer *s = nullptr) override;
+   void     WriteFastArray(const Bool_t    *b, Long64_t n) override;
+   void     WriteFastArray(const Char_t    *c, Long64_t n) override;
+   void     WriteFastArrayString(const Char_t    *c, Long64_t n) override;
+   void     WriteFastArray(const UChar_t   *c, Long64_t n) override;
+   void     WriteFastArray(const Short_t   *h, Long64_t n) override;
+   void     WriteFastArray(const UShort_t  *h, Long64_t n) override;
+   void     WriteFastArray(const Int_t     *i, Long64_t n) override;
+   void     WriteFastArray(const UInt_t    *i, Long64_t n) override;
+   void     WriteFastArray(const Long_t    *l, Long64_t n) override;
+   void     WriteFastArray(const ULong_t   *l, Long64_t n) override;
+   void     WriteFastArray(const Long64_t  *l, Long64_t n) override;
+   void     WriteFastArray(const ULong64_t *l, Long64_t n) override;
+   void     WriteFastArray(const Float_t   *f, Long64_t n) override;
+   void     WriteFastArray(const Double_t  *d, Long64_t n) override;
+   void     WriteFastArrayFloat16(const Float_t  *f, Long64_t n, TStreamerElement *ele = nullptr) override;
+   void     WriteFastArrayDouble32(const Double_t  *d, Long64_t n, TStreamerElement *ele = nullptr) override;
+   void     WriteFastArray(void  *start,  const TClass *cl, Long64_t n=1, TMemberStreamer *s = nullptr) override;
+   Int_t    WriteFastArray(void **startp, const TClass *cl, Long64_t n=1, Bool_t isPreAlloc=kFALSE, TMemberStreamer *s = nullptr) override;
 
    void     StreamObject(void *obj, const std::type_info &typeinfo, const TClass* onFileClass = nullptr) override;
    void     StreamObject(void *obj, const char *className, const TClass* onFileClass = nullptr) override;
@@ -267,6 +268,16 @@ public:
 
 
 //---------------------- TBufferFile inlines ---------------------------------------
+
+//______________________________________________________________________________
+inline bool TBufferFile::ShouldNotReadCollection(Int_t lengthInBytes, Int_t nElements) const
+{
+   // Three cases here in which we should not read the collection:
+   // 1. The collection has zero or a negative number of elements or
+   // 2. The length in bytes of the collection is zero or negative
+   // 3. The remaining part of the buffer is too short to read the collection
+   return nElements <= 0 || lengthInBytes <= 0 || (size_t)lengthInBytes > (size_t)(fBufMax - fBufCur);
+}
 
 //______________________________________________________________________________
 inline void TBufferFile::WriteBool(Bool_t b)
@@ -514,16 +525,16 @@ inline void TBufferFile::WriteArray(const ULong64_t *ll, Int_t n)
    {        TBufferFile::WriteArray((const Long64_t *)ll, n); }
 
 //______________________________________________________________________________
-inline void TBufferFile::WriteFastArray(const UChar_t *c, Int_t n)
+inline void TBufferFile::WriteFastArray(const UChar_t *c, Long64_t n)
    {        TBufferFile::WriteFastArray((const Char_t *)c, n); }
 //______________________________________________________________________________
-inline void TBufferFile::WriteFastArray(const UShort_t *h, Int_t n)
+inline void TBufferFile::WriteFastArray(const UShort_t *h, Long64_t n)
    {        TBufferFile::WriteFastArray((const Short_t *)h, n); }
 //______________________________________________________________________________
-inline void TBufferFile::WriteFastArray(const UInt_t *i, Int_t n)
+inline void TBufferFile::WriteFastArray(const UInt_t *i, Long64_t n)
    {        TBufferFile::WriteFastArray((const Int_t *)i, n); }
 //______________________________________________________________________________
-inline void TBufferFile::WriteFastArray(const ULong64_t *ll, Int_t n)
+inline void TBufferFile::WriteFastArray(const ULong64_t *ll, Long64_t n)
    {        TBufferFile::WriteFastArray((const Long64_t *)ll, n); }
 
 #endif

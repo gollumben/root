@@ -26,7 +26,11 @@ set(MATH_HEADERS
 
 set(MATH_SOURCES
     GenAlgoOptions.cxx
+    IOptions.cxx
+    Minimizer.cxx
     MinimizerOptions.cxx
+    ParameterSettings.cxx
+    Util.cxx
     )
 
 copy_standalone(SOURCE ../../../mathcore/inc/Fit DESTINATION ../../inc/Fit
@@ -54,15 +58,17 @@ target_include_directories(
     Minuit2Math
     PUBLIC
     $<BUILD_INTERFACE:${Minuit2_SOURCE_DIR}/inc>
-    $<INSTALL_INTERFACE:include/Minuit2>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/Minuit2>
     )
 
-# We need to add the ROOT mathcore directories if build inside of ROOT without standalone)
+# We need to add the ROOT mathcore and foundation (for ROOT/RSpan.hxx)
+# directories if built inside of ROOT without standalone
 if(minuit2_inroot AND NOT minuit2_standalone)
     target_include_directories(
         Minuit2Math
         PUBLIC
         $<BUILD_INTERFACE:${Minuit2_SOURCE_DIR}/../mathcore/inc>
+        $<BUILD_INTERFACE:${Minuit2_SOURCE_DIR}/../../core/foundation/inc>
         )
 endif()
 
@@ -81,14 +87,14 @@ target_compile_definitions(
 
 target_link_libraries(Minuit2Math PUBLIC Minuit2Common)
 
-target_compile_features(Minuit2Math PUBLIC cxx_auto_type cxx_static_assert)
+target_compile_features(Minuit2Math PUBLIC cxx_std_17)
 set_target_properties(Minuit2Math PROPERTIES CXX_EXTENSIONS OFF)
 
 install(TARGETS Minuit2Math
         EXPORT Minuit2Targets
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         )
 
-install(FILES ${FIT_HEADERS} DESTINATION include/Minuit2/Fit)
-install(FILES ${MATH_HEADERS} DESTINATION include/Minuit2/Math)
+install(FILES ${FIT_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Minuit2/Fit)
+install(FILES ${MATH_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Minuit2/Math)

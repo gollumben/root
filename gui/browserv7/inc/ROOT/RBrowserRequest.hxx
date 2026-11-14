@@ -1,6 +1,5 @@
 // Authors: Bertrand Bellenot <bertrand.bellenot@cern.ch> Sergey Linev <S.Linev@gsi.de>
 // Date: 2019-02-28
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
  * Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.               *
@@ -17,9 +16,8 @@
 #include <vector>
 
 namespace ROOT {
-namespace Experimental {
 
-/** \class ROOT::Experimental::RBrowserRequest
+/** \class ROOT::RBrowserRequest
 \ingroup rbrowser
 \brief Request send from client to get content of path element
 */
@@ -36,7 +34,6 @@ public:
    std::string regex;     ///< applied regex
 };
 
-} // namespace Experimental
 } // namespace ROOT
 
 #endif

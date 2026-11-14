@@ -17,6 +17,7 @@
 #include "TArrayC.h"
 
 #include <vector>
+#include <set>
 
 namespace ROOT {
 namespace Experimental {
@@ -128,7 +129,7 @@ private:
 public:
    REveChunkVector() = default;
    REveChunkVector(Int_t chunk_size) : REveChunkManager(sizeof(T), chunk_size) {}
-   virtual ~REveChunkVector() {}
+   ~REveChunkVector() override {}
 
    void Reset(Int_t chunk_size) { Reset(sizeof(T), chunk_size); }
 

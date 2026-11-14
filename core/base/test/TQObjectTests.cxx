@@ -1,5 +1,4 @@
 #include "gtest/gtest.h"
-#include "gmock/gmock.h"
 
 #include "Rtypes.h"
 #include "TQObject.h"
@@ -15,7 +14,7 @@
 #define DICT_CLASS                                                           \
    class RQ_OBJECTTester : public TQObject {                                 \
       /* This will expand, adding signal/slot support to this class */       \
-      RQ_OBJECT("RQ_OBJECTTester");                                          \
+      RQ_OBJECT1_("RQ_OBJECTTester", override);                              \
       Int_t fValue = 0;                                                      \
                                                                              \
    public:                                                                   \

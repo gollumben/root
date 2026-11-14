@@ -24,7 +24,7 @@ V // CHECK-NEXT: (cling::Value &) boxes [(void) ]
 // Returns must put the result in the Value.
 bool cond = true;
 gCling->evaluate("if (cond) return \"true\"; else return 0;", V);
-V // CHECK-NEXT: (cling::Value &) boxes [(const char [5]) "true"]
+V // CHECK-NEXT: (cling::Value &) boxes [(const char[5]) "true"]
 gCling->evaluate("if (cond) return; else return 12;", V);
 V // CHECK-NEXT: (cling::Value &) boxes [(void) ]
 gCling->evaluate("if (cond) return; int aa = 12;", V);
@@ -33,6 +33,7 @@ gCling->evaluate("cond = false; if (cond) return \"true\"; else return 0;", V);
 V // CHECK-NEXT: (cling::Value &) boxes [(int) 0]
 
 gCling->evaluate("bool a = [](){return true;};", V);
+// expected-warning@input_line_38:2 {{address of lambda function pointer conversion operator will always evaluate to 'true'}}
 V // CHECK-NEXT: (cling::Value &) boxes [(bool) true]
 
 gCling->evaluate("auto a = 12.3; a;", V);
@@ -73,7 +74,7 @@ V.isValid() //CHECK: {{\([_]B|b}}ool) true
 // Multi-dim arrays (ROOT-7016)
 gCling->evaluate("int multiDimArray[2][3][4]{{{1,2,3,4},{11,12,13,14},{21,22,23,24}},"
                  "{{101,102,103,104},{111,112,113,114},{121,122,123,124}}};", V);
-V // CHECK-NEXT: (cling::Value &) boxes [(int [2][3][4]) { { { 1, 2, 3, 4 }, { 11, 12, 13, 14 }, { 21, 22, 23, 24 } }, { { 101, 102, 103, 104 }, { 111, 112, 113, 114 }, { 121, 122, 123, 124 } } }]
+V // CHECK-NEXT: (cling::Value &) boxes [(int[2][3][4]) { { { 1, 2, 3, 4 }, { 11, 12, 13, 14 }, { 21, 22, 23, 24 } }, { { 101, 102, 103, 104 }, { 111, 112, 113, 114 }, { 121, 122, 123, 124 } } }]
 
 // Check lifetime of objects in Value
 .rawInput 1
@@ -141,7 +142,7 @@ namespace cling {
   }
 }
 void dumpTracerSVR(cling::Value& svr) {
-  ((Tracer*)svr.getAs<void*>())->dump("dump");
+  ((Tracer*)svr.castAs<void*>())->dump("dump");
 }
 .rawInput 0
 
@@ -207,7 +208,7 @@ gCling->evaluate("arrV", V);
 //CHECK-NEXT: MADE+{9}:copy
 //CHECK-NEXT: MADE+{10}:copy
 
-V // CHECK-NEXT: (cling::Value &) boxes [(Tracer [3]) { @{{.*}}, @{{.*}}, @{{.*}} }]
+V // CHECK-NEXT: (cling::Value &) boxes [(Tracer[3]) { @{{.*}}, @{{.*}}, @{{.*}} }]
 
 // Explicitly destory the copies
 V = cling::Value()
@@ -223,7 +224,8 @@ gCling->evaluate("arrV", V);
 
 // Destruct the variables with static storage:
 // Destruct arrV:
-//CHECK-NEXT: MADE{7}:dtor
+// The error `err_verify_no_directives` will add a new line here.
+//CHECK: MADE{7}:dtor
 //CHECK-NEXT: MADE{6}:dtor
 //CHECK-NEXT: MADE{5}:dtor
 

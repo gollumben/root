@@ -41,13 +41,13 @@ namespace Internal{
       std::list<Detail::TBranchProxy*> fDirected;
       std::vector<TFriendProxy*> fFriends;
 
-      TBranchProxyDirector(const TBranchProxyDirector &) : fTree(nullptr), fEntry(-1) {;}
+      TBranchProxyDirector(const TBranchProxyDirector &) : fTree(nullptr), fEntry(-1) {}
       TBranchProxyDirector& operator=(const TBranchProxyDirector&) {return *this;}
 
    public:
 
       TBranchProxyDirector(TTree* tree, Long64_t i);
-      TBranchProxyDirector(TTree* tree, Int_t i);     // cint has (had?) a problem casting int to long long
+      TBranchProxyDirector(TTree* tree, Int_t i);     // Historical: CINT had a problem casting int to long long
 
       void     Attach(Detail::TBranchProxy* p);
       void     Attach(TFriendProxy* f);
@@ -70,7 +70,7 @@ namespace Internal{
          }
       }
       TTree*   SetTree(TTree *newtree);
-      Bool_t   Notify();
+      bool     Notify();
 
    };
 

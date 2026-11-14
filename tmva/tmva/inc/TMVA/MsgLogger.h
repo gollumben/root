@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MsgLogger                                                             *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      TMVA output logger class producing nicely formatted log messages          *
@@ -24,7 +24,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MsgLogger
@@ -105,20 +105,20 @@ namespace TMVA {
       void InitMaps();
       void WriteMsg( EMsgType type, const std::string& line ) const;
 
-      const TObject*           fObjSource;        // the source TObject (used for name)
-      std::string              fStrSource;        // alternative string source
-      static const std::string fgPrefix;          // the prefix of the source name
-      static const std::string fgSuffix;          // suffix following source name
-      EMsgType                 fActiveType;       // active type
-      static const UInt_t      fgMaxSourceSize;   // maximum length of source name
-      static std::atomic<Bool_t> fgOutputSupressed; // disable the output globally (used by generic booster)
-      static std::atomic<Bool_t> fgInhibitOutput;   // flag to suppress all output
+      const TObject*           fObjSource;        ///< the source TObject (used for name)
+      std::string              fStrSource;        ///< alternative string source
+      static const std::string fgPrefix;          ///< the prefix of the source name
+      static const std::string fgSuffix;          ///< suffix following source name
+      EMsgType                 fActiveType;       ///< active type
+      static const UInt_t      fgMaxSourceSize;   ///< maximum length of source name
+      static std::atomic<Bool_t> fgOutputSupressed; ///< disable the output globally (used by generic booster)
+      static std::atomic<Bool_t> fgInhibitOutput;   ///< flag to suppress all output
 
-      static std::atomic<const std::map<EMsgType, std::string>*> fgTypeMap;   // matches output types with strings
-      static std::atomic<const std::map<EMsgType, std::string>*> fgColorMap;  // matches output types with terminal colors
-      EMsgType                                fMinType;    // minimum type for output
+      static std::atomic<const std::map<EMsgType, std::string>*> fgTypeMap;   ///< matches output types with strings
+      static std::atomic<const std::map<EMsgType, std::string>*> fgColorMap;  ///< matches output types with terminal colors
+      EMsgType                                fMinType;    ///< minimum type for output
 
-      ClassDef(MsgLogger,0) // Ostringstream derivative to redirect and format logging output
+      ClassDefOverride(MsgLogger,0) // Ostringstream derivative to redirect and format logging output
    }; // class MsgLogger
 
    inline MsgLogger& MsgLogger::operator<< ( MsgLogger& (*_f)( MsgLogger& ) )

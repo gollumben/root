@@ -8,7 +8,7 @@
 # CMakeLists.txt file for building ROOT math/mathcore package
 ############################################################################
 
-set(HEADERS
+set(MATHCORE_HEADERS
   Fit/BasicFCN.h
   Fit/BinData.h
   Fit/Chi2FCN.h
@@ -32,6 +32,7 @@ set(HEADERS
   Math/BrentMethods.h
   Math/BrentMinimizer1D.h
   Math/BrentRootFinder.h
+  Math/ModABRootFinder.h
   Math/ChebyshevPol.h
   Math/Delaunay2D.h
   Math/DistFuncMathCore.h
@@ -57,6 +58,7 @@ set(HEADERS
   Math/IntegratorOptions.h
   Math/KDTree.h
   Math/LCGEngine.h
+  Math/LFSR.h
   Math/Math.h
   Math/MersenneTwisterEngine.h
   Math/MinimTransformFunction.h
@@ -79,7 +81,6 @@ set(HEADERS
   Math/SpecFuncMathCore.h
   Math/StdEngine.h
   Math/TDataPoint.h
-  Math/TDataPointN.h
   Math/TRandomEngine.h
   Math/Types.h
   Math/Util.h
@@ -90,45 +91,37 @@ set(HEADERS
   TKDTree.h
   TKDTreeBinning.h
   TMath.h
+  TMathVectorized.h
   TRandom.h
   TRandom1.h
   TRandom2.h
   TRandom3.h
   TRandomGen.h
   TStatistic.h
-  VectorizedTMath.h
 )
+
+set(RELATIVE_INC_HEADERS ${MATHCORE_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
 
 if(runtime_cxxmodules)
   # Adding Math/Math.h to the MathCore module makes the generation of GenVector
   # dictionary hand due to a bug in rootcling/clang. The redeclaration chain of
   # 'abs' shadow declaration (from stl math.h) is broken.
   # FIXME: Revise after a llvm upgrade or reproduce it outside rootcling.
-  list(REMOVE_ITEM HEADERS "Math/Math.h")
-
-  if(veccore)
-    set(dictoptions "-mByproduct" "Vc")
-  endif(veccore)
+  list(REMOVE_ITEM MATHCORE_HEADERS "Math/Math.h")
 endif()
 
 ROOT_ADD_C_FLAG(_flags -Wno-strict-overflow)  # Avoid what it seems a compiler false positive warning
 ROOT_ADD_C_FLAG(_flags -Wno-maybe-uninitialized)  # Avoid what it seems a compiler false positive warning
 ROOT_ADD_C_FLAG(_flags -Wno-parentheses-equality)
 
-set_source_files_properties(src/triangle.c COMPILE_FLAGS "${_flags}")
-
 if(imt)
-  set(MATHCORE_DEPENDENCIES Imt)
-endif()
-
-if(veccore)
-  set(MATHCORE_BUILTINS VECCORE)
-  set(MATHCORE_LIBRARIES ${VecCore_LIBRARIES})
+  set(MATHCORE_LIBRARIES Imt)
 endif()
 
 ROOT_STANDARD_LIBRARY_PACKAGE(MathCore
   HEADERS
-    ${HEADERS}
+    ${MATHCORE_HEADERS}
   SOURCES
     src/AdaptiveIntegratorMultiDim.cxx
     src/BasicMinimizer.cxx
@@ -136,6 +129,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(MathCore
     src/BrentMethods.cxx
     src/BrentMinimizer1D.cxx
     src/BrentRootFinder.cxx
+    src/ModABRootFinder.cxx
     src/ChebyshevPol.cxx
     src/DataRange.cxx
     src/Delaunay2D.cxx
@@ -151,10 +145,12 @@ ROOT_STANDARD_LIBRARY_PACKAGE(MathCore
     src/GaussLegendreIntegrator.cxx
     src/GenAlgoOptions.cxx
     src/GoFTest.cxx
+    src/IOptions.cxx
     src/Integrator.cxx
     src/IntegratorOptions.cxx
     src/MersenneTwisterEngine.cxx
     src/MinimTransformFunction.cxx
+    src/Minimizer.cxx
     src/MinimizerOptions.cxx
     src/MinimizerVariableTransformation.cxx
     src/MixMaxEngineImpl17.cxx
@@ -185,31 +181,43 @@ ROOT_STANDARD_LIBRARY_PACKAGE(MathCore
     src/TRandomGen.cxx
     src/TStatistic.cxx
     src/UnBinData.cxx
-    src/triangle.c
-    src/VectorizedTMath.cxx
-  LIBRARIES
-    ${MATHCORE_LIBRARIES}
+    src/Util.cxx
   DICTIONARY_OPTIONS
     -writeEmptyRootPCM
     ${dictoptions}
   DEPENDENCIES
     Core
-    ${MATHCORE_DEPENDENCIES}
-  BUILTINS
-    ${MATHCORE_BUILTINS}
+  LIBRARIES
+    mixmax::mixmax
+    CDT::CDT
+    ${MATHCORE_LIBRARIES}
 )
 
-target_include_directories(MathCore PRIVATE ${Vc_INCLUDE_DIR})
-target_include_directories(MathCore PRIVATE ${VecCore_INCLUDE_DIRS})
+target_sources(MathCore
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/ src/
+  FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/Math/CladDerivator.h
+    inc/Math/DistFunc.h
+    inc/Math/KDTree.icc
+    inc/Math/MixMaxEngine.icc
+    inc/Math/PdfFunc.h
+    inc/Math/ProbFunc.h
+    inc/Math/QuantFunc.h
+    inc/Math/SpecFunc.h
+    inc/LinkDef.h
+    inc/LinkDef1.h
+    inc/LinkDef2.h
+    inc/LinkDef3.h
+    inc/LinkDef_Func.h
+    src/MixMaxEngineImpl.h
+    src/SpecFuncCephes.h
+)
 
-list(APPEND math_incl ${Vc_INCLUDE_DIR})
-list(APPEND math_incl ${VecCore_INCLUDE_DIRS})
 
-foreach(incl ${math_incl})
-   target_include_directories(MathCore PUBLIC $<BUILD_INTERFACE:${incl}>)
-endforeach()
-
-target_compile_definitions(MathCore INTERFACE ${VecCore_DEFINITIONS})
 target_link_libraries(MathCore PRIVATE ${CMAKE_THREAD_LIBS_INIT})
 
 ROOT_ADD_TEST_SUBDIRECTORY(test)

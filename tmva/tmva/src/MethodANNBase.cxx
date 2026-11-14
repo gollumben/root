@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodANNBase                                                         *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Artificial neural network base class for the discrimination of signal     *
@@ -28,7 +28,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::MethodANNBase
@@ -71,7 +71,6 @@ Base class for all TMVA methods using artificial neural networks.
 
 using std::vector;
 
-ClassImp(TMVA::MethodANNBase);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// standard constructor
@@ -194,11 +193,6 @@ std::vector<Int_t>* TMVA::MethodANNBase::ParseLayoutString(TString layerSpec)
       layout->push_back( DataInfo().GetNClasses() );  // one output node for each class
    else
       layout->push_back(1);  // one output node (for signal/background classification)
-
-   int n = 0;
-   for( std::vector<Int_t>::iterator it = layout->begin(); it != layout->end(); ++it ){
-      n++;
-   }
 
    return layout;
 }
@@ -704,16 +698,16 @@ const std::vector<Float_t> &TMVA::MethodANNBase::GetMulticlassValues()
 void TMVA::MethodANNBase::AddWeightsXMLTo( void* parent ) const
 {
    Int_t numLayers = fNetwork->GetEntriesFast();
-   void* wght = gTools().xmlengine().NewChild(parent, 0, "Weights");
-   void* xmlLayout = gTools().xmlengine().NewChild(wght, 0, "Layout");
-   gTools().xmlengine().NewAttr(xmlLayout, 0, "NLayers", gTools().StringFromInt(fNetwork->GetEntriesFast()) );
+   void* wght = gTools().xmlengine().NewChild(parent, nullptr, "Weights");
+   void* xmlLayout = gTools().xmlengine().NewChild(wght, nullptr, "Layout");
+   gTools().xmlengine().NewAttr(xmlLayout, nullptr, "NLayers", gTools().StringFromInt(fNetwork->GetEntriesFast()) );
    TString weights = "";
    for (Int_t i = 0; i < numLayers; i++) {
       TObjArray* layer = (TObjArray*)fNetwork->At(i);
       Int_t numNeurons = layer->GetEntriesFast();
-      void* layerxml = gTools().xmlengine().NewChild(xmlLayout, 0, "Layer");
-      gTools().xmlengine().NewAttr(layerxml, 0, "Index",    gTools().StringFromInt(i) );
-      gTools().xmlengine().NewAttr(layerxml, 0, "NNeurons", gTools().StringFromInt(numNeurons) );
+      void* layerxml = gTools().xmlengine().NewChild(xmlLayout, nullptr, "Layer");
+      gTools().xmlengine().NewAttr(layerxml, nullptr, "Index",    gTools().StringFromInt(i) );
+      gTools().xmlengine().NewAttr(layerxml, nullptr, "NNeurons", gTools().StringFromInt(numNeurons) );
       for (Int_t j = 0; j < numNeurons; j++) {
          TNeuron* neuron = (TNeuron*)layer->At(j);
          Int_t numSynapses = neuron->NumPostLinks();
@@ -732,15 +726,15 @@ void TMVA::MethodANNBase::AddWeightsXMLTo( void* parent ) const
 
    // if inverse hessian exists, write inverse hessian to weight file
    if( fInvHessian.GetNcols()>0 ){
-      void* xmlInvHessian = gTools().xmlengine().NewChild(wght, 0, "InverseHessian");
+      void* xmlInvHessian = gTools().xmlengine().NewChild(wght, nullptr, "InverseHessian");
 
       // get the matrix dimensions
       Int_t nElements = fInvHessian.GetNoElements();
       Int_t nRows     = fInvHessian.GetNrows();
       Int_t nCols     = fInvHessian.GetNcols();
-      gTools().xmlengine().NewAttr(xmlInvHessian, 0, "NElements", gTools().StringFromInt(nElements) );
-      gTools().xmlengine().NewAttr(xmlInvHessian, 0, "NRows", gTools().StringFromInt(nRows) );
-      gTools().xmlengine().NewAttr(xmlInvHessian, 0, "NCols", gTools().StringFromInt(nCols) );
+      gTools().xmlengine().NewAttr(xmlInvHessian, nullptr, "NElements", gTools().StringFromInt(nElements) );
+      gTools().xmlengine().NewAttr(xmlInvHessian, nullptr, "NRows", gTools().StringFromInt(nRows) );
+      gTools().xmlengine().NewAttr(xmlInvHessian, nullptr, "NCols", gTools().StringFromInt(nCols) );
 
       // read in the matrix elements
       Double_t* elements = new Double_t[nElements+10];
@@ -749,8 +743,8 @@ void TMVA::MethodANNBase::AddWeightsXMLTo( void* parent ) const
       // store the matrix elements row-wise
       Int_t index = 0;
       for( Int_t row = 0; row < nRows; ++row ){
-         void* xmlRow = gTools().xmlengine().NewChild(xmlInvHessian, 0, "Row");
-         gTools().xmlengine().NewAttr(xmlRow, 0, "Index", gTools().StringFromInt(row) );
+         void* xmlRow = gTools().xmlengine().NewChild(xmlInvHessian, nullptr, "Row");
+         gTools().xmlengine().NewAttr(xmlRow, nullptr, "Index", gTools().StringFromInt(row) );
 
          // create the rows
          std::stringstream s("");
@@ -967,8 +961,8 @@ void TMVA::MethodANNBase::CreateWeightMonitoringHists( const TString& bulkname,
       Int_t numNeurons1 = layer1->GetEntriesFast();
       Int_t numNeurons2 = layer2->GetEntriesFast();
 
-      TString name = Form("%s%i%i", bulkname.Data(), i, i+1);
-      hist = new TH2F(name + "", name + "",
+      TString name = TString::Format("%s%i%i", bulkname.Data(), i, i+1);
+      hist = new TH2F(name.Data(), name.Data(),
                       numNeurons1, 0, numNeurons1, numNeurons2, 0, numNeurons2);
 
       for (Int_t j = 0; j < numNeurons1; j++) {
@@ -997,7 +991,7 @@ void TMVA::MethodANNBase::CreateWeightMonitoringHists( const TString& bulkname,
 
 void TMVA::MethodANNBase::WriteMonitoringHistosToFile() const
 {
-   PrintMessage(Form("Write special histos to file: %s", BaseDir()->GetPath()), kTRUE);
+   PrintMessage(TString::Format("Write special histos to file: %s", BaseDir()->GetPath()).Data(), kTRUE);
 
    if (fEstimatorHistTrain) fEstimatorHistTrain->Write();
    if (fEstimatorHistTest ) fEstimatorHistTest ->Write();
@@ -1008,11 +1002,11 @@ void TMVA::MethodANNBase::WriteMonitoringHistosToFile() const
    // now save all the epoch-wise monitoring information
    static std::atomic<int> epochMonitoringDirectoryNumber{0};
    int epochVal = epochMonitoringDirectoryNumber++;
-   TDirectory* epochdir = NULL;
+   TDirectory* epochdir = nullptr;
    if( epochVal == 0 )
       epochdir = BaseDir()->mkdir( "EpochMonitoring" );
    else
-      epochdir = BaseDir()->mkdir( Form("EpochMonitoring_%4d",epochVal) );
+      epochdir = BaseDir()->mkdir( TString::Format("EpochMonitoring_%4d",epochVal).Data() );
 
    epochdir->cd();
    for (std::vector<TH1*>::const_iterator it = fEpochMonHistS.begin(); it != fEpochMonHistS.end(); ++it) {

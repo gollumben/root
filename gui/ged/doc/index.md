@@ -29,7 +29,7 @@ Every object editor follows a simple naming convention: to have as a
 name the object class name concatenated with ‘*`Editor`*' (e.g. for
 **`TGraph`** objects the object editor is **`TGraphEditor`**). Thanks to
 the signals/slots communication mechanism and to the method
-`DistanceToPrimitive()` that computes a ‘‘distance'' to an object from
+`DistancetoPrimitive()` that computes a ‘‘distance'' to an object from
 the mouse position, it was possible to implement a signal method of the
 canvas that says which is the selected object and to which pad it
 belongs. Having this information the graphics editor loads the
@@ -96,7 +96,7 @@ mechanism allows total independence of the interacting classes.
 #### Creation and Destruction
 
 GED-frames are constructed during traversal of class hierarchy of the
-selected object, executed from method **`TGedEditor`**`::SetModel()`.
+selected object, executed from method **`TGedEditor::SetModel()`**.
 When a new object of a different class is selected, the unneeded
 GED-frames are cached in memory for potential reuse. The frames are
 deleted automatically when the editor is closed.

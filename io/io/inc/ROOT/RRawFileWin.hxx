@@ -13,7 +13,7 @@
 #define ROOT_RRawFileWin
 
 #include <ROOT/RRawFile.hxx>
-#include <ROOT/RStringView.hxx>
+#include <string_view>
 
 #include <cstddef>
 #include <cstdint>
@@ -24,14 +24,14 @@ namespace Internal {
 
 /**
  * \class RRawFileWin RRawFileWin.hxx
- * \ingroup IO
+ * \ingroup io_files
  *
  * The RRawFileWin class uses portable C I/O calls to read from a drive. The standard C I/O buffering is turned off
  * for the buffering of RRawFile base class.
  */
 class RRawFileWin : public RRawFile {
 private:
-   FILE *fFilePtr;
+   FILE *fFilePtr = nullptr;
    void Seek(long offset, int whence);
 
 protected:
@@ -41,9 +41,8 @@ protected:
 
 public:
    RRawFileWin(std::string_view url, RRawFile::ROptions options);
-   ~RRawFileWin();
+   ~RRawFileWin() override;
    std::unique_ptr<RRawFile> Clone() const final;
-   int GetFeatures() const final { return kFeatureHasSize; }
 };
 
 } // namespace Internal

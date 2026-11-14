@@ -21,7 +21,6 @@ A TLeaf for a 32 bit floating point data type.
 #include "TClonesArray.h"
 #include <iostream>
 
-ClassImp(TLeafF);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor for LeafF.
@@ -31,8 +30,8 @@ TLeafF::TLeafF(): TLeaf()
    fLenType = 4;
    fMinimum = 0;
    fMaximum = 0;
-   fValue   = 0;
-   fPointer = 0;
+   fValue   = nullptr;
+   fPointer = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -44,8 +43,8 @@ TLeafF::TLeafF(TBranch *parent, const char *name, const char *type)
    fLenType = 4;
    fMinimum = 0;
    fMaximum = 0;
-   fValue   = 0;
-   fPointer = 0;
+   fValue   = nullptr;
+   fPointer = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -53,7 +52,7 @@ TLeafF::TLeafF(TBranch *parent, const char *name, const char *type)
 
 TLeafF::~TLeafF()
 {
-   if (ResetAddress(0,kTRUE)) delete [] fValue;
+   if (ResetAddress(nullptr,true)) delete [] fValue;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -92,8 +91,11 @@ void TLeafF::Import(TClonesArray *list, Int_t n)
    char *clone;
    for (Int_t i=0;i<n;i++) {
       clone = (char*)list->UncheckedAt(i);
-      if (clone) memcpy(&fValue[j],clone + fOffset,  4*fLen);
-      else       memcpy(&fValue[j],&kFloatUndefined, 4*fLen);
+      if (clone)
+         memcpy(&fValue[j],clone + fOffset,  4*fLen);
+      else       
+         for (Int_t k = 0; k < fLen; ++k)
+            fValue[j + k] = kFloatUndefined;
       j += fLen;
    }
 }
@@ -186,7 +188,7 @@ void TLeafF::SetAddress(void *add)
          Int_t ncountmax = fLen;
          if (fLeafCount) ncountmax = fLen*(fLeafCount->GetMaximum() + 1);
          if ((fLeafCount && ncountmax > Int_t(fLeafCount->GetValue())) ||
-             ncountmax > fNdata || *fPointer == 0) {
+             ncountmax > fNdata || *fPointer == nullptr) {
             if (*fPointer) delete [] *fPointer;
             if (ncountmax > fNdata) fNdata = ncountmax;
             *fPointer = new Float_t[fNdata];

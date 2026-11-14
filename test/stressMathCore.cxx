@@ -10,13 +10,13 @@
 //         pdf, cdf and quantiles. cdf are estimated directly and compared with calculated integral from pdf
 //     - physics vectors (2D, 3D and 4D) including I/O for every type and for both double and Double32_t
 //     - SMatrix and SVectors including I/O for double and Double32_t types
-//     - I/O of complex objects which dictionary has been generated using CINT (default) or Reflex
+//     - I/O of complex objects which dictionary has been generated using rootcling (default) or Reflex
 //           TrackD and TrackD32 which contain  physics vectors of double and Double32_t
 //           TrackErrD and TrackErrD32 which contain physics vectors and an SMatrix of double and Double32_t
 //           VecTrackD which contains an std::vector<TrackD>
 //
 //
-// the program cun run only in compiled mode.
+// the program can run only in compiled mode.
 // To run outside ROOT do:
 //
 //    > cd $ROOTSYS/test
@@ -30,7 +30,7 @@
 //    > ./stressMathMore
 //
 // to run inside ROOT using ACliC
-//  for using CINT you need first to have the library libTrackMathCoreDict.so
+//  for using Cling you need first to have the library libTrackMathCoreDict.so
 //   (type:  make libTrackMathCoreDict.so to make it)
 //
 //   root> gSystem->Load("libMathCore");
@@ -50,9 +50,6 @@
 //   root> .x stressMathCore.cxx+
 //
 //
-
-
-#ifndef __CINT__
 
 
 #include "Math/DistFuncMathCore.h"
@@ -91,9 +88,6 @@ R__ADD_INCLUDE_PATH($ROOTSYS/test)
 #include "Math/GenVector/RotationZ.h" // Workaround to autoload libGenVector ROOT-7056
 
 using namespace ROOT::Math;
-
-#endif
-
 
 //#define DEBUG
 
@@ -154,7 +148,6 @@ int compare( std::string name, double v1, double v2, double scale = 2.0) {
    return iret;
 }
 
-#ifndef __CINT__
 
 
 // trait class  for distinguishing the number of parameters for the various functions
@@ -201,10 +194,10 @@ public:
    }
 
 
-   unsigned int NPar() const { return NPAR; }
-   const double * Parameters() const { return fParams; }
-   ROOT::Math::IGenFunction * Clone() const { return new StatFunction(fPdf,fCdf,fQuant); }
-   void SetParameters(const double * p) { std::copy(p,p+NPAR,fParams); }
+   unsigned int NPar() const override { return NPAR; }
+   const double * Parameters() const override { return fParams; }
+   ROOT::Math::IGenFunction * Clone() const override { return new StatFunction(fPdf,fCdf,fQuant); }
+   void SetParameters(const double * p) override { std::copy(p,p+NPAR,fParams); }
    void SetParameters(double p0) { *fParams = p0; }
    void SetParameters(double p0, double p1) { *fParams = p0; *(fParams+1) = p1; }
    void SetParameters(double p0, double p1, double p2) { *fParams = p0; *(fParams+1) = p1; *(fParams+2) = p2; }
@@ -230,7 +223,7 @@ public:
 private:
 
 
-   double DoEvalPar(double x, const double * ) const {
+   double DoEvalPar(double x, const double * ) const override {
       // implement explicitly using cached parameter values
       return Evaluator<Func,NPAR>::F(fPdf,x, fParams);
    }
@@ -1120,7 +1113,7 @@ int testVector(int ngen, bool testio=false) {
    scale = Dim*20;
    if (Dim==3 && VecType<V2>::name() == "RhoEtaPhiVector") scale *= 12; // for problem with RhoEtaPhi
    if (Dim==4 && ( VecType<V2>::name() == "PtEtaPhiMVector" || VecType<V2>::name() == "PxPyPzMVector")) {
-#if (defined(__arm__) || defined(__arm64__) || defined(__aarch64__) || defined(__s390x__))
+#if (defined(__arm__) || defined(__arm64__) || defined(__aarch64__) || defined(__s390x__) || defined(__FMA__))
       scale *= 1.E7;
 #else
       scale *= 10;
@@ -1489,7 +1482,7 @@ int testCompositeObj(int ngen) {
    std::cout << "\tTest of a Composite Object (containing Vector's and Matrices)\n";
    std::cout <<"******************************************************************************\n";
 
-   std::cout << "Test Using CINT library\n\n";
+   std::cout << "Test Using Cling library\n\n";
 
    // put path relative to LD_LIBRARY_PATH
 
@@ -1524,26 +1517,11 @@ int testCompositeObj(int ngen) {
 }
 
 
-#endif // endif ifndef __CINT__
 
 
 int stressMathCore(double nscale = 1) {
 
    int iret = 0;
-
-#ifdef __CINT__
-   std::cout << "Test must be run in compile mode - use ACLIC to compile!!" << std::endl;
-
-
-   gSystem->Load("libMathCore");
-   gSystem->Load("libTree");
-   gROOT->ProcessLine(".L stressMathCore.cxx++");
-   return stressMathCore();
-#endif
-//    iret |= gSystem->Load("libMathCore");
-//    iret |= gSystem->Load("libMathMore");
-//    if (iret !=0) return iret;
-
 
    TBenchmark bm;
    bm.Start("stressMathCore");
@@ -1585,9 +1563,6 @@ int stressMathCore(double nscale = 1) {
 
 
 int main(int argc,const char *argv[]) {
-   std::string inclRootSys = ("-I" + TROOT::GetRootSys() + "/test").Data();
-   TROOT::AddExtraInterpreterArgs({inclRootSys});
-
    double nscale = 1;
    if (argc > 1) {
       nscale = atof(argv[1]);

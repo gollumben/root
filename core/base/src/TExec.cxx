@@ -2,7 +2,7 @@
 // Author: Rene Brun   29/12/99
 
 /*************************************************************************
- * Copyright (C) 1995-2000, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2022, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -12,9 +12,7 @@
 #include <iostream>
 #include "TROOT.h"
 #include "TExec.h"
-#include "snprintf.h"
 
-ClassImp(TExec);
 
 /** \class TExec
 \ingroup Base
@@ -83,11 +81,11 @@ such as TPad::GetEvent, TPad::GetEventX, TPad::GetEventY to find
 which type of event and the X,Y position of the mouse.
 By default, the list of TExecs is executed. This can be disabled
 via the canvas menu "Option".
-See $ROOTSYS/tutorials/hist/exec2.C for an example.
+See hist058_TExec_th2.C for an example.
 ~~~ {.cpp}
    Root > TFile f("hsimple.root");
    Root > hpxpy.Draw();
-   Root > c1.AddExec("ex2",".x exec2.C");
+   Root > c1.AddExec("ex2",".x hist058_TExec_th2.C");
 ~~~
 When moving the mouse in the canvas, a second canvas shows the
 projection along X of the bin corresponding to the Y position
@@ -143,16 +141,15 @@ TExec::TExec(const TExec &e) : TNamed(e)
 
 void TExec::Exec(const char *command)
 {
-   if (command && (strlen(command) > 1))  gROOT->ProcessLine(command);
-   else  {
-      if (strlen(GetTitle()) > 0)         gROOT->ProcessLine(GetTitle());
-      else  {
-         if (strchr(GetName(),'('))      {gROOT->ProcessLine(GetName()); return;}
-         if (strchr(GetName(),'.'))      {gROOT->ProcessLine(GetName()); return;}
-         char action[512];
-         snprintf(action, sizeof(action), ".x %s.C", GetName());
-         gROOT->ProcessLine(action);
-      }
+   if (command && (strlen(command) > 1))
+      gROOT->ProcessLine(command);
+   else if (strlen(GetTitle()) > 0)
+      gROOT->ProcessLine(GetTitle());
+   else if (strchr(GetName(),'(') || strchr(GetName(),'.'))
+      gROOT->ProcessLine(GetName());
+   else {
+      auto action = TString::Format(".x %s.C", GetName());
+      gROOT->ProcessLine(action.Data());
    }
 }
 
@@ -169,13 +166,9 @@ void TExec::Paint(Option_t *)
 
 void TExec::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
 {
-   char quote = '"';
-   if (gROOT->ClassSaved(TExec::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TExec *";
-   }
-   out<<"exec = new TExec("<<quote<<GetName()<<quote<<","<<quote<<GetTitle()<<quote<<");"<<std::endl;
+   SavePrimitiveConstructor(
+      out, Class(), "exec",
+      TString::Format("\"%s\", \"%s\"", GetName(), TString(GetTitle()).ReplaceSpecialCppChars().Data()));
 
-   out<<"   exec->Draw();"<<std::endl;
+   out << "   exec->Draw();\n";
 }

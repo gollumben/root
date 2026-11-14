@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Classes: PDEFoamMultiTarget                                                    *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Concrete PDEFoamEvent sub-class.  This foam stores the number             *
@@ -26,7 +26,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_PDEFoamMultiTarget
@@ -60,11 +60,11 @@ namespace TMVA
       virtual ~PDEFoamMultiTarget() {}       // Default destructor
 
       // overridden from PDEFoam: extract the targets from the foam
-      virtual std::vector<Float_t> GetCellValue(const std::map<Int_t, Float_t>&, ECellValue);
+      std::vector<Float_t> GetCellValue(const std::map<Int_t, Float_t>&, ECellValue) override;
       using PDEFoam::GetCellValue;
 
       // ---------- ROOT class definition
-      ClassDef(PDEFoamMultiTarget, 1) // Tree of PDEFoamCells
+      ClassDefOverride(PDEFoamMultiTarget, 1) // Tree of PDEFoamCells
          }; // end of PDEFoamMultiTarget
 
 }  // namespace TMVA

@@ -28,9 +28,8 @@
 #include <cassert>
 #include <cmath>
 
-ClassImp(TUnuranSampler);
 
-TUnuranSampler::TUnuranSampler() : ROOT::Math::DistSampler(),
+TUnuranSampler::TUnuranSampler() :
    fOneDim(false),
    fDiscrete(false),
    fHasMode(false), fHasArea(false),
@@ -41,20 +40,20 @@ TUnuranSampler::TUnuranSampler() : ROOT::Math::DistSampler(),
 }
 
 TUnuranSampler::~TUnuranSampler() {
-   assert(fUnuran != 0);
+   assert(fUnuran != nullptr);
    delete fUnuran;
 }
 
 bool TUnuranSampler::Init(const char * algo) {
    // initialize unuran classes using the given algorithm
-   assert (fUnuran != 0 );
+   assert (fUnuran != nullptr );
    bool ret = false;
    //case distribution has not been set
    // Maybe we are using the Unuran string API which contains also distribution string
    // try to initialize Unuran
    if (NDim() == 0)  {
       ret = fUnuran->Init(algo,"");
-      if (!ret) { 
+      if (!ret) {
          Error("TUnuranSampler::Init",
          "Unuran initialization string is invalid or the Distribution function has not been set and one needs to call SetFunction first.");
          return false;
@@ -62,7 +61,7 @@ bool TUnuranSampler::Init(const char * algo) {
       int ndim = fUnuran->GetDimension();
       assert(ndim > 0);
       fOneDim = (ndim == 1);
-      fDiscrete = fUnuran->IsDistDiscrete(); 
+      fDiscrete = fUnuran->IsDistDiscrete();
       DoSetDimension(ndim);
       return true;
    }
@@ -95,8 +94,8 @@ bool TUnuranSampler::Init(const char * algo) {
    // set print level in UNURAN (must be done after having initialized) -
    if (fLevel>0) {
       //fUnuran->SetLogLevel(fLevel); ( seems not to work  disable for the time being)
-      if (ret) Info("TUnuranSampler::Init","Successfully initailized Unuran with method %s",method.Data() );
-      else Error("TUnuranSampler::Init","Failed to  initailize Unuran with method %s",method.Data() );
+      if (ret) Info("TUnuranSampler::Init","Successfully initialize Unuran with method %s",method.Data() );
+      else Error("TUnuranSampler::Init","Failed to initialize Unuran with method %s",method.Data() );
       // seems not to work in UNURAN (call only when level > 0 )
    }
    return ret;
@@ -123,17 +122,17 @@ bool TUnuranSampler::Init(const ROOT::Math::DistSamplerOptions & opt ) {
       for ( auto & name : names) {
          std::string value = opts->NamedValue(name.c_str());
          appendOption(name,value);
-      } 
+      }
       names = opts->GetAllIntKeys();
       for ( auto & name : names) {
          std::string value = ROOT::Math::Util::ToString(opts->IValue(name.c_str()));
          appendOption(name,value);
-      } 
+      }
       names = opts->GetAllRealKeys();
       for ( auto & name : names) {
          std::string value = ROOT::Math::Util::ToString(opts->RValue(name.c_str()));
          appendOption(name,value);
-      } 
+      }
    }
    Info("Init","Initialize UNU.RAN with Method option string: %s",optionStr.c_str());
    return Init(optionStr.c_str() );
@@ -146,8 +145,8 @@ bool TUnuranSampler::DoInit1D(const char * method) {
    // (to do: use directly 1D functions ??)
    // to do : add possibility for String API of UNURAN
    fOneDim = true;
-   TUnuranContDist * dist = 0;
-   if (fFunc1D == 0) {
+   TUnuranContDist * dist = nullptr;
+   if (fFunc1D == nullptr) {
       if (HasParentPdf()) {
          ROOT::Math::OneDimMultiFunctionAdapter<> function(ParentPdf() );
          dist = new TUnuranContDist(&function,fDPDF,fCDF,fUseLogPdf,true);
@@ -184,8 +183,8 @@ bool TUnuranSampler::DoInitDiscrete1D(const char * method) {
    // initialize for 1D sampling of discrete distributions
    fOneDim = true;
    fDiscrete = true;
-   TUnuranDiscrDist * dist = 0;
-   if (fFunc1D == 0) {
+   TUnuranDiscrDist * dist = nullptr;
+   if (fFunc1D == nullptr) {
       if (!HasParentPdf()) {
          Error("DoInitDiscrete1D", "No PMF has been defined");
          return false;
@@ -235,11 +234,6 @@ bool TUnuranSampler::DoInitND(const char * method) {
       std::vector<double> xmax(range.NDim() );
       range.GetRange(&xmin[0],&xmax[0]);
       dist.SetDomain(&xmin.front(),&xmax.front());
-//       std::cout << " range is min = ";
-//       for (int j = 0; j < NDim(); ++j) std::cout << xmin[j] << "   ";
-//       std::cout << " max = ";
-//       for (int j = 0; j < NDim(); ++j) std::cout << xmax[j] << "   ";
-//       std::cout << std::endl;
    }
    fOneDim = false;
    if (fHasMode && fNDMode.size() == dist.NDim())
@@ -297,7 +291,7 @@ void TUnuranSampler::SetMode(const std::vector<double> &mode)
    if (mode.size() == ParentPdf().NDim()) {
       if (mode.size() == 1)
          fMode = mode[0];
-      else 
+      else
          fNDMode = mode;
 
       fHasMode = true;
@@ -315,7 +309,7 @@ void TUnuranSampler::SetCdf(const ROOT::Math::IGenFunction &cdf) {
    if (NDim() == 0) DoSetDimension(1);
 }
 
-void TUnuranSampler::SetDPdf(const ROOT::Math::IGenFunction &dpdf) { 
+void TUnuranSampler::SetDPdf(const ROOT::Math::IGenFunction &dpdf) {
    fDPDF = &dpdf;
    // in case dimension has not been defined ( a pdf is not provided)
    if (NDim() == 0) DoSetDimension(1);

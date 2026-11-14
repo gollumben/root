@@ -147,7 +147,7 @@ playing with the parameters and plot the function again. The class `TF1`
 has a large number of very useful methods, including integration and
 differentiation. To make full use of this and other ROOT classes, visit
 the documentation on the Internet under
-<http://root.cern.ch/drupal/content/reference-guide>. Formulae in ROOT
+<https://root.cern/doc/master/>. Formulae in ROOT
 are evaluated using the class `TFormula`, so also look up the relevant
 class documentation for examples, implemented functions and syntax.
 
@@ -221,9 +221,9 @@ root [1] .<command>
 
 This is a selection of the most common commands.
 
--   **quit root**, simply type `.q`
+-   **quit root**, simply type `.q` or `.quit` or `.exit`
 
--   obtain a **list of commands**, use `.?`
+-   obtain the full **list of commands**, use `.?` or `.help`
 
 -   **access the shell** of the operating system, type `.!<OS_command>`;
     try, e.g. `.!ls` or `.!pwd`
@@ -242,8 +242,6 @@ This is a selection of the most common commands.
     code starting from your macro. One could decide to compile a macro
     in order to obtain better performance or to get nearer to the
     production environment.
-
-Use `.help` at the prompt to inspect the full list.
 
 ## Plotting Measurements ##
 
@@ -480,14 +478,14 @@ already implicitly introduced (for example in the section
 [Configure ROOT at start-up](#configure-root-at-start-up)).
 The most important among them are presented in the following:
 
--   **[gROOT](http://root.cern.ch/root/htmldoc/TROOT.html)**: the `gROOT`
+-   **[gROOT](https://root.cern.ch/doc/master/classTROOT.html)**: the `gROOT`
     variable is the entry point to the ROOT system. Technically it is an
     instance of the `TROOT` class. Using the `gROOT` pointer one has
     access to basically every object created in a ROOT based program.
     The `TROOT` object is essentially a container of several lists
     pointing to the main `ROOT` objects.
 
--   **[gStyle](http://root.cern.ch/root/htmldoc/TStyle.html)**: By default
+-   **[gStyle](https://root.cern.ch/doc/master/classTStyle.html)**: By default
     ROOT creates a default style that can be accessed via the `gStyle`
     pointer. This class includes functions to set some of the following
     object attributes.
@@ -503,7 +501,7 @@ The most important among them are presented in the following:
     -   Histogram Statistics and Titles
     -   etc ...
 
--   **[gSystem](http://root.cern.ch/root/htmldoc/TSystem.html)**: An
+-   **[gSystem](https://root.cern.ch/doc/master/classTSystem.html)**: An
     instance of a base class defining a generic interface to the
     underlying Operating System, in our case `TUnixSystem`.
 
@@ -517,4 +515,5 @@ features of ROOT.
 ***Please move on to become an expert!***
 
 [^2]: All ROOT classes' names start with the letter T. A notable exception is
-RooFit. In this context all classes' names are of the form Roo*.
+RooFit. In this context all classes' names are of the form Roo*. Starting with
+ROOT7, all names start with and R.

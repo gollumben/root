@@ -14,8 +14,6 @@
 #include "TGLIncludes.h"
 #include "TMathBase.h"
 
-using namespace std;
-
 /** \class TGLBoundingBox
 \ingroup opengl
 Concrete class describing an orientated (free) or axis aligned box
@@ -25,7 +23,6 @@ Also tests for overlap testing of planes and other bounding boxes,
 with fast sphere approximation.
 */
 
-ClassImp(TGLBoundingBox);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Construct an empty bounding box

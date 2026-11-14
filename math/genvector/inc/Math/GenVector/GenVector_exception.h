@@ -21,9 +21,7 @@ namespace Math {
 
 class GenVector_exception;
 inline void Throw(GenVector_exception &e);
-namespace GenVector {
-inline void Throw(const char *);
-}
+inline void GenVector_Throw(const char *);
 
 // ----------------------------------------------------------------------
 // GenVector_exception class definition
@@ -55,7 +53,7 @@ public:
 
 private:
    friend void Throw(GenVector_exception &);
-   friend void GenVector::Throw(const char *);
+   friend void GenVector_Throw(const char *);
 
    static bool &IsOn()
    {
@@ -68,23 +66,21 @@ private:
 // ----------------------------------------------------------------------
 // Epilog
 
-/// throw explicity GenVector exceptions
+/// throw explicitly GenVector exceptions
 inline void Throw(GenVector_exception &e)
 {
    if (GenVector_exception::IsOn())
       throw e;
 }
 
-namespace GenVector {
 /// function throwing exception, by creating internally a GenVector_exception only when needed
-inline void Throw(const char *s)
+inline void GenVector_Throw(const char *s)
 {
    if (!GenVector_exception::IsOn())
       return;
    GenVector_exception e(s);
    throw e;
 }
-} // namespace GenVector
 
 } // namespace Math
 } // namespace ROOT

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <vector>
+#include <cassert>
 
 namespace TMVA {
 namespace Experimental {
@@ -19,6 +20,8 @@ template<typename T>
 class ROperator_Conv final : public ROperator
 {
 private:
+   bool fBroadcastBias = false;
+
    std::string fAttrAutopad;
    std::vector<size_t> fAttrDilations;
    size_t fAttrGroup;
@@ -31,12 +34,18 @@ private:
    std::string fNB;
    std::string fNY;
 
-   std::vector<size_t> fShapeX;
+   std::string convK;
+   std::string imcol;
+
+   std::vector<Dim> fShapeX;
    std::vector<size_t> fShapeW;
    std::vector<size_t> fShapeB;
-   std::vector<size_t> fShapeY;
+   std::vector<Dim> fShapeY;
 
    std::string fType;
+
+   size_t fDim;   // dimension of the convolution
+
 
 public:
 
@@ -57,6 +66,8 @@ public:
          throw
             std::runtime_error("TMVA SOFIE Encountered unsupported type parsing a Conv operator");
       }
+      fInputTensorNames = { fNX, fNB };
+      fOutputTensorNames = { fNY };
    }
 
    ROperator_Conv(std::string autopad, std::vector<size_t> dilations,
@@ -73,90 +84,174 @@ public:
          throw
             std::runtime_error("TMVA SOFIE Encountered unsupported type parsing a Conv operator");
       }
+      fInputTensorNames = { fNX };
+      fOutputTensorNames = { fNY };
    }
 
-   std::vector<ETensorType> TypeInference(std::vector<ETensorType> input) {
-      ETensorType out = input[0];
-      return {out};
-   }
+   // function returning output shape given input
+   std::vector<Dim> DoShapeInference(const std::vector<Dim> & input, const std::vector<size_t> & weight) {
+      // shape of convolution input has to be (according to ONNX): N x C x H x W
+      // Where N : batch size, C : input  channels, H : input height, W : input width
 
-   std::vector<std::vector<size_t>> ShapeInference(std::vector<std::vector<size_t>> input) {
-      if (input.size() > 3 ) {
-         throw
-            std::runtime_error("TMVA SOFIE Conv Op Shape inference need 2 or 3 input tensors");
+      if (input.size() -2 != fDim) {
+         throw std::runtime_error("TMVA SOFIE Conv Op Shape inference - invalid input ");
       }
-      for(size_t i = 0; i < input.size(); i++) {
-         if (input[i].size() != 4) {
-            throw
-               std::runtime_error("TMVA SOFIE Conv Op Shape inference only accept tensor with 4 dimensions");
-         }
+      if (weight.size() -2 != fDim) {
+         throw std::runtime_error("TMVA SOFIE Conv Op Shape inference - invalid weights ");
+      }
+      if (fAttrGroup == 0 && input[1].isParam)
+         throw std::runtime_error("TMVA SOFIE Conv - param shapes not supported without group attr");
+      if (fAttrKernelShape.empty()) {
+         if (input[2].isParam || (fDim > 1 && input[3].isParam) || (fDim > 2 && input[4].isParam))
+            throw std::runtime_error("TMVA SOFIE Conv - param shapes not supported without kernel attr");
       }
 
       if (fAttrGroup == 0) {
-         fAttrGroup = input[0][1] / input[1][1];
+         fAttrGroup = input[1].dim / weight[1];
       }
 
-      size_t kHeight = ((fAttrKernelShape.empty())? input[1][2] : fAttrKernelShape[0]);
-      size_t kWidth = ((fAttrKernelShape.empty())? input[1][3] : fAttrKernelShape[1]);
+      // kernel shape
+      size_t k1 = ((fAttrKernelShape.empty())? weight[2] : fAttrKernelShape[0]);
+      size_t k2 = (fDim > 1) ? ((fAttrKernelShape.empty()) ? weight[3] : fAttrKernelShape[1]) : 1;
+      size_t k3 = (fDim > 2) ? ((fAttrKernelShape.empty()) ? weight[4] : fAttrKernelShape[2]) : 1;
+
+
+      size_t i1 = (fDim > 1) ? ((fDim > 2) ? 3 : 2) : 1;
+      size_t i2 = (fDim > 2) ? 4 : 3;
+      size_t i3 = 5;
 
       if (fAttrDilations.empty()) {
-         fAttrDilations = {1, 1};
+         fAttrDilations = {1, 1, 1};
+      }
+      fAttrDilations.resize(3);
+      if (fDim < 3) {
+         fAttrDilations.resize(3, 1);
       }
       // Shape of the kernel
-      fAttrKernelShape = {kHeight + (fAttrDilations[0] - 1) * (kHeight - 1), kWidth + (fAttrDilations[1] - 1) * (kWidth - 1)};
+      fAttrKernelShape = {k1 + (fAttrDilations[0] - 1) * (k1 - 1),
+                          k2 + (fAttrDilations[1] - 1) * (k2 - 1),
+                          k3 + (fAttrDilations[2] - 1) * (k3 - 1)};
+
+      if (fAttrStrides.empty()) {
+         fAttrStrides = {1, 1, 1};
+      }
+      if (fDim < 3)
+         fAttrStrides.resize(3, 1);
 
       if (fAttrAutopad == "NOTSET") {
          if (fAttrPads.empty()) {
-            fAttrPads = {1, 1, 1, 1};
+            fAttrPads = {1, 1, 1, 1, 1, 1};
          }
       } else if (fAttrAutopad == "SAME_UPPER" || fAttrAutopad == "SAME_LOWER") {
-         fAttrPads = {fAttrKernelShape[0] / 2, fAttrKernelShape[1] / 2, fAttrKernelShape[0] / 2, fAttrKernelShape[1] / 2};
-         if (fAttrKernelShape[0] % 2 == 1) {
-            (fAttrAutopad == "SAME_UPPER") ? fAttrPads[0]++ : fAttrPads[2]++;
+         for (size_t d = 0; d < fDim; ++d) {
+            if (input[d + 2].isParam)
+               throw std::runtime_error(
+                  "TMVA SOFIE Conv Op: SAME padding with parametric input shape is not supported");
          }
-         if (fAttrKernelShape[1] % 2 == 1) {
-            (fAttrAutopad == "SAME_UPPER") ? fAttrPads[1]++ : fAttrPads[3]++;
+         // ONNX SAME padding: total_pad = max(0, (ceil(in/stride)-1)*stride + kernel - in)
+         // SAME_UPPER places extra padding at end, SAME_LOWER at beginning
+         fAttrPads.assign(6, 0);
+         for (size_t d = 0; d < fDim; ++d) {
+            size_t inSize = input[d + 2].dim;
+            size_t stride_d = fAttrStrides[d];
+            size_t outSize = (inSize + stride_d - 1) / stride_d;
+            int totalPad = std::max(0, (int)((outSize - 1) * stride_d + fAttrKernelShape[d]) - (int)inSize);
+            if (fAttrAutopad == "SAME_UPPER") {
+               fAttrPads[d] = (size_t)(totalPad / 2);
+               fAttrPads[d + fDim] = (size_t)(totalPad - totalPad / 2);
+            } else {
+               fAttrPads[d] = (size_t)(totalPad - totalPad / 2);
+               fAttrPads[d + fDim] = (size_t)(totalPad / 2);
+            }
          }
       } else if (fAttrAutopad != "VALID") {
          throw
             std::runtime_error("TMVA SOFIE Conv Op invalid fAutopad");
       }
+      // to be sure pad is vector of size 6
+      if (fDim < 3) fAttrPads.resize(6, 0);
 
-      if (fAttrStrides.empty()) {
-         fAttrStrides = {1, 1};
-      }
+      Dim input1 = input[2];
+      Dim input2 = (fDim > 1) ? input[3] : Dim{1};
+      Dim input3 = (fDim > 2) ? input[4] : Dim{1};
 
-      size_t outputHeight =
-          (input[0][2] + fAttrPads[0] + fAttrPads[2] - fAttrKernelShape[0] + fAttrStrides[0]) /
-          fAttrStrides[0];
-      size_t outputWidth =
-          (input[0][3] + fAttrPads[1] + fAttrPads[3] - fAttrKernelShape[1] + fAttrStrides[1]) /
-          fAttrStrides[1];
+      size_t pad1 = fAttrPads[0] + fAttrPads[i1];
 
-      std::vector<std::vector<size_t>> ret({{input[1][0], input[0][0], outputHeight, outputWidth}});
+      // function to get output dimension of convolution given input
+
+      auto computeOutput = [&](Dim inputDim, size_t kernel, size_t pad, size_t stride) {
+         if (!inputDim.isParam) {
+            size_t outSize = (inputDim.dim + pad - kernel) / stride + 1;
+            return  Dim{outSize};
+         } else {
+            if (stride == 1){
+               if ((pad - kernel + 1) == 0 )
+                  // output is same as input
+                  return inputDim;
+               else  {
+                  int64_t v =  pad - kernel + 1;
+                  std::string outStr = "(" + inputDim.param + "+" + std::to_string(v) + ")";
+                  return Dim{ outStr, static_cast<size_t>(-1)};
+               }
+            } else { // general case (stride not 1)
+               int64_t v =  pad - kernel;
+               std::string outStr =
+                  "((" + inputDim.param + "+" + std::to_string(v) + ")/" + std::to_string(stride) + "+1)";
+               return Dim{ outStr, static_cast<size_t>(-1)};
+            }
+         }
+         throw std::runtime_error("TMVA SOFIE Conv Op -  invalid values");
+         return Dim{};
+      };
+
+      Dim output1 = computeOutput(input1, fAttrKernelShape[0], pad1, fAttrStrides[0]);
+
+      Dim batch_size = input[0];        // first element in input tensor
+      Dim output_channels = Dim{weight[0]};   // first element in weight tensor
+
+      std::vector<Dim> ret({ batch_size, output_channels, output1 });
+
+      if (fDim == 1)
+         return ret;
+
+      size_t pad2 = fAttrPads[1] + fAttrPads[i2];
+      Dim output2 = computeOutput(input2, fAttrKernelShape[1], pad2, fAttrStrides[1]);
+
+      // output is N x M x OH x OW
+      ret.push_back(output2);
+      if (fDim == 2)
+         return ret;
+
+      size_t pad3 = fAttrPads[2] + fAttrPads[i3];
+      Dim output3 = computeOutput(input3, fAttrKernelShape[2], pad3, fAttrStrides[2]);
+
+      // output is N x M x OH x OW x OD
+      ret.push_back(output3);
       return ret;
    }
 
-   void Initialize(RModel& model) {
+   void Initialize(RModel& model) override {
       if (!model.CheckIfTensorAlreadyExist(fNX)) {
          throw
             std::runtime_error("TMVA SOFIE Conv op Input Tensor " + fNX + " is not found in model");
       }
-      fShapeX = model.GetTensorShape(fNX);
-      if (fShapeX.size() != 4) {
+      fShapeX = model.GetDimTensorShape(fNX);
+      if (fShapeX.size() < 3 || fShapeX.size()  > 5) {
+         std::cout << fNX << " : " << ConvertDimShapeToString(fShapeX) << std::endl;
          throw
-            std::runtime_error("TMVA SOFIE Conv Op input tensor" + fNX + " is not of 4 dimensions");
+            std::runtime_error("TMVA SOFIE Conv Op input data tensor" + fNX + " is not of 3,4 or 5 dimensions");
       }
+      fDim = fShapeX.size() - 2;
       if (!model.CheckIfTensorAlreadyExist(fNW)) {
          throw
-            std::runtime_error("TMVA SOFIE Conv op Input Tensor " + fNW + " is not found in model");
+            std::runtime_error("TMVA SOFIE Conv op Input weight Tensor " + fNW + " is not found in model");
       }
       fShapeW = model.GetTensorShape(fNW);
-      if (fShapeW.size() != 4) {
-         throw
-            std::runtime_error("TMVA SOFIE Conv Op input tensor" + fNW + " is not of 4 dimensions");
+      if (fShapeW.size() < 3 || fShapeW.size()  > 5) {
+         std::cout << fNW << " : " << ConvertShapeToString(fShapeW) << std::endl;
+         throw std::runtime_error("TMVA SOFIE Conv Op input weight tensor" + fNW + " is not of 3,4 or 5 dimensions");
       }
-      fShapeY = ShapeInference({fShapeX, fShapeW})[0];
+      fShapeY = DoShapeInference(fShapeX, fShapeW);
       model.AddIntermediateTensor(fNY, model.GetTensorType(fNX), fShapeY);
       if (fNB != "") {
          if (!model.CheckIfTensorAlreadyExist(fNB)) {
@@ -164,31 +259,102 @@ public:
                std::runtime_error("TMVA SOFIE Conv op Input Tensor " + fNB + " is not found in model");
          }
          fShapeB = model.GetTensorShape(fNB);
-         bool broadcast_needed = (fShapeB.size() != fShapeY.size());
+         if (fShapeB.size() != 1)
+            throw std::runtime_error("TMVA SOFIE Conv op " + fNY + " : invalid shape for Bias tensor " + fNB + " : " +
+                                     ConvertShapeToString(fShapeB) + " is not 1D");
+         std::vector<Dim> targetShape(fShapeY.begin() + 1, fShapeY.end());
+         auto shapeDimB = model.GetDimTensorShape(fNB);
+         bool broadcast_needed = !UTILITY::AreSameShape(shapeDimB, targetShape);
          if (broadcast_needed) {
-            auto original_data = model.GetInitializedTensorData(fNB);
             // make bias shape equal to Y shape by adding 1
             if (fShapeB.size() < 1)
                throw std::runtime_error("TMVA SOFIE Conv op: Bias Tensor has empty shape");
-            // we assume bias tensor dimension is equal to number of filters that is first dimension in 
+            // we assume bias tensor dimension is equal to number of filters that is the second dimension in
             // the output tensor
-            if (fShapeB[0] != fShapeY[0])
+            if (!(shapeDimB[0] == fShapeY[1]))
                throw std::runtime_error("TMVA SOFIE Conv op: Bias Tensor has wrong shape: " +
                                            ConvertShapeToString(fShapeB));
-            fShapeB.resize(fShapeY.size(), 1.);
-
-            if (fType == "float") {
-               std::shared_ptr<void> new_data_ptr(UTILITY::Unidirectional_broadcast<float>(
-                  static_cast<float*>(original_data.get()), fShapeB, fShapeY), std::default_delete<float[]>());
-               model.UpdateInitializedTensor(fNB, model.GetTensorType(fNB), fShapeY, new_data_ptr);
-               fShapeB = model.GetTensorShape(fNB);
-            }
+            if (fType != "float")
+               throw std::runtime_error("TMVA SOFIE Conv op: Broadcasting for non-float type tensors is not supported");
+            // here is the actual broadcasting (done in the Session constructor via GenerateInitCode)
+            fBroadcastBias = true;
          }
       }
-      
+      // output channel size can be parametric and is an expression
+      std::vector<Dim> outputDims = std::vector<Dim>(fShapeY.begin()+2, fShapeY.end());
+      //check if shape is not parametric
+      std::vector<size_t> outputInts = ConvertShapeToInt(outputDims);
+      Dim channelDim;
+      if (outputInts.empty()) {
+         auto outputChannelSize = ConvertDimShapeToLength(outputDims); // size/channel = D * H * W
+         channelDim = Dim{ outputChannelSize, static_cast<size_t>(-1)};
+      } else {
+         size_t outputChannelSize = ConvertShapeToLength(outputInts);
+         channelDim = Dim{ outputChannelSize };
+      }
+      size_t kernelSize = fAttrKernelShape[0];
+      for (size_t i = 1; i < fDim; i++) {
+         kernelSize *= fAttrKernelShape[i];
+      }
+
+      std::vector<size_t> shape1 = {fShapeW[0], fShapeW[1], kernelSize};
+      std::vector<Dim> shape2 = {Dim{fShapeW[1]}, Dim{kernelSize}, channelDim };
+
+      // private workspaces of this node, named after its output, which is unique: the reshaped
+      // kernel depends on this node's weights and the im2col buffer on its attributes
+      model.AddIntermediateTensor(fNY + "_f", ConvertStringToType(fType), shape1);
+      model.AddIntermediateTensor(fNY + "_xcol", ConvertStringToType(fType), shape2);
+      convK = fNY + "_f";
+      imcol = fNY + "_xcol";
+      fOutputTensorNames.emplace_back(convK);
+      fOutputTensorNames.emplace_back(imcol);
+      fInputTensorNames.emplace_back(convK);
+      fInputTensorNames.emplace_back(imcol);
+
+      if (model.Verbose()) {
+         std::cout << "Conv - " << fDim << "  " << fNX << " : " << ConvertDimShapeToString(fShapeX)
+                  << " --> " << fNY << " : " << ConvertDimShapeToString(fShapeY) << std::endl;
+      }
+
+      // register the inference helper functions used by the generated code
+      if (fDim < 3)
+         model.AddNeededHelperFunction("Im2col");
+      else
+         model.AddNeededHelperFunction("Im2col_3d");
+      model.AddNeededHelperFunction("Gemm_Call");
+      if (fBroadcastBias)
+         model.AddNeededHelperFunction("UnidirectionalBroadcast");
    }
 
-   std::string Generate(std::string OpName) {
+   std::string GenerateInitCode() override {
+      std::stringstream out;
+      // Generate initialization code for broadcasting of bias tensor
+      if (fBroadcastBias) {
+         // include a separate scope to avoid defining unique operator temp variables
+         std::vector<size_t> shape(fDim + 1, 1);
+         // bias (is a 1D tensor)
+         shape[0] = fShapeB[0];
+         std::vector<Dim> targetShape(fShapeY.begin() + 1, fShapeY.end());
+         out << "//--- broadcast bias tensor " << fNB << "for Conv op if needed \n";
+         // in case of dynamic tensors check needs to be done at run time
+         bool isOutDynamic = ConvertShapeToInt(targetShape).empty();
+         auto length = ConvertDimShapeToLength(targetShape);
+         if (isOutDynamic)
+            out << SP << "if (" << length << " > " << ConvertShapeToLength(shape) << ") {\n";
+         else
+            out << SP << "{\n";
+         out << SP << SP << "float * data = UTILITY::UnidirectionalBroadcast(tensor_"
+             << fNB << ", " << ConvertShapeToString(shape) << ", " << ConvertDimShapeToString(fShapeY) << ");\n";
+         out << SP << SP << "fTensor_" << fNB << ".resize(" << length << ");\n";
+         out << SP << SP << "std::copy(data, data + " << length << ", fTensor_" << fNB << ".begin());\n";
+         out << SP << SP << "tensor_" << fNB << " = fTensor_" << fNB << ".data();\n";
+         out << SP << SP << "delete[] data;\n";
+         out << SP << "}\n";
+      }
+      return out.str();
+   }
+
+   std::string Generate(std::string OpName) override {
       OpName = "op_" + OpName;
 
       if (fShapeX.empty() || fShapeW.empty() || (fNB != "" && fShapeB.empty()) || fShapeY.empty()) {
@@ -197,185 +363,242 @@ public:
       }
 
       std::stringstream out;
+      auto bsize = fShapeX[0];
+      size_t kDepth = (fDim > 2) ?  fShapeW[2] : 1;  // kernel depth
+      size_t kHeight = (fDim > 1) ? fShapeW[fDim] : 1;  // kernel height
+      size_t kWidth = fShapeW[fDim+1]; // kernel width
+      auto iDepth = (fDim > 2) ?  fShapeX[2] : Dim{1};  // input depth
+      auto iHeight = (fDim > 1) ? fShapeX[fDim] : Dim{1}; // input height
+      auto iWidth = fShapeX[fDim+1]; // input width
+      auto oDepth = (fDim > 2) ? fShapeY[2] : Dim{1}; // output depth
+      auto oHeight = (fDim > 1) ? fShapeY[fDim] : Dim{1};  // ouput height
+      auto oWidth = fShapeY[fDim+1]; // output width
+      // total output size for a channel
+      auto outputChannelStride = ConvertDimShapeToLength(std::vector<Dim>{oDepth, oHeight, oWidth}); // size of channel = D * H * W
+      auto outputBatchStride =  ConvertDimShapeToLength(std::vector<Dim>{fShapeY[1] , oDepth, oHeight, oWidth}); // size of C * D * H * W
+      // input size
+      auto inputChannelStride = ConvertDimShapeToLength(std::vector<Dim>{iDepth, iHeight, iWidth});
+      auto inputBatchStride =  ConvertDimShapeToLength(std::vector<Dim>{fShapeX[1] , iDepth, iHeight, iWidth}); // size of C * D * H * W
 
-      if (fType == "float") {
-         out << "\t" << "float " << OpName << "_xpad[" << fShapeX[0] * fShapeX[1] * (fShapeX[2] + fAttrPads[0] + fAttrPads[2])
-          * (fShapeX[3] + fAttrPads[1] + fAttrPads[3]) << "] = {0};\n";
-      }
-      // Padding the input with zeros
-      if (fShapeX[0] == 1) {
-         out << "\t" << "for (size_t c = 0; c < " << fShapeX[1] << "; c++) {\n";
-         out << "\t" << "\t" << "for (size_t h = 0; h < " << fShapeX[2] << "; h++) {\n";
-         out << "\t" << "\t" << "\t" << "size_t xpad_offset = c * "
-             << (fShapeX[2] + fAttrPads[0] + fAttrPads[2]) * (fShapeX[3] + fAttrPads[1] + fAttrPads[3]) << " + (h + " << fAttrPads[0]
-             << ") * " << (fShapeX[3] + fAttrPads[1] + fAttrPads[3]) << " + " << fAttrPads[1] << ";\n";
-         out << "\t" << "\t" << "\t" << "size_t x_offset = c * " << fShapeX[2] * fShapeX[3] << " + h * " << fShapeX[3] << ";\n";
-         out << "\t" << "\t" << "\t" << "std::copy(tensor_" << fNX << " + x_offset, tensor_" << fNX
-             << " + x_offset + " << fShapeX[3] << ", " << OpName << "_xpad + xpad_offset);\n";
-         out << "\t" << "\t" << "}\n";
-         out << "\t" << "}\n";
-      } else {
-         out << "\t" << "for (size_t n = 0; n < " << fShapeX[0] << "; n++) {\n";
-         out << "\t" << "\t" << "for (size_t c = 0; c < " << fShapeX[1] << "; c++) {\n";
-         out << "\t" << "\t" << "\t" << "for (size_t h = 0; h < " << fShapeX[2] << "; h++) {\n";
-         out << "\t" << "\t" << "\t" << "\t" << "size_t xpad_offset = n * "
-             << fShapeX[1] * (fShapeX[2] + fAttrPads[0] + fAttrPads[2]) * (fShapeX[3] + fAttrPads[1] + fAttrPads[3])
-             << " + c * " << (fShapeX[2] + fAttrPads[0] + fAttrPads[2]) * (fShapeX[3] + fAttrPads[1] + fAttrPads[3])
-             << " + (h + " << fAttrPads[0] <<  ") * " << (fShapeX[3] + fAttrPads[1] + fAttrPads[3]) << " + "
-             << fAttrPads[1] << ";\n";
-         out << "\t" << "\t" << "\t" << "\t" << "size_t x_offset = n * " << fShapeX[1] * fShapeX[2] * fShapeX[3] << " + c * "
-             << fShapeX[2] * fShapeX[3] << " + h * " << fShapeX[3] << ";\n";
-         out << "\t" << "\t" << "\t" << "std::copy(tensor_" << fNX << " + x_offset, tensor_" << fNX
-             << " + x_offset + " << fShapeX[3] << ", " << OpName << "_xpad + xpad_offset);\n";
-         out << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "}\n";
-         out << "\t" << "}\n";
-      }
+      out << "\n//----  operator Conv " << OpName << "\n";
 
-      // convolution kernels
-      if (fType == "float") {
-         out << "\t" << "float " << OpName << "_f[" << fShapeW[0] * fShapeW[1] * fAttrKernelShape[0] * fAttrKernelShape[1] << "] = {0};\n";
-      }
       // vectorize the (dilated)convolution kernels into a matrix
-      out << "\t" << "for (std::size_t k = 0; k < " << fShapeW[0] << "; k++) {\n";
-      out << "\t" << "\t" << "for (std::size_t d = 0; d < " << fShapeW[1] << "; d++) {\n";
-      out << "\t" << "\t" << "\t" << "for (std::size_t h = 0; h < " << fShapeW[2] << "; h++) {\n";
-      out << "\t" << "\t" << "\t" << "\t" << "for (std::size_t w = 0; w < " << fShapeW[3] << "; w++) {\n";
-      out << "\t" << "\t" << "\t" << "\t" << "\t" << OpName <<  "_f[k + " << "(d * "
-          << fAttrKernelShape[0] * fAttrKernelShape[1] << " + h * " << fAttrDilations[0] * fAttrKernelShape[1]
-          << " + w * " << fAttrDilations[1] << ") * " << fShapeW[0] << "] = tensor_" << fNW << "[k * "
-          << fShapeW[1] * fShapeW[2] * fShapeW[3] << " + d * " << fShapeW[2] * fShapeW[3] << " + h * "
-          << fShapeW[3] << " + w ];\n";
-      out << "\t" << "\t" << "\t" << "\t" << "}\n";
-      out << "\t" << "\t" << "\t" << "}\n";
-      out << "\t" << "\t" << "}\n";
-      out << "\t" << "}\n";
+      // no need to transpose the matrix
+      // to fix for 1d and 3d
+
+      size_t id = (fDim > 2) ? fDim-3 : 2;
+      size_t ih = (fDim > 1) ? fDim-2 : 1;
+      size_t iw = fDim-1;
+
+      size_t wstrideDil = fAttrDilations[iw];
+      size_t hstride = kWidth;
+      size_t hstrideDil = fAttrDilations[ih] * fAttrKernelShape[iw];  // stride dilated in the height
+      size_t dstride = kHeight * kWidth;
+      size_t dstrideDil = fAttrDilations[id] * fAttrKernelShape[ih] * fAttrKernelShape[iw];
+      size_t icstride = kHeight * kWidth * kDepth;
+      size_t icstrideDil = fAttrKernelShape[id] * fAttrKernelShape[ih] * fAttrKernelShape[iw];
+      size_t ocstride = fShapeW[1] * icstride;
+      size_t ocstrideDil = fShapeW[1] * icstrideDil;
+
+      out << SP << "for (std::size_t oc = 0; oc < " << fShapeW[0] << "; oc++) {\n";
+      out << SP << SP << "for (std::size_t ic = 0; ic < " << fShapeW[1] << "; ic++) {\n";
+      if (fDim > 2)
+         out << SP << SP << SP << "for (std::size_t kd = 0; kd < " << kDepth << "; kd++) {\n";
+      if (fDim > 1)
+         out << SP << SP << SP << "for (std::size_t kh = 0; kh < " << kHeight << "; kh++) {\n";
+      out << SP << SP << SP << SP << "for (std::size_t kw = 0; kw < " << kWidth << "; kw++) {\n";
+
+      out << SP << SP << SP << SP << SP << "tensor_" << convK << "[oc * " << ocstrideDil << " + ic * " << icstrideDil;
+      if (fDim > 2) out << " + kd * " << dstrideDil;
+      if (fDim > 1) out << " + kh * " << hstrideDil;
+      out << " + kw * " << wstrideDil  << "  ] = tensor_" << fNW << "[oc * " << ocstride << " + ic * " << icstride;
+      if (fDim > 2) out << " + kd * " << dstride;
+      if (fDim > 1) out << " + kh * " << hstride;
+      out  << " + kw ];\n";
+
+      out << SP << SP << SP << SP << "}\n";
+      if (fDim > 1) out << SP << SP << SP << "}\n";
+      if (fDim > 2) out << SP << SP << SP << "}\n";
+      out << SP << SP << "}\n";
+      out << SP << "}\n";
+
+      // Dilation is already folded into the expanded kernel shape and the dilated tensor_<X>_f
+      // layout above, so the dense im2col below must use dilation 1 to avoid double-counting it.
+      fAttrDilations = std::vector<size_t>(3, 1);
+
+      //out << SP << "char " << OpName << "_transA = 'T';\n";
+      out << SP << "char " << OpName << "_transA = 'N';\n";
+      out << SP << "char " << OpName << "_transB = 'N';\n";
+      out << SP << "int " << OpName << "_m = " << outputChannelStride << ";\n"; // output h*w
+      assert(fShapeY[1] == fShapeW[0]);
+      //assert(fShapeW[1] == fShapeX[1] / fAttrGroup);
+      out << SP << "int " << OpName << "_n = " << fShapeW[0] << ";\n"; // output channels
+      out << SP << "int " << OpName << "_k = " << fShapeW[1] * fAttrKernelShape[0] * fAttrKernelShape[1] * fAttrKernelShape[2] << ";\n";
+      out << SP << "float " << OpName << "_alpha = 1.0;\n";
+      if (fNB != "")
+         out << SP << "float " << OpName << "_beta = 1.0;\n";
+      else // when bias is not present beta needs to be equal to zero to avoid re-using previous results in output tensor
+         out << SP << "float " << OpName << "_beta = 0.0;\n";
+
+
+      // Loop on batch size
+      out << SP << "for (size_t n = 0; n < " << bsize << "; n++) {\n";
+
+      // IM2COL: Unroll the input tensor
+      // order input data as  (e.g. kernel 2x2)  and (xa,ya) is channel 1 and (xb,yb) is channel 2
+      //   (xa1,..,xak,ya1,..yak)(xb1,...,xbk,yb1,..,ybk)
+      //   (xa2,...xak+1,ya1,...yak)(......)
+      // trick for speed is using caffe im2col and output a matrix which contains filtered values as rows.
+      // By doing this one has consecutive memory reads and writes
+      // Resulting matrix op_xcol is (input channels * filter_h * filter_w , output_h * output_w)
+      // fAttrPads holds the begin pads in [0, fDim) and the end pads in [fDim, 2 * fDim),
+      // which is the layout Im2col expects. They may differ: ONNX allows it through the
+      // "pads" attribute, and SAME_UPPER / SAME_LOWER produce it whenever the total
+      // padding along an axis is odd (an even kernel size).
+      if (fDim == 1) {
+         // the 1d case is emitted as a 2d one of height 1, for which stride_h is 1
+         fAttrStrides[1] = 1;
+      }
+      out << SP << SP << "size_t out_offset = n * " << outputBatchStride  << ";\n";
 
       if (fAttrGroup == 1) {
-         if (fType == "float") {
-         out << "\t" << "float " << OpName << "_xcol[" << fShapeX[1] * fAttrKernelShape[0] * fAttrKernelShape[1]
-             * fShapeX[0] * fShapeY[2] * fShapeY[3] << "] = {0};\n";
+         out << SP << SP << "size_t x_offset = n * " << inputBatchStride << ";\n";
+         // when using im2col - resulting matrix is transposed, the dimension is (input_c * filter_h * filter_y,  output_h *
+         // output_w)
+         if (fDim < 3) {
+            out << SP << SP << "UTILITY::Im2col<float>(tensor_" << fNX
+                << " + x_offset,"
+                //  channels, height, width, kernel_h, kernel_w, pad_h_begin, pad_h_end, pad_w_begin,
+                //  pad_w_end, stride_h, stride_w, dilation_h, dilation_w,
+                //
+                << fShapeW[1] << "," << iHeight << "," << iWidth << ",";
+            if (fDim == 1)
+               out << "1, " << fAttrKernelShape[0] << ",0,0," << fAttrPads[0] << "," << fAttrPads[1] << ",1,"
+                   << fAttrStrides[0] << ",1," << fAttrDilations[0];
+            else // dim ==2
+               out << fAttrKernelShape[0] << "," << fAttrKernelShape[1] << "," << fAttrPads[0] << ","
+                   << fAttrPads[2] << "," << fAttrPads[1] << "," << fAttrPads[3]
+                   << "," << fAttrStrides[0] << "," << fAttrStrides[1] << "," << fAttrDilations[0] << ","
+                   << fAttrDilations[1];
+            out << "," << "tensor_" << imcol << ");\n\n ";
+         } else {
+            // 3d im2col
+            out << SP << SP << "UTILITY::Im2col_3d<float>(tensor_" << fNX
+                << " + x_offset,"
+                //  channels, d, h, w, k_d, k_h, k_w, pad_d_begin, pad_d_end, pad_h_begin, pad_h_end,
+                //  pad_w_begin, pad_w_end, stride_d, stride_h, stride_w, dilation_d, dilation_h, dilation_w,
+                //
+                << fShapeW[1] << "," << iDepth << "," << iHeight << "," << iWidth << "," << fAttrKernelShape[0] << ","
+                << fAttrKernelShape[1] << "," << fAttrKernelShape[2] << "," << fAttrPads[0] << "," << fAttrPads[3]
+                << "," << fAttrPads[1] << "," << fAttrPads[4] << "," << fAttrPads[2] << "," << fAttrPads[5] << ","
+                << fAttrStrides[0] << "," << fAttrStrides[1] << "," << fAttrStrides[2] << "," << fAttrDilations[0]
+                << "," << fAttrDilations[1] << "," << fAttrDilations[2] << ","
+                << "tensor_" << imcol << ");\n\n ";
          }
-         // Unroll the input tensor
-         out << "\t" << "size_t " << OpName << "_index = 0;\n";
-         out << "\t" << "for (size_t n = 0; n < " << fShapeX[0] << "; n++) {\n";
-         out << "\t" << "\t" << "for (size_t c = 0; c < " << fShapeW[1] << "; c++) {\n";
-         out << "\t" << "\t" << "\t" << "for (size_t h = 0; h < " << fShapeX[2] + fAttrPads[0] + fAttrPads[2] - fAttrKernelShape[0] + 1
-             << "; h += " << fAttrStrides[0] << ") {\n";
-         out << "\t" << "\t" << "\t" << "\t" << "for (size_t w = 0; w < " << fShapeX[3] + fAttrPads[1] + fAttrPads[3] - fAttrKernelShape[1] + 1
-             << ";w += " << fAttrStrides[1] << ") {\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "for (size_t x = 0; x < " << fAttrKernelShape[0] << "; x++) {\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "size_t offset = n * "
-             << fShapeX[1] * (fShapeX[2] + fAttrPads[0] + fAttrPads[2]) * (fShapeX[3] + fAttrPads[1] + fAttrPads[3])
-             << " + c * " << (fShapeX[2] + fAttrPads[0] + fAttrPads[2]) * (fShapeX[3] + fAttrPads[1] + fAttrPads[3])
-             << "+ (h + x) * " << (fShapeX[3] + fAttrPads[1] + fAttrPads[3]) << " + w;\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "std::copy(" << OpName << "_xpad + offset, " << OpName
-             << "_xpad + offset + " << fAttrKernelShape[1] << ", " << OpName << "_xcol + " << OpName << "_index);\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << OpName << "_index += " << fAttrKernelShape[1] << ";\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "}\n";
-         out << "\t" << "}\n";
+         // BLAS
+         out << SP << "Gemm_Call("
+             << "tensor_" << fNY << " + out_offset, false, false, " << OpName << "_m, " << OpName << "_n, " << OpName
+             << "_k, " << OpName << "_alpha, " << "tensor_" << imcol << ", tensor_" << convK << ", " << OpName
+             << "_beta, ";
+         if (fNB != "")
+            out << "tensor_" << fNB;
+         else
+            out << "nullptr";
+         out << ");\n";
 
-         out << "\t" << "char " << OpName << "_transA = 'N';\n";
-         out << "\t" << "char " << OpName << "_transB = 'N';\n";
-         out << "\t" << "int " << OpName << "_m = " << fShapeW[0] << ";\n";
-         out << "\t" << "int " << OpName << "_n = " << fShapeX[0] * fShapeY[2] * fShapeY[3] << ";\n";
-         out << "\t" << "int " << OpName << "_k = " << fShapeW[1] * fAttrKernelShape[0] * fAttrKernelShape[1] << ";\n";
-         out << "\t" << "float " << OpName << "_alpha = 1.0;\n";
-         out << "\t" << "float " << OpName << "_beta = 0.0;\n";
-         out << "\t" << "BLAS::sgemm_(&" << OpName << "_transA, &" << OpName << "_transB, &" << OpName << "_m, &"
-             << OpName << "_n, &" << OpName << "_k, &" << OpName << "_alpha, " << OpName << "_f, &" << OpName << "_m,\n";
-         out << "\t" << "\t" << OpName << "_xcol, &" << OpName << "_k, &" << OpName << "_beta, tensor_" << fNY
-             << ", &" << OpName << "_m);\n";
+         // out << SP << SP << "BLAS::sgemm_(&" << OpName << "_transA, &" << OpName << "_transB, &" << OpName << "_m, &"
+         //     << OpName << "_n, &" << OpName << "_k, &" << OpName << "_alpha, " << "tensor_" << imcol << ", &" <<
+         //     OpName << "_m,\n"; // use m if op_xcol is not transpose , otherwise k
+         // out << SP << SP << SP << "tensor_" << convK << ", &" << OpName << "_k, &" << OpName << "_beta, tensor_" <<
+         //     fNY << " + out_offset, &" << OpName << "_m);\n";
       } else {
-         if (fType == "float") {
-         out << "\t" << "float " << OpName << "_xcol[" << fShapeX[1] * fAttrKernelShape[0] * fAttrKernelShape[1]
-             * fShapeX[0] * fShapeY[2] * fShapeY[3] << "] = {0};\n";
-         }
-         // Unroll the input tensor
-         out << "\t" << "for (size_t g = 0; g < " << fAttrGroup << "; g++) {\n";
-         out << "\t" << "\t" << "size_t index = g * " << fShapeW[1] * fAttrKernelShape[0] * fAttrKernelShape[1] << ";\n";
-         out << "\t" << "\t" << "for (size_t n = 0; n < " << fShapeX[0] << "; n++) {\n";
-         out << "\t" << "\t" << "\t" << "for (size_t c = g * " << fShapeW[1] << "; c < (g + 1) * " << fShapeW[1] << "; c++) {\n";
-         out << "\t" << "\t" << "\t" << "\t" << "for (size_t h = 0; h < " << fShapeX[2] + fAttrPads[0] + fAttrPads[2] - fAttrKernelShape[0] + 1
-             << "; h += " << fAttrStrides[0] << ") {\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "for (size_t w = 0; w < "
-             << fShapeX[3] + fAttrPads[1] + fAttrPads[3] - fAttrKernelShape[1] + 1 << ";w += " << fAttrStrides[1] << ") {\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "\t" << "for (size_t x = 0; x < " << fAttrKernelShape[0] << "; x++) {\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "\t" << "size_t offset = n * "
-             << fShapeX[1] * (fShapeX[2] + fAttrPads[0] + fAttrPads[2]) * (fShapeX[3] + fAttrPads[1] + fAttrPads[3])
-             << " + c * " << (fShapeX[2] + fAttrPads[0] + fAttrPads[2]) * (fShapeX[3] + fAttrPads[1] + fAttrPads[3])
-             << "+ (h + x) * " << (fShapeX[3] + fAttrPads[1] + fAttrPads[3]) << " + w;\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "\t" << "std::copy(" << OpName << "_xpad + offset, " << OpName
-             << "_xpad + offset + " << fAttrKernelShape[1] << ", " << OpName << "_xcol + index);\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "\t" << "index += " << fAttrKernelShape[1] << ";\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "}\n";
-         out << "\t" << "}\n";
-         size_t fgHeight = fAttrKernelShape[0] / fAttrGroup;
-         size_t fgWidth  = fAttrKernelShape[1] * fAttrKernelShape[2] * fAttrKernelShape[3];
-         if (fType == "float") {
-            out << "\t" << "float " << OpName << "_fg[" << fgHeight * fgWidth << "];\n";
-         }
-         size_t xgHeight = fShapeX[1] * fAttrKernelShape[2] * fAttrKernelShape[3] / fAttrGroup;
-         size_t xgWidth  = fShapeX[0] * fShapeY[2] * fShapeY[3];
-         if (fType == "float") {
-            out << "\t" << "float " << OpName << "_xg[" << xgHeight * xgWidth << "];\n";
-            out << "\t" << "float " << OpName << "_yg[" << fgHeight * xgWidth << "];\n";
-         }
-         out << "\t" << "char " << OpName << "_transA  = 'N';\n";
-         out << "\t" << "char " << OpName << "_transB = 'N';\n";
-         out << "\t" << "int " << OpName << "_m = " << fgHeight << ";\n";
-         out << "\t" << "int " << OpName << "_n = " << xgWidth << ";\n";
-         out << "\t" << "int " << OpName << "_k = " << fgWidth << ";\n";
+         // case of group convolution
+         // Unroll (IM2COL) the input tensor- make loop on groups and repeat operations (IM2COL + GEMM for each
+         // group)
+         // out << SP << SP << "size_t out_offset = n * " << fShapeY[1] * oDepth * oHeight * oWidth << ";\n";
+         out << SP << SP << "for (size_t g = 0; g < " << fAttrGroup << "; g++) {\n";
+         out << SP << SP << "size_t x_offset = n * " << inputBatchStride << " + g * "
+             << fShapeW[1] << " * " << inputChannelStride << ";\n ";
+         out << SP << SP << "size_t g_offset = g * " << fShapeW[0] << " * (" << outputChannelStride << ") / " << fAttrGroup << ";\n ";
+         out << SP << SP << "size_t out_offset = n * " << outputBatchStride << " + g_offset;\n";
 
-         if (fType == "float") {
-            out << "\t" << "float " << OpName << "_alpha = 1.0;\n";
-            out << "\t" << "float " << OpName << "_beta  = 0.0;\n";
+         if (fDim < 3) {
+            out << SP << SP << "UTILITY::Im2col<float>(tensor_" << fNX
+                << " + x_offset,"
+                //  channels, height, width, kernel_h, kernel_w, pad_h_begin, pad_h_end, pad_w_begin,
+                //  pad_w_end, stride_h, stride_w, dilation_h, dilation_w,
+                //
+                << fShapeW[1] << "," << iHeight << "," << iWidth << ",";
+            if (fDim == 1)
+               out << "1, " << fAttrKernelShape[0] << ",0,0," << fAttrPads[0] << "," << fAttrPads[1] << ",1,"
+                   << fAttrStrides[0] << ",1," << fAttrDilations[0];
+            else // dim ==2
+               out << fAttrKernelShape[0] << "," << fAttrKernelShape[1] << "," << fAttrPads[0] << ","
+                   << fAttrPads[2] << "," << fAttrPads[1] << "," << fAttrPads[3]
+                   << "," << fAttrStrides[0] << "," << fAttrStrides[1] << "," << fAttrDilations[0] << ","
+                   << fAttrDilations[1];
+            out << ", tensor_" << imcol << ");\n\n ";
+         } else {
+            // 3d im2col
+            out << SP << SP << "UTILITY::Im2col_3d<float>(tensor_" << fNX
+                << " + x_offset,"
+                //  channels, d, h, w, k_d, k_h, k_w, pad_d_begin, pad_d_end, pad_h_begin, pad_h_end,
+                //  pad_w_begin, pad_w_end, stride_d, stride_h, stride_w, dilation_d, dilation_h, dilation_w,
+                //
+                << fShapeW[1] << "," << iDepth << "," << iHeight << "," << iWidth << "," << fAttrKernelShape[0] << ","
+                << fAttrKernelShape[1] << "," << fAttrKernelShape[2] << "," << fAttrPads[0] << "," << fAttrPads[3]
+                << "," << fAttrPads[1] << "," << fAttrPads[4] << "," << fAttrPads[2] << "," << fAttrPads[5] << ","
+                << fAttrStrides[0] << "," << fAttrStrides[1] << "," << fAttrStrides[2] << "," << fAttrDilations[0]
+                << "," << fAttrDilations[1] << "," << fAttrDilations[2] << ",tensor_" << imcol << ");\n\n ";
          }
 
-         out << "\t" << "for (size_t g = 0; g < " << fAttrGroup << "; g++) {\n";
-         out << "\t" << "\t" << "for (size_t h = 0; h < " << fgHeight << "; h++) {\n";
-         out << "\t" << "\t" << "\t" << "for (size_t w = 0; w < " << fgWidth << "; w++) {\n";
-         out << "\t" << "\t" << "\t" << "\t" << OpName << "_fg[h + w * " << fgHeight << "] = " << OpName
-             << "_f[h + g * " << fgHeight << " + w * " << fAttrKernelShape[0] << "];\n";
-         out << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "for (size_t h = 0; h < " << xgHeight << "; h++) {\n";
-         out << "\t" << "\t" << "\t" << "for (size_t w = 0; w < " << xgWidth << "; w++) {\n";
-         out << "\t" << "\t" << "\t" << "\t" << OpName << "_xg[h + w * " << xgHeight << "] = " << OpName
-             << "_xcol[h + g * " << xgHeight << " + w * " << fShapeX[1] * fAttrKernelShape[2] * fAttrKernelShape[3] << "];\n";
-         out << "\t" << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "}\n";
-         out << "\t" << "\t" << "BLAS::sgemm_(&" << OpName << "_transA, &" << OpName << "_transB, &" << OpName
-             << "_m, &" << OpName << "_n, &" << OpName << "_k, &" << OpName << "_alpha, " << OpName << "_fg, &"
-             << OpName << "_m, " << OpName << "_xg, &" << OpName << "_k, &" << OpName << "_beta, " << OpName
-             << "_yg, &" << OpName << "_m);\n";
-         out << "\t" << "\t" << "for (size_t i = 0; i < " << fgHeight * xgWidth << "; i++) {\n";
-         out << "\t" << "\t" << "\t" << "tensor_" << fNY << "[i + g * " << fgHeight * xgWidth << "] = "
-             << OpName << "_yg[i];\n";
-         out << "\t" << "\t" << "}\n";
-         out << "\t" << "}\n";
+         // BLAS
+         // n must be divided by the number of groups
+         out << SP << SP << SP << OpName << "_n = " << fShapeW[0] / fAttrGroup << ";\n";
+         // offset g must be  g * k * n
+         out << SP << SP << SP << "size_t offset_f = g * "
+             << fShapeW[0] * fShapeW[1] * fAttrKernelShape[0] * fAttrKernelShape[1] * fAttrKernelShape[2] / fAttrGroup
+             << ";\n";
+
+         out << SP << "Gemm_Call("
+             << "tensor_" << fNY << " + out_offset, false, false, " << OpName << "_m, " << OpName << "_n, " << OpName
+             << "_k, " << OpName << "_alpha, " << "tensor_" << imcol << ", tensor_" << convK << " + offset_f, "
+             << OpName << "_beta, ";
+         if (fNB != "")
+            out << "tensor_" << fNB << " + g_offset";
+         else
+            out << "nullptr";
+         out << ");\n";
+
+         // out << SP << SP << "BLAS::sgemm_(&" << OpName << "_transA, &" << OpName << "_transB, &" << OpName << "_m, &"
+         //     << OpName << "_n, &" << OpName << "_k, &" << OpName << "_alpha, tensor_" << imcol << ", &" << OpName
+         //     << "_m,\n"; // use m if op_xcol is not transpose , otherwise k
+         // out << SP << SP << SP << "tensor_" << convK << " + offset_f, &" << OpName << "_k, &" << OpName << "_beta,
+         // tensor_" << fNY
+         //     << " + out_offset"
+         //     << ", &" << OpName << "_m);\n";
+
+         out << SP << SP << "}\n"; // end of group loop
       }
 
-      if (fNB != "") {
-         out << "\t" << "int " << OpName << "_size = " << fShapeY[0] * fShapeY[1] * fShapeY[2] * fShapeY[3] << ";\n";
-         out << "\t" << "float " << OpName << "_gamma = 1.0;\n";
-         out << "\t" << "int " << OpName << "_incx = 1;\n";
-         out << "\t" << "int " << OpName << "_incy = 1;\n";
+      // if (fNB != "") {
+      //    out << SP << "int " << OpName << "_size = " << outputBatchStride << ";\n";
+      //    out << SP << "float " << OpName << "_gamma = 1.0;\n";
+      //    out << SP << "int " << OpName << "_incx = 1;\n";
+      //    out << SP << "int " << OpName << "_incy = 1;\n";
 
-         out << "\t" << "BLAS::saxpy_(&" << OpName << "_size, &" << OpName << "_gamma, tensor_" << fNB << ", &"
-             << OpName << "_incx, tensor_" << fNY << ", &" << OpName << "_incy);\n";
-      }
+      //    out << SP << "BLAS::saxpy_(&" << OpName << "_size, &" << OpName << "_gamma, tensor_" << fNB << ", &"
+      //        << OpName << "_incx, tensor_" << fNY << " + out_offset, &" << OpName << "_incy);\n";
+
+      // }
+      out << SP << "}\n"; // end of batch size loop
 
       return out.str();
-   }
+      }
 
+   /*! \brief Returns the blas routines needed to compile the generated code
+    */
+   std::vector<std::string> GetBlasRoutines() override { return { std::string("Gemm"), std::string("Axpy") }; }
 };
 
 } // namespace SOFIE

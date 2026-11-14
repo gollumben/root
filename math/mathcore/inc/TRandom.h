@@ -23,6 +23,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "TNamed.h"
+#include <limits>
 
 class TRandom : public TNamed, public ROOT::Math::TRandomEngine {
 
@@ -31,7 +32,7 @@ protected:
 
 public:
    TRandom(UInt_t seed=65539);
-   virtual ~TRandom();
+   ~TRandom() override;
    virtual  Int_t    Binomial(Int_t ntot, Double_t prob);
    virtual  Double_t BreitWigner(Double_t mean=0, Double_t gamma=1);
    virtual  void     Circle(Double_t &x, Double_t &y, Double_t r);
@@ -40,13 +41,13 @@ public:
    virtual  UInt_t   GetSeed() const;
    virtual  UInt_t   Integer(UInt_t imax);
    virtual  Double_t Landau(Double_t mean=0, Double_t sigma=1);
-   virtual  Int_t    Poisson(Double_t mean);
+   virtual ULong64_t Poisson(Double_t mean);
    virtual  Double_t PoissonD(Double_t mean);
    virtual  void     Rannor(Float_t &a, Float_t &b);
    virtual  void     Rannor(Double_t &a, Double_t &b);
    virtual  void     ReadRandom(const char *filename);
    virtual  void     SetSeed(ULong_t seed=0);
-   virtual  Double_t Rndm();
+    Double_t Rndm() override;
    // keep for backward compatibility
    virtual  Double_t Rndm(Int_t ) { return Rndm(); }
    virtual  void     RndmArray(Int_t n, Float_t *array);
@@ -56,7 +57,17 @@ public:
    virtual  Double_t Uniform(Double_t x1, Double_t x2);
    virtual  void     WriteRandom(const char *filename) const;
 
-   ClassDef(TRandom,3)  //Simple Random number generator (periodicity = 10**9)
+   // std::UniformRandomBitGenerator interface -- makes TRandom usable directly
+   // with std::shuffle, std::uniform_int_distribution and similar.
+   using result_type = UInt_t;
+   static constexpr result_type min() { return 0; }
+   static constexpr result_type max() { return std::numeric_limits<UInt_t>::max(); }
+   /// \note Rndm() returns a double in ]0,1[, so converting back to UInt_t
+   ///   has a small precision loss. Subclasses with access to raw integer output
+   ///   should override this for better accuracy.
+   virtual result_type operator()() { return static_cast<result_type>(Rndm() * (static_cast<double>(max()) + 1.0)); }
+
+   ClassDefOverride(TRandom,3)  //Simple Random number generator (periodicity = 10**9)
 };
 
 R__EXTERN TRandom *gRandom;

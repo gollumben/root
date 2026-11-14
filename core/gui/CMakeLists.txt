@@ -8,7 +8,7 @@
 # CMakeLists.txt file for building ROOT core/meta package
 ############################################################################
 
-set(GuiCore_dict_headers
+set(GUI_HEADERS
   GuiTypes.h
   TApplicationImp.h
   TBrowser.h
@@ -23,10 +23,15 @@ set(GuiCore_dict_headers
   TObjectSpy.h
   TToggleGroup.h
   TToggle.h
-  PARENT_SCOPE
 )
 
-ROOT_OBJECT_LIBRARY(GuiCore
+set_property(TARGET Core APPEND PROPERTY DICT_HEADERS ${GUI_HEADERS})
+
+set(RELATIVE_INC_HEADERS ${GUI_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+
+target_sources(Core
+PRIVATE
   src/InitGui.cxx
   src/TApplicationImp.cxx
   src/TBrowser.cxx
@@ -41,16 +46,16 @@ ROOT_OBJECT_LIBRARY(GuiCore
   src/TObjectSpy.cxx
   src/TToggle.cxx
   src/TToggleGroup.cxx
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/
+  FILES
+    ${RELATIVE_INC_HEADERS}
 )
 
-target_include_directories(GuiCore PRIVATE 
-   ${CMAKE_SOURCE_DIR}/core/base/inc
-   ${CMAKE_SOURCE_DIR}/core/clib/inc
-   ${CMAKE_SOURCE_DIR}/core/meta/inc
-   ${CMAKE_SOURCE_DIR}/core/cont/inc
-   ${CMAKE_SOURCE_DIR}/core/thread/inc
-   ${CMAKE_SOURCE_DIR}/core/foundation/inc
-   ${CMAKE_BINARY_DIR}/ginclude
+target_include_directories(Core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>
 )
 
 ROOT_INSTALL_HEADERS()

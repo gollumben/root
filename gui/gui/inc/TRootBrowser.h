@@ -42,13 +42,13 @@ public:
    TBrowserPlugin(const char *name, const char *cmd = "", Int_t tab = 1,
                   Int_t sub = -1) : TNamed(name, cmd), fTab(tab),
       fSubTab(sub), fCommand(cmd) { }
-   virtual ~TBrowserPlugin() {}
+   ~TBrowserPlugin() override {}
 
    void     SetTab(Int_t tab) { fTab = tab; }
    void     SetSubTab(Int_t sub) { fSubTab = sub; }
    void     SetCommand(const char *cmd) { fCommand = cmd; }
 
-   ClassDef(TBrowserPlugin, 0)  // basic plugin description class
+   ClassDefOverride(TBrowserPlugin, 0)  // basic plugin description class
 };
 
 class TRootBrowser : public TGMainFrame, public TBrowserImp {
@@ -123,7 +123,7 @@ public:
 
    TRootBrowser(TBrowser *b = nullptr, const char *name = "ROOT Browser", UInt_t width = 800, UInt_t height = 500, Option_t *opt = "", Bool_t initshow = kTRUE);
    TRootBrowser(TBrowser *b, const char *name, Int_t x, Int_t y, UInt_t width, UInt_t height, Option_t *opt = "", Bool_t initshow = kTRUE);
-   virtual ~TRootBrowser();
+   ~TRootBrowser() override;
 
    void              InitPlugins(Option_t *opt="");
 
@@ -146,10 +146,11 @@ public:
    void              HandleMenu(Int_t id);
    void              RecursiveReparent(TGPopupMenu *popup);
    void              RemoveTab(Int_t pos, Int_t subpos);
+   TBrowserImp      *GetActBrowser() const { return fActBrowser; }
    void              SetActBrowser(TBrowserImp *b) { fActBrowser = b; }
    void              ShowMenu(TGCompositeFrame *menu);
    void              StartEmbedding(Int_t pos = kRight, Int_t subpos = -1) override;
-   void              StopEmbedding(const char *name = nullptr) override { StopEmbedding(name, 0); }
+   void              StopEmbedding(const char *name = nullptr) override { StopEmbedding(name, nullptr); }
    void              StopEmbedding(const char *name, TGLayoutHints *layout);
    void              SwitchMenus(TGCompositeFrame *from);
 
@@ -165,7 +166,7 @@ public:
    Option_t         *GetDrawOption() const override;
    TGMainFrame      *GetMainFrame() const override { return (TGMainFrame *)this; }
 
-   Long_t            ExecPlugin(const char *name = nullptr, const char *fname = nullptr,
+   Longptr_t         ExecPlugin(const char *name = nullptr, const char *fname = nullptr,
                                 const char *cmd = nullptr, Int_t pos = kRight,
                                 Int_t subpos = -1) override;
    void              SetStatusText(const char *txt, Int_t col) override;

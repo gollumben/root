@@ -1,16 +1,20 @@
 // @(#)root/mathcore:$Id$
 // Authors: David Gonzalez Maline    01/2008
 
-/**********************************************************************
- *                                                                    *
- * Copyright (c) 2006 , LCG ROOT MathLib Team                         *
- *                                                                    *
- *                                                                    *
- **********************************************************************/
+ /**********************************************************************
+  *                                                                    *
+  * Copyright (c) 2006  CERN                                           *
+  * All rights reserved.                                               *
+  *                                                                    *
+  * For the licensing terms see $ROOTSYS/LICENSE.                      *
+  * For the list of contributors see $ROOTSYS/README/CREDITS.          *
+  *                                                                    *
+  **********************************************************************/
 
 #include "Math/RootFinder.h"
 #include "Math/IRootFinderMethod.h"
 #include "Math/BrentRootFinder.h"
+#include "Math/ModABRootFinder.h"
 
 #include "RConfigure.h"
 
@@ -35,18 +39,28 @@ namespace Math {
 
 
 RootFinder::RootFinder(RootFinder::EType type) :
-   fSolver(0)
+   fSolver(nullptr)
 {
    // constructor passing type (default is kBRENT)
-   SetMethod(type);
+   const bool success = SetMethod(type);
+   if (!success)
+      throw std::runtime_error("ROOT::Math::RootFinder: ROOT was built without the requested algorithm");
 }
 
 bool RootFinder::SetMethod(RootFinder::EType type)
 {
+   fSolver = nullptr;
+
    // set method - Use the plug-in manager if method is implemented in MathMore
    if ( type == RootFinder::kBRENT )
    {
       fSolver = new BrentRootFinder();
+      return true;
+   }
+
+   if (type == RootFinder::kMODAB) 
+   {
+      fSolver = new ModABRootFinder();
       return true;
    }
 
@@ -111,7 +125,7 @@ bool RootFinder::SetMethod(RootFinder::EType type)
       break;
    default:
       MATH_ERROR_MSG("RootFinder::SetMethod","RootFinderMethod type is not available in MathCore");
-      fSolver = 0;
+      fSolver = nullptr;
       return false;
       break;
    };
@@ -122,15 +136,15 @@ bool RootFinder::SetMethod(RootFinder::EType type)
          return false;
       }
 
-      fSolver = reinterpret_cast<ROOT::Math::IRootFinderMethod *>( h->ExecPlugin(0) );
-      assert(fSolver != 0);
-   }
-   else {
-      MATH_ERROR_MSG("RootFinder::SetMethod","Error loading RootFinderMethod");
-      return false;
+      fSolver = reinterpret_cast<ROOT::Math::IRootFinderMethod *>(h->ExecPlugin(0));
    }
 
 #endif
+
+   if (!fSolver) {
+      MATH_ERROR_MSG("RootFinder::SetMethod","Error loading RootFinderMethod");
+      return false;
+   }
 
    return true;
 }

@@ -14,7 +14,7 @@
 
 //////////////////////////////////////////////////////////////////////////
 //                                                                      //
-// TListOfEnumsWithLock                                                         //
+// TListOfEnumsWithLock                                                 //
 //                                                                      //
 // A collection of TEnum objects designed for fast access given a       //
 // DeclId_t and for keep track of TEnum that were described             //
@@ -37,7 +37,7 @@ private:
 
 public:
 
-   TListOfEnumsWithLock(TClass *cl = 0);
+   TListOfEnumsWithLock(TClass *cl = nullptr);
    ~TListOfEnumsWithLock() override;
 
    TEnum *GetObject(const char*) const override;
@@ -68,10 +68,15 @@ public:
    void       AddLast(TObject *obj) override;
    void       AddLast(TObject *obj, Option_t *opt) override;
    void       AddAt(TObject *obj, Int_t idx) override;
+   void       AddAt(TObject *obj, Int_t idx, Option_t *opt) override;
    void       AddAfter(const TObject *after, TObject *obj) override;
    void       AddAfter(TObjLink *after, TObject *obj) override;
+   void       AddAfter(const TObject *after, TObject *obj, Option_t *opt) override;
+   void       AddAfter(TObjLink *after, TObject *obj, Option_t *opt) override;
    void       AddBefore(const TObject *before, TObject *obj) override;
    void       AddBefore(TObjLink *before, TObject *obj) override;
+   void       AddBefore(const TObject *before, TObject *obj, Option_t *opt) override;
+   void       AddBefore(TObjLink *before, TObject *obj, Option_t *opt) override;
 
    void       RecursiveRemove(TObject *obj) override;
    TObject   *Remove(TObject *obj) override;
@@ -95,9 +100,9 @@ class TListOfEnumsWithLockIter : public TListIter
 
    using TListIter::operator=;
 
-   TObject *Next();
+   TObject *Next() override;
 
-   ClassDef(TListOfEnumsWithLockIter,0)
+   ClassDefOverride(TListOfEnumsWithLockIter,0)
 };
 
 #endif // ROOT_TListOfEnumsWithLock

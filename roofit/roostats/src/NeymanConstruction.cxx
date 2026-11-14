@@ -66,11 +66,10 @@ construction by:
 #include "TMath.h"
 #include "TH1F.h"
 
-ClassImp(RooStats::NeymanConstruction); ;
 
 using namespace RooFit;
 using namespace RooStats;
-using namespace std;
+using std::endl, std::string;
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -80,10 +79,10 @@ NeymanConstruction::NeymanConstruction(RooAbsData& data, ModelConfig& model):
    fSize(0.05),
    fData(data),
    fModel(model),
-   fTestStatSampler(0),
-   fPointsToTest(0),
+   fTestStatSampler(nullptr),
+   fPointsToTest(nullptr),
    fLeftSideFraction(0),
-   fConfBelt(0),  // constructed with tree data
+   fConfBelt(nullptr),  // constructed with tree data
    fAdaptiveSampling(false),
    fAdditionalNToysFactor(1.),
    fSaveBeltToFile(false),
@@ -110,10 +109,10 @@ NeymanConstruction::~NeymanConstruction() {
 
 PointSetInterval* NeymanConstruction::GetInterval() const {
 
-  TFile* f=0;
+  TFile* f=nullptr;
   if(fSaveBeltToFile){
     //coverity[FORWARD_NULL]
-    oocoutI(f,Contents) << "NeymanConstruction saving ConfidenceBelt to file SamplingDistributions.root" << endl;
+    oocoutI(f,Contents) << "NeymanConstruction saving ConfidenceBelt to file SamplingDistributions.root" << std::endl;
     f = new TFile("SamplingDistributions.root","recreate");
   }
 
@@ -131,7 +130,7 @@ PointSetInterval* NeymanConstruction::GetInterval() const {
   // loop over points to test
   for(Int_t i=0; i<fPointsToTest->numEntries(); ++i){
      // get a parameter point from the list of points to test.
-    point = (RooArgSet*) fPointsToTest->get(i);//->clone("temp");
+    point = const_cast<RooArgSet*>(fPointsToTest->get(i));//->clone("temp");
 
     // set parameters of interest to current point
     fPOI->assign(*point);
@@ -140,22 +139,26 @@ PointSetInterval* NeymanConstruction::GetInterval() const {
     fTestStatSampler->SetParametersForTestStat(*fPOI);
 
      // get the value of the test statistic for this data set
-    Double_t thisTestStatistic = fTestStatSampler->EvaluateTestStatistic(fData, *fPOI );
+    double thisTestStatistic = fTestStatSampler->EvaluateTestStatistic(fData, *fPOI );
     /*
-    cout << "NC CHECK: " << i << endl;
+    std::cout << "NC CHECK: " << i << std::endl;
     point->Print();
     fPOI->Print("v");
     fData.Print();
-    cout <<"thisTestStatistic = " << thisTestStatistic << endl;
+    std::cout <<"thisTestStatistic = " << thisTestStatistic << std::endl;
     */
 
     // find the lower & upper thresholds on the test statistic that
     // define the acceptance region in the data
 
-    SamplingDistribution* samplingDist=0;
-    Double_t sigma;
-    Double_t upperEdgeOfAcceptance, upperEdgeMinusSigma, upperEdgePlusSigma;
-    Double_t lowerEdgeOfAcceptance, lowerEdgeMinusSigma, lowerEdgePlusSigma;
+    SamplingDistribution* samplingDist=nullptr;
+    double sigma;
+    double upperEdgeOfAcceptance;
+    double upperEdgeMinusSigma;
+    double upperEdgePlusSigma;
+    double lowerEdgeOfAcceptance;
+    double lowerEdgeMinusSigma;
+    double lowerEdgePlusSigma;
     Int_t additionalMC=0;
 
     // the adaptive sampling algorithm wants at least one toy event to be outside
@@ -168,12 +171,12 @@ PointSetInterval* NeymanConstruction::GetInterval() const {
     // thus, a good guess for the first iteration of events is N=3.73/alpha~4/alpha
     // should replace alpha here by smaller tail probability: eg. alpha*Min(leftsideFrac, 1.-leftsideFrac)
     // totalMC will be incremented by 2 before first call, so initiated it at half the value
-    Int_t totalMC = (Int_t) (2./fSize/TMath::Min(fLeftSideFraction,1.-fLeftSideFraction));
+    Int_t totalMC = (Int_t) (2./fSize/std::min(fLeftSideFraction,1.-fLeftSideFraction));
     if(fLeftSideFraction==0. || fLeftSideFraction ==1.){
       totalMC = (Int_t) (2./fSize);
     }
     // use control
-    Double_t tmc = Double_t(totalMC)*fAdditionalNToysFactor;
+    double tmc = double(totalMC)*fAdditionalNToysFactor;
     totalMC = (Int_t) tmc;
 
     ToyMCSampler* toyMCSampler = dynamic_cast<ToyMCSampler*>(fTestStatSampler);
@@ -190,13 +193,13 @@ PointSetInterval* NeymanConstruction::GetInterval() const {
                      samplingDist,
                      additionalMC);
         if (!samplingDist) {
-           oocoutE((TObject*)0,Eval) << "Neyman Construction: error generating sampling distribution" << endl;
-           return 0;
+           oocoutE(nullptr,Eval) << "Neyman Construction: error generating sampling distribution" << std::endl;
+           return nullptr;
         }
    totalMC=samplingDist->GetSize();
 
    //cout << "without sigma upper = " <<
-   //samplingDist->InverseCDF( 1. - ((1.-fLeftSideFraction) * fSize) ) << endl;
+   //samplingDist->InverseCDF( 1. - ((1.-fLeftSideFraction) * fSize) ) << std::endl;
 
    sigma = 1;
    upperEdgeOfAcceptance =
@@ -216,13 +219,13 @@ PointSetInterval* NeymanConstruction::GetInterval() const {
 
    ooccoutD(samplingDist,Eval) << "NeymanConstruction: "
         << "total MC = " << totalMC
-        << " this test stat = " << thisTestStatistic << endl
+        << " this test stat = " << thisTestStatistic << std::endl
         << " upper edge -1sigma = " << upperEdgeMinusSigma
         << ", upperEdge = "<<upperEdgeOfAcceptance
-        << ", upper edge +1sigma = " << upperEdgePlusSigma << endl
+        << ", upper edge +1sigma = " << upperEdgePlusSigma << std::endl
         << " lower edge -1sigma = " << lowerEdgeMinusSigma
         << ", lowerEdge = "<<lowerEdgeOfAcceptance
-        << ", lower edge +1sigma = " << lowerEdgePlusSigma << endl;
+        << ", lower edge +1sigma = " << lowerEdgePlusSigma << std::endl;
       } while((
          (thisTestStatistic <= upperEdgeOfAcceptance &&
           thisTestStatistic > upperEdgeMinusSigma)
@@ -239,8 +242,8 @@ PointSetInterval* NeymanConstruction::GetInterval() const {
       // generating the sampling dist of the test statistic.
       samplingDist = fTestStatSampler->GetSamplingDistribution(*point);
       if (!samplingDist) {
-         oocoutE((TObject*)0,Eval) << "Neyman Construction: error generating sampling distribution" << endl;
-         return 0;
+         oocoutE(nullptr,Eval) << "Neyman Construction: error generating sampling distribution" << std::endl;
+         return nullptr;
       }
 
       lowerEdgeOfAcceptance =
@@ -251,26 +254,24 @@ PointSetInterval* NeymanConstruction::GetInterval() const {
 
     // add acceptance region to ConfidenceBelt
     if(fConfBelt && fCreateBelt){
-      //      cout << "conf belt set " << fConfBelt << endl;
+      //      std::cout << "conf belt set " << fConfBelt << std::endl;
       fConfBelt->AddAcceptanceRegion(*point, i,
                  lowerEdgeOfAcceptance,
                  upperEdgeOfAcceptance);
     }
 
     // printout some debug info
-    TIter      itr = point->createIterator();
-    RooRealVar* myarg;
     ooccoutP(samplingDist,Eval) << "NeymanConstruction: Prog: "<< i+1<<"/"<<fPointsToTest->numEntries()
             << " total MC = " << samplingDist->GetSize()
-            << " this test stat = " << thisTestStatistic << endl;
+            << " this test stat = " << thisTestStatistic << std::endl;
     ooccoutP(samplingDist,Eval) << " ";
-    while ((myarg = (RooRealVar *)itr.Next())) {
+    for (auto const *myarg : static_range_cast<RooRealVar *> (*point)){
       ooccoutP(samplingDist,Eval) << myarg->GetName() << "=" << myarg->getVal() << " ";
     }
     ooccoutP(samplingDist,Eval) << "[" << lowerEdgeOfAcceptance << ", "
              << upperEdgeOfAcceptance << "] " << " in interval = " <<
       (thisTestStatistic >= lowerEdgeOfAcceptance && thisTestStatistic <= upperEdgeOfAcceptance)
-         << endl << endl;
+         << std::endl << std::endl;
 
     // Check if this data is in the acceptance region
     if(thisTestStatistic >= lowerEdgeOfAcceptance && thisTestStatistic <= upperEdgeOfAcceptance) {
@@ -285,18 +286,17 @@ PointSetInterval* NeymanConstruction::GetInterval() const {
       samplingDist->Write();
       string tmpName = "hist_";
       tmpName+=samplingDist->GetName();
-      TH1F* h = new TH1F(tmpName.c_str(),"",500,0.,5.);
+      TH1F h{tmpName.c_str(),"",500,0.,5.};
       for(int ii=0; ii<samplingDist->GetSize(); ++ii){
-   h->Fill(samplingDist->GetSamplingDistribution().at(ii) );
+        h.Fill(samplingDist->GetSamplingDistribution().at(ii) );
       }
-      h->Write();
-      delete h;
+      h.Write();
     }
 
     delete samplingDist;
     //    delete point; // from dataset
   }
-  oocoutI(pointsInInterval,Eval) << npass << " points in interval" << endl;
+  oocoutI(pointsInInterval,Eval) << npass << " points in interval" << std::endl;
 
   // create an interval based pointsInInterval
   PointSetInterval* interval

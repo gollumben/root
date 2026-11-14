@@ -19,11 +19,6 @@
 //                converted to lower case
 /////////////////////////////////////////////////////////////////////////
 
-#include <cstdlib>
-#include <cstring>
-#include <cctype>
-#include <iostream>
-
 #include "TFile.h"
 #include "TDirectoryFile.h"
 #include "TTree.h"
@@ -35,7 +30,13 @@
 #include "TGraph.h"
 #include "TMath.h"
 #include "strlcpy.h"
-#include "snprintf.h"
+
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <cctype>
+#include <iostream>
+#include <cstdio>
 
 //  Define the names of the Fortran common blocks for the different OSs
 // Note that with gcc3.4 or above the size of PAWC_SIZE must be the same
@@ -131,6 +132,11 @@ void MAIN__() {}
 # define type_of_call
 # define DEFCHAR  const char*
 # define PASSCHAR(string) string
+
+// As recommended in
+// https://gcc.gnu.org/onlinedocs/gfortran/Argument-passing-conventions.html
+using fortran_charlen_t = size_t;
+
 #else
 # define hlimit  HLIMIT
 # define hropen  HROPEN
@@ -169,7 +175,7 @@ void MAIN__() {}
 extern "C" void  type_of_call hlimit(const int&);
 #ifndef WIN32
 extern "C" void  type_of_call hropen(const int&,DEFCHAR,DEFCHAR,DEFCHAR,
-                        const int&,const int&,const int,const int,const int);
+                        const int&,const int&,fortran_charlen_t,fortran_charlen_t,fortran_charlen_t);
 #else
 extern "C" void  type_of_call hropen(const int&,DEFCHAR,DEFCHAR,DEFCHAR,
                         const int&,const int&);
@@ -179,7 +185,7 @@ extern "C" void  type_of_call hrin(const int&,const int&,const int&);
 extern "C" void  type_of_call hnoent(const int&,const int&);
 #ifndef WIN32
 extern "C" void  type_of_call hgive(const int&,DEFCHAR,const int&,const float&,const float&,
-   const int&,const float&,const float&,const int&,const int&,const int);
+   const int&,const float&,const float&,const int&,const int&,fortran_charlen_t);
 #else
 extern "C" void  type_of_call hgive(const int&,DEFCHAR,const int&,const float&,const float&,
    const int&,const float&,const float&,const int&,const int&);
@@ -187,29 +193,37 @@ extern "C" void  type_of_call hgive(const int&,DEFCHAR,const int&,const float&,c
 
 #ifndef WIN32
 extern "C" void  type_of_call hgiven(const int&,DEFCHAR,const int&,DEFCHAR,
-   const float&,const float&,const int,const int);
+   const float&,const float&,fortran_charlen_t,fortran_charlen_t);
 #else
 extern "C" void  type_of_call hgiven(const int&,DEFCHAR,const int&,DEFCHAR,
    const float&,const float&);
 #endif
 
 #ifndef WIN32
-extern "C" void  type_of_call hntvar2(const int&,const int&,DEFCHAR,DEFCHAR,DEFCHAR,int&,int&,int&,int&,int&,const int,const int, const int);
+extern "C" void  type_of_call hntvar2(const int&,const int&,DEFCHAR,DEFCHAR,DEFCHAR,int&,int&,int&,int&,int&,fortran_charlen_t,fortran_charlen_t,fortran_charlen_t);
 #else
 extern "C" void  type_of_call hntvar2(const int&,const int&,DEFCHAR,DEFCHAR,DEFCHAR,int&,int&,int&,int&,int&);
 #endif
 
 #ifndef WIN32
-extern "C" void  type_of_call hbnam(const int&,DEFCHAR,const int&,DEFCHAR,const int&,const int, const int);
+extern "C" void  type_of_call hbnam(const int&,DEFCHAR,const std::int64_t&,DEFCHAR,const int&,fortran_charlen_t,fortran_charlen_t);
 #else
-extern "C" void  type_of_call hbnam(const int&,DEFCHAR,const int&,DEFCHAR,const int&);
+extern "C" void  type_of_call hbnam(const int&,DEFCHAR,const std::int64_t&,DEFCHAR,const int&);
 #endif
 
 extern "C" void  type_of_call hprntu(const int&);
-extern "C" void  type_of_call hgnpar(const int&,const char *,const int);
+#ifndef WIN32
+extern "C" void  type_of_call hgnpar(const int&,DEFCHAR,fortran_charlen_t);
+#else
+extern "C" void  type_of_call hgnpar(const int&,DEFCHAR);
+#endif
 extern "C" void  type_of_call hgnf(const int&,const int&,const float&,const int&);
 extern "C" void  type_of_call hgnt(const int&,const int&,const int&);
-extern "C" void  type_of_call rzink(const int&,const int&,const char *,const int);
+#ifndef WIN32
+extern "C" void  type_of_call rzink(const int&,const int&,DEFCHAR,fortran_charlen_t);
+#else
+extern "C" void  type_of_call rzink(const int&,const int&,DEFCHAR);
+#endif
 extern "C" void  type_of_call hdcofl();
 extern "C" void  type_of_call hmaxim(const int&,const float&);
 extern "C" void  type_of_call hminim(const int&,const float&);
@@ -232,14 +246,14 @@ extern "C" double type_of_call hije(const int&,const int&,const int&);
 #endif
 
 #ifndef WIN32
-extern "C" void  type_of_call hcdir(DEFCHAR,DEFCHAR ,const int,const int);
+extern "C" void  type_of_call hcdir(DEFCHAR,DEFCHAR ,fortran_charlen_t,fortran_charlen_t);
 #else
 extern "C" void  type_of_call hcdir(DEFCHAR,DEFCHAR);
 #endif
 
 extern "C" void  type_of_call zitoh(const int&,const int&,const int&);
 #ifndef WIN32
-extern "C" void  type_of_call uhtoc(const int&,const int&,DEFCHAR,int&,const int);
+extern "C" void  type_of_call uhtoc(const int&,const int&,DEFCHAR,int&,fortran_charlen_t);
 #else
 extern "C" void  type_of_call uhtoc(const int&,const int&,DEFCHAR,int&);
 #endif
@@ -294,7 +308,7 @@ int main(int argc, char **argv)
    if (argc > 2) {
       file_out=argv[2];
    } else {
-      Int_t nchf = strlen(file_in)+strlen(".root")+1;
+      Int_t nchf = strlen(file_in)+std::char_traits<char>::length(".root")+1;
       file_out= new char[nchf];
       strlcpy(file_out,file_in,nchf);
       char *dot = strrchr(file_out,'.');
@@ -312,7 +326,11 @@ int main(int argc, char **argv)
 
    int lun = 10;
 #ifndef WIN32
-   hropen(lun,PASSCHAR("example"),PASSCHAR(file_in),PASSCHAR("px"),record_size,ier,7,strlen(file_in),2);
+   // Reminder: Argument passing convention is that string lengths go as hidden arguments
+   // at the end of the argument list.
+   constexpr auto chdir = "example";
+   constexpr auto opt = "px";
+   hropen(lun, chdir, file_in, opt, record_size, ier, strlen(chdir), strlen(file_in), strlen(opt));
 #else
    hropen(lun,PASSCHAR("example"),PASSCHAR(file_in),PASSCHAR("px"),record_size,ier);
 #endif
@@ -329,6 +347,8 @@ int main(int argc, char **argv)
 
    if (!hfile) {
       printf("Error: can't open output file: %s \n",file_out);
+      if (argc <= 2)
+         delete[] file_out;
       return 1;
    }
 
@@ -339,7 +359,9 @@ int main(int argc, char **argv)
    hfile->ls();
    hfile->Close();
    delete hfile;
-   return(0);
+   if (argc <= 2)
+         delete[] file_out;
+   return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -694,7 +716,7 @@ void convert_cwn(Int_t id)
 #else
    hgiven(id,chtitl,80,nvar,chtag_out,kNchar,rmin[0],rmax[0]);
 #endif
-   Long_t add= (Long_t)&bigbuf[0];
+   std::int64_t add = reinterpret_cast<std::int64_t>(&bigbuf[0]);
 #ifndef WIN32
    hbnam(id,PASSCHAR(" "),add,PASSCHAR("$CLEAR"),0,1,6);
 #else
@@ -804,7 +826,7 @@ void convert_cwn(Int_t id)
          strlcpy(oldblock,block,512);
          oldischar = ischar;
          Int_t lblock   = strlen(block);
-         add= (Long_t)&bigbuf[bufpos];
+         add = reinterpret_cast<std::int64_t>(&bigbuf[bufpos]);
 #ifndef WIN32
          hbnam(id,PASSCHAR(block),add,PASSCHAR("$SET"),ischar,lblock,4);
 #else

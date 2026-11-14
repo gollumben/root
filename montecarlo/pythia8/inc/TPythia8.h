@@ -78,20 +78,20 @@ class TPythia8 : public TGenerator
 private:
    void                    AddParticlesToPdgDataBase();
 protected:
-   static  TPythia8       *fgInstance;             //! singleton instance
-   Pythia8::Pythia        *fPythia;                //! The pythia8 instance
-   Int_t                   fNumberOfParticles;     //! Number of particles
+   static  TPythia8       *fgInstance;             ///<! singleton instance
+   Pythia8::Pythia        *fPythia;                ///<! The pythia8 instance
+   Int_t                   fNumberOfParticles;     ///<! Number of particles
 public:
    TPythia8(bool printBanner = true);
    TPythia8(const char *xmlDir, bool printBanner = true);
-   virtual ~TPythia8();
+   ~TPythia8() override;
    static TPythia8        *Instance();
    Pythia8::Pythia        *Pythia8() {return fPythia;}
 
    // Interface
-   virtual void            GenerateEvent();
-   virtual Int_t           ImportParticles(TClonesArray *particles, Option_t *option="");
-   virtual TObjArray      *ImportParticles(Option_t *option="");
+   void            GenerateEvent() override;
+   Int_t           ImportParticles(TClonesArray *particles, Option_t *option="") override;
+   TObjArray      *ImportParticles(Option_t *option="") override;
 
    // Others
    void                    ReadString(const char* string) const;
@@ -107,7 +107,7 @@ public:
    void                    EventListing() const;
    Int_t                   GetN() const;
 
-   ClassDef(TPythia8, 1)   // Interface class of Pythia8
+   ClassDefOverride(TPythia8, 1)   // Interface class of Pythia8
 };
 
 #endif

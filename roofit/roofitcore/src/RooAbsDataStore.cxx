@@ -19,8 +19,7 @@
 \class RooAbsDataStore
 \ingroup Roofitcore
 
-RooAbsDataStore is the abstract base class for data collection that
-use a TTree as internal storage mechanism
+Abstract base class for a data collection.
 **/
 
 #include "RooAbsDataStore.h"
@@ -30,7 +29,7 @@ use a TTree as internal storage mechanism
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Print class name of dataset
-void RooAbsDataStore::printClassName(std::ostream& os) const { os << IsA()->GetName() ; }
+void RooAbsDataStore::printClassName(std::ostream& os) const { os << ClassName() ; }
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -40,7 +39,7 @@ void RooAbsDataStore::printArgs(std::ostream& os) const  { _vars.printValue(os);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Detailed printing interface
-void RooAbsDataStore::printMultiline(std::ostream& os, Int_t /*content*/, Bool_t verbose, TString indent) const
+void RooAbsDataStore::printMultiline(std::ostream& os, Int_t /*content*/, bool verbose, TString indent) const
 {
   os << indent << "DataStore " << GetName() << " (" << GetTitle() << ")" << std::endl ;
   os << indent << "  Contains " << numEntries() << " entries" << std::endl;
@@ -50,9 +49,5 @@ void RooAbsDataStore::printMultiline(std::ostream& os, Int_t /*content*/, Bool_t
   } else {
     os << indent << "  Observables: " << std::endl ;
     _vars.printStream(os,kName|kValue|kExtras|kTitle,kVerbose,indent+"  ") ;
-  }
-
-  if(verbose && !_cachedVars.empty()) {
-    os << indent << "  Caches " << _cachedVars << std::endl ;
   }
 }

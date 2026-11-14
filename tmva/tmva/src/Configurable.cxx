@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : Configurable                                                          *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation (see header for description)                               *
@@ -21,7 +21,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  *                                                                                *
  **********************************************************************************/
 
@@ -53,7 +53,6 @@
 // don't change this flag without a good reason ! The FitterBase code won't work anymore !!!
 // #define TMVA_Configurable_SanctionUnknownOption kTRUE
 
-ClassImp(TMVA::Configurable);
 
 #ifdef _WIN32
 /*Disable warning C4355: 'this' : used in base member initializer list*/

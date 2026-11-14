@@ -38,11 +38,6 @@ if(unuran)
   add_definitions(-DHAVE_UNURAN)
 endif()
 
-if(minuit2)
-  list(APPEND TestSource fit/testMinim.cxx)
-  list(APPEND Libraries Minuit2)
-endif()
-
 #some tests requires directly gsl
 include_directories(${GSL_INCLUDE_DIR})
 add_definitions(-DHAVE_ROOTLIBS)
@@ -50,8 +45,9 @@ add_definitions(-DHAVE_ROOTLIBS)
 #---Build and add all the defined test in the list---------------
 foreach(file ${TestMathMoreSource})
   get_filename_component(testname ${file} NAME_WE)
-  ROOT_EXECUTABLE(${testname} ${file} LIBRARIES ${GSL_LIBRARIES} ${Libraries})
+  ROOT_EXECUTABLE(${testname} ${file} LIBRARIES GSL::gsl GSL::gslcblas ${Libraries})
   ROOT_ADD_TEST(mathmore-${testname} COMMAND ${testname} LABELS ${${testname}_LABELS})
 endforeach()
 
 ROOT_ADD_GTEST(stressMathMoreUnit testStress.cxx StatFunction.cxx LIBRARIES Core MathCore MathMore)
+ROOT_ADD_GTEST(testPolynomialRoots testPolynomialRoots.cxx LIBRARIES Core MathCore MathMore)

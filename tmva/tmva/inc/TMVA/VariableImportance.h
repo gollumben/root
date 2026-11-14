@@ -41,7 +41,6 @@ namespace TMVA {
        TCanvas* Draw(const TString name="VariableImportance") const;
    };
 
-
    class VariableImportance : public Envelope {
    private:
        UInt_t                    fNumFolds = 0;
@@ -51,7 +50,7 @@ namespace TMVA {
        explicit VariableImportance(DataLoader *loader);
        ~VariableImportance();
 
-       virtual void Evaluate();
+       void Evaluate() override;
 
        void SetType(VIType type){fType=type;}
        VIType GetType(){return fType;}
@@ -73,7 +72,7 @@ namespace TMVA {
 
    private:
        std::unique_ptr<Factory>     fClassifier;
-       ClassDef(VariableImportance,0);
+       ClassDefOverride(VariableImportance,0);
    };
 }
 

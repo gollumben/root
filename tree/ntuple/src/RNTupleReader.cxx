@@ -1,0 +1,363 @@
+/// \file RNTupleReader.cxx
+/// \author Jakob Blomer <jblomer@cern.ch>
+/// \date 2024-02-20
+
+/*************************************************************************
+ * Copyright (C) 1995-2024, Rene Brun and Fons Rademakers.               *
+ * All rights reserved.                                                  *
+ *                                                                       *
+ * For the licensing terms see $ROOTSYS/LICENSE.                         *
+ * For the list of contributors see $ROOTSYS/README/CREDITS.             *
+ *************************************************************************/
+
+#include <ROOT/RNTupleReader.hxx>
+
+#include <ROOT/RField.hxx>
+#include <ROOT/RFieldVisitor.hxx>
+#include <ROOT/RNTupleAttrReading.hxx>
+#include <ROOT/RNTupleImtTaskScheduler.hxx>
+#include <ROOT/RNTuple.hxx>
+#include <ROOT/RNTupleModel.hxx>
+#include <ROOT/RPageStorageFile.hxx>
+
+#include <TROOT.h>
+
+#include <cassert>
+
+void ROOT::RNTupleReader::RActiveEntryToken::ActivateEntry(NTupleSize_t entryNumber)
+{
+   DescriptorId_t clusterId = ROOT::kInvalidDescriptorId;
+   auto descGuard = fPtrControlBlock->fPageSource->FindClusterId(entryNumber, clusterId);
+   if (clusterId == kInvalidDescriptorId)
+      throw RException(R__FAIL(std::string("entry number ") + std::to_string(entryNumber) + " out of range"));
+
+   auto [itr, _] = fPtrControlBlock->fActiveClusters.try_emplace(clusterId, 0);
+   if (itr->second++ == 0)
+      fPtrControlBlock->fPageSource->PinCluster(clusterId);
+}
+
+void ROOT::RNTupleReader::RActiveEntryToken::DeactivateEntry(NTupleSize_t entryNumber)
+{
+   DescriptorId_t clusterId = ROOT::kInvalidDescriptorId;
+   auto descGuard = fPtrControlBlock->fPageSource->FindClusterId(entryNumber, clusterId);
+   // We acquired the given entry number so we must be able to find it back
+   R__ASSERT(clusterId != kInvalidDescriptorId);
+
+   auto itr = fPtrControlBlock->fActiveClusters.find(clusterId);
+   assert(itr != fPtrControlBlock->fActiveClusters.end());
+
+   if (--(itr->second) == 0) {
+      fPtrControlBlock->fActiveClusters.erase(itr);
+      fPtrControlBlock->fPageSource->UnpinCluster(clusterId);
+   }
+}
+
+void ROOT::RNTupleReader::RActiveEntryToken::SetEntryNumber(NTupleSize_t entryNumber)
+{
+   if (entryNumber == fEntryNumber || entryNumber == kInvalidNTupleIndex)
+      return;
+
+   const std::lock_guard<std::mutex> _(fPtrControlBlock->fLock);
+   if (fPtrControlBlock->fPageSource) {
+      ActivateEntry(entryNumber);
+      if (fEntryNumber != kInvalidNTupleIndex)
+         DeactivateEntry(fEntryNumber);
+   }
+   fEntryNumber = entryNumber;
+}
+
+void ROOT::RNTupleReader::RActiveEntryToken::Reset()
+{
+   if (fEntryNumber == kInvalidNTupleIndex)
+      return;
+
+   const std::lock_guard<std::mutex> _(fPtrControlBlock->fLock);
+   if (fPtrControlBlock->fPageSource) {
+      DeactivateEntry(fEntryNumber);
+   }
+   fEntryNumber = kInvalidNTupleIndex;
+}
+
+ROOT::RNTupleReader::RActiveEntryToken::RActiveEntryToken(const RActiveEntryToken &other)
+{
+   fPtrControlBlock = other.fPtrControlBlock;
+   SetEntryNumber(other.fEntryNumber);
+}
+
+ROOT::RNTupleReader::RActiveEntryToken::RActiveEntryToken(RActiveEntryToken &&other) noexcept
+{
+   std::swap(fEntryNumber, other.fEntryNumber);
+   std::swap(fPtrControlBlock, other.fPtrControlBlock);
+   assert(other.fEntryNumber == kInvalidNTupleIndex);
+   assert(!other.fPtrControlBlock);
+}
+
+ROOT::RNTupleReader::RActiveEntryToken &
+ROOT::RNTupleReader::RActiveEntryToken::operator=(const RActiveEntryToken &other)
+{
+   if (this == &other)
+      return *this;
+   if (other.fPtrControlBlock.get() != fPtrControlBlock.get()) {
+      Reset();
+      fPtrControlBlock = other.fPtrControlBlock;
+   }
+   SetEntryNumber(other.fEntryNumber);
+   return *this;
+}
+
+ROOT::RNTupleReader::RActiveEntryToken &
+ROOT::RNTupleReader::RActiveEntryToken::operator=(RActiveEntryToken &&other) noexcept
+{
+   std::swap(fEntryNumber, other.fEntryNumber);
+   std::swap(fPtrControlBlock, other.fPtrControlBlock);
+   return *this;
+}
+
+void ROOT::RNTupleReader::ConnectModel(ROOT::RNTupleModel &model, bool allowFieldSubstitutions)
+{
+   auto &fieldZero = ROOT::Internal::GetFieldZeroOfModel(model);
+   ROOT::Internal::SetAllowFieldSubstitutions(fieldZero, allowFieldSubstitutions);
+   // We must not use the descriptor guard to prevent recursive locking in field.ConnectPageSource
+   ROOT::DescriptorId_t fieldZeroId = fSource->GetSharedDescriptorGuard()->GetFieldZeroId();
+   fieldZero.SetOnDiskId(fieldZeroId);
+   // Iterate only over fieldZero's direct subfields; their descendants are recursively handled in
+   // RFieldBase::ConnectPageSource
+   for (auto &field : fieldZero.GetMutableSubfields()) {
+      // If the model has been created from the descriptor, the on-disk IDs are already set.
+      // User-provided models instead need to find their corresponding IDs in the descriptor.
+      if (field->GetOnDiskId() == ROOT::kInvalidDescriptorId) {
+         field->SetOnDiskId(fSource->GetSharedDescriptorGuard()->FindFieldId(field->GetFieldName(), fieldZeroId));
+      }
+      ROOT::Internal::CallConnectPageSourceOnField(*field, *fSource);
+   }
+   ROOT::Internal::SetAllowFieldSubstitutions(fieldZero, false);
+}
+
+void ROOT::RNTupleReader::InitPageSource(bool enableMetrics)
+{
+#ifdef R__USE_IMT
+   if (IsImplicitMTEnabled() &&
+       fSource->GetReadOptions().GetUseImplicitMT() == ROOT::RNTupleReadOptions::EImplicitMT::kDefault) {
+      fUnzipTasks = std::make_unique<Experimental::Internal::RNTupleImtTaskScheduler>();
+      fSource->SetTaskScheduler(fUnzipTasks.get());
+   }
+#endif
+   fMetrics.ObserveMetrics(fSource->GetMetrics());
+   if (enableMetrics)
+      EnableMetrics();
+   fSource->Attach();
+   fNEntries = fSource->GetNEntries();
+   fActiveEntriesControlBlock = std::make_shared<RActiveEntriesControlBlock>(fSource.get());
+}
+
+ROOT::RNTupleReader::RNTupleReader(std::unique_ptr<ROOT::RNTupleModel> model,
+                                   std::unique_ptr<ROOT::Internal::RPageSource> source,
+                                   const ROOT::RNTupleReadOptions &options)
+   : fSource(std::move(source)), fModel(std::move(model)), fMetrics("RNTupleReader", fSource->GetNTupleName())
+{
+   // TODO(jblomer): properly support projected fields
+   auto &projectedFields = ROOT::Internal::GetProjectedFieldsOfModel(*fModel);
+   if (!projectedFields.IsEmpty()) {
+      throw RException(R__FAIL("model has projected fields, which is incompatible with providing a read model"));
+   }
+   fModel->Freeze();
+   InitPageSource(options.GetEnableMetrics());
+   ConnectModel(*fModel, false /* allowFieldSubstitutions */);
+}
+
+ROOT::RNTupleReader::RNTupleReader(std::unique_ptr<ROOT::Internal::RPageSource> source,
+                                   const ROOT::RNTupleReadOptions &options)
+   : fSource(std::move(source)), fModel(nullptr), fMetrics("RNTupleReader", fSource->GetNTupleName())
+{
+   InitPageSource(options.GetEnableMetrics());
+}
+
+ROOT::RNTupleReader::~RNTupleReader()
+{
+   const std::lock_guard<std::mutex> _(fActiveEntriesControlBlock->fLock);
+   fActiveEntriesControlBlock->fPageSource = nullptr;
+}
+
+std::unique_ptr<ROOT::RNTupleReader> ROOT::RNTupleReader::Open(std::unique_ptr<ROOT::RNTupleModel> model,
+                                                               std::string_view ntupleName, std::string_view storage,
+                                                               const ROOT::RNTupleReadOptions &options)
+{
+   return std::unique_ptr<RNTupleReader>(
+      new RNTupleReader(std::move(model), Internal::RPageSource::Create(ntupleName, storage, options), options));
+}
+
+std::unique_ptr<ROOT::RNTupleReader> ROOT::RNTupleReader::Open(std::string_view ntupleName, std::string_view storage,
+                                                               const ROOT::RNTupleReadOptions &options)
+{
+   return std::unique_ptr<RNTupleReader>(
+      new RNTupleReader(Internal::RPageSource::Create(ntupleName, storage, options), options));
+}
+
+std::unique_ptr<ROOT::RNTupleReader>
+ROOT::RNTupleReader::Open(const ROOT::RNTuple &ntuple, const ROOT::RNTupleReadOptions &options)
+{
+   return std::unique_ptr<RNTupleReader>(
+      new RNTupleReader(Internal::RPageSourceFile::CreateFromAnchor(ntuple, options), options));
+}
+
+std::unique_ptr<ROOT::RNTupleReader> ROOT::RNTupleReader::Open(std::unique_ptr<ROOT::RNTupleModel> model,
+                                                               const ROOT::RNTuple &ntuple,
+                                                               const ROOT::RNTupleReadOptions &options)
+{
+   return std::unique_ptr<RNTupleReader>(
+      new RNTupleReader(std::move(model), Internal::RPageSourceFile::CreateFromAnchor(ntuple, options), options));
+}
+
+std::unique_ptr<ROOT::RNTupleReader>
+ROOT::RNTupleReader::Open(const ROOT::RNTupleDescriptor::RCreateModelOptions &createModelOpts,
+                          std::string_view ntupleName, std::string_view storage,
+                          const ROOT::RNTupleReadOptions &options)
+{
+   auto reader = std::unique_ptr<RNTupleReader>(
+      new RNTupleReader(Internal::RPageSource::Create(ntupleName, storage, options), options));
+   reader->fCreateModelOptions = createModelOpts;
+   return reader;
+}
+
+std::unique_ptr<ROOT::RNTupleReader>
+ROOT::RNTupleReader::Open(const ROOT::RNTupleDescriptor::RCreateModelOptions &createModelOpts,
+                          const ROOT::RNTuple &ntuple, const ROOT::RNTupleReadOptions &options)
+{
+   auto reader = std::unique_ptr<RNTupleReader>(
+      new RNTupleReader(Internal::RPageSourceFile::CreateFromAnchor(ntuple, options), options));
+   reader->fCreateModelOptions = createModelOpts;
+   return reader;
+}
+
+const ROOT::RNTupleModel &ROOT::RNTupleReader::GetModel()
+{
+   if (!fModel) {
+      fModel = fSource->GetSharedDescriptorGuard()->CreateModel(
+         fCreateModelOptions.value_or(ROOT::RNTupleDescriptor::RCreateModelOptions{}));
+      ConnectModel(*fModel, true /* allowFieldSubstitutions */);
+   }
+   return *fModel;
+}
+
+std::unique_ptr<ROOT::REntry> ROOT::RNTupleReader::CreateEntry()
+{
+   return GetModel().CreateEntry();
+}
+
+void ROOT::RNTupleReader::PrintInfo(const ENTupleInfo what, std::ostream &output) const
+{
+   using namespace ROOT::Internal;
+
+   switch (what) {
+   case ENTupleInfo::kSummary: {
+      std::string name;
+      std::unique_ptr<ROOT::RNTupleModel> fullModel;
+      {
+         auto descriptorGuard = fSource->GetSharedDescriptorGuard();
+         name = descriptorGuard->GetName();
+         ROOT::RNTupleDescriptor::RCreateModelOptions opts;
+         opts.SetCreateBare(true);
+         // When printing the schema we always try to reconstruct the whole thing even when we are missing the
+         // dictionaries.
+         opts.SetEmulateUnknownTypes(true);
+         fullModel = descriptorGuard->CreateModel(opts);
+      }
+
+      // FitString defined in RFieldVisitor.cxx
+      output << "RNTuple : " << name << "\n";
+      output << "Entries : " << GetNEntries() << "\n\n";
+
+      // Traverses through all fields to gather information needed for printing.
+      RPrepareVisitor prepVisitor;
+      // Traverses through all fields to do the actual printing.
+      RPrintSchemaVisitor printVisitor(output);
+
+      // Note that we do not need to connect the model, we are only looking at its tree of fields
+      fullModel->GetConstFieldZero().AcceptVisitor(prepVisitor);
+
+      printVisitor.SetDeepestLevel(prepVisitor.GetDeepestLevel());
+      printVisitor.SetNumFields(prepVisitor.GetNumFields());
+
+      fullModel->GetConstFieldZero().AcceptVisitor(printVisitor);
+      output << std::flush;
+      break;
+   }
+   case ENTupleInfo::kStorageDetails:
+      fSource->LoadAllPageLists();
+      fSource->GetSharedDescriptorGuard()->PrintInfo(output);
+      break;
+   case ENTupleInfo::kMetrics: fMetrics.Print(output); break;
+   default:
+      // Unhandled case, internal error
+      R__ASSERT(false);
+   }
+}
+
+ROOT::RNTupleReader *ROOT::RNTupleReader::GetDisplayReader()
+{
+   if (!fDisplayReader) {
+      ROOT::RNTupleDescriptor::RCreateModelOptions opts;
+      opts.SetEmulateUnknownTypes(true);
+      auto fullModel = fSource->GetSharedDescriptorGuard()->CreateModel(opts);
+      fDisplayReader = std::unique_ptr<RNTupleReader>(
+         new RNTupleReader(std::move(fullModel), fSource->Clone(), ROOT::RNTupleReadOptions{}));
+   }
+   return fDisplayReader.get();
+}
+
+void ROOT::RNTupleReader::Show(ROOT::NTupleSize_t index, std::ostream &output)
+{
+   auto reader = GetDisplayReader();
+   const auto &entry = reader->GetModel().GetDefaultEntry();
+
+   reader->LoadEntry(index);
+   output << "{";
+   for (auto iValue = entry.begin(); iValue != entry.end();) {
+      output << '\n';
+      ROOT::Internal::RPrintValueVisitor visitor(*iValue, output, 1 /* level */);
+      iValue->GetField().AcceptVisitor(visitor);
+
+      if (++iValue == entry.end()) {
+         output << '\n';
+         break;
+      } else {
+         output << ",";
+      }
+   }
+   output << "}\n";
+}
+
+const ROOT::RNTupleDescriptor &ROOT::RNTupleReader::GetDescriptor()
+{
+   auto descriptorGuard = fSource->GetSharedDescriptorGuard();
+   if (!fCachedDescriptor || fCachedDescriptor->GetGeneration() != descriptorGuard->GetGeneration())
+      fCachedDescriptor = descriptorGuard->Clone();
+   return *fCachedDescriptor;
+}
+
+ROOT::DescriptorId_t ROOT::RNTupleReader::RetrieveFieldId(std::string_view fieldName) const
+{
+   auto fieldId = fSource->GetSharedDescriptorGuard()->FindFieldId(fieldName);
+   if (fieldId == ROOT::kInvalidDescriptorId) {
+      throw RException(R__FAIL("no field named '" + std::string(fieldName) + "' in RNTuple '" +
+                               fSource->GetSharedDescriptorGuard()->GetName() + "'"));
+   }
+   return fieldId;
+}
+
+std::unique_ptr<ROOT::RNTupleAttrSetReader>
+ROOT::RNTupleReader::OpenAttributeSet(std::string_view attrSetName, const ROOT::RNTupleReadOptions &readOpts)
+{
+   auto attrSets = GetDescriptor().GetAttrSetIterable();
+   const auto it =
+      std::find_if(attrSets.begin(), attrSets.end(), [&](const auto &d) { return d.GetName() == attrSetName; });
+   if (it == attrSets.end())
+      throw ROOT::RException(R__FAIL(std::string("No such attribute set: ") + std::string(attrSetName)));
+
+   auto attrSource = fSource->OpenWithDifferentAnchor({it->GetAnchorLocator(), it->GetAnchorLength()}, readOpts);
+   auto newReader = std::unique_ptr<RNTupleReader>(new RNTupleReader(std::move(attrSource), readOpts));
+   R__ASSERT(newReader);
+   auto attrSetReader = std::unique_ptr<ROOT::RNTupleAttrSetReader>(
+      new ROOT::RNTupleAttrSetReader(std::move(newReader), it->GetSchemaVersionMajor()));
+   return attrSetReader;
+}

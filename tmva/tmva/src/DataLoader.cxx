@@ -7,7 +7,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : DataLoader                                                            *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                                                                *
  *                                                                                *
  * Description:                                                                   *
  *      This is a class to load datasets into every booked method                 *
@@ -23,7 +23,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                                         *
  **********************************************************************************/
 
 
@@ -56,7 +56,6 @@
 #include "TMVA/VariableNormalizeTransform.h"
 #include "TMVA/VarTransformHandler.h"
 
-ClassImp(TMVA::DataLoader);
 
 ////////////////////////////////////////////////////////////////////////////////
 /*** Create a data loader
@@ -71,7 +70,7 @@ ClassImp(TMVA::DataLoader);
                        For example, by setting
 ~~~~~~~~~~~~~~~{.cpp}
    TMVA::gConfig()::GetIONames().fWeightFileDirPrefix = "/tmp";
-   TMVA::gConfig()::GetIONames().fWeightFileDir = "myTrainigResults";
+   TMVA::gConfig()::GetIONames().fWeightFileDir = "myTrainingResults";
 ~~~~~~~~~~~~~~~
                        The training results will be stored in the `/tmp/thedlName/myTrainingResults`
                        directory.
@@ -195,7 +194,7 @@ TMVA::DataLoader* TMVA::DataLoader::VarTransform(TString trafoDefinition)
 TTree* TMVA::DataLoader::CreateEventAssignTrees( const TString& name )
 {
    TTree * assignTree = new TTree( name, name );
-   assignTree->SetDirectory(0);
+   assignTree->SetDirectory(nullptr);
    assignTree->Branch( "type",   &fATreeType,   "ATreeType/I" );
    assignTree->Branch( "weight", &fATreeWeight, "ATreeWeight/F" );
 
@@ -292,12 +291,20 @@ void TMVA::DataLoader::AddEvent( const TString& className, Types::ETreeType tt,
    }
 
    if (fTrainAssignTree[clIndex]==0) { // does not exist yet
-      fTrainAssignTree[clIndex] = CreateEventAssignTrees( Form("TrainAssignTree_%s", className.Data()) );
-      fTestAssignTree[clIndex]  = CreateEventAssignTrees( Form("TestAssignTree_%s",  className.Data()) );
+      fTrainAssignTree[clIndex] = CreateEventAssignTrees( TString::Format("TrainAssignTree_%s", className.Data()).Data() );
+      fTestAssignTree[clIndex]  = CreateEventAssignTrees( TString::Format("TestAssignTree_%s",  className.Data()).Data() );
    }
 
    fATreeType   = clIndex;
    fATreeWeight = weight;
+   if (event.size() > fATreeEvent.size()) {
+      Error("AddEvent",
+       "Number of variables defined through DataLoader::AddVariable (%zu) is inconsistent"
+       " with number of variables given to DataLoader::Add*Event (%zu)."
+       " Please check your variable definitions and statement ordering."
+       " This event will not be added.", fATreeEvent.size(), event.size());
+      return;
+   }
    for (UInt_t ivar=0; ivar<event.size(); ivar++) fATreeEvent[ivar] = event[ivar];
 
    if(tt==Types::kTraining) fTrainAssignTree[clIndex]->Fill();
@@ -607,8 +614,8 @@ void TMVA::DataLoader::PrepareTrainingAndTestTree( const TCut& cut,
 
    AddCut( cut  );
 
-   DefaultDataSetInfo().SetSplitOptions( Form("nTrain_Signal=%i:nTrain_Background=%i:nTest_Signal=%i:nTest_Background=%i:%s",
-                                              NsigTrain, NbkgTrain, NsigTest, NbkgTest, otherOpt.Data()) );
+   DefaultDataSetInfo().SetSplitOptions( TString::Format("nTrain_Signal=%i:nTrain_Background=%i:nTest_Signal=%i:nTest_Background=%i:%s",
+                                              NsigTrain, NbkgTrain, NsigTest, NbkgTest, otherOpt.Data()).Data() );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -621,8 +628,8 @@ void TMVA::DataLoader::PrepareTrainingAndTestTree( const TCut& cut, Int_t Ntrain
 
    AddCut( cut  );
 
-   DefaultDataSetInfo().SetSplitOptions( Form("nTrain_Signal=%i:nTrain_Background=%i:nTest_Signal=%i:nTest_Background=%i:SplitMode=Random:EqualTrainSample:!V",
-                                              Ntrain, Ntrain, Ntest, Ntest) );
+   DefaultDataSetInfo().SetSplitOptions( TString::Format("nTrain_Signal=%i:nTrain_Background=%i:nTest_Signal=%i:nTest_Background=%i:SplitMode=Random:EqualTrainSample:!V",
+                                              Ntrain, Ntrain, Ntest, Ntest).Data() );
 }
 
 ////////////////////////////////////////////////////////////////////////////////

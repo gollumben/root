@@ -1,9 +1,11 @@
-#include "ROOTUnitTestSupport.h"
+#include "ROOT/TestSupport.hxx"
 
 #include "TClass.h"
 #include "TInterpreter.h"
 #include "TROOT.h"
 #include "TSystem.h"
+
+#include "gmock/gmock.h"
 
 #include <sstream>
 #include <string>
@@ -86,6 +88,24 @@ TEST_F(TClingTests, GetEnumWithSameVariableName)
    EXPECT_TRUE(en != nullptr);
 }
 
+TEST_F(TClingTests, SuccessfulAutoInjection)
+{
+   gInterpreter->ProcessLine("int SuccessfulAutoInjectionTest(int j) { return 0; }");
+   gInterpreter->ProcessLine("success = SuccessfulAutoInjectionTest(3)");
+
+   auto success = gInterpreter->GetDataMember(nullptr, "success");
+   EXPECT_TRUE(success != nullptr);
+}
+
+TEST_F(TClingTests, FailedAutoInjection)
+{
+   gInterpreter->ProcessLine("int FailedAutoInjectionTest(int j) { return 0; }");
+   gInterpreter->ProcessLine("failed = FailedAutoInjectionTest(3, 6)");
+
+   auto failed = gInterpreter->GetDataMember(nullptr, "failed");
+   EXPECT_TRUE(failed == nullptr);
+}
+
 // Check if we can get the source code of function definitions.
 TEST_F(TClingTests, MakeInterpreterValue)
 {
@@ -112,7 +132,7 @@ TEST_F(TClingTests, GetClassSharedLibs)
 {
    // Shortens the invocation.
    auto GetLibs = [](const char *cls) -> std::string {
-      if (const char *val = gInterpreter->GetClassSharedLibs(cls))
+      if (const char *val = gInterpreter->GetClassSharedLibs(cls,false))
          return val;
       return "";
    };
@@ -219,6 +239,19 @@ TEST_F(TClingTests, GetSharedLibDeps)
 }
 #endif
 
+// Check that a warning message is generated when using auto-injection.
+TEST_F(TClingTests, WarningAutoInjection)
+{
+   ROOT::TestSupport::CheckDiagsRAII diags;
+   diags.requiredDiag(kWarning, "cling", "declaration without the 'auto' keyword is deprecated",
+                      /*matchFullMessage=*/false);
+
+   gInterpreter->ProcessLine("/* no auto */ t = new int;");
+
+   auto t = gInterpreter->GetDataMember(nullptr, "t");
+   EXPECT_TRUE(t != nullptr);
+}
+
 // Check the interface which interacts with the cling::LookupHelper.
 TEST_F(TClingTests, ClingLookupHelper) {
   // Exception spec evaluation.
@@ -240,4 +273,259 @@ TEST_F(TClingTests, ROOT10499) {
    // strangely enough, this works on the command prompt, but not in this test...
    EXPECT_EQ((void*)&errno, (void*)gInterpreter->Calc("&errno"));
 #endif
+}
+
+// ROOT-6913
+TEST_F(TClingTests, ClassInfoProperty)
+{
+   gInterpreter->Declare(R"cpp(
+class ClassHasExplicitCtor{
+   public:
+      ClassHasExplicitCtor(){};
+};
+
+class ClassHasExplicitDtor{
+   public:
+      ~ClassHasExplicitDtor(){};
+};
+
+class ClassHasImplicitCtor {
+   ClassHasExplicitCtor c;
+};
+
+class ClassHasImplicitDtor{
+   ClassHasExplicitDtor c;
+};
+
+class ClassHasDefaultCtor{
+   ClassHasDefaultCtor(){};
+};
+
+class ClassIsAbstract{
+   virtual void PureVirtual() = 0;
+};
+
+class ClassHasVirtual{
+   virtual void Virtual() {};
+};
+
+class ClassHasAssignOpr{
+   ClassHasAssignOpr& operator=(const ClassHasAssignOpr&);
+};
+
+// according to the C++ standard, being a POD implies being an aggregate
+struct ClassIsAggregate {
+    int x;
+    double y;
+};
+
+struct ClassIsTriviallyRelocatable {
+    int x;
+    double y;
+};
+
+// not trivially copyable because of the virtual function, but still trivially
+// relocatable in the C++26 sense
+struct ClassIsTriviallyRelocatablePolymorphic {
+    virtual ~ClassIsTriviallyRelocatablePolymorphic() = default;
+    int x;
+};
+
+// a non-trivial copy constructor is enough to lose trivial relocatability, even
+// though the destructor stays trivial
+struct ClassIsNotTriviallyRelocatable {
+    int x;
+    ClassIsNotTriviallyRelocatable(const ClassIsNotTriviallyRelocatable &other) : x(other.x) {}
+};
+                          )cpp");
+
+   // clang-format off
+   const std::vector<std::pair<std::string, Long_t>> classNPPairs{
+      {"ClassHasImplicitCtor", kClassHasImplicitCtor},           {"ClassHasExplicitCtor", kClassHasExplicitCtor},
+      {"ClassHasExplicitDtor", kClassHasExplicitDtor},           {"ClassHasImplicitDtor", kClassHasImplicitDtor},
+      {"ClassHasDefaultCtor", kClassHasDefaultCtor},             {"ClassHasDefaultCtor", kClassIsValid},
+      {"ClassIsAbstract", kClassIsAbstract},                     {"ClassHasVirtual", kClassHasVirtual},
+      {"ClassHasAssignOpr", kClassHasAssignOpr},                 {"ClassIsAggregate", kClassIsAggregate},
+      {"ClassIsTriviallyRelocatable", kClassIsTriviallyRelocatable},
+      {"ClassIsTriviallyRelocatablePolymorphic", kClassIsTriviallyRelocatable}};
+   // clang-format on
+
+   for (auto &[clName, clPropRef] : classNPPairs) {
+      auto cl = TClass::GetClass(clName.c_str());
+      const auto prop = gInterpreter->ClassInfo_ClassProperty(cl->GetClassInfo());
+      EXPECT_TRUE(prop & clPropRef) << "Error checking property for class " << clName;
+   }
+
+   // A trivial destructor is not enough: the copy constructor matters too.
+   auto notTrivial = TClass::GetClass("ClassIsNotTriviallyRelocatable");
+   const auto notTrivialProp = gInterpreter->ClassInfo_ClassProperty(notTrivial->GetClassInfo());
+   EXPECT_FALSE(notTrivialProp & kClassIsTriviallyRelocatable);
+   EXPECT_FALSE(notTrivialProp & kClassHasDtor);
+}
+
+// #12108
+TEST_F(TClingTests, constexprFunctionReturn)
+{
+   gInterpreter->Declare(R"cpp(
+namespace issue_12108{
+
+template <typename T> struct ValueAndPushforward {
+  T value;
+};
+
+constexpr ValueAndPushforward<double> Ln10_pushforward() {
+    return {2.3025850929940459};
+}
+
+ValueAndPushforward<double> Ln10_pushforwardNoconstexpr() {
+    return {2.3025850929940459};
+}
+
+auto val1 = Ln10_pushforwardNoconstexpr();
+auto val2 = Ln10_pushforward();
+
+}
+   )cpp");
+
+   auto val1 = *(double *)(uintptr_t)gInterpreter->ProcessLine("&issue_12108::val1.value;");
+   auto val2 = *(double *)(uintptr_t)gInterpreter->ProcessLine("&issue_12108::val2.value;");
+
+   EXPECT_DOUBLE_EQ(2.3025850929940459, val1);
+   EXPECT_DOUBLE_EQ(2.3025850929940459, val2);
+}
+
+// #15511
+TEST_F(TClingTests, ManyConstConstructors)
+{
+   std::vector<int> constructors;
+   std::ostringstream declareConstructors;
+   declareConstructors << "namespace issue_15511 { auto constructors = "
+                       << "reinterpret_cast<std::vector<int> *>(" << reinterpret_cast<uintptr_t>(&constructors)
+                       << "); }";
+   gInterpreter->Declare(declareConstructors.str().c_str());
+
+   gInterpreter->Declare(R"cpp(
+namespace issue_15511 {
+struct Constructor {
+  Constructor(int value) { constructors->push_back(value); }
+};
+
+const Constructor c0(0);
+const Constructor c1(1);
+const Constructor c2(2);
+const Constructor c3(3);
+const Constructor c4(4);
+const Constructor c5(5);
+const Constructor c6(6);
+const Constructor c7(7);
+const Constructor c8(8);
+const Constructor c9(9);
+const Constructor c10(10);
+const Constructor c11(11);
+const Constructor c12(12);
+const Constructor c13(13);
+const Constructor c14(14);
+const Constructor c15(15);
+const Constructor c16(16);
+const Constructor c17(17);
+const Constructor c18(18);
+const Constructor c19(19);
+}
+   )cpp");
+
+   ASSERT_EQ(constructors.size(), 20);
+   for (int i = 0; i < 20; i++) {
+      EXPECT_EQ(constructors[i], i);
+   }
+}
+
+// #8828
+TEST_F(TClingTests, RefreshNSShadowing)
+{
+   // These two lines would make the test fail because of two reasons:
+   // - An assertion failure "Assertion failed: (detail::isPresent(Val) && "dyn_cast on a non-existent value"), function dyn_cast, file Casting.h, line 662."
+   // - An error "Error in <TInterpreter::RefreshClassInfo>: Should not need to update the classInfo a non type decl: Detail"
+   // This is why there is no check performed.
+   ROOT::TestSupport::CheckDiagsRAII diags;
+   diags.requiredDiag(kError, "TInterpreter::RefreshClassInfo", "Should not need to update the classInfo a non type decl: Detail");
+   gInterpreter->Declare("namespace std { namespace Detail {} }; auto c = TClass::GetClass(\"Detail\");");
+   gInterpreter->ProcessLine("namespace Detail {}");
+}
+
+// #8367
+TEST_F(TClingTests, UndeclaredIdentifierCrash)
+{
+   auto expectedError = R"(error: use of undeclared identifier 'i'
+ for(i=0; i < 0;); // the second usage of `i` was enough to get a segfault
+          ^
+)";
+   using namespace ROOT::TestSupport;
+   CheckDiagsRAII diagRAII;
+   diagRAII.requiredDiag(kError, "cling", expectedError, false);
+   gInterpreter->ProcessLine("for(i=0; i < 0;); // the second usage of `i` was enough to get a segfault");
+}
+
+// https://github.com/root-project/root/issues/16601
+// Declaring a global whose static initializer needs symbols from a library that
+// is not loaded yet (here libMatrix, via TVectorT) must still autoload that
+// library: TInterpreter::Declare suspends *class* autoloading while parsing, but
+// this must not prevent the JIT from materializing symbols that the emitted
+// static-initializer code genuinely requires to run.
+TEST_F(TClingTests, DeclareAutoloadsSymbolsForStaticInit)
+{
+   ASSERT_FALSE(gInterpreter->IsLoaded("libMatrix"));
+   EXPECT_TRUE(gInterpreter->Declare("#include <TVectorT.h>\n"
+                                     "const auto gROOT16601vec = TVectorT<float>(3);"));
+   // The variable must exist and be usable, i.e. its constructor ran.
+   EXPECT_EQ(3L, gInterpreter->ProcessLine("gROOT16601vec.GetNrows();"));
+}
+
+// A failed static initializer rolls the transaction back: Declare reports it and later initializers still run.
+TEST_F(TClingTests, DeclareReportsFailedStaticInit)
+{
+   EXPECT_FALSE(gInterpreter->Declare("extern \"C\" int TClingTests_unresolved();"
+                                      "int TClingTests_v = TClingTests_unresolved();"));
+   EXPECT_EQ(nullptr, gInterpreter->GetDataMember(nullptr, "TClingTests_v"));
+   EXPECT_TRUE(gInterpreter->Declare("int TClingTests_src() { return 7; }"
+                                     "int TClingTests_w = TClingTests_src();"));
+   EXPECT_EQ(7L, gInterpreter->ProcessLine("TClingTests_w;"));
+   EXPECT_TRUE(gInterpreter->Declare("int TClingTests_v = 2;"));
+   EXPECT_EQ(2L, gInterpreter->ProcessLine("TClingTests_v;"));
+}
+
+// https://github.com/root-project/root/issues/15818
+#if !defined(_MSC_VER) || defined(R__ENABLE_BROKEN_WIN_TESTS)
+TEST_F(TClingTests, VeryLongExpression)
+{
+   std::string expression = R"(
+namespace R_rdf {
+auto func0(const int var0){return var0 )";
+   for (unsigned short  i = 0; i < 4096; ++i)
+      expression += "+ var0 ";
+   expression += R"( > 0
+;}
+using func0_ret_t = typename ROOT::TypeTraits::CallableTraits<decltype(func0)>::ret_type;
+})";
+   auto res = gInterpreter->Declare(expression.c_str());
+   EXPECT_TRUE(res);
+}
+#endif
+
+// ROOT-10311
+TEST_F(TClingTests, TClassByCtorName)
+{
+   auto res = gInterpreter->Declare("namespace TClassByCtorName{class Foo;};");
+   EXPECT_TRUE(res);
+   {
+      ROOT::TestSupport::CheckDiagsRAII checkDiag;
+      checkDiag.requiredDiag(kWarning, "TClass::Init", "no dictionary for class TClassByCtorName::Foo is available", false);
+      EXPECT_TRUE(nullptr != TClass::GetClass("TClassByCtorName::Foo"));
+   }
+   const auto *wrongName = "TTree::TTree";
+   EXPECT_TRUE(nullptr == TClass::GetClass(wrongName));
+   EXPECT_TRUE(nullptr != TClass::GetClass("TTree"));
+
+   std::string classInterpreterName;
+   gInterpreter->GetInterpreterTypeName(wrongName, classInterpreterName);
+   EXPECT_STREQ(classInterpreterName.c_str(), "");
 }

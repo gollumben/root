@@ -39,7 +39,6 @@ Examples of use:
 
 #include "TCut.h"
 
-ClassImp(TCut);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -79,7 +78,7 @@ TCut::~TCut()
 ////////////////////////////////////////////////////////////////////////////////
 /// Comparison.
 
-Bool_t TCut::operator==(const char *rhs) const
+bool TCut::operator==(const char *rhs) const
 {
    return fTitle == rhs;
 }
@@ -87,7 +86,7 @@ Bool_t TCut::operator==(const char *rhs) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Comparison.
 
-Bool_t TCut::operator==(const TCut &rhs) const
+bool TCut::operator==(const TCut &rhs) const
 {
    return fTitle == rhs.fTitle;
 }
@@ -95,7 +94,7 @@ Bool_t TCut::operator==(const TCut &rhs) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Comparison.
 
-Bool_t TCut::operator!=(const char *rhs) const
+bool TCut::operator!=(const char *rhs) const
 {
    return fTitle != rhs;
 }
@@ -103,7 +102,7 @@ Bool_t TCut::operator!=(const char *rhs) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Comparison.
 
-Bool_t TCut::operator!=(const TCut &rhs) const
+bool TCut::operator!=(const TCut &rhs) const
 {
    return fTitle != rhs.fTitle;
 }

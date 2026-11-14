@@ -6,7 +6,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : Factory                                                               *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      This is the main MVA steering class: it creates (books) all MVA methods,  *
@@ -34,7 +34,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_Factory
@@ -87,7 +87,7 @@ namespace TMVA {
       // no default  constructor
       Factory( TString theJobName, TFile* theTargetFile, TString theOption = "" );
 
-      // contructor to work without file
+      // constructor to work without file
       Factory( TString theJobName, TString theOption = "" );
 
       // default destructor
@@ -96,14 +96,23 @@ namespace TMVA {
       // use TName::GetName and define correct name in constructor
       //virtual const char*  GetName() const { return "Factory"; }
 
+      // Internal wrapper type that can be constructed either like a TString or
+      // from a Types::EMVA enum value and stores the resolved TString. This
+      // avoids the need for multiple overloads of BookMethod.
+      class MethodName {
+      public:
+         template <typename T, typename = std::enable_if_t<std::is_constructible_v<TString, T &&>>>
+         MethodName(T &&name) : fName(std::forward<T>(name))
+         {
+         }
+         MethodName(Types::EMVA method) : fName(Types::Instance().GetMethodName(method)) {}
+         TString const &tString() const { return fName; }
 
-      MethodBase* BookMethod( DataLoader *loader, TString theMethodName, TString methodTitle, TString theOption = "" );
-      MethodBase* BookMethod( DataLoader *loader, Types::EMVA theMethod,  TString methodTitle, TString theOption = "" );
-      MethodBase* BookMethod( DataLoader *, TMVA::Types::EMVA /*theMethod*/,
-                              TString /*methodTitle*/,
-                              TString /*methodOption*/,
-                              TMVA::Types::EMVA /*theComposite*/,
-                              TString /*compositeOption = ""*/ ) { return 0; }
+      private:
+         TString fName;
+      };
+
+      MethodBase* BookMethod( DataLoader *loader, MethodName theMethodName, TString methodTitle, TString theOption = "" );
 
       // optimize all booked methods (well, if desired by the method)
       std::map<TString,Double_t> OptimizeAllMethods                 (TString fomType="ROCIntegral", TString fitType="FitGA");
@@ -140,7 +149,7 @@ namespace TMVA {
       // classifiers are printed
       virtual void MakeClass(const TString& datasetname , const TString& methodTitle = "" ) const;
 
-      // prints classifier-specific hepl messages, dedicated to
+      // prints classifier-specific help messages, dedicated to
       // help with the optimisation and configuration options tuning.
       // If no classifier name is given, help messages for all booked
       // classifiers are printed
@@ -202,29 +211,29 @@ namespace TMVA {
 
       // data members
 
-      TFile*                             fgTargetFile;     //! ROOT output file
+      TFile*                             fgTargetFile;     ///<! ROOT output file
 
 
-      std::vector<TMVA::VariableTransformBase*> fDefaultTrfs;     //! list of transformations on default DataSet
+      std::vector<TMVA::VariableTransformBase*> fDefaultTrfs;     ///<! list of transformations on default DataSet
 
       // cd to local directory
-      TString                                   fOptions;         //! option string given by construction (presently only "V")
-      TString                                   fTransformations; //! list of transformations to test
-      Bool_t                                    fVerbose;         //! verbose mode
-      TString                                   fVerboseLevel;    //! verbosity level, controls granularity of logging
-      Bool_t                                    fCorrelations;    //! enable to calculate corelations
-      Bool_t                                    fROC;             //! enable to calculate ROC values
-      Bool_t                                    fSilentFile;      //! used in contructor wihtout file
+      TString                                   fOptions;         ///<! option string given by construction (presently only "V")
+      TString                                   fTransformations; ///<! list of transformations to test
+      Bool_t                                    fVerbose;         ///<! verbose mode
+      TString                                   fVerboseLevel;    ///<! verbosity level, controls granularity of logging
+      Bool_t                                    fCorrelations;    ///<! enable to calculate correlations
+      Bool_t                                    fROC;             ///<! enable to calculate ROC values
+      Bool_t                                    fSilentFile;      ///<! used in constructor without file
 
-      TString                                   fJobName;         //! jobname, used as extension in weight file names
+      TString                                   fJobName;         ///<! jobname, used as extension in weight file names
 
-      Types::EAnalysisType                      fAnalysisType;    //! the training type
-      Bool_t                                    fModelPersistence;//! option to save the trained model in xml file or using serialization
+      Types::EAnalysisType                      fAnalysisType;    ///<! the training type
+      Bool_t                                    fModelPersistence;///<! option to save the trained model in xml file or using serialization
 
 
    protected:
 
-      ClassDef(Factory,0);  // The factory creates all MVA methods, and performs their training and testing
+      ClassDefOverride(Factory,0);  // The factory creates all MVA methods, and performs their training and testing
    };
 
 } // namespace TMVA

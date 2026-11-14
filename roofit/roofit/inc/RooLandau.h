@@ -24,26 +24,36 @@ class RooRealVar;
 class RooLandau : public RooAbsPdf {
 public:
   RooLandau() {} ;
-  RooLandau(const char *name, const char *title, RooAbsReal& _x, RooAbsReal& _mean, RooAbsReal& _sigma);
-  RooLandau(const RooLandau& other, const char* name=0);
-  virtual TObject* clone(const char* newname) const { return new RooLandau(*this,newname); }
-  inline virtual ~RooLandau() { }
+  // Original constructor without RooAbsReal::Ref for backwards compatibility.
+  inline RooLandau(const char *name, const char *title, RooAbsReal& _x, RooAbsReal& _mean, RooAbsReal& _sigma)
+      : RooLandau{name, title, RooAbsReal::Ref{_x}, RooAbsReal::Ref{_mean}, RooAbsReal::Ref{_sigma}} {}
+  RooLandau(const char *name, const char *title, RooAbsReal::Ref _x, RooAbsReal::Ref _mean, RooAbsReal::Ref _sigma);
+  RooLandau(const RooLandau& other, const char* name=nullptr);
+  TObject* clone(const char* newname=nullptr) const override { return new RooLandau(*this,newname); }
 
-  Int_t getGenerator(const RooArgSet& directVars, RooArgSet &generateVars, Bool_t staticInitOK=kTRUE) const;
-  void generateEvent(Int_t code);
-  
+  Int_t getGenerator(const RooArgSet& directVars, RooArgSet &generateVars, bool staticInitOK=true) const override;
+  void generateEvent(Int_t code) override;
+
+  Int_t getAnalyticalIntegral(RooArgSet &allVars, RooArgSet &analVars, const char *rangeName = nullptr) const override;
+  double analyticalIntegral(Int_t code, const char *rangeName) const override;
+
+  RooAbsReal const& getX() const { return *x; }
+  RooAbsReal const& getMean() const { return *mean; }
+  RooAbsReal const& getSigma() const { return *sigma; }
+
 protected:
-  
+
   RooRealProxy x ;
   RooRealProxy mean ;
   RooRealProxy sigma ;
-  
-  Double_t evaluate() const ;
-  RooSpan<double> evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const;
-  
+
+  double evaluate() const override ;
+  void doEval(RooFit::EvalContext &) const override;
+  inline bool canComputeBatchWithCuda() const override { return true; }
+
 private:
-  
-  ClassDef(RooLandau,1) // Landau Distribution PDF
+
+  ClassDefOverride(RooLandau,1) // Landau Distribution PDF
 };
 
 #endif

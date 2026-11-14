@@ -18,7 +18,6 @@
 GUI editor for TEveViewerList.
 */
 
-ClassImp(TEveViewerListEditor);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -26,10 +25,10 @@ ClassImp(TEveViewerListEditor);
 TEveViewerListEditor::TEveViewerListEditor(const TGWindow *p, Int_t width, Int_t height,
              UInt_t options, Pixel_t back) :
    TGedFrame(p, width, height, options | kVerticalFrame, back),
-   fM(0),
+   fM(nullptr),
 
-   fBrightness(0),
-   fColorSet(0)
+   fBrightness(nullptr),
+   fColorSet(nullptr)
 {
    MakeTitle("TEveViewerList");
 

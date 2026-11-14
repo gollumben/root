@@ -12,23 +12,22 @@
 #include "TGLSelectRecord.h"
 #include <TObject.h>
 
-#include <string.h>
+#include <cstring>
 
 /** \class TGLSelectRecordBase
-\ingroup opengl TGLSelectRecordBase
+\ingroup opengl
 Base class for select records.
 Supports initialization from a raw GL record (UInt_t*) and
 copies the name-data into internal array.
 */
 
-ClassImp(TGLSelectRecordBase);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.
 
 TGLSelectRecordBase::TGLSelectRecordBase() :
    fN     (0),
-   fItems (0),
+   fItems (nullptr),
    fMinZ  (0),
    fMaxZ  (0),
    fPos   (0)
@@ -40,7 +39,7 @@ TGLSelectRecordBase::TGLSelectRecordBase() :
 
 TGLSelectRecordBase::TGLSelectRecordBase(UInt_t* data) :
    fN     (data[0]),
-   fItems (0),
+   fItems (nullptr),
    fMinZ  ((Float_t)data[1] / (Float_t)0x7fffffff),
    fMaxZ  ((Float_t)data[2] / (Float_t)0x7fffffff),
    fPos   (0)
@@ -53,7 +52,7 @@ TGLSelectRecordBase::TGLSelectRecordBase(UInt_t* data) :
 
 TGLSelectRecordBase::TGLSelectRecordBase(const TGLSelectRecordBase& rec) :
    fN     (rec.fN),
-   fItems (0),
+   fItems (nullptr),
    fMinZ  (rec.fMinZ),
    fMaxZ  (rec.fMaxZ),
    fPos   (rec.fPos)
@@ -95,7 +94,7 @@ void TGLSelectRecordBase::CopyItems(UInt_t* items)
       fItems = new UInt_t[fN];
       memcpy(fItems, items, fN*sizeof(UInt_t));
    } else {
-      fItems = 0;
+      fItems = nullptr;
    }
 }
 
@@ -129,7 +128,7 @@ void TGLSelectRecordBase::Reset()
 {
    delete [] fItems;
    fN     = 0;
-   fItems = 0;
+   fItems = nullptr;
    fMinZ  = 0;
    fMaxZ  = 0;
    fPos   = 0;
@@ -143,7 +142,6 @@ scene and details ob out selected object (TGLPhysicalShape*,
 TObject* or simply a void* for foreign scenes).
 */
 
-ClassImp(TGLSelectRecord);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.
@@ -151,11 +149,11 @@ ClassImp(TGLSelectRecord);
 TGLSelectRecord::TGLSelectRecord() :
    TGLSelectRecordBase(),
    fTransparent (kFALSE),
-   fSceneInfo   (0),
-   fPhysShape   (0),
-   fLogShape    (0),
-   fObject      (0),
-   fSpecific    (0),
+   fSceneInfo   (nullptr),
+   fPhysShape   (nullptr),
+   fLogShape    (nullptr),
+   fObject      (nullptr),
+   fSpecific    (nullptr),
    fMultiple    (kFALSE),
    fHighlight   (kFALSE),
    fSecSelRes   (kNone)
@@ -168,11 +166,11 @@ TGLSelectRecord::TGLSelectRecord() :
 TGLSelectRecord::TGLSelectRecord(UInt_t* data) :
    TGLSelectRecordBase(data),
    fTransparent (kFALSE),
-   fSceneInfo   (0),
-   fPhysShape   (0),
-   fLogShape    (0),
-   fObject      (0),
-   fSpecific    (0),
+   fSceneInfo   (nullptr),
+   fPhysShape   (nullptr),
+   fLogShape    (nullptr),
+   fObject      (nullptr),
+   fSpecific    (nullptr),
    fMultiple    (kFALSE),
    fHighlight   (kFALSE),
    fSecSelRes   (kNone)
@@ -232,11 +230,11 @@ void TGLSelectRecord::Set(UInt_t* data)
 {
    TGLSelectRecordBase::Set(data);
    fTransparent = kFALSE;
-   fSceneInfo   = 0;
-   fPhysShape   = 0;
-   fLogShape    = 0;
-   fObject      = 0;
-   fSpecific    = 0;
+   fSceneInfo   = nullptr;
+   fPhysShape   = nullptr;
+   fLogShape    = nullptr;
+   fObject      = nullptr;
+   fSpecific    = nullptr;
    fMultiple    = kFALSE;
    fHighlight   = kFALSE;
    fSecSelRes   = kNone;
@@ -249,11 +247,11 @@ void TGLSelectRecord::Reset()
 {
    TGLSelectRecordBase::Reset();
    fTransparent = kFALSE;
-   fSceneInfo   = 0;
-   fPhysShape   = 0;
-   fLogShape    = 0;
-   fObject      = 0;
-   fSpecific    = 0;
+   fSceneInfo   = nullptr;
+   fPhysShape   = nullptr;
+   fLogShape    = nullptr;
+   fObject      = nullptr;
+   fSpecific    = nullptr;
    fMultiple    = kFALSE;
    fHighlight   = kFALSE;
    fSecSelRes   = kNone;
@@ -290,14 +288,13 @@ Bool_t TGLSelectRecord::AreSameSelectionWise(const TGLSelectRecord& r1,
 Selection record for overlay objects.
 */
 
-ClassImp(TGLOvlSelectRecord);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.
 
 TGLOvlSelectRecord::TGLOvlSelectRecord() :
    TGLSelectRecordBase(),
-   fOvlElement (0)
+   fOvlElement (nullptr)
 {
 }
 
@@ -306,7 +303,7 @@ TGLOvlSelectRecord::TGLOvlSelectRecord() :
 
 TGLOvlSelectRecord::TGLOvlSelectRecord(UInt_t* data) :
    TGLSelectRecordBase(data),
-   fOvlElement (0)
+   fOvlElement (nullptr)
 {
 }
 
@@ -346,7 +343,7 @@ TGLOvlSelectRecord& TGLOvlSelectRecord::operator=(const TGLOvlSelectRecord& rec)
 void TGLOvlSelectRecord::Set(UInt_t* data)
 {
    TGLSelectRecordBase::Set(data);
-   fOvlElement = 0;
+   fOvlElement = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -355,6 +352,6 @@ void TGLOvlSelectRecord::Set(UInt_t* data)
 void TGLOvlSelectRecord::Reset()
 {
    TGLSelectRecordBase::Reset();
-   fOvlElement = 0;
+   fOvlElement = nullptr;
 }
 

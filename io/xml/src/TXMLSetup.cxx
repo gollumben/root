@@ -40,7 +40,6 @@
 #include <iostream>
 #include <cstdlib>
 
-ClassImp(TXMLSetup);
 
 namespace xmlio {
 
@@ -95,7 +94,8 @@ const char *String = "string";
 const char *CharStar = "CharStar";
 };
 
-TString TXMLSetup::fgNameSpaceBase = "http://root.cern.ch/root/htmldoc/";
+const TString fgROOTDocNameSpaceBase = "https://root.cern.ch/doc/master/";
+TString TXMLSetup::fgNameSpaceBase = fgROOTDocNameSpaceBase;
 
 ////////////////////////////////////////////////////////////////////////////////
 /// return default value for XML setup
@@ -226,9 +226,14 @@ const char *TXMLSetup::XmlClassNameSpaceRef(const TClass *cl)
 {
    TString clname = XmlConvertClassName(cl->GetName());
    fStrBuf = fgNameSpaceBase;
-   fStrBuf += clname;
-   if (fgNameSpaceBase == "http://root.cern.ch/root/htmldoc/")
+   if (fgNameSpaceBase == fgROOTDocNameSpaceBase) {
+      fStrBuf += "class";
+      fStrBuf += clname;
       fStrBuf += ".html";
+   }
+   else {
+      fStrBuf += clname;
+   }
    return fStrBuf.Data();
 }
 
@@ -264,7 +269,7 @@ const char *TXMLSetup::GetElItemName(TStreamerElement *el)
 
 TClass *TXMLSetup::XmlDefineClass(const char *xmlClassName)
 {
-   if (strchr(xmlClassName, '_') == 0)
+   if (!strchr(xmlClassName, '_'))
       return TClass::GetClass(xmlClassName);
 
    TIter iter(gROOT->GetListOfClasses());
@@ -286,6 +291,6 @@ Int_t TXMLSetup::AtoI(const char *sbuf, Int_t def, const char *errinfo)
    if (sbuf)
       return atoi(sbuf);
    if (errinfo)
-      std::cerr << "<Error in TXMLSetup::AtoI>" << errinfo << " not valid integer: sbuf <NULL>" << std::endl;
+      std::cerr << "<Error in TXMLSetup::AtoI>" << errinfo << " not valid integer: sbuf <nullptr>" << std::endl;
    return def;
 }

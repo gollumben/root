@@ -17,76 +17,93 @@
 #define ROO_FORMULA_VAR
 
 #include "RooAbsReal.h"
-#include "RooFormula.h"
 #include "RooArgList.h"
 #include "RooListProxy.h"
-#include "RooTrace.h"
+#include "RooAbsBinning.h"
 
 #include <memory>
 #include <list>
+#include <map>
+#include <string>
 
 class RooArgSet ;
+class RooFormulaEvaluator;
+class RooAbsRealLValue;
 
 class RooFormulaVar : public RooAbsReal {
 public:
   // Constructors, assignment etc
-  RooFormulaVar() { }
+  RooFormulaVar();
+  ~RooFormulaVar() override;
   RooFormulaVar(const char *name, const char *title, const char* formula, const RooArgList& dependents, bool checkVariables = true);
   RooFormulaVar(const char *name, const char *title, const RooArgList& dependents, bool checkVariables = true);
-  RooFormulaVar(const RooFormulaVar& other, const char* name=0);
-  virtual TObject* clone(const char* newname) const { return new RooFormulaVar(*this,newname); }
+  RooFormulaVar(const RooFormulaVar& other, const char* name=nullptr);
+  TObject* clone(const char* newname=nullptr) const override { return new RooFormulaVar(*this,newname); }
 
-  inline Bool_t ok() const { return getFormula().ok() ; }
+  bool ok() const;
+  const char* expression() const { return _formExpr.Data(); }
+  const RooArgList& dependents() const { return _actualVars; }
 
   /// Return pointer to parameter with given name.
-  inline RooAbsArg* getParameter(const char* name) const { 
-    return _actualVars.find(name) ; 
+  inline RooAbsArg* getParameter(const char* name) const {
+    return _actualVars.find(name) ;
   }
   /// Return pointer to parameter at given index.
-  inline RooAbsArg* getParameter(Int_t index) const { 
-    return _actualVars.at(index) ; 
+  inline RooAbsArg* getParameter(Int_t index) const {
+    return _actualVars.at(index) ;
+  }
+  /// Return the number of parameters.
+  inline size_t nParameters() const {
+    return _actualVars.size();
   }
 
   // I/O streaming interface (machine readable)
-  virtual Bool_t readFromStream(std::istream& is, Bool_t compact, Bool_t verbose=kFALSE) ;
-  virtual void writeToStream(std::ostream& os, Bool_t compact) const ;
+  bool readFromStream(std::istream& is, bool compact, bool verbose=false) override ;
+  void writeToStream(std::ostream& os, bool compact) const override ;
 
   // Printing interface (human readable)
-  virtual void printMultiline(std::ostream& os, Int_t contents, Bool_t verbose=kFALSE, TString indent= "") const ;
-  void printMetaArgs(std::ostream& os) const ;
+  void printMultiline(std::ostream& os, Int_t contents, bool verbose=false, TString indent= "") const override ;
+  void printMetaArgs(std::ostream& os) const override ;
 
   // Debugging
   /// Dump the formula to stdout.
-  void dumpFormula() { getFormula().dump() ; }
-  /// Get reference to the internal formula object.
-  const RooFormula& formula() const {
-    return getFormula();
-  }
+  void dumpFormula();
 
-  virtual Double_t defaultErrorLevel() const ;
+  double defaultErrorLevel() const override ;
 
-  virtual std::list<Double_t>* binBoundaries(RooAbsRealLValue& /*obs*/, Double_t /*xlo*/, Double_t /*xhi*/) const ;
-  virtual std::list<Double_t>* plotSamplingHint(RooAbsRealLValue& /*obs*/, Double_t /*xlo*/, Double_t /*xhi*/) const ;
+  void setBinning(const RooAbsRealLValue &obs, const RooAbsBinning &binning, bool checkFlatness = true);
+  const RooAbsBinning *getBinning(const RooAbsRealLValue &obs) const;
+  bool removeBinning(const RooAbsRealLValue &obs);
+
+  bool isBinnedDistribution(const RooArgSet &obs) const override;
+  std::list<double>* binBoundaries(RooAbsRealLValue& obs, double xlo, double xhi) const override ;
+  std::list<double>* plotSamplingHint(RooAbsRealLValue& obs, double xlo, double xhi) const override ;
 
   // Function evaluation
-  virtual Double_t evaluate() const ;
-  RooSpan<double> evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const;
+  double evaluate() const override ;
+  void doEval(RooFit::EvalContext &ctx) const override;
+
+  std::string getUniqueFuncName() const;
+
+  std::unique_ptr<RooAbsArg>
+  compileForNormSet(RooArgSet const &normSet, RooFit::Detail::CompileContext &ctx) const override;
 
   protected:
-  // Post-processing of server redirection
-  virtual Bool_t redirectServersHook(const RooAbsCollection& newServerList, Bool_t mustReplaceAll, Bool_t nameChange, Bool_t isRecursive) ;
-
-  virtual Bool_t isValidReal(Double_t /*value*/, Bool_t /*printError*/) const {return true;}
+  bool isValidReal(double /*value*/, bool /*printError*/) const override {return true;}
 
   private:
-  RooFormula& getFormula() const;
+     RooFormulaEvaluator &evaluator() const;
 
-  RooListProxy _actualVars ;     // Actual parameters used by formula engine
-  std::unique_ptr<RooFormula> _formula{nullptr}; //! Formula engine
-  mutable RooArgSet* _nset{nullptr}; //! Normalization set to be passed along to contents
-  TString _formExpr ;            // Formula expression string
+     RooListProxy _actualVars;                                ///< Actual parameters used by formula engine
+     mutable std::unique_ptr<RooFormulaEvaluator> _evaluator; ///<! Formula evaluation engine
+     mutable RooArgSet *_nset{nullptr};                       ///<! Normalization set to be passed along to contents
+     TString _formExpr;                                       ///< Formula expression string
 
-  ClassDef(RooFormulaVar,1) // Real-valued function of other RooAbsArgs calculated by a TFormula expression
+     std::map<int, std::unique_ptr<RooAbsBinning>>
+        _binnings; ///< User-defined binnings, keyed by the observable's index
+                   ///< in _actualVars, for a piecewise-flat distribution
+
+     ClassDefOverride(RooFormulaVar, 2) // Real-valued function of other RooAbsArgs calculated by a TFormula expression
 };
 
 #endif

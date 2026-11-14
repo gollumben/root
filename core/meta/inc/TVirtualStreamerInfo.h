@@ -25,6 +25,13 @@
 
 #include "ESTLType.h"
 
+#ifdef _MSC_VER
+// On Windows, Disable the warning:
+// 'kIgnoreTObjectStreamer': illegal qualified name in member declaration
+#pragma warning( push )
+#pragma warning( disable : 4596 )
+#endif
+
 class TFile;
 class TClass;
 class TObjArray;
@@ -37,9 +44,9 @@ namespace ROOT { namespace Detail { class TCollectionProxyInfo; } }
 class TVirtualStreamerInfo : public TNamed {
 
 protected:
-   Bool_t              fOptimized : 1;     //! true if the StreamerInfo has been optimized
-   Bool_t              fIsBuilt : 1;       //! true if the StreamerInfo has been 'built' (i.e. has all the StreamerElements it should have)
-   std::atomic<Bool_t> fIsCompiled;        //! true if the StreamerInfo has been compiled (i.e. fully built, ready to use for streaming).
+   Bool_t              fOptimized : 1;     ///<! true if the StreamerInfo has been optimized
+   Bool_t              fIsBuilt : 1;       ///<! true if the StreamerInfo has been 'built' (i.e. has all the StreamerElements it should have)
+   std::atomic<Bool_t> fIsCompiled;        ///<! true if the StreamerInfo has been compiled (i.e. fully built, ready to use for streaming).
 
 protected:
    static  Bool_t    fgCanDelete;        //True if ReadBuffer can delete object
@@ -67,7 +74,15 @@ public:
       kIgnoreTObjectStreamer = BIT(13),  // eventhough BIT(13) is taken up by TObject (to preserve forward compatibility)
       kRecovered             = BIT(14),
       kNeedCheck             = BIT(15),
+// clang++ <v20 (-Wshadow) complains about shadowing TDictionary.h global enum EProperty. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
       kIsCompiled            = BIT(16),
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
       kBuildOldUsed          = BIT(17),
       kBuildRunning          = BIT(18)
    };
@@ -77,14 +92,59 @@ public:
       // we can not change its value without breaking forward compatibility.
       // Furthermore, TObject::kInvalidObject and its semantic is not (and should not be)
       // used in TVirtualStreamerInfo
-      kIgnoreTObjectStreamer  = TVirtualStreamerInfo::kIgnoreTObjectStreamer,
+      kIgnoreTObjectStreamer  = TVirtualStreamerInfo::kIgnoreTObjectStreamer
    };
 
+   // clang-format off
+   /// EReadWrite Enumerator
+   /// | Enum Constant | Description   |
+   /// |-------------|--------------------|
+   /// | kBase       | Base class element |
+   /// | kOffsetL    | Fixed size array |
+   /// | kOffsetP    | Pointer to object |
+   /// | kCounter    | Counter for array size |
+   /// | kCharStar   | Pointer to array of char |
+   /// | kLegacyChar | Equal to TDataType's kchar |
+   /// | kBits       | TObject::fBits in case of a referenced object |
+   /// | kObject     | Class  derived from TObject, or for TStreamerSTL::fCtype non-pointer elements |
+   /// | kObjectp    | Class* derived from TObject and with    comment field //->Class, or for TStreamerSTL::fCtype: pointer elements |
+   /// | kObjectP    | Class* derived from TObject and with NO comment field //->Class |
+   /// | kAny        | Class  not derived from TObject |
+   /// | kAnyp       | Class* not derived from TObject with    comment field //->Class |
+   /// | kAnyP       | Class* not derived from TObject with NO comment field //->Class |
+   /// | kAnyPnoVT   | Class* not derived from TObject with NO comment field //->Class and Class has NO virtual table |
+   /// | kSTLp       | Pointer to STL container |
+   /// | kTString    | TString, special case |
+   /// | kTObject    | TObject, special case |
+   /// | kTNamed     | TNamed , special case |
+   /// | kCache      | Cache the value in memory than is not part of the object but is accessible via a SchemaRule |
+   /// | kNoType     | Indicator that we don't know the current type because the member does not exist in memory |
+   /// | kUnsupportedConversion | The member type onfile and in memory can not be converted |
+   /// | kUnset      | default value |
    enum EReadWrite {
-      kBase        =  0,  kOffsetL = 20,  kOffsetP = 40,  kCounter =  6,  kCharStar = 7,
+      kBase        =  0,  kOffsetL = 20,  kOffsetP = 40,
       kChar        =  1,  kShort   =  2,  kInt     =  3,  kLong    =  4,  kFloat    = 5,
+// clang++ <v20 (-Wshadow) complains about shadowing TDataType.h global enum EDataType. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kCounter =  6, kCharStar = 7,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
       kDouble      =  8,  kDouble32=  9,
-      kUChar       = 11,  kUShort  = 12,  kUInt    = 13,  kULong   = 14,  kBits     = 15,
+      kLegacyChar  = 10, /// Equal to TDataType's kchar
+      kUChar       = 11,  kUShort  = 12,  kUInt    = 13,  kULong   = 14,
+// clang++ <v20 (-Wshadow) complains about shadowing TDataType.h global enum EDataType. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kBits     = 15,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
       kLong64      = 16,  kULong64 = 17,  kBool    = 18,  kFloat16 = 19,
       kObject      = 61,  kAny     = 62,  kObjectp = 63,  kObjectP = 64,  kTString  = 65,
       kTObject     = 66,  kTNamed  = 67,  kAnyp    = 68,  kAnyP    = 69,  kAnyPnoVT = 70,
@@ -99,44 +159,36 @@ public:
       kCacheNew    = 1001,
       kCacheDelete = 1002,
       kNeedObjectForVirtualBaseClass = 99997,
-      kMissing     = 99999
+      kMissing     = 99999,
+      kNoType      = -1,   /// Type corresponding to a 'missing' data member (with kMissing offset)
+      kUnsupportedConversion = -2,
+// clang++ <v20 (-Wshadow) complains about shadowing TError.h global variable kUnset. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kUnset       = -3
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
    };
-
-// Some comments about EReadWrite
-// kBase    : base class element
-// kOffsetL : fixed size array
-// kOffsetP : pointer to object
-// kCounter : counter for array size
-// kCharStar: pointer to array of char
-// kBits    : TObject::fBits in case of a referenced object
-// kObject  : Class  derived from TObject
-// kObjectp : Class* derived from TObject and with    comment field //->Class
-// kObjectP : Class* derived from TObject and with NO comment field //->Class
-// kAny     : Class  not derived from TObject
-// kAnyp    : Class* not derived from TObject with    comment field //->Class
-// kAnyP    : Class* not derived from TObject with NO comment field //->Class
-// kAnyPnoVT: Class* not derived from TObject with NO comment field //->Class and Class has NO virtual table
-// kSTLp    : Pointer to STL container.
-// kTString : TString, special case
-// kTObject : TObject, special case
-// kTNamed  : TNamed , special case
-
-
+   // clang-format off
 
    TVirtualStreamerInfo();
    TVirtualStreamerInfo(TClass * /*cl*/);
    virtual            ~TVirtualStreamerInfo();
+   virtual size_t      GetClassAlignment() const = 0;
    virtual void        Build(Bool_t isTransient = kFALSE) = 0;
-   virtual void        BuildCheck(TFile *file = 0, Bool_t load = kTRUE) = 0;
+   virtual void        BuildCheck(TFile *file = nullptr, Bool_t load = kTRUE) = 0;
    virtual void        BuildEmulated(TFile *file) = 0;
    virtual void        BuildOld() = 0;
    virtual Bool_t      BuildFor( const TClass *cl ) = 0;
    virtual void        CallShowMembers(const void* obj, TMemberInspector &insp, Bool_t isTransient) const = 0;
-   virtual void        Clear(Option_t *) = 0;
+   virtual void        Clear(Option_t * = "") override = 0;
    virtual Bool_t      CompareContent(TClass *cl,TVirtualStreamerInfo *info, Bool_t warn, Bool_t complete, TFile *file) = 0;
    virtual void        Compile() = 0;
    virtual void        ForceWriteInfo(TFile *file, Bool_t force=kFALSE) = 0;
-   virtual Int_t       GenerateHeaderFile(const char *dirname, const TList *subClasses = 0, const TList *extrainfos = 0) = 0;
+   virtual Int_t       GenerateHeaderFile(const char *dirname, const TList *subClasses = nullptr, const TList *extrainfos = nullptr) = 0;
    virtual TClass     *GetActualClass(const void *obj) const = 0;
    virtual TClass     *GetClass() const  = 0;
    virtual UInt_t      GetCheckSum() const = 0;
@@ -156,10 +208,10 @@ public:
            Bool_t      IsCompiled() const { return fIsCompiled; }
            Bool_t      IsOptimized() const { return fOptimized; }
            Int_t       IsRecovered() const { return TestBit(kRecovered); }
-   virtual void        ls(Option_t *option="") const = 0;
+   virtual void        ls(Option_t * = "") const override = 0;
    virtual TVirtualStreamerInfo *NewInfo(TClass *cl) = 0;
-   virtual void       *New(void *obj = 0) = 0;
-   virtual void       *NewArray(Long_t nElements, void* ary = 0) = 0;
+   virtual void       *New(void *obj = nullptr) = 0;
+   virtual void       *NewArray(Long_t nElements, void* ary = nullptr) = 0;
    virtual void        Destructor(void* p, Bool_t dtorOnly = kFALSE) = 0;
    virtual void        DeleteArray(void* p, Bool_t dtorOnly = kFALSE) = 0;
 
@@ -196,7 +248,11 @@ public:
    static TVirtualStreamerInfo *Factory();
 
    //WARNING this class version must be the same as TStreamerInfo
-   ClassDef(TVirtualStreamerInfo,6)  //Abstract Interface describing Streamer information for one class
+   ClassDefOverride(TVirtualStreamerInfo,6)  //Abstract Interface describing Streamer information for one class
 };
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 #endif

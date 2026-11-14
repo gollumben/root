@@ -32,12 +32,13 @@ ROOT GUI Window base class.
 #include "TGWindow.h"
 #include <iostream>
 #include "TVirtualX.h"
+#include "TVirtualPad.h"
 #include "TApplication.h"
 #include "TError.h"
 #include "TSystem.h"
+#include "TImage.h"
+#include "TASUtils.h"
 
-ClassImp(TGWindow);
-ClassImp(TGUnknownWindowHandler);
 
 Int_t TGWindow::fgCounter = 0;
 
@@ -73,8 +74,8 @@ TGWindow::TGWindow(const TGWindow *p, Int_t x, Int_t y, UInt_t w, UInt_t h,
       fParent = p;
       if (fParent && fParent->IsMapSubwindows()) {
          fId = gVirtualX->CreateWindow(fParent->fId, x, y,
-                                     TMath::Max(w, (UInt_t) 1),
-                                     TMath::Max(h, (UInt_t) 1), border,
+                                     std::max(w, (UInt_t) 1),
+                                     std::max(h, (UInt_t) 1), border,
                                      depth, clss, visual, attr, type);
          fClient->RegisterWindow(this);
       }
@@ -278,7 +279,7 @@ void TGWindow::Move(Int_t x, Int_t y)
 
 void TGWindow::Resize(UInt_t w, UInt_t h)
 {
-   gVirtualX->ResizeWindow(fId, TMath::Max(w, (UInt_t)1), TMath::Max(h, (UInt_t)1));
+   gVirtualX->ResizeWindow(fId, std::max(w, (UInt_t)1), std::max(h, (UInt_t)1));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -286,7 +287,7 @@ void TGWindow::Resize(UInt_t w, UInt_t h)
 
 void TGWindow::MoveResize(Int_t x, Int_t y, UInt_t w, UInt_t h)
 {
-   gVirtualX->MoveResizeWindow(fId, x, y, TMath::Max(w, (UInt_t)1), TMath::Max(h, (UInt_t)1));
+   gVirtualX->MoveResizeWindow(fId, x, y, std::max(w, (UInt_t)1), std::max(h, (UInt_t)1));
 }
 
 ////////////////////////////////////////////////////////////////////////////////

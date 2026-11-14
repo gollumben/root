@@ -33,19 +33,19 @@ protected:
    virtual void   ConnectSignals2Slots();
 
 public:
-   TLineEditor(const TGWindow *p = 0,
+   TLineEditor(const TGWindow *p = nullptr,
                Int_t width = 140, Int_t height = 30,
                UInt_t options = kChildFrame,
                Pixel_t back = GetDefaultFrameBackground());
-   virtual ~TLineEditor();
+   ~TLineEditor() override;
 
-   virtual void   SetModel(TObject* obj);
+   void   SetModel(TObject* obj) override;
    virtual void   DoStartPoint();
    virtual void   DoEndPoint();
    virtual void   DoLineVertical();
    virtual void   DoLineHorizontal();
 
-   ClassDef(TLineEditor,0)  // GUI for editing Line attributes
+   ClassDefOverride(TLineEditor,0)  // GUI for editing Line attributes
 };
 
 #endif

@@ -25,7 +25,7 @@ class TList;
 class TXMLPlayer : public TObject {
 public:
    TXMLPlayer();
-   virtual ~TXMLPlayer();
+   ~TXMLPlayer() override;
 
    Bool_t ProduceCode(TList *cllist, const char *filename);
 
@@ -45,11 +45,11 @@ protected:
    void WriteSTLarg(std::ostream &fs, const char *accname, int argtyp, Bool_t isargptr, TClass *argcl);
    Bool_t ProduceSTLstreamer(std::ostream &fs, TClass *cl, TStreamerSTL *el, Bool_t isWriting);
 
-   TString fGetterName; //!  buffer for name of getter method
-   TString fSetterName; //!  buffer for name of setter method
-   TXMLSetup fXmlSetup; //!  buffer for xml names conversion
+   TString fGetterName; ///<!  buffer for name of getter method
+   TString fSetterName; ///<!  buffer for name of setter method
+   TXMLSetup fXmlSetup; ///<!  buffer for xml names conversion
 
-   ClassDef(TXMLPlayer, 1) // Generation of external xml streamers
+   ClassDefOverride(TXMLPlayer, 1) // Generation of external xml streamers
 };
 
 #endif

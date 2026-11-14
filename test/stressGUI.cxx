@@ -16,10 +16,6 @@
 //    stressGUI -help
 //
 
-#include <cstdlib>
-#include <ctime>
-#include <iostream>
-#include <snprintf.h>
 #include <TString.h>
 #include <TROOT.h>
 #include <TClass.h>
@@ -34,6 +30,7 @@
 
 #include <TGFrame.h>
 #include <TImage.h>
+#include <TASUtils.h>
 #include <TCanvas.h>
 
 #include <TMD5.h>
@@ -75,7 +72,6 @@
 #include <TGSplitFrame.h>
 #include <TGTextEditor.h>
 #include <TRootHelpDialog.h>
-#include <TGHtmlBrowser.h>
 #include <HelpText.h>
 #include <TSystemDirectory.h>
 #include <TInterpreter.h>
@@ -84,41 +80,10 @@
 
 #include <TRecorder.h>
 
-void     stressGUI();
-void     ProcessFrame(TGFrame *f, const char *title);
-
-// Tests functions.
-void     testLayout();
-void     testTextAlign();
-void     testGroupState();
-void     testLabels();
-void     testSplitButton();
-void     testTextEntries();
-void     testListTree();
-void     testShutter();
-void     testProgressBar();
-void     testNumberEntry();
-void     testEditor();
-void     testCanvas();
-void     testColorDlg();
-void     testFontDlg();
-void     testSearchDlg();
-void     testTableLayout();
-void     testPack();
-void     testSliders();
-void     testBrowsers();
-void     testSplitFrame();
-void     testControlBars();
-void     testHelpDialog();
-void     testPaletteEditor();
-void     testHtmlBrowser();
-
-void     run_tutorials();
-void     guitest_playback();
-void     dnd_playback();
-void     mditest_playback();
-void     fitpanel_playback();
-void     graph_edit_playback();
+#include <cstdlib>
+#include <ctime>
+#include <iostream>
+#include <cstdio>
 
 // Global variables.
 RedirectHandle_t gRH;
@@ -126,232 +91,13 @@ Int_t    gTestNum = 0;
 Bool_t   gOptionRef  = kFALSE;
 Bool_t   gOptionKeep = kFALSE;
 Bool_t   gOptionFull = kFALSE;
-char     outfile[80];
+Bool_t   gOptionDebug = kFALSE;
 char     gLine[80];
 Int_t    sizes[100];
 TString  gTmpfilename;
 TString  gRootSys;
 
-FILE    *sgref = 0;
-
-////////////////////////////////////////////////////////////////////////////////
-/// Application main entry point.
-
-int main(int argc, char *argv[])
-{
-   // use $ROOTSYS/etc/system.rootrc default values
-   gEnv->ReadFile(TString::Format("%s/etc/system.rootrc",
-                  gSystem->Getenv("ROOTSYS")), kEnvAll);
-   gOptionRef  = kFALSE;
-   gOptionKeep = kFALSE;
-   gOptionFull = kFALSE;
-   gTmpfilename = "stress-gui";
-   FILE *f = gSystem->TempFileName(gTmpfilename);
-   fclose(f);
-   for (int i = 0; i < argc; i++) {
-      if (!strcmp(argv[i], "-ref")) gOptionRef = kTRUE;
-      if (!strcmp(argv[i], "-keep")) gOptionKeep = kTRUE;
-      if (!strcmp(argv[i], "-full")) gOptionFull = kTRUE;
-      if (!strcmp(argv[i], "-help") || !strcmp(argv[i], "-?")) {
-         printf("Usage: stressGUI [-ref] [-keep] [-full] [-help] [-?] \n");
-         printf("Options:\n");
-         printf("\n");
-         printf("  -ref: Generate the reference output file \"stressGUI.ref\"\n");
-         printf("\n");
-         printf("  -keep: Keep the png files even for passed tests\n");
-         printf("        (by default the png files are deleted)\n");
-         printf("\n");
-         printf("  -full: Full test: replay also recorder sessions\n");
-         printf("        (guitest, drag and drop, fitpanel, ...)\n");
-         printf("\n");
-         printf("  -help, -?: Print usage and exit\n");
-         return 0;
-      }
-   }
-   TApplication theApp("App", &argc, argv);
-   gBenchmark = new TBenchmark();
-   stressGUI();
-   theApp.Terminate();
-   return 0;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Run all stress GUI tests.
-
-void stressGUI()
-{
-   if (gOptionRef) {
-      sgref = fopen("stressGUI.ref", "wt");
-   }
-   else {
-      // Read the reference file "stressGUI.ref"
-      sgref = fopen("stressGUI.ref", "rt");
-      if (sgref == 0) {
-         printf("\nReference file \"stressGUI.ref\" not found!\n");
-         printf("Please generate the reference file by executing\n");
-         printf("stressGUI with the -ref flag, as shown below:\n");
-         printf("   stressGUI -ref\n");
-         gSystem->Unlink(gTmpfilename.Data());
-         exit(0);
-      }
-      char line[160];
-      Int_t i = -1;
-      while (fgets(line, 160, sgref)) {
-         if ((i >= 0) && (strlen(line) > 15)) {
-            sscanf(&line[8],  "%d", &sizes[i]);
-         }
-         i++;
-      }
-      fclose(sgref);
-   }
-   gRootSys = gSystem->UnixPathName(gSystem->Getenv("ROOTSYS"));
-#ifdef WIN32
-   // remove the drive letter (e.g. "C:/") from $ROOTSYS, if any
-   if (gRootSys[1] == ':' && gRootSys[2] == '/')
-      gRootSys.Remove(0, 2);
-#endif
-
-   gVirtualX->Warp(gClient->GetDisplayWidth()-50, gClient->GetDisplayHeight()-50,
-                   gClient->GetDefaultRoot()->GetId());
-   // uncomment the next few lines to avoid (forbid) any mouse interaction
-//   gVirtualX->GrabPointer(gClient->GetDefaultRoot()->GetId(), kButtonPressMask |
-//                          kButtonReleaseMask | kPointerMotionMask, kNone,
-//                          gVirtualX->CreateCursor(kWatch), kTRUE, kFALSE);
-
-   if (gOptionRef) {
-      fprintf(sgref, "Test#     Size#\n");
-   } else {
-      std::cout << "**********************************************************************" <<std::endl;
-      std::cout << "*  Starting  GUI - S T R E S S suite                                 *" <<std::endl;
-      std::cout << "**********************************************************************" <<std::endl;
-   }
-   gTestNum = 0;
-
-   gBenchmark->Start("stressGUI");
-
-   if (!gOptionRef) {
-      std::cout << "*  Running macros in $ROOTSYS/tutorials/gui - S T R E S S            *" <<std::endl;
-      std::cout << "**********************************************************************" <<std::endl;
-   }
-   run_tutorials();
-   if (!gOptionRef) {
-      std::cout << "**********************************************************************" <<std::endl;
-      std::cout << "*  Starting Basic GUI Widgets - S T R E S S                          *" <<std::endl;
-      std::cout << "**********************************************************************" <<std::endl;
-   }
-   testLayout();
-   testTextAlign();
-   testGroupState();
-   testLabels();
-   testSplitButton();
-   testTextEntries();
-   testListTree();
-   testShutter();
-   testProgressBar();
-   testNumberEntry();
-   testTableLayout();
-   if (!gOptionRef) {
-      std::cout << "**********************************************************************" <<std::endl;
-      std::cout << "*  Starting High Level GUI Widgets - S T R E S S                     *" <<std::endl;
-      std::cout << "**********************************************************************" <<std::endl;
-   }
-   testPack();
-   testSearchDlg();
-   testFontDlg();
-   testColorDlg();
-   testEditor();
-   testCanvas();
-   testSliders();
-   testBrowsers();
-   testSplitFrame();
-   testControlBars();
-   testHelpDialog();
-   testPaletteEditor();
-   testHtmlBrowser();
-
-   if (!gOptionRef) {
-
-      if (gOptionFull) {
-         std::cout << "**********************************************************************" <<std::endl;
-         std::cout << "*  Starting Drag and Drop playback - S T R E S S                     *" <<std::endl;
-         std::cout << "**********************************************************************" <<std::endl;
-         dnd_playback();
-
-         std::cout << "**********************************************************************" <<std::endl;
-         std::cout << "*  Starting MDI test playback - S T R E S S                          *" <<std::endl;
-         std::cout << "**********************************************************************" <<std::endl;
-         mditest_playback();
-
-         std::cout << "**********************************************************************" <<std::endl;
-         std::cout << "*  Starting guitest recorder playback - S T R E S S                  *" <<std::endl;
-         std::cout << "**********************************************************************" <<std::endl;
-         guitest_playback();
-
-         std::cout << "**********************************************************************" <<std::endl;
-         std::cout << "*  Starting fit panel recorder playback - S T R E S S                *" <<std::endl;
-         std::cout << "**********************************************************************" <<std::endl;
-         fitpanel_playback();
-
-         std::cout << "**********************************************************************" <<std::endl;
-         std::cout << "*  Starting graphic editors recorder playback - S T R E S S          *" <<std::endl;
-         std::cout << "**********************************************************************" <<std::endl;
-         graph_edit_playback();
-      }
-      std::cout << "**********************************************************************" <<std::endl;
-
-      gBenchmark->Stop("stressGUI");
-
-      //Print table with results
-      Bool_t UNIX = strcmp(gSystem->GetName(), "Unix") == 0;
-      if (UNIX) {
-         TString sp = gSystem->GetFromPipe("uname -a");
-         sp.Resize(60);
-         printf("*  SYS: %s\n",sp.Data());
-         if (strstr(gSystem->GetBuildNode(),"Linux")) {
-            sp = gSystem->GetFromPipe("lsb_release -d -s");
-            printf("*  SYS: %s\n",sp.Data());
-         }
-         if (strstr(gSystem->GetBuildNode(),"Darwin")) {
-            sp  = gSystem->GetFromPipe("sw_vers -productVersion");
-            sp += " Mac OS X ";
-            printf("*  SYS: %s\n",sp.Data());
-         }
-      } else {
-         const char *os = gSystem->Getenv("OS");
-         if (!os) printf("*  SYS: Windows 95\n");
-         else     printf("*  SYS: %s %s \n",os,gSystem->Getenv("PROCESSOR_IDENTIFIER"));
-      }
-
-      printf("**********************************************************************\n");
-      printf("*  ");
-      gBenchmark->Print("stressGUI");
-
-      Double_t ct = gBenchmark->GetCpuTime("stressGUI");  // ref: 13 s
-      Double_t rt = gBenchmark->GetRealTime("stressGUI"); // ref: 300 s
-      // normalize at 1000 rootmarks
-      Double_t full_marks = 0.5 *((13.0/ct) + (300.0/rt));
-      if (!gOptionFull)
-         full_marks = 0.5 *((4.5/ct) + (35.0/rt));
-      const Double_t rootmarks = 1000.0 * full_marks;
-
-      printf("**********************************************************************\n");
-      printf("*  ROOTMARKS = %6.1f   *  Root%-8s  %d/%04d\n", rootmarks, gROOT->GetVersion(),
-             gROOT->GetVersionDate(), gROOT->GetVersionTime());
-      printf("**********************************************************************\n");
-   }
-   gVirtualX->GrabPointer(0, 0, 0, 0, kFALSE);  // ungrab pointer
-   if (gOptionRef) {
-      fclose(sgref);
-   }
-   gSystem->Unlink(gTmpfilename.Data());
-#ifdef WIN32
-   gSystem->Exec("erase /q /s TxtEdit* >nul 2>&1");
-   gSystem->Exec("erase /q /s TxtView* >nul 2>&1");
-#else
-   gSystem->Exec("rm -f TxtEdit*");
-   gSystem->Exec("rm -f TxtView*");
-#endif
-}
+FILE    *sgref = nullptr;
 
 ////////////////////////////////////////////////////////////////////////////////
 //                                Utilities
@@ -388,25 +134,27 @@ Bool_t VerifySize(const char *filename, const char *title)
          success = kFALSE;
       else
          success = kTRUE;
-
-      snprintf(gLine,80,"Test %2d: %s", gTestNum, title);
-      const Int_t nch = strlen(gLine);
-      if (success) {
-         std::cout << gLine;
-         for (Int_t i = nch; i < 67; i++) std::cout << ".";
-         std::cout << " OK" << std::endl;
-      } else {
-         std::cout << gLine;
-         for (Int_t i = nch; i < 63; i++) std::cout << ".";
-         std::cout << " FAILED" << std::endl;
-         std::cout << "         File Size = "  << fsize << std::endl;
-         std::cout << "          Ref Size = "  << sizes[gTestNum] << std::endl;
-      }
    } else {
       fprintf(sgref, "%5d%10d\n", gTestNum, fsize);
       success = kTRUE;
    }
-   if (!gOptionKeep && success) gSystem->Unlink(filename);
+
+   snprintf(gLine,80,"Test %2d: %s", gTestNum, title);
+   const Int_t nch = strlen(gLine);
+   if (success) {
+      std::cout << gLine;
+      for (Int_t i = nch; i < 67; i++) std::cout << ".";
+      std::cout << (gOptionRef ? " REF" : " OK") << std::endl;
+   } else {
+      std::cout << gLine;
+      for (Int_t i = nch; i < 63; i++) std::cout << ".";
+      std::cout << " FAILED" << std::endl;
+      std::cout << "         File Size = "  << fsize << std::endl;
+      std::cout << "          Ref Size = "  << sizes[gTestNum] << std::endl;
+   }
+
+   if (!gOptionKeep && success)
+      gSystem->Unlink(filename);
    return success;
 }
 
@@ -420,28 +168,30 @@ void ProcessFrame(TGFrame *f, const char *title)
    gSystem->ProcessEvents();
    gErrorIgnoreLevel = 9999;
 
-   if (gOptionRef)
-      snprintf(outfile,80, "sgui_%02d_ref.png", gTestNum);
-   else
-      snprintf(outfile,80, "sgui_%02d.png", gTestNum);
+   TString outfile;
 
-   TImage *img = TImage::Create();
+   if (gOptionRef)
+      outfile.Form("sgui_%02d_ref.png", gTestNum);
+   else
+      outfile.Form("sgui_%02d.png", gTestNum);
+
    f->RaiseWindow();
-   img->FromWindow(f->GetId());
-   img->WriteImage(outfile);
+   auto img = TASUtils::FromWindow(f->GetId());
+   if (img)
+      img->WriteImage(outfile);
 
    if (!gOptionRef) {
-      if (!strstr(title, "Pack Frames") &&
-          !strstr(title, "HTML Browser")) {
+      if (!strstr(title, "Pack Frames")) {
          gSystem->RedirectOutput(gTmpfilename.Data(), "w", &gRH);
-         ((TGMainFrame *)f)->SaveSource(Form("sgui_%02d.C", gTestNum));
-         gSystem->Unlink(Form("sgui_%02d.C", gTestNum));
+         TString macrofile = TString::Format("sgui_%02d.C", gTestNum);
+         ((TGMainFrame *)f)->SaveSource(macrofile);
+         if (!gOptionKeep)
+            gSystem->Unlink(macrofile);
          gSystem->RedirectOutput(0, 0, &gRH);
       }
    }
    VerifySize(outfile, title);
 
-   delete img;
    gErrorIgnoreLevel = 0;
    gTestNum++;
 }
@@ -2202,34 +1952,34 @@ void testSplitFrame()
 
 void testControlBars()
 {
-   TControlBar *bar = new TControlBar("vertical", "Demos",10,10);
-   bar->AddButton("Help Demos",".x demoshelp.C",        "Click Here For Help on Running the Demos");
-   bar->AddButton("browser",   "new TBrowser;",         "Start the ROOT Browser");
-   bar->AddButton("framework", ".x graphics/framework.C","An Example of Object Oriented User Interface");
-   bar->AddButton("first",     ".x graphics/first.C",   "An Example of Slide with Root");
-   bar->AddButton("hsimple",   ".x hsimple.C",          "An Example Creating Histograms/Ntuples on File");
-   bar->AddButton("hsum",      ".x hist/hsum.C",        "Filling Histograms and Some Graphics Options");
-   bar->AddButton("formula1",  ".x graphics/formula1.C","Simple Formula and Functions");
-   bar->AddButton("surfaces",  ".x graphs/surfaces.C",  "Surface Drawing Options");
-   bar->AddButton("fillrandom",".x hist/fillrandom.C",  "Histograms with Random Numbers from a Function");
-   bar->AddButton("fit1",      ".x fit/fit1.C",         "A Simple Fitting Example");
-   bar->AddButton("multifit",  ".x fit/multifit.C",     "Fitting in Subranges of Histograms");
-   bar->AddButton("h1draw",    ".x hist/h1draw.C",      "Drawing Options for 1D Histograms");
-   bar->AddButton("graph",     ".x graphs/graph.C",     "Example of a Simple Graph");
-   bar->AddButton("gerrors",   ".x graphs/gerrors.C",   "Example of a Graph with Error Bars");
-   bar->AddButton("tornado",   ".x graphics/tornado.C", "Examples of 3-D PolyMarkers");
-   bar->AddButton("shapes",    ".x geom/shapes.C",      "The Geometry Shapes");
-   bar->AddButton("geometry",  ".x geom/geometry.C",    "Creation of the NA49 Geometry File");
-   bar->AddButton("na49view",  ".x geom/na49view.C",    "Two Views of the NA49 Detector Geometry");
-   bar->AddButton("file",      ".x io/file.C",          "The ROOT File Format");
-   bar->AddButton("fildir",    ".x io/fildir.C",        "The ROOT File, Directories and Keys");
-   bar->AddButton("tree",      ".x tree/tree.C",        "The Tree Data Structure");
-   bar->AddButton("ntuple1",   ".x tree/ntuple1.C",     "Ntuples and Selections");
-   bar->AddButton("rootmarks", ".x rootmarks.C",        "Prints an Estimated ROOTMARKS for Your Machine");
+   TControlBar *bar = new TControlBar("vertical", "Demos", 10, 10);
+   bar->AddButton("Help Demos", ".x demoshelp.C", "Click Here For Help on Running the Demos");
+   bar->AddButton("browser", "new TBrowser;", "Start the ROOT Browser");
+   bar->AddButton("framework", ".x visualisation/graphics/framework.C", "An Example of Object Oriented User Interface");
+   bar->AddButton("first", ".x visualisation/graphics/first.C", "An Example of Slide with Root");
+   bar->AddButton("hsimple", ".x hsimple.C", "An Example Creating Histograms/Ntuples on File");
+   bar->AddButton("hsum", ".x hist/hsum.C", "Filling Histograms and Some Graphics Options");
+   bar->AddButton("formula1", ".x visualisation/graphics/formula1.C", "Simple Formula and Functions");
+   bar->AddButton("surfaces", ".x visualisation/graphics/surfaces.C", "Surface Drawing Options");
+   bar->AddButton("fillrandom", ".x hist/fillrandom.C", "Histograms with Random Numbers from a Function");
+   bar->AddButton("fit1", ".x fit/fit1.C", "A Simple Fitting Example");
+   bar->AddButton("multifit", ".x fit/multifit.C", "Fitting in Subranges of Histograms");
+   bar->AddButton("h1draw", ".x hist/hist015_TH1_read_and_draw.C", "Drawing Options for 1D Histograms");
+   bar->AddButton("graph", ".x graphs/gr001_graph.C", "Example of a Simple Graph");
+   bar->AddButton("gerrors", ".x graphs/gr002_errors.C", "Example of a Graph with Error Bars");
+   bar->AddButton("tornado", ".x visualisation/graphics/tornado.C", "Examples of 3-D PolyMarkers");
+   bar->AddButton("shapes", ".x legacy/g3d/shapes.C", "The Geometry Shapes");
+   bar->AddButton("geometry", ".x legacy/g3d/geometry.C", "Creation of the NA49 Geometry File");
+   bar->AddButton("na49view", ".x legacy/g3d/na49view.C", "Two Views of the NA49 Detector Geometry");
+   bar->AddButton("file", ".x io/file.C", "The ROOT File Format");
+   bar->AddButton("fildir", ".x io/fildir.C", "The ROOT File, Directories and Keys");
+   bar->AddButton("tree", ".x tree/tree.C", "The Tree Data Structure");
+   bar->AddButton("ntuple1", ".x tree/ntuple1.C", "Ntuples and Selections");
+   bar->AddButton("rootmarks", ".x rootmarks.C", "Prints an Estimated ROOTMARKS for Your Machine");
    bar->SetButtonWidth(90);
    bar->Show();
    TControlBarImp *imp = bar->GetControlBarImp();
-   TGMainFrame *f = dynamic_cast<TGMainFrame*>(imp);
+   TGMainFrame *f = dynamic_cast<TGMainFrame *>(imp);
    if (f) {
       ProcessFrame(f, "Control Bar");
       f->CloseWindow();
@@ -2251,45 +2001,6 @@ void testHelpDialog()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-////////////////////////////////////////////////////////////////////////////////
-/// Test the ASImage palette editor.
-
-void testPaletteEditor()
-{
-   const char *fname = "galaxy.root";
-   TFile *gal = 0;
-   if (!gSystem->AccessPathName(fname)) {
-      gal = TFile::Open(fname);
-   } else {
-      gal = TFile::Open(Form("http://root.cern.ch/files/%s",fname));
-   }
-   if (!gal) return;
-   TImage *img = (TImage*)gal->Get("n4254");
-   //img->Draw();
-
-   TASPaletteEditor *f = new TASPaletteEditor((TAttImage *)img, 80, 25);
-   ProcessFrame((TGMainFrame*)f, "Palette Editor");
-   f->CloseWindow();
-
-   delete img;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-////////////////////////////////////////////////////////////////////////////////
-/// Test the HTML Browser.
-
-void testHtmlBrowser()
-{
-   TGHtmlBrowser *b = new TGHtmlBrowser("https://bellenot.web.cern.ch/public/html_test/html_test.html");
-   ProcessFrame((TGMainFrame*)b, "HTML Browser 1");
-   b->Selected("https://bellenot.web.cern.ch/public/html_test/gallery/");
-   ProcessFrame((TGMainFrame*)b, "HTML Browser 2");
-   b->CloseWindow();
-}
-
-////////////////////////////////////////////////////////////////////////////////
 //                             ROOT GUI tutorials
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -2300,6 +2011,7 @@ const char *excluded[] = {
    "customContextMenu.C",
    "customTH1Fmenu",
    "exec_macro",
+   "games",
    "guitest0",
    0
 };
@@ -2310,21 +2022,21 @@ const char *excluded[] = {
 Int_t bexec(TString &dir, const char *macro)
 {
 #ifdef WIN32
-   return gSystem->Exec(TString::Format("set ROOT_HIST=0 & root.exe -l -q exec_macro.C(\\\"%s/%s\\\") >nul 2>&1", dir.Data(), macro));
+   return gSystem->Exec(TString::Format("set ROOT_HIST=0 & root.exe -l -q --web=off exec_macro.C(\\\"%s/%s\\\") >nul 2>&1", dir.Data(), macro));
 #else
-   return gSystem->Exec(TString::Format("ROOT_HIST=0 root.exe -l -q exec_macro.C\\(\\\"%s/%s\\\"\\) >&/dev/null", dir.Data(), macro));
+   return gSystem->Exec(TString::Format("ROOT_HIST=0 root.exe -l -q --web=off exec_macro.C\\(\\\"%s/%s\\\"\\) >&/dev/null", dir.Data(), macro));
 #endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Run the macros available in $ROOTSYS/tutorials/gui
+/// Run the macros available in $ROOTSYS/tutorials/visualisation/gui
 
 void run_tutorials()
 {
    gClient->HandleInput();
    gSystem->Sleep(50);
    gSystem->ProcessEvents();
-   TString dir = gRootSys + "/tutorials/gui";
+   TString dir = gRootSys + "/tutorials/visualisation/gui";
    TString savdir = gSystem->WorkingDirectory();
    TSystemDirectory sysdir(dir.Data(), dir.Data());
    TList *files = sysdir.GetListOfFiles();
@@ -2336,12 +2048,12 @@ void run_tutorials()
       bexec(dir, "hsimple.C");
       gSystem->Unlink("hsimple_1.png");
    }
-   dir += "/tree";
+   dir += "io/tree/";
    reqfile = dir + "/cernstaff.root";
    if (gSystem->AccessPathName(reqfile, kFileExists)) {
-      bexec(dir, "cernbuild.C");
+      bexec(dir, "tree500_cernbuild.C");
    }
-   dir = gRootSys + "/tutorials/gui";
+   dir = gRootSys + "/tutorials/visualisation/gui";
 
    if (files) {
       TIter next(files);
@@ -2366,7 +2078,7 @@ void run_tutorials()
       }
       delete files;
    }
-   dir = gRootSys + "/tutorials/image";
+   dir = gRootSys + "/tutorials/visualisation/image";
    bexec(dir, "galaxy_image.C");
    ProcessMacro("galaxy_image.C", "galaxy_image.C");
 
@@ -2408,7 +2120,7 @@ void guitest_playback()
    printf("Guitest Playback..............................................");
    gSystem->RedirectOutput(gTmpfilename.Data(), "w", &gRH);
    TString savdir = gSystem->WorkingDirectory();
-   TString dir = gRootSys + "/tutorials/gui";
+   TString dir = gRootSys + "/tutorials/visualisation/gui";
    gSystem->ChangeDirectory(dir.Data());
 
    // first delete old files, if any
@@ -2416,7 +2128,7 @@ void guitest_playback()
       gSystem->Unlink(TString::Format("%s/guitest%03d.C", dir.Data(), i+1));
    }
    TStopwatch sw;
-   ret = r.Replay("http://root.cern.ch/files/guitest_playback.root");
+   ret = r.Replay("http://root.cern/files/guitest_playback.root");
 
    // wait for the recorder to finish the replay
    while (ret && r.GetState() == TRecorder::kReplaying) {
@@ -2452,7 +2164,7 @@ void guitest_playback()
    guitest_ref[10] = 68657;
    for (i=0;i<11;++i) {
       printf("guitest %02d: output............................................", i+1);
-      if (TMath::Abs(guitest_ref[i] - guitest_size[i]) <= guitest_err[i]) {
+      if (std::abs(guitest_ref[i] - guitest_size[i]) <= guitest_err[i]) {
          printf("..... OK\n");
          // delete successful tests, keep only the failing ones (for verification)
          gSystem->Unlink(TString::Format("%s/guitest%03d.C", dir.Data(), i+1));
@@ -2483,7 +2195,7 @@ void dnd_playback()
 #else
    filename += "_x11.root";
 #endif
-   TString dir = gRootSys + "/tutorials/gui";
+   TString dir = gRootSys + "/tutorials/visualisation/gui";
    gSystem->ChangeDirectory(dir.Data());
 
    TStopwatch sw;
@@ -2518,7 +2230,7 @@ void mditest_playback()
    printf("MDI Test Playback.............................................");
    gSystem->RedirectOutput(gTmpfilename.Data(), "w", &gRH);
    TString savdir = gSystem->WorkingDirectory();
-   TString dir = gRootSys + "/tutorials/gui";
+   TString dir = gRootSys + "/tutorials/visualisation/gui";
    gSystem->ChangeDirectory(dir.Data());
 
    TStopwatch sw;
@@ -2553,11 +2265,11 @@ void graph_edit_playback()
    printf("Graphic Editors Playback......................................");
    gSystem->RedirectOutput(gTmpfilename.Data(), "w", &gRH);
    TString savdir = gSystem->WorkingDirectory();
-   TString dir = gRootSys + "/tutorials/graphics";
+   TString dir = gRootSys + "/tutorials/visualisation/graphics";
    gSystem->ChangeDirectory(dir.Data());
 
    TStopwatch sw;
-   ret = r.Replay("http://root.cern.ch/files/graphedit_playback.root");
+   ret = r.Replay("http://root.cern/files/graphedit_playback.root");
 
    // wait for the recorder to finish the replay
    while (ret && r.GetState() == TRecorder::kReplaying) {
@@ -2588,11 +2300,11 @@ void fitpanel_playback()
    printf("Fit Panel Playback ...........................................");
    gSystem->RedirectOutput(gTmpfilename.Data(), "w", &gRH);
    TString savdir = gSystem->WorkingDirectory();
-   TString dir = gRootSys + "/tutorials/fit";
+   TString dir = gRootSys + "/tutorials/math/fit";
    gSystem->ChangeDirectory(dir.Data());
 
    TStopwatch sw;
-   ret = r.Replay("http://root.cern.ch/files/fitpanel_playback.root");
+   ret = r.Replay("http://root.cern/files/fitpanel_playback.root");
 
    // wait for the recorder to finish the replay
    while (ret && r.GetState() == TRecorder::kReplaying) {
@@ -2612,3 +2324,230 @@ void fitpanel_playback()
    gSystem->ChangeDirectory(savdir.Data());
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// Run all stress GUI tests.
+
+void stressGUI()
+{
+   gROOT->SetWebDisplay("off");
+
+   if (gOptionRef) {
+      sgref = fopen("stressGUI.ref", "wt");
+   }
+   else {
+      // Read the reference file "stressGUI.ref"
+      sgref = fopen("stressGUI.ref", "rt");
+      if (sgref == 0) {
+         printf("\nReference file \"stressGUI.ref\" not found!\n");
+         printf("Please generate the reference file by executing\n");
+         printf("stressGUI with the -ref flag, as shown below:\n");
+         printf("   stressGUI -ref\n");
+         gSystem->Unlink(gTmpfilename.Data());
+         exit(0);
+      }
+      char line[160];
+      Int_t i = -1;
+      while (fgets(line, 160, sgref)) {
+         if ((i >= 0) && (strlen(line) > 15)) {
+            sscanf(&line[8],  "%d", &sizes[i]);
+         }
+         i++;
+      }
+      fclose(sgref);
+   }
+   gRootSys = gSystem->UnixPathName(gSystem->Getenv("ROOTSYS"));
+#ifdef WIN32
+   // remove the drive letter (e.g. "C:/") from $ROOTSYS, if any
+   if (gRootSys[1] == ':' && gRootSys[2] == '/')
+      gRootSys.Remove(0, 2);
+#endif
+
+   gVirtualX->Warp(gClient->GetDisplayWidth()-50, gClient->GetDisplayHeight()-50,
+                   gClient->GetDefaultRoot()->GetId());
+   // uncomment the next few lines to avoid (forbid) any mouse interaction
+//   gVirtualX->GrabPointer(gClient->GetDefaultRoot()->GetId(), kButtonPressMask |
+//                          kButtonReleaseMask | kPointerMotionMask, kNone,
+//                          gVirtualX->CreateCursor(kWatch), kTRUE, kFALSE);
+
+   if (gOptionRef) {
+      fprintf(sgref, "Test#     Size#\n");
+   } else {
+      std::cout << "**********************************************************************" <<std::endl;
+      std::cout << "*  Starting  GUI - S T R E S S suite                                 *" <<std::endl;
+      std::cout << "**********************************************************************" <<std::endl;
+   }
+   gTestNum = 0;
+
+   gBenchmark->Start("stressGUI");
+
+   if (!gOptionRef) {
+      std::cout << "*  Running macros in tutorials/visualisation/gui - S T R E S S       *" <<std::endl;
+      std::cout << "**********************************************************************" <<std::endl;
+   }
+   run_tutorials();
+   if (!gOptionRef) {
+      std::cout << "**********************************************************************" <<std::endl;
+      std::cout << "*  Starting Basic GUI Widgets - S T R E S S                          *" <<std::endl;
+      std::cout << "**********************************************************************" <<std::endl;
+   }
+   testLayout();
+   testTextAlign();
+   testGroupState();
+   testLabels();
+   testSplitButton();
+   testTextEntries();
+   testListTree();
+   testShutter();
+   testProgressBar();
+   testNumberEntry();
+   testTableLayout();
+   if (!gOptionRef) {
+      std::cout << "**********************************************************************" <<std::endl;
+      std::cout << "*  Starting High Level GUI Widgets - S T R E S S                     *" <<std::endl;
+      std::cout << "**********************************************************************" <<std::endl;
+   }
+   testPack();
+   testSearchDlg();
+   testFontDlg();
+   testColorDlg();
+   testEditor();
+   testCanvas();
+   testSliders();
+   testBrowsers();
+   testSplitFrame();
+   testControlBars();
+   testHelpDialog();
+
+   if (!gOptionRef) {
+
+      if (gOptionFull) {
+         std::cout << "**********************************************************************" <<std::endl;
+         std::cout << "*  Starting Drag and Drop playback - S T R E S S                     *" <<std::endl;
+         std::cout << "**********************************************************************" <<std::endl;
+         dnd_playback();
+
+         std::cout << "**********************************************************************" <<std::endl;
+         std::cout << "*  Starting MDI test playback - S T R E S S                          *" <<std::endl;
+         std::cout << "**********************************************************************" <<std::endl;
+         mditest_playback();
+
+         std::cout << "**********************************************************************" <<std::endl;
+         std::cout << "*  Starting guitest recorder playback - S T R E S S                  *" <<std::endl;
+         std::cout << "**********************************************************************" <<std::endl;
+         guitest_playback();
+
+         std::cout << "**********************************************************************" <<std::endl;
+         std::cout << "*  Starting fit panel recorder playback - S T R E S S                *" <<std::endl;
+         std::cout << "**********************************************************************" <<std::endl;
+         fitpanel_playback();
+
+         std::cout << "**********************************************************************" <<std::endl;
+         std::cout << "*  Starting graphic editors recorder playback - S T R E S S          *" <<std::endl;
+         std::cout << "**********************************************************************" <<std::endl;
+         graph_edit_playback();
+      }
+      std::cout << "**********************************************************************" <<std::endl;
+
+      gBenchmark->Stop("stressGUI");
+
+      //Print table with results
+      Bool_t UNIX = strcmp(gSystem->GetName(), "Unix") == 0;
+      if (UNIX) {
+         TString sp = gSystem->GetFromPipe("uname -a");
+         sp.Resize(60);
+         printf("*  SYS: %s\n",sp.Data());
+         if (strstr(gSystem->GetBuildNode(),"Darwin")) {
+            sp  = gSystem->GetFromPipe("sw_vers -productVersion");
+            sp += " Mac OS X ";
+            printf("*  SYS: %s\n",sp.Data());
+         }
+      } else {
+         const char *os = gSystem->Getenv("OS");
+         if (!os) printf("*  SYS: Windows 95\n");
+         else     printf("*  SYS: %s %s \n",os,gSystem->Getenv("PROCESSOR_IDENTIFIER"));
+      }
+
+      printf("**********************************************************************\n");
+      printf("*  ");
+      gBenchmark->Print("stressGUI");
+
+      Double_t ct = gBenchmark->GetCpuTime("stressGUI");  // ref: 13 s
+      Double_t rt = gBenchmark->GetRealTime("stressGUI"); // ref: 300 s
+      // normalize at 1000 rootmarks
+      Double_t full_marks = 0.5 *((13.0/ct) + (300.0/rt));
+      if (!gOptionFull)
+         full_marks = 0.5 *((4.5/ct) + (35.0/rt));
+      const Double_t rootmarks = 1000.0 * full_marks;
+
+      printf("**********************************************************************\n");
+      printf("*  ROOTMARKS = %6.1f   *  Root%-8s  %d/%04d\n", rootmarks, gROOT->GetVersion(),
+             gROOT->GetVersionDate(), gROOT->GetVersionTime());
+      printf("**********************************************************************\n");
+   }
+   gVirtualX->GrabPointer(0, 0, 0, 0, kFALSE);  // ungrab pointer
+   if (gOptionRef) {
+      fclose(sgref);
+   }
+   gSystem->Unlink(gTmpfilename.Data());
+   if (gOptionDebug) {
+      gClient->GetPicturePool()->Print();
+   }
+#ifdef WIN32
+   gSystem->Exec("erase /q /s TxtEdit* >nul 2>&1");
+   gSystem->Exec("erase /q /s TxtView* >nul 2>&1");
+#else
+   gSystem->Exec("rm -f TxtEdit*");
+   gSystem->Exec("rm -f TxtView*");
+#endif
+}
+
+
+#ifndef __CLING__
+
+////////////////////////////////////////////////////////////////////////////////
+/// Application main entry point.
+
+int main(int argc, char *argv[])
+{
+   // use $ROOTSYS/etc/system.rootrc default values
+   gEnv->ReadFile(TString::Format("%s/etc/system.rootrc",
+                  gSystem->Getenv("ROOTSYS")), kEnvAll);
+   gOptionRef  = kFALSE;
+   gOptionKeep = kFALSE;
+   gOptionFull = kFALSE;
+   gOptionDebug = kFALSE;
+   gTmpfilename = "stress-gui";
+   FILE *f = gSystem->TempFileName(gTmpfilename);
+   fclose(f);
+   for (int i = 0; i < argc; i++) {
+      if (!strcmp(argv[i], "-ref")) gOptionRef = kTRUE;
+      if (!strcmp(argv[i], "-keep")) gOptionKeep = kTRUE;
+      if (!strcmp(argv[i], "-full")) gOptionFull = kTRUE;
+      if (!strcmp(argv[i], "-debug")) gOptionDebug = kTRUE;
+      if (!strcmp(argv[i], "-help") || !strcmp(argv[i], "-?")) {
+         printf("Usage: stressGUI [-ref] [-keep] [-full] [-help] [-?] \n");
+         printf("Options:\n");
+         printf("\n");
+         printf("  -ref: Generate the reference output file \"stressGUI.ref\"\n");
+         printf("\n");
+         printf("  -keep: Keep the png files even for passed tests\n");
+         printf("        (by default the png files are deleted)\n");
+         printf("\n");
+         printf("  -debug: print debug information like for example\n");
+         printf("          picture refcount\n");
+         printf("\n");
+         printf("  -full: Full test: replay also recorder sessions\n");
+         printf("        (guitest, drag and drop, fitpanel, ...)\n");
+         printf("\n");
+         printf("  -help, -?: Print usage and exit\n");
+         return 0;
+      }
+   }
+   TApplication theApp("App", &argc, argv);
+   gBenchmark = new TBenchmark();
+   stressGUI();
+   theApp.Terminate();
+   return 0;
+}
+
+#endif

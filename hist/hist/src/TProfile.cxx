@@ -23,7 +23,6 @@
 
 Bool_t TProfile::fgApproximate = kFALSE;
 
-ClassImp(TProfile);
 
 /** \class TProfile
     \ingroup Histograms
@@ -44,7 +43,7 @@ ClassImp(TProfile);
   \begin{align}
        H(j)  &=  \sum w \cdot Y \\
        E(j)  &=  \sum w \cdot Y^2 \\
-       W(j)  &=  \sum w \\
+       W(j)  &=  \sum w                   & &\text{if weights different from 1, the number of bin effective entries is used} \\
        h(j)  &=  H(j) / W(j)              & &\text{mean of Y,} \\
        s(j)  &=  \sqrt{E(j)/W(j)- h(j)^2} & &\text{standard deviation of Y} \\
        e(j)  &=  s(j)/\sqrt{W(j)}         & &\text{standard error on the mean} \\
@@ -89,7 +88,7 @@ ClassImp(TProfile);
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor for Profile histograms
 
-TProfile::TProfile() : TH1D()
+TProfile::TProfile()
 {
    BuildOptions(0,0,"");
 }
@@ -243,12 +242,13 @@ void TProfile::BuildOptions(Double_t ymin, Double_t ymax, Option_t *option)
 
 TProfile::TProfile(const TProfile &profile) : TH1D()
 {
-   ((TProfile&)profile).Copy(*this);
+   profile.TProfile::Copy(*this);
 }
 
 TProfile &TProfile::operator=(const TProfile &profile)
 {
-   ((TProfile &)profile).Copy(*this);
+   if (this != &profile)
+      profile.TProfile::Copy(*this);
    return *this;
 }
 
@@ -301,7 +301,10 @@ Bool_t TProfile::Add(const TH1 *h1, const TH1 *h2, Double_t c1, Double_t c2)
       Error("Add","Attempt to add a non-profile object");
       return kFALSE;
    }
-   return TProfileHelper::Add(this, h1, h2, c1, c2);
+   Bool_t ret = TProfileHelper::Add(this, h1, h2, c1, c2);
+   if (c1 < 0 || c2 < 0)
+      ResetStats();
+   return ret;
 }
 
 
@@ -341,7 +344,7 @@ Int_t TProfile::BufferEmpty(Int_t action)
    if (nbentries < 0) {
       if (action == 0) return 0;
       nbentries  = -nbentries;
-      fBuffer=0;
+      fBuffer=nullptr;
       Reset("ICES"); // reset without deleting the functions
       fBuffer = buffer;
    }
@@ -357,7 +360,7 @@ Int_t TProfile::BufferEmpty(Int_t action)
       if (fXaxis.GetXmax() <= fXaxis.GetXmin()) {
          THLimitsFinder::GetLimitsFinder()->FindGoodLimits(this,xmin,xmax);
       } else {
-         fBuffer = 0;
+         fBuffer = nullptr;
          Int_t keep = fBufferSize; fBufferSize = 0;
          if (xmin <  fXaxis.GetXmin()) ExtendAxis(xmin,&fXaxis);
          if (xmax >= fXaxis.GetXmax()) ExtendAxis(xmax,&fXaxis);
@@ -366,14 +369,14 @@ Int_t TProfile::BufferEmpty(Int_t action)
       }
    }
 
-   fBuffer = 0;
+   fBuffer = nullptr;
 
    for (Int_t i=0;i<nbentries;i++) {
       Fill(buffer[3*i+2],buffer[3*i+3],buffer[3*i+1]);
    }
    fBuffer = buffer;
 
-   if (action > 0) { delete [] fBuffer; fBuffer = 0; fBufferSize = 0;}
+   if (action > 0) { delete [] fBuffer; fBuffer = nullptr; fBufferSize = 0;}
    else {
       if (nbentries == (Int_t)fEntries) fBuffer[0] = -nbentries;
       else                              fBuffer[0] = 0;
@@ -397,7 +400,7 @@ Int_t TProfile::BufferFill(Double_t x, Double_t y, Double_t w)
       nbentries  = -nbentries;
       fBuffer[0] =  nbentries;
       if (fEntries > 0) {
-         Double_t *buffer = fBuffer; fBuffer=0;
+         Double_t *buffer = fBuffer; fBuffer=nullptr;
          Reset("ICES");  // reset without deleting the functions
          fBuffer = buffer;
       }
@@ -414,12 +417,40 @@ Int_t TProfile::BufferFill(Double_t x, Double_t y, Double_t w)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Run a Chi2Test between a TProfileD and another histogram.
+/// If the argument is also a TProfileD, this calls TH1::Chi2Test() with the option "WW".
+/// \see TH1::Chi2Test()
+
+Double_t TProfile::Chi2Test(const TH1 *h2, Option_t *option, Double_t *res) const
+{
+   TString opt = option;
+   opt.ToUpper();
+
+   if (auto other = dynamic_cast<const TProfile *>(h2); other) {
+      if (fErrorMode != kERRORMEAN || other->fErrorMode != kERRORMEAN) {
+         Error("Chi2Test", "Chi2 tests need TProfiles in 'error of mean' mode.");
+         return 0;
+      }
+
+      opt += "WW";
+      opt.ReplaceAll("UU", "WW");
+      opt.ReplaceAll("UW", "WW");
+   } else if (!opt.Contains("WW")) {
+      Error("Chi2Test", "TProfiles need to be tested with the 'W' option. Either use option 'WW' or use "
+                        "histogram.Chi2Test(<profile>, 'UW')");
+      return 0;
+   }
+
+   return TH1::Chi2Test(h2, opt, res);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Copy a Profile histogram to a new profile histogram.
 
 void TProfile::Copy(TObject &obj) const
 {
    try {
-      TProfile & pobj = dynamic_cast<TProfile&>(obj);
+      TProfile &pobj = dynamic_cast<TProfile&>(obj);
       TH1D::Copy(pobj);
       fBinEntries.Copy(pobj.fBinEntries);
       fBinSumw2.Copy(pobj.fBinSumw2);
@@ -489,7 +520,7 @@ Bool_t TProfile::Divide(const TH1 *h1)
 
    //- Loop on bins (including underflows/overflows)
    Int_t bin;
-   Double_t *cu1=0, *er1=0, *en1=0;
+   Double_t *cu1=nullptr, *er1=nullptr, *en1=nullptr;
    Double_t e0,e1,c12;
    if (h1->InheritsFrom(TProfile::Class())) {
       cu1 = p1->GetW();
@@ -783,7 +814,7 @@ void TProfile::FillN(Int_t ntimes, const Double_t *x, const Double_t *y, const D
          else BufferFill(x[i], y[i], 1.);
       }
       // fill the remaining entries if the buffer has been deleted
-      if (i < ntimes && fBuffer==0)
+      if (i < ntimes && fBuffer==nullptr)
          ifirst = i;  // start from i
       else
          return;
@@ -879,7 +910,7 @@ Double_t TProfile::GetBinEffectiveEntries(Int_t bin) const
 ///
 ///  Ideas for improvements of this algorithm are welcome. No suggestions
 /// received since our call for advice to roottalk in Jul 2002.
-/// see for instance: http://root.cern.ch/root/roottalk/roottalk02/2916.html
+/// see for instance: http://root.cern/root/roottalk/roottalk02/2916.html
 
 Double_t TProfile::GetBinError(Int_t bin) const
 {
@@ -1275,6 +1306,7 @@ Bool_t TProfile::Multiply(const TH1 *, const TH1 *, Double_t, Double_t, Option_t
 ///      filling directly a TH1D using the 2-nd value as a weight.
 ///      This makes sense only for profile filled with weights =1. If not, the error of the
 ///       projected histogram obtained with this option will not be correct.
+///  - option "width" does not exist for this method. If needed, call TH1::Normalize on the result.
 
 TH1D *TProfile::ProjectionX(const char *name, Option_t *option) const
 {
@@ -1410,11 +1442,11 @@ TH1 *TProfile::Rebin(Int_t ngroup, const char*newname, const Double_t *xbins)
    Double_t xmax  = fXaxis.GetXmax();
    if ((ngroup <= 0) || (ngroup > nbins)) {
       Error("Rebin", "Illegal value of ngroup=%d",ngroup);
-      return 0;
+      return nullptr;
    }
    if (!newname && xbins) {
       Error("Rebin","if xbins is specified, newname must be given");
-      return 0;
+      return nullptr;
    }
 
    Int_t newbins = nbins/ngroup;
@@ -1437,7 +1469,7 @@ TH1 *TProfile::Rebin(Int_t ngroup, const char*newname, const Double_t *xbins)
    Double_t *oldBins   = new Double_t[nbins+2];
    Double_t *oldCount  = new Double_t[nbins+2];
    Double_t *oldErrors = new Double_t[nbins+2];
-   Double_t *oldBinw2  = (fBinSumw2.fN ? new Double_t[nbins+2] : 0  );
+   Double_t *oldBinw2  = (fBinSumw2.fN ? new Double_t[nbins+2] : nullptr  );
    Int_t bin, i;
    Double_t *cu1 = GetW();
    Double_t *er1 = GetW2();
@@ -1607,71 +1639,78 @@ void TProfile::Reset(Option_t *option)
 
 void TProfile::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   //Note the following restrictions in the code generated:
-   // - variable bin size not implemented
-   // - SetErrorOption not implemented
-
-   Bool_t nonEqiX = kFALSE;
-   Int_t i;
-   // Check if the profile has equidistant X bins or not.  If not, we
-   // create an array holding the bins.
-   if (GetXaxis()->GetXbins()->fN && GetXaxis()->GetXbins()->fArray) {
-      nonEqiX = kTRUE;
-      out << "   Double_t xAxis[" << GetXaxis()->GetXbins()->fN
-      << "] = {";
-      for (i = 0; i < GetXaxis()->GetXbins()->fN; i++) {
-         if (i != 0) out << ", ";
-         out << GetXaxis()->GetXbins()->fArray[i];
-      }
-      out << "}; " << std::endl;
-   }
-
-   char quote = '"';
-   out<<"   "<<std::endl;
-   out<<"   "<<ClassName()<<" *";
-
    //histogram pointer has by default the histogram name.
    //however, in case histogram has no directory, it is safer to add a incremental suffix
-   static Int_t hcounter = 0;
-   TString histName = GetName();
-   if (!fDirectory) {
-      hcounter++;
-      histName += "__";
-      histName += hcounter;
-   }
-   const char *hname = histName.Data();
+   TString hname = ProvideSaveName(option, kTRUE);
 
-   out<<hname<<" = new "<<ClassName()<<"("<<quote<<GetName()<<quote<<","<<quote<<GetTitle()<<quote
-   <<","<<GetXaxis()->GetNbins();
-   if (nonEqiX)
-      out << ", xAxis";
+   TString sxaxis;
+
+   out<<"   \n";
+
+   // Check if the profile has equidistant X bins or not.  If not, we
+   // create an array holding the bins.
+   if (GetXaxis()->GetXbins()->fN && GetXaxis()->GetXbins()->fArray)
+      sxaxis = SavePrimitiveVector(out, hname + "_x", GetXaxis()->GetXbins()->fN, GetXaxis()->GetXbins()->fArray);
+
+   out << "   " << ClassName() << " *" << hname << " = new " << ClassName() << "(\"" << TString(GetName()).ReplaceSpecialCppChars() << "\", \""
+       << TString(GetTitle()).ReplaceSpecialCppChars() << "\", " << GetXaxis()->GetNbins() << ", ";
+   if (!sxaxis.IsNull())
+      out << sxaxis << ".data()";
    else
-      out << "," << GetXaxis()->GetXmin()
-          << "," << GetXaxis()->GetXmax()
-          <<","<<quote<<GetErrorOption()<<quote<<");"<<std::endl;
+      out << GetXaxis()->GetXmin() << ", " << GetXaxis()->GetXmax();
+   out << ", \"" << TString(GetErrorOption()).ReplaceSpecialCppChars() << "\");\n";
 
-   // save bin entries
-   Int_t bin;
-   for (bin=0;bin<fNcells;bin++) {
-      Double_t bi = GetBinEntries(bin);
-      if (bi) {
-         out<<"   "<<hname<<"->SetBinEntries("<<bin<<","<<bi<<");"<<std::endl;
+   Bool_t save_errors = fSumw2.fN > 0;
+   Int_t numentries = 0, numcontent = 0, numerrors = 0;
+
+   std::vector<Double_t> entries(fNcells), content(fNcells), errors(save_errors ? fNcells : 0);
+   for (Int_t bin = 0; bin < fNcells; bin++) {
+      entries[bin] = GetBinEntries(bin);
+      if (entries[bin])
+         numentries++;
+      content[bin] = fArray[bin];
+      if (content[bin])
+         numcontent++;
+      if (save_errors) {
+         errors[bin] = TMath::Sqrt(fSumw2.fArray[bin]);
+         if (errors[bin])
+            numerrors++;
       }
    }
-   //save bin contents
-   for (bin=0;bin<fNcells;bin++) {
-      Double_t bc = fArray[bin];
-      if (bc) {
-         out<<"   "<<hname<<"->SetBinContent("<<bin<<","<<bc<<");"<<std::endl;
+
+   if ((numentries < 100) && (numcontent < 100) && (numerrors < 100)) {
+      // in case of few non-empty bins store them as before
+      for (Int_t bin = 0; bin < fNcells; bin++) {
+         if (entries[bin])
+            out << "   " << hname << "->SetBinEntries(" << bin << "," << entries[bin] << ");\n";
       }
-   }
-   // save bin errors
-   if (fSumw2.fN) {
-      for (bin=0;bin<fNcells;bin++) {
-         Double_t be = TMath::Sqrt(fSumw2.fArray[bin]);
-         if (be) {
-            out<<"   "<<hname<<"->SetBinError("<<bin<<","<<be<<");"<<std::endl;
+      for (Int_t bin = 0; bin < fNcells; bin++) {
+         if (content[bin])
+            out << "   " << hname << "->SetBinContent(" << bin << "," << content[bin] << ");\n";
+      }
+      if (save_errors)
+         for (Int_t bin = 0; bin < fNcells; bin++) {
+            if (errors[bin])
+               out << "   " << hname << "->SetBinError(" << bin << "," << errors[bin] << ");\n";
          }
+   } else {
+      if (numentries > 0) {
+         TString vect = SavePrimitiveVector(out, hname, fNcells, entries.data());
+         out << "   for (Int_t bin = 0; bin < " << fNcells << "; bin++)\n";
+         out << "      if (" << vect << "[bin])\n";
+         out << "         " << hname << "->SetBinEntries(bin, " << vect << "[bin]);\n";
+      }
+      if (numcontent > 0) {
+         TString vect = SavePrimitiveVector(out, hname, fNcells, content.data());
+         out << "   for (Int_t bin = 0; bin < " << fNcells << "; bin++)\n";
+         out << "      if (" << vect << "[bin])\n";
+         out << "         " << hname << "->SetBinContent(bin, " << vect << "[bin]);\n";
+      }
+      if (numerrors > 0) {
+         TString vect = SavePrimitiveVector(out, hname, fNcells, errors.data());
+         out << "   for (Int_t bin = 0; bin < " << fNcells << "; bin++)\n";
+         out << "      if (" << vect << "[bin])\n";
+         out << "         " << hname << "->SetBinError(bin, " << vect << "[bin]);\n";
       }
    }
 
@@ -1731,19 +1770,19 @@ void TProfile::SetBinsLength(Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Set the buffer size in units of 8 bytes (double).
 
-void TProfile::SetBuffer(Int_t buffersize, Option_t *)
+void TProfile::SetBuffer(Int_t bufsize, Option_t *)
 {
    if (fBuffer) {
       BufferEmpty();
       delete [] fBuffer;
-      fBuffer = 0;
+      fBuffer = nullptr;
    }
-   if (buffersize <= 0) {
+   if (bufsize <= 0) {
       fBufferSize = 0;
       return;
    }
-   if (buffersize < 100) buffersize = 100;
-   fBufferSize = 1 + 3*buffersize;
+   if (bufsize < 100) bufsize = 100;
+   fBufferSize = 1 + 3*bufsize;
    fBuffer = new Double_t[fBufferSize];
    memset(fBuffer,0,sizeof(Double_t)*fBufferSize);
 }

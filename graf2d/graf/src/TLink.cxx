@@ -9,14 +9,11 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include <cstdio>
-
 #include "TVirtualPad.h"
 #include "TClass.h"
 #include "TLink.h"
-#include "snprintf.h"
 
-ClassImp(TLink);
+#include <cstdio>
 
 /** \class TLink
 \ingroup BasicGraphics
@@ -33,7 +30,6 @@ Clicking on one link, inspect the corresponding object.
 
 TLink::TLink() : TText()
 {
-   fLink  = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

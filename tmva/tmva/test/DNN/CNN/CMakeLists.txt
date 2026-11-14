@@ -13,58 +13,60 @@
 set(Libraries TMVA)
 
 #--- CUDA tests. ---------------------------
-if (CUDA_FOUND AND tmva-gpu)
+if (tmva-gpu)
 
-set(DNN_CUDA_LIBRARIES ${CUDA_CUBLAS_LIBRARIES} ${CUDNN_LIBRARIES} )
+list(APPEND Libraries CUDA::cuda_driver CUDA::cudart)
 
-CUDA_ADD_EXECUTABLE(testIm2ColCuda TestIm2ColCuda.cxx)
+set(DNN_CUDA_LIBRARIES ${CUDA_CUBLAS_LIBRARIES} )
+
+add_executable(testIm2ColCuda TestIm2ColCuda.cxx)
 target_link_libraries(testIm2ColCuda ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-Im2ColCuda COMMAND testIm2ColCuda)
+ROOT_ADD_TEST(TMVA-DNN-CNN-Im2ColCuda COMMAND testIm2ColCuda RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testPoolingLayerCuda TestPoolingLayerCuda.cxx)
+add_executable(testPoolingLayerCuda TestPoolingLayerCuda.cxx)
 target_link_libraries(testPoolingLayerCuda ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-PoolingLayerCuda COMMAND testPoolingLayerCuda)
+ROOT_ADD_TEST(TMVA-DNN-CNN-PoolingLayerCuda COMMAND testPoolingLayerCuda RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testReshapeCuda TestReshapeCuda.cxx)
+add_executable(testReshapeCuda TestReshapeCuda.cxx)
 target_link_libraries(testReshapeCuda ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-ReshapeCuda COMMAND testReshapeCuda)
+ROOT_ADD_TEST(TMVA-DNN-CNN-ReshapeCuda COMMAND testReshapeCuda RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testConvLayerCuda TestConvLayerCuda.cxx)
+add_executable(testConvLayerCuda TestConvLayerCuda.cxx)
 target_link_libraries(testConvLayerCuda ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-ConvLayerCuda COMMAND testConvLayerCuda)
+ROOT_ADD_TEST(TMVA-DNN-CNN-ConvLayerCuda COMMAND testConvLayerCuda RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testForwardPassCuda TestForwardPassCuda.cxx)
+add_executable(testForwardPassCuda TestForwardPassCuda.cxx)
 target_link_libraries(testForwardPassCuda ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-ForwardCuda COMMAND testForwardPassCuda)
+ROOT_ADD_TEST(TMVA-DNN-CNN-ForwardCuda COMMAND testForwardPassCuda RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testRotateWeightsCuda TestRotateWeightsCuda.cxx)
+add_executable(testRotateWeightsCuda TestRotateWeightsCuda.cxx)
 target_link_libraries(testRotateWeightsCuda ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-RotateWeightsCuda COMMAND testRotateWeightsCuda)
+ROOT_ADD_TEST(TMVA-DNN-CNN-RotateWeightsCuda COMMAND testRotateWeightsCuda RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testConvBackpropagationCuda TestConvBackpropagationCuda.cxx)
+add_executable(testConvBackpropagationCuda TestConvBackpropagationCuda.cxx)
 target_link_libraries(testConvBackpropagationCuda ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-ConvBackpropagationCuda COMMAND testConvBackpropagationCuda)
+ROOT_ADD_TEST(TMVA-DNN-CNN-ConvBackpropagationCuda COMMAND testConvBackpropagationCuda RESOURCE_LOCK GPU)
 
 if (tmva-cudnn)
 
-CUDA_ADD_EXECUTABLE(testForwardPassCudnn TestForwardPassCudnn.cxx)
+add_executable(testForwardPassCudnn TestForwardPassCudnn.cxx)
 target_link_libraries(testForwardPassCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-ForwardCudnn COMMAND testForwardPassCudnn)
+ROOT_ADD_TEST(TMVA-DNN-CNN-ForwardCudnn COMMAND testForwardPassCudnn RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testConvBackpropagationCudnn TestConvBackpropagationCudnn.cxx)
+add_executable(testConvBackpropagationCudnn TestConvBackpropagationCudnn.cxx)
 target_link_libraries(testConvBackpropagationCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-ConvBackpropagationCudnn COMMAND testConvBackpropagationCudnn)
+ROOT_ADD_TEST(TMVA-DNN-CNN-ConvBackpropagationCudnn COMMAND testConvBackpropagationCudnn RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testConvLayerCudnn TestConvLayerCudnn.cxx)
+add_executable(testConvLayerCudnn TestConvLayerCudnn.cxx)
 target_link_libraries(testConvLayerCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-ConvLayerCudnn COMMAND testConvLayerCudnn)
+ROOT_ADD_TEST(TMVA-DNN-CNN-ConvLayerCudnn COMMAND testConvLayerCudnn RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testPoolingLayerCudnn TestPoolingLayerCudnn.cxx)
+add_executable(testPoolingLayerCudnn TestPoolingLayerCudnn.cxx)
 target_link_libraries(testPoolingLayerCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-CNN-PoolingLayerCudnn COMMAND testPoolingLayerCudnn)
+ROOT_ADD_TEST(TMVA-DNN-CNN-PoolingLayerCudnn COMMAND testPoolingLayerCudnn RESOURCE_LOCK GPU)
 
 # test mixed architecture Cudnn Cpu
-CUDA_ADD_EXECUTABLE(testMixedArchitectures TestMixedArchitectures.cxx)
+add_executable(testMixedArchitectures TestMixedArchitectures.cxx)
 target_link_libraries(testMixedArchitectures ${Libraries} ${DNN_CUDA_LIBRARIES})
 ROOT_ADD_TEST(TMVA-DNN-CNN-MixedArchitectures COMMAND testMixedArchitectures)
 

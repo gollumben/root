@@ -23,11 +23,13 @@
 
 #include <atomic>
 #include <string>
+#include <cstdint>
 
 #include "Compression.h"
 #include "TDirectoryFile.h"
 #include "TUrl.h"
 #include "ROOT/RConcurrentHashColl.hxx"
+#include <optional>
 
 // Not a part of TFile interface; provide a forward declaration instead of #include.
 // #ifndef R__LESS_INCLUDES
@@ -35,10 +37,8 @@
 // #endif
 
 #ifdef R__USE_IMT
-#include "ROOT/TRWSpinLock.hxx"
 #include <mutex>
 #endif
-
 
 class TMap;
 class TFree;
@@ -51,9 +51,86 @@ class TProcessID;
 class TStopwatch;
 class TFilePrefetch;
 
+namespace ROOT::Detail {
+struct TKeyMapNode {
+   enum EType {
+      kError,
+      kGap,
+      kKey
+   };
+
+   std::uint64_t fAddr = 0;
+   EType fType = kError;
+   std::uint32_t fLen = 0;
+
+   // these are only valid for Keys
+   Version_t fKeyVersion = 0;
+   Int_t fObjLen = 0;
+   Int_t fDatime = 0;
+   Short_t fKeyLen = 0;
+   Short_t fCycle = 0;
+   Long64_t fSeekKey = 0;
+   Long64_t fSeekPdir = 0;
+   std::string fClassName;
+   std::string fKeyName;
+   std::string fKeyTitle;
+
+   TKeyMapNode() = default;
+   TKeyMapNode(std::uint64_t addr, EType type, std::uint32_t len = 0) : fAddr(addr), fType(type), fLen(len) {}
+};
+
+class TKeyMapIterable {
+   TFile *fFile;
+
+public:
+   class TIterator {
+      TFile *fFile;
+      std::optional<TKeyMapNode> fCur;
+      std::uint64_t fCurAddr;
+
+      std::optional<TKeyMapNode> Next();
+
+      void Advance()
+      {
+         fCur = Next();
+         // If we encounter an error key, skip to the end of the file so we don't try reading additional ones.
+         if (!fCur || fCur->fType == TKeyMapNode::kError)
+            fCurAddr = -1;
+      }
+
+   public:
+      using iterator = TIterator;
+      using iterator_category = std::input_iterator_tag;
+      using difference_type = std::ptrdiff_t;
+      using value_type = TKeyMapNode;
+      using pointer = value_type *;
+      using reference = value_type &;
+
+      TIterator(TFile *file, std::uint64_t addr);
+
+      iterator &operator++()
+      {
+         Advance();
+         return *this;
+      }
+      reference operator*() { return fCur.value(); }
+      pointer operator->() { return fCur ? &*fCur : nullptr; }
+      bool operator!=(const iterator &rh) const { return !(*this == rh); }
+      bool operator==(const iterator &rh) const { return fFile == rh.fFile && fCurAddr == rh.fCurAddr; }
+   };
+
+   explicit TKeyMapIterable(TFile *file) : fFile(file) {}
+
+   TIterator begin() const { return TIterator(fFile, 0); }
+   TIterator end() const { return TIterator(fFile, (std::uint64_t) -1); }
+};
+
+} // namespace ROOT::Detail
+
 class TFile : public TDirectoryFile {
   friend class TDirectoryFile;
   friend class TFilePrefetch;
+  friend class ROOT::Detail::TKeyMapIterable::TIterator;
 // TODO: We need to make sure only one TBasket is being written at a time
 // if we are writing multiple baskets in parallel.
 #ifdef R__USE_IMT
@@ -113,10 +190,12 @@ protected:
    TList           *fInfoCache{nullptr};      ///<!Cached list of the streamer infos in this file
    TList           *fOpenPhases{nullptr};     ///<!Time info about open phases
 
+   bool             fGlobalRegistration = true; ///<! if true, bypass use of global lists
+
 #ifdef R__USE_IMT
    std::mutex                                 fWriteMutex;  ///<!Lock for writing baskets / keys into the file.
-   static ROOT::Internal::RConcurrentHashColl fgTsSIHashes; ///<!TS Set of hashes built from read streamer infos
 #endif
+   static ROOT::Internal::RConcurrentHashColl fgTsSIHashes; ///<!TS Set of hashes built from read streamer infos
 
    static TList    *fgAsyncOpenRequests; //List of handles for pending open requests
 
@@ -149,10 +228,6 @@ protected:
 
    virtual InfoListRet GetStreamerInfoListImpl(bool lookupSICache);
 
-   // Creating projects
-           Int_t       MakeProjectParMake(const char *packname, const char *filename);
-           Int_t       MakeProjectParProofInf(const char *packname, const char *proofinfdir);
-
    // Interface to basic system I/O routines
    virtual Int_t       SysOpen(const char *pathname, Int_t flags, UInt_t mode);
    virtual Int_t       SysClose(Int_t fd);
@@ -180,26 +255,47 @@ private:
 public:
    /// TFile status bits. BIT(13) is taken up by TObject
    enum EStatusBits {
+      // Produce files forward compatible with (unpatched) version older than
+      // v6.30 by recording the internal bits kIsOnHeap and kNotDeleted; Older
+      // releases were not explicitly setting those bits to the correct value
+      // but instead used verbatim the value stored in the file.
+      // Note that to avoid a circular dependency, this value is used
+      // hard coded in TObject.cxx.
+      k630forwardCompatibility = BIT(2),
       kRecovered     = BIT(10),
       kHasReferences = BIT(11),
       kDevNull       = BIT(12),
       kWriteError    = BIT(14),
       kBinaryFile    = BIT(15),
       kRedirected    = BIT(16),
-      kReproducible  = BIT(17)
+      kReproducible  = BIT(17),
+      // Set this bit to block an unwanted automatic call to TTree::ChangeFile
+      // e.g. during TFileMerger operations (bypassing any set MaxTreeSize)
+      // This is a transient bit and has no relevance for I/O.
+      kCancelTTreeChangeRequest = BIT(18)
    };
    enum ERelativeTo { kBeg = 0, kCur = 1, kEnd = 2 };
    enum { kStartBigFile  = 2000000000 };
    /// File type
-   enum EFileType { kDefault = 0, kLocal = 1, kNet = 2, kWeb = 3, kFile = 4, kMerge = 5 };
+   enum EFileType {
+// clang++ <v20 (-Wshadow) complains about shadowing TSystem.h global enum ESendRecvOptions. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kDefault = 0,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
+      kLocal = 1, kNet = 2, kWeb = 3, kFile = 4, kMerge = 5 };
 
    TFile();
    TFile(const char *fname, Option_t *option="", const char *ftitle="", Int_t compress = ROOT::RCompressionSetting::EDefaults::kUseCompiledDefault);
-   virtual ~TFile();
+   ~TFile() override;
 
            void        Close(Option_t *option="") override; // *MENU*
            void        Copy(TObject &) const override { MayNotUse("Copy(TObject &)"); }
-   virtual Bool_t      Cp(const char *dst, Bool_t progressbar = kTRUE,UInt_t buffersize = 1000000);
+   virtual Bool_t      Cp(const char *dst, Bool_t progressbar = kTRUE,UInt_t bufsize = 1000000);
    virtual TKey*       CreateKey(TDirectory* mother, const TObject* obj, const char* name, Int_t bufsize);
    virtual TKey*       CreateKey(TDirectory* mother, const void* obj, const TClass* cl,
                                  const char* name, Int_t bufsize);
@@ -255,6 +351,10 @@ public:
    virtual void        MakeFree(Long64_t first, Long64_t last);
    virtual void        MakeProject(const char *dirname, const char *classes="*",
                                    Option_t *option="new"); // *MENU*
+
+   /// Traverses all TKeys in the TFile and returns information about them.
+   ROOT::Detail::TKeyMapIterable WalkTKeys();
+
    virtual void        Map(Option_t *opt); // *MENU*
    virtual void        Map() { Map(""); }; // *MENU*
    virtual Bool_t      Matches(const char *name);
@@ -271,7 +371,7 @@ public:
    virtual Int_t       Recover();
    virtual Int_t       ReOpen(Option_t *mode);
    virtual void        Seek(Long64_t offset, ERelativeTo pos = kBeg);
-   virtual void        SetCacheRead(TFileCacheRead *cache, TObject* tree = 0, ECacheAction action = kDisconnect);
+   virtual void        SetCacheRead(TFileCacheRead *cache, TObject *tree = nullptr, ECacheAction action = kDisconnect);
    virtual void        SetCacheWrite(TFileCacheWrite *cache);
    virtual void        SetCompressionAlgorithm(Int_t algorithm = ROOT::RCompressionSetting::EAlgorithm::kUseGlobal);
    virtual void        SetCompressionLevel(Int_t level = ROOT::RCompressionSetting::ELevel::kUseMin);
@@ -284,8 +384,8 @@ public:
            Int_t       Sizeof() const override;
            void        SumBuffer(Int_t bufsize);
    virtual Bool_t      WriteBuffer(const char *buf, Int_t len);
-           Int_t       Write(const char *name=nullptr, Int_t opt=0, Int_t bufsiz=0) override;
-           Int_t       Write(const char *name=nullptr, Int_t opt=0, Int_t bufsiz=0) const override;
+           Int_t       Write(const char *name=nullptr, Int_t opt=0, Int_t bufsize=0) override;
+           Int_t       Write(const char *name=nullptr, Int_t opt=0, Int_t bufsize=0) const override;
    virtual void        WriteFree();
    virtual void        WriteHeader();
    virtual UShort_t    WriteProcessID(TProcessID *pid);
@@ -321,9 +421,6 @@ public:
    static Long64_t     GetFileCounter();
    static void         IncrementFileCounter();
 
-   static Bool_t       SetCacheFileDir(ROOT::Internal::TStringView cacheDir, Bool_t operateDisconnected = kTRUE,
-                                       Bool_t forceCacheread = kFALSE)
-     { return SetCacheFileDir(std::string_view(cacheDir), operateDisconnected, forceCacheread); }
    static Bool_t       SetCacheFileDir(std::string_view cacheDir, Bool_t operateDisconnected = kTRUE,
                                        Bool_t forceCacheread = kFALSE);
    static const char  *GetCacheFileDir();
@@ -339,23 +436,16 @@ public:
    ClassDefOverride(TFile,8)  //ROOT file
 };
 
-#ifndef __CINT__
 #define gFile (TFile::CurrentFile())
-
-#elif defined(__MAKECINT__)
-// To properly handle the use of gFile in header files (in static declarations)
-R__EXTERN TFile   *gFile;
-#endif
 
 /**
 \class TFileOpenHandle
-\ingroup IO
+\ingroup io_files
 Class holding info about the file being opened
 */
 class TFileOpenHandle : public TNamed {
 
 friend class TFile;
-friend class TAlienFile;
 
 private:
    TString  fOpt;            ///< Options
@@ -374,7 +464,7 @@ private:
    TFile      *GetFile() const { return fFile; }
 
 public:
-   ~TFileOpenHandle() { }
+   ~TFileOpenHandle() override { }
 
    Bool_t      Matches(const char *name);
 

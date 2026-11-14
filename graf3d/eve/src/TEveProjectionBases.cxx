@@ -29,7 +29,6 @@ derived from TEveElement.
 See also TEveProjectionManager::ImportElements().
 */
 
-ClassImp(TEveProjectable);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -98,7 +97,7 @@ void TEveProjectable::AddProjectedsToSet(std::set<TEveElement*>& set)
 
 void TEveProjectable::PropagateVizParams(TEveElement* el)
 {
-   if (el == 0)
+   if (el == nullptr)
       el = dynamic_cast<TEveElement*>(this);
 
    for (ProjList_i i=fProjectedList.begin(); i!=fProjectedList.end(); ++i)
@@ -153,14 +152,13 @@ It is assumed that all classes deriving from TEveProjected are also
 derived from TEveElement.
 */
 
-ClassImp(TEveProjected);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
 TEveProjected::TEveProjected() :
-   fManager     (0),
-   fProjectable (0),
+   fManager     (nullptr),
+   fProjectable (nullptr),
    fDepth       (0)
 {
 }
@@ -208,7 +206,7 @@ void TEveProjected::UnRefProjectable(TEveProjectable* assumed_parent, bool notif
    R__ASSERT(fProjectable == assumed_parent);
 
    if (notifyParent) fProjectable->RemoveProjected(this);
-   fProjectable = 0;
+   fProjectable = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -11,7 +11,7 @@
 
 /**
 \class TZIPFile
-\ingroup IO
+\ingroup io_ZIP
 
 Describes a ZIP archive file containing multiple sub-files.
 
@@ -57,7 +57,6 @@ the sub-file starts. The members can be accessed in any order.
 #include "TObjArray.h"
 
 
-ClassImp(TZIPFile);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.
@@ -99,17 +98,17 @@ Long64_t TZIPFile::FindEndHeader()
 {
    const Int_t kBUFSIZE = 1024;
    Long64_t    size = fFile->GetSize();
-   Long64_t    limit = TMath::Min(size, Long64_t(kMAX_VAR_LEN));
+   Long64_t    limit = std::min(size, Long64_t(kMAX_VAR_LEN));
    char        buf[kBUFSIZE+4];
 
    // Note, this works correctly even if the signature straddles read
    // boundaries since we always read an overlapped area of four
    // bytes on the next read
    for (Long64_t offset = 4; offset < limit; ) {
-      offset = TMath::Min(offset + kBUFSIZE, limit);
+      offset = std::min(offset + kBUFSIZE, limit);
 
       Long64_t pos = size - offset;
-      Int_t    n = TMath::Min(kBUFSIZE+4, Int_t(offset));
+      Int_t    n = std::min(kBUFSIZE+4, Int_t(offset));
 
       fFile->Seek(pos);
       if (fFile->ReadBuffer(buf, n)) {
@@ -278,7 +277,7 @@ Int_t TZIPFile::ReadZip64EndRecord(Long64_t pos)
 Int_t TZIPFile::ReadDirectory()
 {
    char   buf[kDIR_HEADER_SIZE];
-   UInt_t n, i;
+   UInt_t n;
 
    // read and validate first the header magic
    fFile->Seek(fDirPos);
@@ -290,7 +289,7 @@ Int_t TZIPFile::ReadDirectory()
    }
 
    // now read the full directory
-   for (i = 0; n == kDIR_HEADER_MAGIC; i++) {
+   while (n == kDIR_HEADER_MAGIC) {
       // read the rest of the header
       if (fFile->ReadBuffer(buf + kZIP_MAGIC_LEN, kDIR_HEADER_SIZE - kZIP_MAGIC_LEN)) {
          Error("ReadDirectory", "error reading %d directory bytes from %s",
@@ -461,13 +460,25 @@ Int_t TZIPFile::DecodeZip64ExtendedExtraField(TZIPMember *m, Bool_t global)
       UInt_t   tag  = Get(buf + off + kZIP64_EXTENDED_MAGIC_OFF, kZIP64_EXTENDED_MAGIC_LEN);
       UInt_t   size = Get(buf + off + kZIP64_EXTENDED_SIZE_OFF,  kZIP64_EXTENDED_SIZE_LEN);
       if (tag == kZIP64_EXTENDED_MAGIC) {
-         Long64_t usize = Get64(buf + off + kZIP64_EXTENDED_USIZE_OFF,      kZIP64_EXTENDED_USIZE_LEN);
-         Long64_t csize = Get64(buf + off + kZIP64_EXTENTED_CSIZE_OFF,      kZIP64_EXTENDED_CSIZE_LEN);
-         m->fDsize = usize;
-         m->fCsize = csize;
-         if (size >= 24) {
-            Long64_t offset = Get64(buf + off + kZIP64_EXTENDED_HDR_OFFSET_OFF, kZIP64_EXTENDED_HDR_OFFSET_LEN);
-            m->fPosition = offset;
+         // The Zip64 extended entry field may contain the following values:
+         //   - Original uncompressed size (8 B)
+         //   - Size of compressed data (8 B)
+         //   - Offset of local header record (8 B)
+         // These are all optional and only appear if the respective non-extra field is set to kMAX_SIZE (0xFFFF'FFFF).
+         // However they must appear in the above order.
+         Long64_t relOff = kZIP64_EXTENDED_USIZE_OFF;
+         if (m->fDsize == kMAX_SIZE && size >= kZIP64_EXTENDED_USIZE_LEN) {
+            m->fDsize = Get64(buf + off + relOff, kZIP64_EXTENDED_USIZE_LEN);
+            size -= kZIP64_EXTENDED_USIZE_LEN;
+            relOff += kZIP64_EXTENDED_USIZE_LEN;
+         }
+         if (m->fCsize == kMAX_SIZE && size >= kZIP64_EXTENDED_CSIZE_LEN) {
+            m->fCsize = Get64(buf + off + relOff, kZIP64_EXTENDED_CSIZE_LEN);
+            size -= kZIP64_EXTENDED_CSIZE_LEN;
+            relOff += kZIP64_EXTENDED_CSIZE_LEN;
+         }
+         if (m->fPosition == kMAX_SIZE && size >= kZIP64_EXTENDED_HDR_OFFSET_LEN) {
+            m->fPosition = Get64(buf + off + relOff, kZIP64_EXTENDED_HDR_OFFSET_LEN);
          }
 
          ret = 0;
@@ -561,7 +572,6 @@ void TZIPFile::Print(Option_t *) const
 }
 
 
-ClassImp(TZIPMember);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default ctor.

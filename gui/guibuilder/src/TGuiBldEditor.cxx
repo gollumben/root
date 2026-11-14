@@ -35,7 +35,6 @@ The property editor
 #include "TGSplitter.h"
 #include "TGTableLayout.h"
 
-ClassImp(TGuiBldEditor);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -55,7 +54,7 @@ private:
 
 public:
    TGuiBldBorderFrame(const TGWindow *p, TGuiBldEditor *editor);
-   virtual ~TGuiBldBorderFrame() { }
+   ~TGuiBldBorderFrame() override { }
 
    void  ChangeSelected(TGFrame*);
 };
@@ -406,7 +405,7 @@ void TGuiBldEditor::ChangeSelected(TGFrame *frame)
    if (fBorderFrame) fBorderFrame->ChangeSelected(fSelected);
    if (fGeomFrame) fGeomFrame->ChangeSelected(fSelected);
 
-   Emit("ChangeSelected(TGFrame*)", (long)fSelected);
+   Emit("ChangeSelected(TGFrame*)", (Longptr_t)fSelected);
 
    MapRaised();
 }
@@ -416,7 +415,7 @@ void TGuiBldEditor::ChangeSelected(TGFrame *frame)
 
 void TGuiBldEditor::UpdateSelected(TGFrame *frame)
 {
-   Emit("UpdateSelected(TGFrame*)", (long)frame);
+   Emit("UpdateSelected(TGFrame*)", (Longptr_t)frame);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

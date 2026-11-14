@@ -51,6 +51,7 @@ kC_VSCROLL, kSB_SLIDERTRACK, position, 0
 #include "TGResourcePool.h"
 #include "TGPicture.h"
 #include "TImage.h"
+#include "TASUtils.h"
 #include "TSystem.h"
 #include "TTimer.h"
 #include "TEnv.h"
@@ -62,10 +63,6 @@ kC_VSCROLL, kSB_SLIDERTRACK, position, 0
 Pixmap_t TGScrollBar::fgBckgndPixmap = 0;
 Int_t    TGScrollBar::fgScrollBarWidth = kDefaultScrollBarWidth;
 
-ClassImp(TGScrollBarElement);
-ClassImp(TGScrollBar);
-ClassImp(TGHScrollBar);
-ClassImp(TGVScrollBar);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -78,7 +75,7 @@ public:
    TSBRepeatTimer(TGScrollBar *s, Long_t ms, Int_t inc) : TTimer(ms, kTRUE)
       { fScrollBar = s;  fSmallInc = inc; }
 
-   Bool_t Notify();
+   Bool_t Notify() override;
    Int_t  GetSmallInc() const { return fSmallInc; }
 };
 
@@ -161,25 +158,21 @@ void TGScrollBarElement::SetEnabled(Bool_t on)
       SetState(kButtonDisabled);
 
       if (!fPicD) {
-         TImage *img = TImage::Create();
-         if (!img) return;
-         TImage *img2 = TImage::Create();
-         if (!img2) {
-            if (img) delete img;
+         std::unique_ptr<TImage> img2(TImage::Create());
+         if (!img2)
             return;
-         }
          TString back = gEnv->GetValue("Gui.BackgroundColor", "#c0c0c0");
          img2->FillRectangle(back.Data(), 0, 0, fPic->GetWidth(), fPic->GetHeight());
-         img->SetImage(fPicN->GetPicture(), fPicN->GetMask());
-         Pixmap_t mask = img->GetMask();
-         img2->Merge(img, "overlay");
+         auto img = TASUtils::FromPixmap(fPicN->GetPicture(), fPicN->GetMask());
+         if (!img)
+            return;
+         Pixmap_t mask = TASUtils::GetMask(img.get());
+         img2->Merge(img.get(), "overlay");
 
          TString name = "disbl_";
          name += fPic->GetName();
-         fPicD = fClient->GetPicturePool()->GetPicture(name.Data(), img2->GetPixmap(),
+         fPicD = fClient->GetPicturePool()->GetPicture(name.Data(), TASUtils::GetPixmap(img2.get()),
                                                        mask);
-         delete img;
-         delete img2;
       }
       fPic = fPicD;
    }
@@ -304,9 +297,15 @@ Bool_t TGScrollBarElement::HandleCrossing(Event_t *event)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
-
+/// \param p The parent window
+/// \param w The scrollbar width
+/// \param h The scrollbar height
+/// \param options A bitmask of options (see EFrameType)
+/// \param back The background color
+/// \param headPicName Filename of the "head" picture (e.g. left arrow for a horizontal scrollbar)
+/// \param tailPicName Filename of the "tail" picture (e.g. right arrow for a horizontal scrollbar)
 TGScrollBar::TGScrollBar(const TGWindow *p, UInt_t w, UInt_t h,
-                         UInt_t options, Pixel_t back) :
+                         UInt_t options, Pixel_t back, const char *headPicName, const char *tailPicName) :
    TGFrame(p, w, h, options | kOwnBackground, back),
    fX0(0), fY0(0), fXp(0), fYp(0), fDragging(kFALSE), fGrabPointer(kTRUE),
    fRange(0), fPsize(0), fPos(0), fSliderSize(0), fSliderRange(0),
@@ -323,6 +322,31 @@ TGScrollBar::TGScrollBar(const TGWindow *p, UInt_t w, UInt_t h,
       SetBackgroundPixmap(GetBckgndPixmap());
    SetWindowName();
    AddInput(kEnterWindowMask | kLeaveWindowMask);
+
+   fHeadPic = fClient->GetPictureOrEmpty(headPicName);
+   fTailPic = fClient->GetPictureOrEmpty(tailPicName);
+
+   fHead   = new TGScrollBarElement(this, fHeadPic, fgScrollBarWidth, fgScrollBarWidth,
+                                    kRaisedFrame);
+   fTail   = new TGScrollBarElement(this, fTailPic, fgScrollBarWidth, fgScrollBarWidth,
+                                    kRaisedFrame);
+   fSlider = new TGScrollBarElement(this, 0, fgScrollBarWidth, 50,
+                                    kRaisedFrame);
+
+   gVirtualX->GrabButton(fId, kAnyButton, kAnyModifier, kButtonPressMask |
+                         kButtonReleaseMask | kPointerMotionMask, kNone, kNone);
+
+   fDragging = kFALSE;
+   fX0 = fY0 = (fgScrollBarWidth = std::max(fgScrollBarWidth, 5));
+   fPos = 0;
+
+   fSliderSize  = 50;
+   fSliderRange = 1;
+
+   fHead->SetEditDisabled(kEditDisable | kEditDisableGrab);
+   fTail->SetEditDisabled(kEditDisable | kEditDisableGrab);
+   fSlider->SetEditDisabled(kEditDisable | kEditDisableGrab);
+   fEditDisabled = kEditDisableLayout | kEditDisableBtnEnable;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -428,39 +452,11 @@ void TGScrollBar::ChangeBackground(Pixel_t back)
 
 TGHScrollBar::TGHScrollBar(const TGWindow *p, UInt_t w, UInt_t h,
                            UInt_t options, ULong_t back) :
-    TGScrollBar(p, w, h, options, back)
+    TGScrollBar(p, w, h, options, back, "arrow_left.xpm", "arrow_right.xpm")
 {
-   fHeadPic = fClient->GetPicture("arrow_left.xpm");
-   fTailPic = fClient->GetPicture("arrow_right.xpm");
-
-   if (!fHeadPic || !fTailPic) {
-      Error("TGHScrollBar", "arrow_*.xpm not found");
-      return;
-   }
-   fHead   = new TGScrollBarElement(this, fHeadPic, fgScrollBarWidth, fgScrollBarWidth,
-                                    kRaisedFrame);
-   fTail   = new TGScrollBarElement(this, fTailPic, fgScrollBarWidth, fgScrollBarWidth,
-                                    kRaisedFrame);
-   fSlider = new TGScrollBarElement(this, 0, fgScrollBarWidth, 50,
-                                    kRaisedFrame);
-
-   gVirtualX->GrabButton(fId, kAnyButton, kAnyModifier, kButtonPressMask |
-                         kButtonReleaseMask | kPointerMotionMask, kNone, kNone);
-
-   fDragging = kFALSE;
-   fX0 = fY0 = (fgScrollBarWidth = TMath::Max(fgScrollBarWidth, 5));
-   fPos = 0;
-
-   fRange = TMath::Max((Int_t) w - (fgScrollBarWidth << 1), 1);
+   fRange = std::max((Int_t) w - (fgScrollBarWidth << 1), 1);
    fPsize = fRange >> 1;
-
-   fSliderSize  = 50;
-   fSliderRange = 1;
-
-   fHead->SetEditDisabled(kEditDisable | kEditDisableGrab);
-   fTail->SetEditDisabled(kEditDisable | kEditDisableGrab);
-   fSlider->SetEditDisabled(kEditDisable | kEditDisableGrab);
-   fEditDisabled = kEditDisableLayout | kEditDisableHeight | kEditDisableBtnEnable;
+   fEditDisabled |= kEditDisableHeight;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -511,13 +507,13 @@ Bool_t TGHScrollBar::HandleButton(Event_t *event)
    if (event->fType == kButtonPress) {
       if (event->fCode == kButton3) {
          fX0 = event->fX - fSliderSize/2;
-         fX0 = TMath::Max(fX0, fgScrollBarWidth);
-         fX0 = TMath::Min(fX0, fgScrollBarWidth + fSliderRange);
+         fX0 = std::max(fX0, fgScrollBarWidth);
+         fX0 = std::min(fX0, fgScrollBarWidth + fSliderRange);
          ULong_t pos = (ULong_t)(fX0 - fgScrollBarWidth) * (ULong_t)(fRange-fPsize) / (ULong_t)fSliderRange;
          fPos = (Int_t)pos;
 
-         fPos = TMath::Max(fPos, 0);
-         fPos = TMath::Min(fPos, fRange-fPsize);
+         fPos = std::max(fPos, 0);
+         fPos = std::min(fPos, fRange-fPsize);
          fSlider->Move(fX0, 0);
 
          SendMessage(fMsgWindow, MK_MSG(kC_HSCROLL, kSB_SLIDERTRACK), fPos, 0);
@@ -525,7 +521,7 @@ Bool_t TGHScrollBar::HandleButton(Event_t *event)
          return kTRUE;
       }
 
-      // fUser[0] contains the subwindow (child) in which the event occured
+      // fUser[0] contains the subwindow (child) in which the event occurred
       // (see GX11Gui.cxx)
       Window_t subw = (Window_t)event->fUser[0];
 
@@ -559,13 +555,13 @@ Bool_t TGHScrollBar::HandleButton(Event_t *event)
          else if (event->fX > fX0+fSliderSize && event->fX < (Int_t)fWidth-fgScrollBarWidth)
             fPos += fPsize;
 
-         fPos = TMath::Max(fPos, 0);
-         fPos = TMath::Min(fPos, fRange-fPsize);
+         fPos = std::max(fPos, 0);
+         fPos = std::min(fPos, fRange-fPsize);
 
-         fX0 = fgScrollBarWidth + fPos * fSliderRange / TMath::Max(fRange-fPsize, 1);
+         fX0 = fgScrollBarWidth + fPos * fSliderRange / std::max(fRange-fPsize, 1);
 
-         fX0 = TMath::Max(fX0, fgScrollBarWidth);
-         fX0 = TMath::Min(fX0, fgScrollBarWidth + fSliderRange);
+         fX0 = std::max(fX0, fgScrollBarWidth);
+         fX0 = std::min(fX0, fgScrollBarWidth + fSliderRange);
 
          fSlider->Move(fX0, 0);
 
@@ -590,8 +586,8 @@ Bool_t TGHScrollBar::HandleButton(Event_t *event)
 
       fDragging = kFALSE;
 
-      fPos = TMath::Max(fPos, 0);
-      fPos = TMath::Min(fPos, fRange-fPsize);
+      fPos = std::max(fPos, 0);
+      fPos = std::min(fPos, fRange-fPsize);
 
       SendMessage(fMsgWindow, MK_MSG(kC_HSCROLL, kSB_SLIDERPOS), fPos, 0);
       PositionChanged(fPos);
@@ -611,14 +607,14 @@ Bool_t TGHScrollBar::HandleMotion(Event_t *event)
       fX0 = event->fX - fXp;
       fY0 = event->fY - fYp;
 
-      fX0 = TMath::Max(fX0, fgScrollBarWidth);
-      fX0 = TMath::Min(fX0, fgScrollBarWidth + fSliderRange);
+      fX0 = std::max(fX0, fgScrollBarWidth);
+      fX0 = std::min(fX0, fgScrollBarWidth + fSliderRange);
       fSlider->Move(fX0, 0);
       ULong_t pos = (ULong_t)(fX0 - fgScrollBarWidth) * (ULong_t)(fRange-fPsize) / (ULong_t)fSliderRange;
       fPos = (Int_t)pos;
 
-      fPos = TMath::Max(fPos, 0);
-      fPos = TMath::Min(fPos, fRange-fPsize);
+      fPos = std::max(fPos, 0);
+      fPos = std::min(fPos, fRange-fPsize);
 
       SendMessage(fMsgWindow, MK_MSG(kC_HSCROLL, kSB_SLIDERTRACK), fPos, 0);
       PositionChanged(fPos);
@@ -631,21 +627,21 @@ Bool_t TGHScrollBar::HandleMotion(Event_t *event)
 
 void TGHScrollBar::SetRange(Int_t range, Int_t page_size)
 {
-   fRange = TMath::Max(range, 1);
-   fPsize = TMath::Max(page_size, 0);
-   fPos = TMath::Max(fPos, 0);
-   fPos = TMath::Min(fPos, fRange-fPsize);
+   fRange = std::max(range, 1);
+   fPsize = std::max(page_size, 0);
+   fPos = std::max(fPos, 0);
+   fPos = std::min(fPos, fRange-fPsize);
 
-   fSliderSize = TMath::Max(fPsize * (fWidth - (fgScrollBarWidth << 1)) /
+   fSliderSize = std::max(fPsize * (fWidth - (fgScrollBarWidth << 1)) /
                             fRange, (UInt_t) 6);
-   fSliderSize = TMath::Min((UInt_t)fSliderSize, fWidth - (fgScrollBarWidth << 1));
+   fSliderSize = std::min((UInt_t)fSliderSize, fWidth - (fgScrollBarWidth << 1));
 
-   fSliderRange = TMath::Max(fWidth - (fgScrollBarWidth << 1) - fSliderSize,
+   fSliderRange = std::max(fWidth - (fgScrollBarWidth << 1) - fSliderSize,
                              (UInt_t) 1);
 
-   fX0 = fgScrollBarWidth + fPos * fSliderRange / TMath::Max(fRange-fPsize, 1);
-   fX0 = TMath::Max(fX0, fgScrollBarWidth);
-   fX0 = TMath::Min(fX0, fgScrollBarWidth + fSliderRange);
+   fX0 = fgScrollBarWidth + fPos * fSliderRange / std::max(fRange-fPsize, 1);
+   fX0 = std::max(fX0, fgScrollBarWidth);
+   fX0 = std::min(fX0, fgScrollBarWidth + fSliderRange);
 
    fSlider->Move(fX0, 0);
    fSlider->Resize(fSliderSize, fgScrollBarWidth);
@@ -664,12 +660,12 @@ void TGHScrollBar::SetRange(Int_t range, Int_t page_size)
 
 void TGHScrollBar::SetPosition(Int_t pos)
 {
-   fPos = TMath::Max(pos, 0);
-   fPos = TMath::Min(pos, fRange-fPsize);
+   fPos = std::max(pos, 0);
+   fPos = std::min(pos, fRange-fPsize);
 
-   fX0 = fgScrollBarWidth + fPos * fSliderRange / TMath::Max(fRange-fPsize, 1);
-   fX0 = TMath::Max(fX0, fgScrollBarWidth);
-   fX0 = TMath::Min(fX0, fgScrollBarWidth + fSliderRange);
+   fX0 = fgScrollBarWidth + fPos * fSliderRange / std::max(fRange-fPsize, 1);
+   fX0 = std::max(fX0, fgScrollBarWidth);
+   fX0 = std::min(fX0, fgScrollBarWidth + fSliderRange);
 
    fSlider->Move(fX0, 0);
    fSlider->Resize(fSliderSize, fgScrollBarWidth);
@@ -685,39 +681,11 @@ void TGHScrollBar::SetPosition(Int_t pos)
 
 TGVScrollBar::TGVScrollBar(const TGWindow *p, UInt_t w, UInt_t h,
                            UInt_t options, ULong_t back) :
-    TGScrollBar(p, w, h, options, back)
+    TGScrollBar(p, w, h, options, back, "arrow_up.xpm", "arrow_down.xpm")
 {
-   fHeadPic = fClient->GetPicture("arrow_up.xpm");
-   fTailPic = fClient->GetPicture("arrow_down.xpm");
-
-   if (!fHeadPic || !fTailPic) {
-      Error("TGVScrollBar", "arrow_*.xpm not found");
-      return;
-   }
-   fHead   = new TGScrollBarElement(this, fHeadPic, fgScrollBarWidth, fgScrollBarWidth,
-                                    kRaisedFrame);
-   fTail   = new TGScrollBarElement(this, fTailPic, fgScrollBarWidth, fgScrollBarWidth,
-                                    kRaisedFrame);
-   fSlider = new TGScrollBarElement(this, 0, fgScrollBarWidth, 50,
-                                    kRaisedFrame);
-
-   gVirtualX->GrabButton(fId, kAnyButton, kAnyModifier, kButtonPressMask |
-                         kButtonReleaseMask | kPointerMotionMask, kNone, kNone);
-
-   fDragging = kFALSE;
-   fX0 = fY0 = (fgScrollBarWidth = TMath::Max(fgScrollBarWidth, 5));
-   fPos = 0;
-
-   fRange = TMath::Max((Int_t) h - (fgScrollBarWidth << 1), 1);
+   fRange = std::max((Int_t) h - (fgScrollBarWidth << 1), 1);
    fPsize = fRange >> 1;
-
-   fSliderSize  = 50;
-   fSliderRange = 1;
-
-   fHead->SetEditDisabled(kEditDisable | kEditDisableGrab);
-   fTail->SetEditDisabled(kEditDisable | kEditDisableGrab);
-   fSlider->SetEditDisabled(kEditDisable | kEditDisableGrab);
-   fEditDisabled = kEditDisableLayout | kEditDisableWidth | kEditDisableBtnEnable;
+   fEditDisabled |= kEditDisableWidth;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -769,13 +737,13 @@ Bool_t TGVScrollBar::HandleButton(Event_t *event)
    if (event->fType == kButtonPress) {
       if (event->fCode == kButton3) {
          fY0 = event->fY - fSliderSize/2;
-         fY0 = TMath::Max(fY0, fgScrollBarWidth);
-         fY0 = TMath::Min(fY0, fgScrollBarWidth + fSliderRange);
+         fY0 = std::max(fY0, fgScrollBarWidth);
+         fY0 = std::min(fY0, fgScrollBarWidth + fSliderRange);
          ULong_t pos = (ULong_t)(fY0 - fgScrollBarWidth) * (ULong_t)(fRange-fPsize) / (ULong_t)fSliderRange;
          fPos = (Int_t)pos;
 
-         fPos = TMath::Max(fPos, 0);
-         fPos = TMath::Min(fPos, fRange-fPsize);
+         fPos = std::max(fPos, 0);
+         fPos = std::min(fPos, fRange-fPsize);
          fSlider->Move(0, fY0);
 
          SendMessage(fMsgWindow, MK_MSG(kC_VSCROLL, kSB_SLIDERTRACK), fPos, 0);
@@ -783,7 +751,7 @@ Bool_t TGVScrollBar::HandleButton(Event_t *event)
          return kTRUE;
       }
 
-      // fUser[0] contains the subwindow (child) in which the event occured
+      // fUser[0] contains the subwindow (child) in which the event occurred
       // (see GX11Gui.cxx)
       Window_t subw = (Window_t)event->fUser[0];
 
@@ -817,14 +785,14 @@ Bool_t TGVScrollBar::HandleButton(Event_t *event)
          else if (event->fY > fY0+fSliderSize && event->fY < (Int_t)fHeight-fgScrollBarWidth)
             fPos += fPsize;
 
-         fPos = TMath::Max(fPos, 0);
-         fPos = TMath::Min(fPos, fRange-fPsize);
+         fPos = std::max(fPos, 0);
+         fPos = std::min(fPos, fRange-fPsize);
 
-         ULong_t y0 = (ULong_t)fgScrollBarWidth + (ULong_t)fPos * (ULong_t)fSliderRange / (ULong_t)TMath::Max(fRange-fPsize, 1);
+         ULong_t y0 = (ULong_t)fgScrollBarWidth + (ULong_t)fPos * (ULong_t)fSliderRange / (ULong_t)std::max(fRange-fPsize, 1);
          fY0 = (Int_t)y0;
 
-         fY0 = TMath::Max(fY0, fgScrollBarWidth);
-         fY0 = TMath::Min(fY0, fgScrollBarWidth + fSliderRange);
+         fY0 = std::max(fY0, fgScrollBarWidth);
+         fY0 = std::min(fY0, fgScrollBarWidth + fSliderRange);
 
          fSlider->Move(0, fY0);
 
@@ -849,8 +817,8 @@ Bool_t TGVScrollBar::HandleButton(Event_t *event)
 
       fDragging = kFALSE;
 
-      fPos = TMath::Max(fPos, 0);
-      fPos = TMath::Min(fPos, fRange-fPsize);
+      fPos = std::max(fPos, 0);
+      fPos = std::min(fPos, fRange-fPsize);
 
       SendMessage(fMsgWindow, MK_MSG(kC_VSCROLL, kSB_SLIDERPOS), fPos, 0);
       PositionChanged(fPos);
@@ -871,14 +839,14 @@ Bool_t TGVScrollBar::HandleMotion(Event_t *event)
       fX0 = event->fX - fXp;
       fY0 = event->fY - fYp;
 
-      fY0 = TMath::Max(fY0, fgScrollBarWidth);
-      fY0 = TMath::Min(fY0, fgScrollBarWidth + fSliderRange);
+      fY0 = std::max(fY0, fgScrollBarWidth);
+      fY0 = std::min(fY0, fgScrollBarWidth + fSliderRange);
       fSlider->Move(0, fY0);
       ULong_t pos = (ULong_t)(fY0 - fgScrollBarWidth) * (ULong_t)(fRange-fPsize) / fSliderRange;
       fPos = (Int_t)pos;
 
-      fPos = TMath::Max(fPos, 0);
-      fPos = TMath::Min(fPos, fRange-fPsize);
+      fPos = std::max(fPos, 0);
+      fPos = std::min(fPos, fRange-fPsize);
 
       SendMessage(fMsgWindow, MK_MSG(kC_VSCROLL, kSB_SLIDERTRACK), fPos, 0);
       PositionChanged(fPos);
@@ -891,22 +859,22 @@ Bool_t TGVScrollBar::HandleMotion(Event_t *event)
 
 void TGVScrollBar::SetRange(Int_t range, Int_t page_size)
 {
-   fRange = TMath::Max(range, 1);
-   fPsize = TMath::Max(page_size, 0);
-   fPos = TMath::Max(fPos, 0);
-   fPos = TMath::Min(fPos, fRange-fPsize);
+   fRange = std::max(range, 1);
+   fPsize = std::max(page_size, 0);
+   fPos = std::max(fPos, 0);
+   fPos = std::min(fPos, fRange-fPsize);
 
-   fSliderSize = TMath::Max(fPsize * (fHeight - (fgScrollBarWidth << 1)) /
+   fSliderSize = std::max(fPsize * (fHeight - (fgScrollBarWidth << 1)) /
                             fRange, (UInt_t) 6);
-   fSliderSize = TMath::Min((UInt_t)fSliderSize, fHeight - (fgScrollBarWidth << 1));
+   fSliderSize = std::min((UInt_t)fSliderSize, fHeight - (fgScrollBarWidth << 1));
 
-   fSliderRange = TMath::Max(fHeight - (fgScrollBarWidth << 1) - fSliderSize,
+   fSliderRange = std::max(fHeight - (fgScrollBarWidth << 1) - fSliderSize,
                              (UInt_t)1);
 
-   ULong_t y0 = (ULong_t)fgScrollBarWidth + (ULong_t)fPos * (ULong_t)fSliderRange / (ULong_t)TMath::Max(fRange-fPsize, 1);
+   ULong_t y0 = (ULong_t)fgScrollBarWidth + (ULong_t)fPos * (ULong_t)fSliderRange / (ULong_t)std::max(fRange-fPsize, 1);
    fY0 = (Int_t)y0;
-   fY0 = TMath::Max(fY0, fgScrollBarWidth);
-   fY0 = TMath::Min(fY0, fgScrollBarWidth + fSliderRange);
+   fY0 = std::max(fY0, fgScrollBarWidth);
+   fY0 = std::min(fY0, fgScrollBarWidth + fSliderRange);
 
    fSlider->Move(0, fY0);
    fSlider->Resize(fgScrollBarWidth, fSliderSize);
@@ -926,13 +894,13 @@ void TGVScrollBar::SetRange(Int_t range, Int_t page_size)
 
 void TGVScrollBar::SetPosition(Int_t pos)
 {
-   fPos = TMath::Max(pos, 0);
-   fPos = TMath::Min(pos, fRange-fPsize);
+   fPos = std::max(pos, 0);
+   fPos = std::min(pos, fRange-fPsize);
 
-   ULong_t y0 = (ULong_t)fgScrollBarWidth + (ULong_t)fPos * (ULong_t)fSliderRange / (ULong_t)TMath::Max(fRange-fPsize, 1);
+   ULong_t y0 = (ULong_t)fgScrollBarWidth + (ULong_t)fPos * (ULong_t)fSliderRange / (ULong_t)std::max(fRange-fPsize, 1);
    fY0 = (Int_t)y0;
-   fY0 = TMath::Max(fY0, fgScrollBarWidth);
-   fY0 = TMath::Min(fY0, fgScrollBarWidth + fSliderRange);
+   fY0 = std::max(fY0, fgScrollBarWidth);
+   fY0 = std::min(fY0, fgScrollBarWidth + fSliderRange);
 
    fSlider->Move(0, fY0);
    fSlider->Resize(fgScrollBarWidth, fSliderSize);
@@ -947,26 +915,17 @@ void TGVScrollBar::SetPosition(Int_t pos)
 
 void TGHScrollBar::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   // save options and custom color if not default
+   auto extra_args = SaveCtorArgs(out);
 
-   out <<"   TGHScrollBar *";
-   out << GetName() << " = new TGHScrollBar(" << fParent->GetName()
-       << "," << GetWidth() << "," << GetHeight();
+   out << "   TGHScrollBar *" << GetName() << " = new TGHScrollBar(" << fParent->GetName() << "," << GetWidth() << ","
+       << GetHeight() << extra_args << ");\n";
 
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (!GetOptions()) {
-         out <<");" << std::endl;
-      } else {
-         out << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
-   out << "   " << GetName() <<"->SetRange(" << GetRange() << "," << GetPageSize() << ");" << std::endl;
-   out << "   " << GetName() <<"->SetPosition(" << GetPosition() << ");" << std::endl;
+   out << "   " << GetName() << "->SetRange(" << GetRange() << "," << GetPageSize() << ");\n";
+   out << "   " << GetName() << "->SetPosition(" << GetPosition() << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -974,25 +933,15 @@ void TGHScrollBar::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 
 void TGVScrollBar::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   // save options and custom color if not default
+   auto extra_args = SaveCtorArgs(out);
 
-   out<<"   TGVScrollBar *";
-   out << GetName() <<" = new TGVScrollBar("<< fParent->GetName()
-       << "," << GetWidth() << "," << GetHeight();
+   out << "   TGVScrollBar *" << GetName() << " = new TGVScrollBar(" << fParent->GetName() << "," << GetWidth() << ","
+       << GetHeight() << extra_args << ");\n";
 
-   if (fBackground == GetDefaultFrameBackground()) {
-
-      if (!GetOptions()) {
-         out <<");" << std::endl;
-      } else {
-         out << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
-   out << "   " << GetName() <<"->SetRange(" << GetRange() << "," << GetPageSize() << ");" << std::endl;
-   out << "   " << GetName() <<"->SetPosition(" << GetPosition() << ");" << std::endl;
+   out << "   " << GetName() << "->SetRange(" << GetRange() << "," << GetPageSize() << ");\n";
+   out << "   " << GetName() << "->SetPosition(" << GetPosition() << ");\n";
 }

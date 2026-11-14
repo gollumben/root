@@ -11,7 +11,7 @@
 
 /*
 \class TGenCollectionStreamer
-\ingroup IO
+\ingroup io_other
 
 Streamer around an arbitrary container, which implements basic
 functionality and iteration.
@@ -30,6 +30,8 @@ size(), clear(), resize(). resize() may be a void operation.
 #include "TStreamerElement.h"
 #include "TVirtualCollectionIterators.h"
 
+#include <memory>
+
 TGenCollectionStreamer::TGenCollectionStreamer(const TGenCollectionStreamer& copy)
       : TGenCollectionProxy(copy), fReadBufferFunc(&TGenCollectionStreamer::ReadBufferDefault)
 {
@@ -42,7 +44,7 @@ TGenCollectionStreamer::TGenCollectionStreamer(Info_t info, size_t iter_size)
    // Build a Streamer for a collection whose type is described by 'collectionClass'.
 }
 
-TGenCollectionStreamer::TGenCollectionStreamer(const ::ROOT::TCollectionProxyInfo &info, TClass *cl)
+TGenCollectionStreamer::TGenCollectionStreamer(const ROOT::TCollectionProxyInfo &info, TClass *cl)
       : TGenCollectionProxy(info, cl), fReadBufferFunc(&TGenCollectionStreamer::ReadBufferDefault)
 {
    // Build a Streamer for a collection whose type is described by 'collectionClass'.
@@ -211,7 +213,7 @@ void DispatchConvertArray(int writeType, TGenCollectionProxy::StreamHelper *read
 void TGenCollectionStreamer::ReadPrimitives(int nElements, TBuffer &b, const TClass *onFileClass)
 {
    // Primitive input streamer.
-   size_t len = fValDiff * nElements;
+   size_t len = ElementOffset(nElements);
    char   buffer[8096];
    Bool_t   feed = false;
    void*  memory = 0;
@@ -365,10 +367,8 @@ void TGenCollectionStreamer::ReadObjects(int nElements, TBuffer &b, const TClass
 {
    // Object input streamer.
    Bool_t vsn3 = b.GetInfo() && b.GetInfo()->GetOldVersion() <= 3;
-   size_t len = fValDiff * nElements;
+   size_t len = ElementOffset(nElements);
    StreamHelper* itm = 0;
-   char   buffer[8096];
-   void*  memory = 0;
 
    TClass* onFileValClass = (onFileClass ? onFileClass->GetCollectionProxy()->GetValueClass() : 0);
 
@@ -376,7 +376,9 @@ void TGenCollectionStreamer::ReadObjects(int nElements, TBuffer &b, const TClass
    switch (fSTL_type)  {
          // Simple case: contiguous memory. get address of first, then jump.
       case ROOT::kSTLvector:
-#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + fValDiff*idx); { x ;} ++idx;} break;}
+         // clang-format off
+#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + ElementOffset(idx)); { x ;} ++idx;} break;}
+         // clang-format on
          fResize(fEnv->fObject,fEnv->fSize);
          fEnv->fIdx = 0;
 
@@ -389,13 +391,13 @@ void TGenCollectionStreamer::ReadObjects(int nElements, TBuffer &b, const TClass
          switch (fVal->fCase) {
             case kIsClass:
                DOLOOP(b.StreamObject(i, fVal->fType, onFileValClass ));
-            case EProperty(kBIT_ISSTRING):
+            case kBIT_ISSTRING:
                DOLOOP(i->read_std_string(b));
-            case EProperty(kIsPointer | kIsClass):
+            case kIsPointer | kIsClass:
                DOLOOP(i->set(b.ReadObjectAny(fVal->fType)));
-            case EProperty(kIsPointer | kBIT_ISSTRING):
+            case 0U | kIsPointer | kBIT_ISSTRING:
                DOLOOP(i->read_std_string_pointer(b));
-            case EProperty(kIsPointer | kBIT_ISTSTRING | kIsClass):
+            case 0U | kIsPointer | kBIT_ISTSTRING | kIsClass:
                DOLOOP(i->read_tstring_pointer(vsn3, b));
          }
 #undef DOLOOP
@@ -418,9 +420,9 @@ void TGenCollectionStreamer::ReadObjects(int nElements, TBuffer &b, const TClass
                DOLOOP(i->read_std_string(b));
             case kIsPointer | kIsClass:
                DOLOOP(i->set(b.ReadObjectAny(fVal->fType)));
-            case kIsPointer | kBIT_ISSTRING:
+            case 0U | kIsPointer | kBIT_ISSTRING:
                DOLOOP(i->read_std_string_pointer(b));
-            case kIsPointer | kBIT_ISTSTRING | kIsClass:
+            case 0U | kIsPointer | kBIT_ISTSTRING | kIsClass:
                DOLOOP(i->read_tstring_pointer(vsn3, b));
          }
 #undef DOLOOP
@@ -431,9 +433,12 @@ void TGenCollectionStreamer::ReadObjects(int nElements, TBuffer &b, const TClass
       case ROOT::kSTLmultiset:
       case ROOT::kSTLset:
       case ROOT::kSTLunorderedset:
-      case ROOT::kSTLunorderedmultiset:
-#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + fValDiff*idx); { x ;} ++idx;}}
-         fEnv->fStart = itm = (StreamHelper*)(len < sizeof(buffer) ? buffer : memory =::operator new(len));
+      case ROOT::kSTLunorderedmultiset: {
+         // clang-format off
+#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + ElementOffset(idx)); { x ;} ++idx;}}
+         // clang-format on
+         auto buffer = std::make_unique<char[]>(len);
+         fEnv->fStart = itm = reinterpret_cast<StreamHelper *>(buffer.get());
          fConstruct(itm,nElements);
          switch (fVal->fCase) {
             case kIsClass:
@@ -441,31 +446,29 @@ void TGenCollectionStreamer::ReadObjects(int nElements, TBuffer &b, const TClass
                fFeed(fEnv->fStart,fEnv->fObject,fEnv->fSize);
                fDestruct(fEnv->fStart,fEnv->fSize);
                break;
-            case EProperty(kBIT_ISSTRING):
+            case kBIT_ISSTRING:
                DOLOOP(i->read_std_string(b))
                fFeed(fEnv->fStart,fEnv->fObject,fEnv->fSize);
                fDestruct(fEnv->fStart,fEnv->fSize);
                break;
-            case EProperty(kIsPointer | kIsClass):
+            case kIsPointer | kIsClass:
                DOLOOP(i->set(b.ReadObjectAny(fVal->fType)));
                fFeed(fEnv->fStart,fEnv->fObject,fEnv->fSize);
                break;
-            case EProperty(kIsPointer | kBIT_ISSTRING):
+            case 0U | kIsPointer | kBIT_ISSTRING:
                DOLOOP(i->read_std_string_pointer(b))
                fFeed(fEnv->fStart,fEnv->fObject,fEnv->fSize);
                break;
-            case EProperty(kIsPointer | kBIT_ISTSTRING | kIsClass):
+            case 0U | kIsPointer | kBIT_ISTSTRING | kIsClass:
                DOLOOP(i->read_tstring_pointer(vsn3, b));
                fFeed(fEnv->fStart,fEnv->fObject,fEnv->fSize);
                break;
          }
 #undef DOLOOP
          break;
+      }
       default:
          break;
-   }
-   if (memory) {
-      ::operator delete(memory);
    }
 }
 
@@ -474,10 +477,8 @@ void TGenCollectionStreamer::ReadPairFromMap(int nElements, TBuffer &b)
    // Input streamer to convert a map into another collection
 
    Bool_t vsn3 = b.GetInfo() && b.GetInfo()->GetOldVersion() <= 3;
-   size_t len = fValDiff * nElements;
+   size_t len = ElementOffset(nElements);
    StreamHelper* itm = 0;
-   char   buffer[8096];
-   void*  memory = 0;
 
    TStreamerInfo *pinfo = (TStreamerInfo*)fVal->fType->GetStreamerInfo();
    R__ASSERT(pinfo);
@@ -494,7 +495,9 @@ void TGenCollectionStreamer::ReadPairFromMap(int nElements, TBuffer &b)
    switch (fSTL_type)  {
          // Simple case: contiguous memory. get address of first, then jump.
       case ROOT::kSTLvector:
-#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + fValDiff*idx); { x ;} ++idx;} break;}
+         // clang-format off
+#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + ElementOffset(idx)); { x ;} ++idx;} break;}
+         // clang-format on
          fResize(fEnv->fObject,fEnv->fSize);
          fEnv->fIdx = 0;
 
@@ -543,9 +546,12 @@ void TGenCollectionStreamer::ReadPairFromMap(int nElements, TBuffer &b)
       case ROOT::kSTLmultiset:
       case ROOT::kSTLset:
       case ROOT::kSTLunorderedset:
-      case ROOT::kSTLunorderedmultiset:
-#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + fValDiff*idx); { x ;} ++idx;}}
-         fEnv->fStart = itm = (StreamHelper*)(len < sizeof(buffer) ? buffer : memory =::operator new(len));
+      case ROOT::kSTLunorderedmultiset: {
+         // clang-format off
+#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + ElementOffset(idx)); { x ;} ++idx;}}
+         // clang-format on
+         auto buffer = std::make_unique<char[]>(len);
+         fEnv->fStart = itm = reinterpret_cast<StreamHelper *>(buffer.get());
          fConstruct(itm,nElements);
          switch (fVal->fCase) {
             case kIsClass:
@@ -559,11 +565,9 @@ void TGenCollectionStreamer::ReadPairFromMap(int nElements, TBuffer &b)
          }
 #undef DOLOOP
          break;
+      }
       default:
          break;
-   }
-   if (memory) {
-      ::operator delete(memory);
    }
 }
 
@@ -640,10 +644,10 @@ void TGenCollectionStreamer::ReadMapHelper(StreamHelper *i, Value *v, Bool_t vsn
       case kIsPointer | kIsClass:
          i->set(b.ReadObjectAny(v->fType));
          break;
-      case kIsPointer | kBIT_ISSTRING:
+      case 0U | kIsPointer | kBIT_ISSTRING:
          i->read_std_string_pointer(b);
          break;
-      case kIsPointer | kBIT_ISTSTRING | kIsClass:
+      case 0U | kIsPointer | kBIT_ISTSTRING | kIsClass:
          i->read_tstring_pointer(vsn3, b);
          break;
    }
@@ -730,7 +734,7 @@ void TGenCollectionStreamer::ReadMap(int nElements, TBuffer &b, const TClass *on
 {
    // Map input streamer.
    Bool_t vsn3 = b.GetInfo() && b.GetInfo()->GetOldVersion() <= 3;
-   size_t len = fValDiff * nElements;
+   size_t len = ElementOffset(nElements);
    Value  *v;
    char buffer[8096], *addr, *temp;
    void* memory = 0;
@@ -749,7 +753,7 @@ void TGenCollectionStreamer::ReadMap(int nElements, TBuffer &b, const TClass *on
       onFileValueKind[1] = ((TStreamerElement*)sourceInfo->GetElements()->At(1))->GetType();
    }
    for (int loop, idx = 0; idx < nElements; ++idx)  {
-      addr = temp + fValDiff * idx;
+      addr = temp + ElementOffset(idx);
       v = fKey;
       for (loop = 0; loop < 2; loop++)  {
          i = (StreamHelper*)addr;
@@ -868,16 +872,16 @@ void TGenCollectionStreamer::ReadMap(int nElements, TBuffer &b, const TClass *on
             case kIsClass:
                b.StreamObject(i, v->fType);
                break;
-            case EProperty(kBIT_ISSTRING):
+            case kBIT_ISSTRING:
                i->read_std_string(b);
                break;
-            case EProperty(kIsPointer | kIsClass):
+            case kIsPointer | kIsClass:
                i->set(b.ReadObjectAny(v->fType));
                break;
-            case EProperty(kIsPointer | kBIT_ISSTRING):
+            case 0U | kIsPointer | kBIT_ISSTRING:
                i->read_std_string_pointer(b);
                break;
-            case EProperty(kIsPointer | kBIT_ISTSTRING | kIsClass):
+            case 0U | kIsPointer | kBIT_ISTSTRING | kIsClass:
                i->read_tstring_pointer(vsn3, b);
                break;
          }
@@ -895,7 +899,7 @@ void TGenCollectionStreamer::ReadMap(int nElements, TBuffer &b, const TClass *on
 void TGenCollectionStreamer::WritePrimitives(int nElements, TBuffer &b)
 {
    // Primitive output streamer.
-   size_t len = fValDiff * nElements;
+   size_t len = ElementOffset(nElements);
    char   buffer[8192];
    void*  memory  = 0;
    StreamHelper* itm = 0;
@@ -973,7 +977,9 @@ void TGenCollectionStreamer::WriteObjects(int nElements, TBuffer &b)
    switch (fSTL_type)  {
          // Simple case: contiguous memory. get address of first, then jump.
       case ROOT::kSTLvector:
-#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + fValDiff*idx); { x ;} ++idx;} break;}
+         // clang-format off
+#define DOLOOP(x) {int idx=0; while(idx<nElements) {StreamHelper* i=(StreamHelper*)(((char*)itm) + ElementOffset(idx)); { x ;} ++idx;} break;}
+         // clang-format on
          itm = (StreamHelper*)fFirst.invoke(fEnv);
          switch (fVal->fCase) {
             case kIsClass:
@@ -985,10 +991,10 @@ void TGenCollectionStreamer::WriteObjects(int nElements, TBuffer &b)
             case kIsPointer | kIsClass:
                DOLOOP(b.WriteObjectAny(i->ptr(), fVal->fType));
                break;
-            case kBIT_ISSTRING | kIsPointer:
+            case 0U | kBIT_ISSTRING | kIsPointer:
                DOLOOP(i->write_std_string_pointer(b));
                break;
-            case kBIT_ISTSTRING | kIsClass | kIsPointer:
+            case 0U | kBIT_ISTSTRING | kIsClass | kIsPointer:
                DOLOOP(i->write_tstring_pointer(b));
                break;
          }
@@ -1013,9 +1019,9 @@ void TGenCollectionStreamer::WriteObjects(int nElements, TBuffer &b)
                DOLOOP(TString(i->c_str()).Streamer(b));
             case kIsPointer | kIsClass:
                DOLOOP(b.WriteObjectAny(i->ptr(), fVal->fType));
-            case kBIT_ISSTRING | kIsPointer:
+            case 0U | kBIT_ISSTRING | kIsPointer:
                DOLOOP(i->write_std_string_pointer(b));
-            case kBIT_ISTSTRING | kIsClass | kIsPointer:
+            case 0U | kBIT_ISTSTRING | kIsClass | kIsPointer:
                DOLOOP(i->write_tstring_pointer(b));
          }
 #undef DOLOOP
@@ -1100,10 +1106,10 @@ void TGenCollectionStreamer::WriteMap(int nElements, TBuffer &b)
             case kIsPointer | kIsClass:
                b.WriteObjectAny(i->ptr(), v->fType);
                break;
-            case kBIT_ISSTRING | kIsPointer:
+            case 0U | kBIT_ISSTRING | kIsPointer:
                i->write_std_string_pointer(b);
                break;
-            case kBIT_ISTSTRING | kIsClass | kIsPointer:
+            case 0U | kBIT_ISTSTRING | kIsClass | kIsPointer:
                i->write_tstring_pointer(b);
                break;
          }

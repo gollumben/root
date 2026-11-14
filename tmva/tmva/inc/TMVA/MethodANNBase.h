@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodANNBase                                                         *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Artificial neural network base class for the discrimination of signal     *
@@ -28,7 +28,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodANNBase
@@ -90,7 +90,7 @@ namespace TMVA {
       }
 
       // this will have to be overridden by every subclass
-      virtual void Train() = 0;
+      void Train() override = 0;
 
       // print network, for debugging
       virtual void PrintNetwork() const;
@@ -109,28 +109,28 @@ namespace TMVA {
       using MethodBase::ReadWeightsFromStream;
 
       // write weights to file
-      void AddWeightsXMLTo( void* parent ) const;
-      void ReadWeightsFromXML( void* wghtnode );
+      void AddWeightsXMLTo( void* parent ) const override;
+      void ReadWeightsFromXML( void* wghtnode ) override;
 
       // read weights from file
-      virtual void ReadWeightsFromStream( std::istream& istr );
+      void ReadWeightsFromStream( std::istream& istr ) override;
 
       // calculate the MVA value
-      virtual Double_t GetMvaValue( Double_t* err = 0, Double_t* errUpper = 0 );
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
 
-      virtual const std::vector<Float_t> &GetRegressionValues();
+      const std::vector<Float_t> &GetRegressionValues() override;
 
-      virtual const std::vector<Float_t> &GetMulticlassValues();
+      const std::vector<Float_t> &GetMulticlassValues() override;
 
       // write method specific histos to target file
-      virtual void WriteMonitoringHistosToFile() const;
+      void WriteMonitoringHistosToFile() const override;
 
       // ranking of input variables
-      const Ranking* CreateRanking();
+      const Ranking* CreateRanking() override;
 
       // the option handling methods
-      virtual void DeclareOptions();
-      virtual void ProcessOptions();
+      void DeclareOptions() override;
+      void ProcessOptions() override;
 
       Bool_t Debug() const;
 
@@ -140,10 +140,10 @@ namespace TMVA {
 
    protected:
 
-      virtual void MakeClassSpecific( std::ostream&, const TString& ) const;
+      void MakeClassSpecific( std::ostream&, const TString& ) const override;
 
       std::vector<Int_t>* ParseLayoutString( TString layerSpec );
-      virtual void        BuildNetwork( std::vector<Int_t>* layout, std::vector<Double_t>* weights=NULL,
+      virtual void        BuildNetwork( std::vector<Int_t>* layout, std::vector<Double_t>* weights = nullptr,
                                         Bool_t fromFile = kFALSE );
       void     ForceNetworkInputs( const Event* ev, Int_t ignoreIndex = -1 );
       Double_t GetNetworkOutput() { return GetOutputNeuron()->GetActivationValue(); }
@@ -176,23 +176,23 @@ namespace TMVA {
       TH1F* fEstimatorHistTest;  // monitors convergence of independent test sample
 
       // monitoring histograms (not available for regression)
-      void CreateWeightMonitoringHists( const TString& bulkname, std::vector<TH1*>* hv = 0 ) const;
+      void CreateWeightMonitoringHists( const TString& bulkname, std::vector<TH1*>* hv = nullptr ) const;
       std::vector<TH1*> fEpochMonHistS; // epoch monitoring histograms for signal
       std::vector<TH1*> fEpochMonHistB; // epoch monitoring histograms for background
       std::vector<TH1*> fEpochMonHistW; // epoch monitoring histograms for weights
 
 
       // general
-      TMatrixD           fInvHessian;           // zjh
-      bool               fUseRegulator;         // zjh
+      TMatrixD           fInvHessian;           ///< zjh
+      bool               fUseRegulator;         ///< zjh
 
    protected:
-      Int_t                   fRandomSeed;      // random seed for initial synapse weights
+      Int_t                   fRandomSeed;      ///< random seed for initial synapse weights
 
-      Int_t                   fNcycles;         // number of epochs to train
+      Int_t                   fNcycles;         ///< number of epochs to train
 
-      TString                 fNeuronType;      // name of neuron activation function class
-      TString                 fNeuronInputType; // name of neuron input calculator class
+      TString                 fNeuronType;      ///< name of neuron activation function class
+      TString                 fNeuronInputType; ///< name of neuron input calculator class
 
 
    private:
@@ -216,14 +216,14 @@ namespace TMVA {
       void PrintNeuron(TNeuron* neuron) const;
 
       // private variables
-      TObjArray*              fInputLayer;      // cache this for fast access
-      std::vector<TNeuron*>   fOutputNeurons;   // cache this for fast access
-      TString                 fLayerSpec;       // layout specification option
+      TObjArray*              fInputLayer;      ///< cache this for fast access
+      std::vector<TNeuron*>   fOutputNeurons;   ///< cache this for fast access
+      TString                 fLayerSpec;       ///< layout specification option
 
       // some static flags
-      static const Bool_t fgDEBUG      = kTRUE;  // debug flag
+      static const Bool_t fgDEBUG      = kTRUE;  ///< debug flag
 
-      ClassDef(MethodANNBase,0); // Base class for TMVA ANNs
+      ClassDefOverride(MethodANNBase,0); // Base class for TMVA ANNs
    };
 
 

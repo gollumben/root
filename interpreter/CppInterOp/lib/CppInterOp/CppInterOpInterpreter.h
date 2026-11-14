@@ -1,0 +1,770 @@
+//--------------------------------------------------------------------*- C++ -*-
+// CppInterOp Interpreter (clang-repl)
+// author:  Alexander Penev <alexander_penev@yahoo.com>
+//------------------------------------------------------------------------------
+
+#ifndef CPPINTEROP_INTERPRETER_H
+#define CPPINTEROP_INTERPRETER_H
+
+#include "Compatibility.h"
+#include "CompatibilityGLIBC.h"
+#include "DynamicLibraryManager.h"
+#include "Paths.h"
+
+#include "clang/Interpreter/Interpreter.h"
+#include "clang/Interpreter/PartialTranslationUnit.h"
+
+#include "clang/AST/Decl.h"
+#include "clang/AST/DeclarationName.h"
+#include "clang/AST/GlobalDecl.h"
+#include "clang/Basic/LangOptions.h"
+#include "clang/Basic/TargetOptions.h"
+#include "clang/Basic/Version.h"
+#include "clang/Frontend/CompilerInstance.h"
+#include "clang/Frontend/FrontendOptions.h"
+#include "clang/Lex/Preprocessor.h"
+#include "clang/Sema/Lookup.h"
+#include "clang/Sema/Redeclaration.h"
+#include "clang/Sema/Sema.h"
+#include "clang/Serialization/ModuleFileExtension.h"
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
+#include "llvm/ExecutionEngine/JITSymbol.h"
+#include "llvm/ExecutionEngine/Orc/AbsoluteSymbols.h"
+#include "llvm/ExecutionEngine/Orc/Core.h"
+#include "llvm/ExecutionEngine/Orc/CoreContainers.h"
+#include "llvm/ExecutionEngine/Orc/LLJIT.h"
+#include "llvm/ExecutionEngine/Orc/Shared/ExecutorAddress.h"
+#include "llvm/ExecutionEngine/Orc/Shared/ExecutorSymbolDef.h"
+#include "llvm/Support/Compiler.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/Triple.h"
+
+#ifndef _WIN32
+#include <sched.h>
+#include <unistd.h>
+#endif
+#if defined(_WIN32) && (defined(_M_IX86) || defined(__i386__))
+#include "llvm/Support/DynamicLibrary.h"
+#include <deque>
+#endif
+#include <algorithm>
+#include <cstdio>
+#include <memory>
+#include <mutex>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+namespace clang {
+class CompilerInstance;
+}
+
+namespace {
+template <typename D> static D* LookupResult2Decl(clang::LookupResult& R) {
+  if (R.empty())
+    return nullptr;
+
+  R.resolveKind();
+
+  if (R.isSingleResult())
+    return llvm::dyn_cast<D>(R.getFoundDecl());
+  return (D*)-1;
+}
+} // namespace
+
+namespace CppInternal {
+namespace utils {
+namespace Lookup {
+
+inline clang::NamespaceDecl* Namespace(clang::Sema* S, const char* Name,
+                                       const clang::DeclContext* Within) {
+  clang::DeclarationName DName = &(S->Context.Idents.get(Name));
+  clang::LookupResult R(*S, DName, clang::SourceLocation(),
+                        clang::Sema::LookupNestedNameSpecifierName);
+  R.suppressDiagnostics();
+  if (!Within)
+    S->LookupName(R, S->TUScope);
+  else {
+    if (const clang::TagDecl* TD = llvm::dyn_cast<clang::TagDecl>(Within)) {
+      if (!TD->getDefinition()) {
+        // No definition, no lookup result.
+        return nullptr;
+      }
+    }
+    S->LookupQualifiedName(R, const_cast<clang::DeclContext*>(Within));
+  }
+
+  if (R.empty())
+    return nullptr;
+
+  R.resolveKind();
+
+  return llvm::dyn_cast<clang::NamespaceDecl>(R.getFoundDecl());
+}
+
+inline void Named(clang::Sema* S, clang::LookupResult& R,
+                  const clang::DeclContext* Within = nullptr) {
+  R.suppressDiagnostics();
+  if (!Within)
+    S->LookupName(R, S->TUScope);
+  else {
+    const clang::DeclContext* primaryWithin = nullptr;
+    if (const clang::TagDecl* TD = llvm::dyn_cast<clang::TagDecl>(Within)) {
+      primaryWithin =
+          llvm::dyn_cast_or_null<clang::DeclContext>(TD->getDefinition());
+    } else {
+      primaryWithin = Within->getPrimaryContext();
+    }
+    if (!primaryWithin) {
+      // No definition, no lookup result.
+      return;
+    }
+    S->LookupQualifiedName(R, const_cast<clang::DeclContext*>(primaryWithin));
+  }
+}
+
+inline clang::NamedDecl* Named(clang::Sema* S,
+                               const clang::DeclarationName& Name,
+                               const clang::DeclContext* Within = nullptr) {
+  clang::LookupResult R(*S, Name, clang::SourceLocation(),
+                        clang::Sema::LookupOrdinaryName,
+                        RedeclarationKind::ForVisibleRedeclaration);
+  Named(S, R, Within);
+  return LookupResult2Decl<clang::NamedDecl>(R);
+}
+
+inline clang::NamedDecl* Named(clang::Sema* S, llvm::StringRef Name,
+                               const clang::DeclContext* Within = nullptr) {
+  clang::DeclarationName DName = &S->Context.Idents.get(Name);
+  return Named(S, DName, Within);
+}
+
+inline clang::NamedDecl* Named(clang::Sema* S, const char* Name,
+                               const clang::DeclContext* Within = nullptr) {
+  return Named(S, llvm::StringRef(Name), Within);
+}
+
+} // namespace Lookup
+} // namespace utils
+} // namespace CppInternal
+
+namespace CppInternal {
+
+#if defined(_WIN32) && (defined(_M_IX86) || defined(__i386__))
+/// Fallback resolver for decorated COFF-i386 symbols, based on cling's
+/// platform::DLSym. i386 linker names are decorated ('_' cdecl prefix,
+/// '@N' stdcall suffix, '__imp_' dllimport indirection) and ORC strips
+/// such prefixes only on MachO, so JIT'd references to the CRT and to
+/// runtime-loaded DLLs fail to materialize. Undecorate and retry.
+class COFFi386SymbolGenerator : public llvm::orc::DefinitionGenerator {
+public:
+  llvm::Error
+  tryToGenerate(llvm::orc::LookupState& LS, llvm::orc::LookupKind K,
+                llvm::orc::JITDylib& JD,
+                llvm::orc::JITDylibLookupFlags JDLookupFlags,
+                const llvm::orc::SymbolLookupSet& LookupSet) override {
+    llvm::orc::SymbolMap NewSymbols;
+    for (const auto& KV : LookupSet) {
+      llvm::StringRef Name = *KV.first;
+      // '?' C++ manglings are undecorated; the default generator owns them.
+      if (Name.empty() || Name.starts_with("?"))
+        continue;
+      if (void* Addr = lookupDecorated(Name))
+        NewSymbols[KV.first] = {llvm::orc::ExecutorAddr::fromPtr(Addr),
+                                llvm::JITSymbolFlags::Exported};
+    }
+    if (NewSymbols.empty())
+      return llvm::Error::success();
+    return JD.define(llvm::orc::absoluteSymbols(std::move(NewSymbols)));
+  }
+
+private:
+  void* lookupDecorated(llvm::StringRef Name) {
+    bool Dllimport = Name.consume_front("__imp_");
+    Name.consume_front("_"); // i386 cdecl prefix
+    std::string S = Name.str();
+    void* Addr = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(S.c_str());
+    if (!Addr) {
+      // Export tables drop the stdcall '@N' suffix; retry without it.
+      size_t At = S.rfind('@');
+      if (At != std::string::npos && At + 1 < S.size() &&
+          S.find_first_not_of("0123456789", At + 1) == std::string::npos) {
+        S.resize(At);
+        Addr = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(S.c_str());
+      }
+    }
+    if (Addr && Dllimport) {
+      // __imp_ references bind to a pointer to the symbol; hand out a
+      // stable slot holding the resolved address.
+      m_ImportSlots.push_back(Addr);
+      return &m_ImportSlots.back();
+    }
+    return Addr;
+  }
+
+  std::deque<void*> m_ImportSlots;
+};
+#endif // _WIN32 && i386
+
+#ifdef __GLIBC__
+/// Resolves the pure-code libc_nonshared.a symbols (per-module copies
+/// invisible to dlsym) to this library's own. The registration functions
+/// (at_quick_exit, pthread_atfork) resolve to JIT-side shims instead; see
+/// compat::glibcNonsharedSymbols and compat::addGlibcNonsharedShims.
+class GlibcNonsharedSymbolGenerator : public llvm::orc::DefinitionGenerator {
+public:
+  llvm::Error
+  tryToGenerate(llvm::orc::LookupState& LS, llvm::orc::LookupKind K,
+                llvm::orc::JITDylib& JD,
+                llvm::orc::JITDylibLookupFlags JDLookupFlags,
+                const llvm::orc::SymbolLookupSet& LookupSet) override {
+    const llvm::StringMap<void*>& Known = compat::glibcNonsharedSymbols();
+    llvm::orc::SymbolMap NewSymbols;
+    for (const auto& KV : LookupSet) {
+      auto It = Known.find(*KV.first);
+      if (It == Known.end())
+        continue;
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
+      NewSymbols[KV.first] = {llvm::orc::ExecutorAddr::fromPtr(It->second),
+                              llvm::JITSymbolFlags::Exported |
+                                  llvm::JITSymbolFlags::Callable};
+    }
+    if (NewSymbols.empty())
+      return llvm::Error::success();
+    return JD.define(llvm::orc::absoluteSymbols(std::move(NewSymbols)));
+  }
+};
+
+/// Installs the libc_nonshared.a support on the main JITDylib: the fallback
+/// generator for pure-code symbols, the host registration entry points, and
+/// the at_quick_exit/pthread_atfork shims scoped to \p Owner (see
+/// compat::JitGlibcHandlerRegistry).
+inline void installGlibcNonsharedSupport(llvm::orc::LLJIT& J, void* Owner) {
+  J.getMainJITDylib().addGenerator(
+      std::make_unique<GlibcNonsharedSymbolGenerator>());
+
+  llvm::orc::SymbolMap Syms;
+  Syms[J.mangleAndIntern("__cppinterop_at_quick_exit")] =
+      llvm::orc::ExecutorSymbolDef(
+          llvm::orc::ExecutorAddr::fromPtr(&compat::jitAtQuickExit),
+          llvm::JITSymbolFlags::Exported | llvm::JITSymbolFlags::Callable);
+  Syms[J.mangleAndIntern("__cppinterop_pthread_atfork")] =
+      llvm::orc::ExecutorSymbolDef(
+          llvm::orc::ExecutorAddr::fromPtr(&compat::jitPthreadAtfork),
+          llvm::JITSymbolFlags::Exported | llvm::JITSymbolFlags::Callable);
+  llvm::Error Err =
+      J.getMainJITDylib().define(llvm::orc::absoluteSymbols(std::move(Syms)));
+  if (!Err)
+    Err = compat::addGlibcNonsharedShims(J, Owner);
+  if (Err)
+    llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
+                                "Failed to install the glibc shims:");
+}
+#endif // __GLIBC__
+
+/// CppInterOp Interpreter
+///
+class Interpreter {
+public:
+  struct FileDeleter {
+    void operator()(FILE* f /* owns */) {
+      if (f)
+        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+        fclose(f);
+    }
+  };
+
+  struct IOContext {
+    std::unique_ptr<FILE, FileDeleter> stdin_file;
+    std::unique_ptr<FILE, FileDeleter> stdout_file;
+    std::unique_ptr<FILE, FileDeleter> stderr_file;
+
+    bool initializeTempFiles() {
+      stdin_file.reset(tmpfile());  // NOLINT(cppcoreguidelines-owning-memory)
+      stdout_file.reset(tmpfile()); // NOLINT(cppcoreguidelines-owning-memory)
+      stderr_file.reset(tmpfile()); // NOLINT(cppcoreguidelines-owning-memory)
+      return stdin_file && stdout_file && stderr_file;
+    }
+  };
+
+private:
+  static std::tuple<int, int, int>
+  initAndGetFileDescriptors(std::vector<const char*>& vargs,
+                            IOContext& io_ctx) {
+    int stdin_fd = 0;
+    int stdout_fd = 1;
+    int stderr_fd = 2;
+
+    // Only initialize temp files if not already initialized
+    if (!io_ctx.stdin_file || !io_ctx.stdout_file || !io_ctx.stderr_file) {
+      bool init = io_ctx.initializeTempFiles();
+      if (!init) {
+        llvm::errs() << "Can't start out-of-process JIT execution.\n";
+        stdin_fd = -1;
+        stdout_fd = -1;
+        stderr_fd = -1;
+      }
+    }
+    stdin_fd = fileno(io_ctx.stdin_file.get());
+    stdout_fd = fileno(io_ctx.stdout_file.get());
+    stderr_fd = fileno(io_ctx.stderr_file.get());
+
+    return std::make_tuple(stdin_fd, stdout_fd, stderr_fd);
+  }
+
+  std::unique_ptr<clang::Interpreter> inner;
+  std::unique_ptr<IOContext> io_context;
+  mutable std::unique_ptr<DynamicLibraryManager> sDLM;
+  mutable std::once_flag sDLMInit;
+  bool outOfProcess;
+
+#if CLANG_VERSION_MAJOR < 24
+  // Weak thread_local definitions already handed to the JIT, so later modules
+  // demote their duplicates. See compat::dedupeWeakEmulatedTLS.
+  llvm::StringSet<> DedupedWeakTLS;
+#endif
+
+public:
+  Interpreter(std::unique_ptr<clang::Interpreter> CI,
+              std::unique_ptr<IOContext> ctx = nullptr, bool oop = false)
+      : inner(std::move(CI)), io_context(std::move(ctx)), outOfProcess(oop) {}
+
+public:
+  static std::unique_ptr<Interpreter>
+  create(int argc, const char* const* argv, const char* llvmdir = nullptr,
+         const std::vector<std::shared_ptr<clang::ModuleFileExtension>>&
+             moduleExtensions = {},
+         void* extraLibHandle = nullptr, bool noRuntime = true) {
+    std::vector<const char*> vargs(argv + 1, argv + argc);
+
+    int stdin_fd = 0;
+    int stdout_fd = 1;
+    int stderr_fd = 2;
+    auto io_ctx = std::make_unique<IOContext>();
+    bool outOfProcess = false;
+
+#if LLVM_VERSION_MAJOR > 21 && !defined(_WIN32)
+    outOfProcess = std::any_of(vargs.begin(), vargs.end(), [](const char* arg) {
+      return llvm::StringRef(arg).trim() == "--use-oop-jit";
+    });
+#endif
+
+    if (outOfProcess) {
+      std::tie(stdin_fd, stdout_fd, stderr_fd) =
+          initAndGetFileDescriptors(vargs, *io_ctx);
+
+      if (stdin_fd == -1 || stdout_fd == -1 || stderr_fd == -1) {
+        llvm::errs()
+            << "Redirection files creation failed for Out-Of-Process JIT\n";
+        return nullptr;
+      }
+    }
+
+    // Currently, we can't pass IOContext in `createClangInterpreter`, that's
+    // why fd's are passed. This should be refactored later.
+    auto CI =
+        compat::createClangInterpreter(vargs, stdin_fd, stdout_fd, stderr_fd);
+    if (!CI) {
+      llvm::errs() << "Interpreter creation failed\n";
+      return nullptr;
+    }
+
+#if defined(_WIN32) && (defined(_M_IX86) || defined(__i386__))
+    // getExecutionEngine forces executor creation; install the generator
+    // before anything runs.
+    compat::getExecutionEngine(*CI)->getMainJITDylib().addGenerator(
+        std::make_unique<COFFi386SymbolGenerator>());
+#endif
+
+#ifdef __GLIBC__
+    // In-process only (the shims and the generator hand out this process's
+    // addresses); the generator is appended last so it is consulted only
+    // when the process-symbol generator fails. The inner interpreter keys
+    // the handler registry; ~Interpreter flushes it.
+    if (!outOfProcess)
+      installGlibcNonsharedSupport(*compat::getExecutionEngine(*CI), CI.get());
+#endif
+
+    return std::make_unique<Interpreter>(std::move(CI), std::move(io_ctx),
+                                         outOfProcess);
+  }
+
+  ~Interpreter() {
+#ifdef __GLIBC__
+    // Run jitted quick-exit handlers while their code is still mapped and
+    // drop this interpreter's atfork entries.
+    compat::JitGlibcHandlerRegistry::instance().flushOwner(inner.get());
+#endif
+  }
+
+  operator const clang::Interpreter&() const { return *inner; }
+  operator clang::Interpreter&() { return *inner; }
+
+  [[nodiscard]] bool isOutOfProcess() const { return outOfProcess; }
+
+// Since, we are using custom pipes instead of stdout, sterr,
+// it is kind of necessary to have this complication in StreamCaptureInfo.
+
+// TODO(issues/733): Refactor the stream redirection
+#ifndef _WIN32
+  FILE* getRedirectionFileForOutOfProcess(int FD) {
+    if (!io_context)
+      return nullptr;
+    switch (FD) {
+    case (STDIN_FILENO):
+      return io_context->stdin_file.get();
+    case (STDOUT_FILENO):
+      return io_context->stdout_file.get();
+    case (STDERR_FILENO):
+      return io_context->stderr_file.get();
+    default:
+      llvm::errs() << "No temp file for the FD\n";
+      return nullptr;
+    }
+  }
+#endif
+
+  ///\brief Describes the return result of the different routines that do the
+  /// incremental compilation.
+  ///
+  enum CompilationResult { kSuccess, kFailure, kMoreInputExpected };
+
+  const clang::CompilerInstance* getCompilerInstance() const {
+    return inner->getCompilerInstance();
+  }
+
+  llvm::orc::LLJIT* getExecutionEngine() const {
+    return compat::getExecutionEngine(*inner);
+  }
+
+  llvm::Expected<clang::PartialTranslationUnit&> Parse(llvm::StringRef Code) {
+    return inner->Parse(Code);
+  }
+
+  llvm::Error Execute(clang::PartialTranslationUnit& T) {
+    return inner->Execute(T);
+  }
+
+  llvm::Error ParseAndExecute(llvm::StringRef Code, clang::Value* V = nullptr) {
+    // Value-returning execution keeps clang's LastValue handling (private to
+    // clang::Interpreter), so delegate. The no-value path -- used by wrapper
+    // compilation -- is split so the module can be sanitized before Execute.
+    if (V)
+      return inner->ParseAndExecute(Code, V);
+    auto PTU = inner->Parse(Code);
+    if (!PTU)
+      return PTU.takeError();
+    if (PTU->TheModule) {
+#if CLANG_VERSION_MAJOR < 24
+      compat::dedupeWeakEmulatedTLS(*PTU->TheModule, DedupedWeakTLS);
+#endif
+      // WORKAROUND: see bindProcessWeakGlobals in Compatibility.h -- remove
+      // with the pass once the clang JIT fix lands.
+#if !defined(_WIN32) && CPPINTEROP_WORKAROUND_BIND_PROCESS_WEAK_GLOBALS
+      if (!outOfProcess)
+        compat::bindProcessWeakGlobals(*PTU->TheModule);
+#endif
+      if (llvm::Error Err = inner->Execute(*PTU))
+        return Err;
+    }
+    return llvm::Error::success();
+  }
+
+  llvm::Error Undo(unsigned N = 1) { return compat::Undo(*inner, N); }
+
+  void makeEngineOnce() const {
+    static bool make_engine_once = true;
+    if (make_engine_once) {
+      if (auto Err = inner->ParseAndExecute(""))
+        llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(), "Error:");
+      make_engine_once = false;
+    }
+  }
+
+  /// \returns the \c ExecutorAddr of a \c GlobalDecl. This interface uses
+  /// the CodeGenModule's internal mangling cache to avoid recomputing the
+  /// mangled name.
+  llvm::Expected<llvm::orc::ExecutorAddr>
+  getSymbolAddress(clang::GlobalDecl GD) const {
+    makeEngineOnce();
+    auto AddrOrErr = compat::getSymbolAddress(*inner, GD);
+    if (llvm::Error Err = AddrOrErr.takeError())
+      return std::move(Err);
+    return llvm::orc::ExecutorAddr(*AddrOrErr);
+  }
+
+  /// \returns the \c ExecutorAddr of a given name as written in the IR.
+  llvm::Expected<llvm::orc::ExecutorAddr>
+  getSymbolAddress(llvm::StringRef IRName) const {
+    makeEngineOnce();
+    auto AddrOrErr = compat::getSymbolAddress(*inner, IRName);
+    if (llvm::Error Err = AddrOrErr.takeError())
+      return std::move(Err);
+    return llvm::orc::ExecutorAddr(*AddrOrErr);
+  }
+
+  /// \returns the \c ExecutorAddr of a given name as written in the object
+  /// file.
+  llvm::Expected<llvm::orc::ExecutorAddr>
+  getSymbolAddressFromLinkerName(llvm::StringRef LinkerName) const {
+    auto AddrOrErr = compat::getSymbolAddressFromLinkerName(*inner, LinkerName);
+    if (llvm::Error Err = AddrOrErr.takeError())
+      return std::move(Err);
+    return llvm::orc::ExecutorAddr(*AddrOrErr);
+  }
+
+  bool isInSyntaxOnlyMode() const {
+    return getCompilerInstance()->getFrontendOpts().ProgramAction ==
+           clang::frontend::ParseSyntaxOnly;
+  }
+
+  // FIXME: Mangle GD and call the other overload.
+  void* getAddressOfGlobal(const clang::GlobalDecl& GD) const {
+    auto addressOrErr = getSymbolAddress(GD);
+    if (addressOrErr)
+      return addressOrErr->toPtr<void*>();
+
+    llvm::consumeError(addressOrErr.takeError()); // okay to be missing
+    return nullptr;
+  }
+
+  void* getAddressOfGlobal(llvm::StringRef SymName) const {
+    if (isInSyntaxOnlyMode())
+      return nullptr;
+
+    auto addressOrErr =
+        getSymbolAddressFromLinkerName(SymName); // TODO: Or getSymbolAddress
+    if (addressOrErr)
+      return addressOrErr->toPtr<void*>();
+
+    llvm::consumeError(addressOrErr.takeError()); // okay to be missing
+    return nullptr;
+  }
+
+  CompilationResult declare(const std::string& input,
+                            clang::PartialTranslationUnit** PTU = nullptr) {
+    return process(input, /*Value=*/nullptr, PTU);
+  }
+
+  ///\brief Maybe transform the input line to implement cint command line
+  /// semantics (declarations are global) and compile to produce a module.
+  ///
+  CompilationResult process(const std::string& input, clang::Value* V = 0,
+                            clang::PartialTranslationUnit** PTU = nullptr,
+                            bool disableValuePrinting = false) {
+    auto PTUOrErr = Parse(input);
+    if (!PTUOrErr) {
+      llvm::logAllUnhandledErrors(PTUOrErr.takeError(), llvm::errs(),
+                                  "Failed to parse via ::process:");
+      return Interpreter::kFailure;
+    }
+
+    if (PTU)
+      *PTU = &*PTUOrErr;
+
+#if CLANG_VERSION_MAJOR < 24
+    if (PTUOrErr->TheModule)
+      compat::dedupeWeakEmulatedTLS(*PTUOrErr->TheModule, DedupedWeakTLS);
+#endif
+      // WORKAROUND: see bindProcessWeakGlobals in Compatibility.h -- remove
+      // with the pass once the clang JIT fix lands.
+#if !defined(_WIN32) && CPPINTEROP_WORKAROUND_BIND_PROCESS_WEAK_GLOBALS
+    if (PTUOrErr->TheModule && !outOfProcess)
+      compat::bindProcessWeakGlobals(*PTUOrErr->TheModule);
+#endif
+
+    if (auto Err = Execute(*PTUOrErr)) {
+      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
+                                  "Failed to execute via ::process:");
+      return Interpreter::kFailure;
+    }
+    return Interpreter::kSuccess;
+  }
+
+  CompilationResult evaluate(const std::string& input, clang::Value& V) {
+    if (auto Err = ParseAndExecute(input, &V)) {
+      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
+                                  "Failed to execute via ::evaluate:");
+      return Interpreter::kFailure;
+    }
+    return Interpreter::kSuccess;
+  }
+
+  void* compileFunction(llvm::StringRef name, llvm::StringRef code,
+                        bool ifUnique, bool withAccessControl) {
+    //
+    //  Compile the wrapper code.
+    //
+
+    if (isInSyntaxOnlyMode())
+      return nullptr;
+
+    if (ifUnique) {
+      if (void* Addr = (void*)getAddressOfGlobal(name)) {
+        return Addr;
+      }
+    }
+
+    clang::LangOptions& LO =
+        const_cast<clang::LangOptions&>(getCompilerInstance()->getLangOpts());
+    bool SavedAccessControl = LO.AccessControl;
+    LO.AccessControl = withAccessControl;
+
+    if (auto Err = ParseAndExecute(code)) {
+      LO.AccessControl = SavedAccessControl;
+      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
+                                  "Failed to compileFunction: ");
+      return nullptr;
+    }
+
+    LO.AccessControl = SavedAccessControl;
+
+    return getAddressOfGlobal(name);
+  }
+
+  const clang::CompilerInstance* getCI() const { return getCompilerInstance(); }
+
+  clang::Sema& getSema() const { return getCI()->getSema(); }
+
+  const DynamicLibraryManager* getDynamicLibraryManager() const {
+    assert(compat::getExecutionEngine(*inner) && "We must have an executor");
+    // Replaces the C++11 magic-static thread-safe init the previous
+    // function-local DLM had for free.
+    std::call_once(sDLMInit, [this] {
+      sDLM = std::make_unique<DynamicLibraryManager>();
+      sDLM->initializeDyld([](llvm::StringRef) { /*ignore*/ return false; });
+    });
+    return sDLM.get();
+  }
+
+  DynamicLibraryManager* getDynamicLibraryManager() {
+    return const_cast<DynamicLibraryManager*>(
+        const_cast<const Interpreter*>(this)->getDynamicLibraryManager());
+  }
+
+  ///\brief Adds multiple include paths separated by a delimiter.
+  ///
+  ///\param[in] PathsStr - Path(s)
+  ///\param[in] Delim - Delimiter to separate paths or NULL if a single path
+  ///
+  void AddIncludePaths(llvm::StringRef PathsStr, const char* Delim = ":") {
+    const clang::CompilerInstance* CI = getCompilerInstance();
+    clang::HeaderSearchOptions& HOpts =
+        const_cast<clang::HeaderSearchOptions&>(CI->getHeaderSearchOpts());
+
+    // Save the current number of entries
+    size_t Idx = HOpts.UserEntries.size();
+    CppInternal::utils::AddIncludePaths(PathsStr, HOpts, Delim);
+
+    clang::Preprocessor& PP = CI->getPreprocessor();
+    clang::SourceManager& SM = PP.getSourceManager();
+    clang::FileManager& FM = SM.getFileManager();
+    clang::HeaderSearch& HSearch = PP.getHeaderSearchInfo();
+    const bool isFramework = false;
+
+    // Add all the new entries into Preprocessor
+    for (const size_t N = HOpts.UserEntries.size(); Idx < N; ++Idx) {
+      const clang::HeaderSearchOptions::Entry& E = HOpts.UserEntries[Idx];
+      if (auto DE = FM.getOptionalDirectoryRef(E.Path))
+        HSearch.AddSearchPath(
+            clang::DirectoryLookup(*DE, clang::SrcMgr::C_User, isFramework),
+            E.Group == clang::frontend::Angled);
+    }
+  }
+
+  ///\brief Adds a single include path (-I).
+  ///
+  void AddIncludePath(llvm::StringRef PathsStr) {
+    return AddIncludePaths(PathsStr, nullptr);
+  }
+
+  ///\brief Get the current include paths that are used.
+  ///
+  ///\param[out] incpaths - Pass in a llvm::SmallVector<std::string, N> with
+  ///       sufficiently sized N, to hold the result of the call.
+  ///\param[in] withSystem - if true, incpaths will also contain system
+  ///       include paths (framework, STL etc).
+  ///\param[in] withFlags - if true, each element in incpaths will be prefixed
+  ///       with a "-I" or similar, and some entries of incpaths will signal
+  ///       a new include path region (e.g. "-cxx-isystem"). Also, flags
+  ///       defining header search behavior will be included in incpaths, e.g.
+  ///       "-nostdinc".
+  ///
+  void GetIncludePaths(llvm::SmallVectorImpl<std::string>& incpaths,
+                       bool withSystem, bool withFlags) const {
+    CppInternal::utils::CopyIncludePaths(getCI()->getHeaderSearchOpts(),
+                                         incpaths, withSystem, withFlags);
+  }
+
+  CompilationResult loadLibrary(const std::string& filename, bool lookup,
+                                std::string* error = nullptr) {
+    llvm::Triple triple(getCompilerInstance()->getTargetOpts().Triple);
+    if (triple.isWasm()) {
+      // LCOV_EXCL_START -- no coverage lane runs the wasm path.
+      // On WASM, dlopen-style canonical lookup has no effect.
+      if (auto Err = inner->LoadDynamicLibrary(filename.c_str())) {
+        std::string Msg = llvm::toString(std::move(Err));
+        if (error)
+          *error = std::move(Msg);
+        else
+          llvm::errs() << "loadLibrary: " << Msg << '\n';
+        return kFailure;
+      }
+      return kSuccess;
+      // LCOV_EXCL_STOP
+    }
+
+    DynamicLibraryManager* DLM = getDynamicLibraryManager();
+    std::string canonicalLib;
+    if (lookup)
+      canonicalLib = DLM->lookupLibrary(filename);
+
+    const std::string& library = lookup ? canonicalLib : filename;
+    if (library.empty()) {
+      if (error)
+        *error = filename + ": library not found";
+      return kMoreInputExpected;
+    }
+    {
+      switch (DLM->loadLibrary(library, /*permanent*/ false, /*resolved*/ true,
+                               error)) {
+      case DynamicLibraryManager::kLoadLibSuccess: // Intentional fall through
+      case DynamicLibraryManager::kLoadLibAlreadyLoaded:
+        return kSuccess;
+      case DynamicLibraryManager::kLoadLibNotFound:
+        assert(0 && "Cannot find library with existing canonical name!");
+        return kFailure;
+      default:
+        // Not a source file (canonical name is non-empty) but can't load.
+        return kFailure;
+      }
+    }
+  }
+
+  std::string toString(const char* type, void* obj) {
+    assert(0 && "toString is not implemented!");
+    std::string ret;
+    return ret; // TODO: Implement
+  }
+
+  CompilationResult undo(unsigned N = 1) {
+    if (llvm::Error Err = Undo(N)) {
+      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
+                                  "Failed to undo via ::undo");
+      return kFailure;
+    }
+    return kSuccess;
+  }
+
+}; // Interpreter
+} // namespace CppInternal
+
+#endif // CPPINTEROP_INTERPRETER_H

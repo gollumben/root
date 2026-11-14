@@ -23,26 +23,30 @@ class RooRealVar;
 
 class RooCBShape : public RooAbsPdf {
 public:
-  RooCBShape() {} ;
+  RooCBShape() {}
   RooCBShape(const char *name, const char *title, RooAbsReal& _m,
         RooAbsReal& _m0, RooAbsReal& _sigma,
         RooAbsReal& _alpha, RooAbsReal& _n);
 
-  RooCBShape(const RooCBShape& other, const char* name = 0);
-  virtual TObject* clone(const char* newname) const { return new RooCBShape(*this,newname); }
+  RooCBShape(const RooCBShape& other, const char *name = nullptr);
+  TObject* clone(const char* newname=nullptr) const override { return new RooCBShape(*this,newname); }
 
-  inline virtual ~RooCBShape() { }
-
-  virtual Int_t getAnalyticalIntegral( RooArgSet& allVars,  RooArgSet& analVars, const char* rangeName=0 ) const;
-  virtual Double_t analyticalIntegral( Int_t code, const char* rangeName=0 ) const;
+  Int_t getAnalyticalIntegral( RooArgSet& allVars,  RooArgSet& analVars, const char* rangeName=nullptr ) const override;
+  double analyticalIntegral(Int_t, const char *rangeName = nullptr) const override;
 
   // Optimized accept/reject generator support
-  virtual Int_t getMaxVal(const RooArgSet& vars) const ;
-  virtual Double_t maxVal(Int_t code) const ;
+  Int_t getMaxVal(const RooArgSet& vars) const override ;
+  double maxVal(Int_t code) const override ;
+
+  RooAbsReal const& getM() const { return m.arg(); }
+  RooAbsReal const& getM0() const { return m0.arg(); }
+  RooAbsReal const& getSigma() const { return sigma.arg(); }
+  RooAbsReal const& getAlpha() const { return alpha.arg(); }
+  RooAbsReal const& getN() const { return n.arg(); }
 
 protected:
 
-  Double_t ApproxErf(Double_t arg) const ;
+  double ApproxErf(double arg) const ;
 
   RooRealProxy m;
   RooRealProxy m0;
@@ -50,12 +54,14 @@ protected:
   RooRealProxy alpha;
   RooRealProxy n;
 
-  Double_t evaluate() const;
-  RooSpan<double> evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const;
+  double evaluate() const override;
+  void doEval(RooFit::EvalContext &) const override;
+  inline bool canComputeBatchWithCuda() const override { return true; }
+
 
 private:
 
-  ClassDef(RooCBShape,1) // Crystal Ball lineshape PDF
+  ClassDefOverride(RooCBShape,1) // Crystal Ball lineshape PDF
 };
 
 #endif

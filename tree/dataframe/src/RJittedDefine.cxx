@@ -9,42 +9,67 @@
  *************************************************************************/
 
 #include <ROOT/RDF/RJittedDefine.hxx>
-#include <TError.h> // R__ASSERT
+
+#include <cassert>
 
 using namespace ROOT::Detail::RDF;
 
+RJittedDefine::~RJittedDefine() {}
+
 void RJittedDefine::InitSlot(TTreeReader *r, unsigned int slot)
 {
-   R__ASSERT(fConcreteDefine != nullptr);
+   assert(fConcreteDefine != nullptr);
    fConcreteDefine->InitSlot(r, slot);
 }
 
 void *RJittedDefine::GetValuePtr(unsigned int slot)
 {
-   R__ASSERT(fConcreteDefine != nullptr);
+   assert(fConcreteDefine != nullptr);
    return fConcreteDefine->GetValuePtr(slot);
 }
 
 const std::type_info &RJittedDefine::GetTypeId() const
 {
-   R__ASSERT(fConcreteDefine != nullptr);
-   return fConcreteDefine->GetTypeId();
+   if (fConcreteDefine)
+      return fConcreteDefine->GetTypeId();
+   else if (fTypeId)
+      return *fTypeId;
+   else
+      throw std::runtime_error("RDataFrame: Type info was requested for a Defined column type, but could not be "
+                               "retrieved. This should never happen, please report this as a bug.");
 }
 
 void RJittedDefine::Update(unsigned int slot, Long64_t entry)
 {
-   R__ASSERT(fConcreteDefine != nullptr);
+   assert(fConcreteDefine != nullptr);
    fConcreteDefine->Update(slot, entry);
 }
 
 void RJittedDefine::Update(unsigned int slot, const ROOT::RDF::RSampleInfo &id)
 {
-   R__ASSERT(fConcreteDefine != nullptr);
+   assert(fConcreteDefine != nullptr);
    fConcreteDefine->Update(slot, id);
 }
 
-void RJittedDefine::FinaliseSlot(unsigned int slot)
+void RJittedDefine::FinalizeSlot(unsigned int slot)
 {
-   R__ASSERT(fConcreteDefine != nullptr);
-   fConcreteDefine->FinaliseSlot(slot);
+   assert(fConcreteDefine != nullptr);
+   fConcreteDefine->FinalizeSlot(slot);
+}
+
+void RJittedDefine::MakeVariations(const std::vector<std::string> &variations)
+{
+   assert(fConcreteDefine != nullptr);
+   return fConcreteDefine->MakeVariations(variations);
+}
+
+RDefineBase &RJittedDefine::GetVariedDefine(const std::string &variationName)
+{
+   assert(fConcreteDefine != nullptr);
+
+   auto &variedDefine = fConcreteDefine->GetVariedDefine(variationName);
+   if (&variedDefine == fConcreteDefine.get())
+      return *this; // Ensures that the pointer is the same across all variations
+   else
+      return variedDefine;
 }

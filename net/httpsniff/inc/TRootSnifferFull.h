@@ -14,13 +14,18 @@
 
 #include "TRootSniffer.h"
 #include <string>
+#include <memory>
+#include <map>
 
 class TMemFile;
+class TMethodCall;
+class TMethod;
 
 class TRootSnifferFull : public TRootSniffer {
 protected:
    TMemFile *fMemFile{nullptr}; ///<! file used to manage streamer infos
    TList *fSinfo{nullptr};      ///<! last produced streamer info
+   std::map<const TMethod *, std::unique_ptr<TMethodCall>> fExeCache; ///<! cache for exe.json invocation
 
    void ScanObjectProperties(TRootSnifferScanRec &rec, TObject *obj) override;
 
@@ -36,14 +41,18 @@ protected:
 
    Bool_t ProduceBinary(const std::string &path, const std::string &options, std::string &res) override;
 
+   Bool_t ProduceRootFile(const std::string &path, const std::string &options, std::string &res) override;
+
    Bool_t ProduceImage(Int_t kind, const std::string &path, const std::string &options, std::string &res) override;
 
    Bool_t ProduceXml(const std::string &path, const std::string &options, std::string &res) override;
 
    Bool_t ProduceExe(const std::string &path, const std::string &options, Int_t reskind, std::string &res) override;
 
+   Bool_t CallProduceImage(const std::string &kind, const std::string &path, const std::string &options, std::string &res) override;
+
 public:
-   TRootSnifferFull(const char *name, const char *objpath = "Objects");
+   TRootSnifferFull(const char *name = "sniff", const char *objpath = "Objects");
    virtual ~TRootSnifferFull();
 
    static Bool_t IsDrawableClass(TClass *cl);

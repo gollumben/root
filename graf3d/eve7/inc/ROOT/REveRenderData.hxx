@@ -27,7 +27,6 @@ private:
    std::vector<float> fVertexBuffer;
    std::vector<float> fNormalBuffer;
    std::vector<int>   fIndexBuffer;
-   std::vector<float> fMatrix;
 
 public:
    // If Primitive_e is changed, change also definition in EveElements.js.
@@ -86,18 +85,19 @@ public:
 
    void PushI(std::vector<UInt_t> &v) { fIndexBuffer.insert(fIndexBuffer.end(), v.begin(), v.end()); }
 
-   void SetMatrix(const double *arr);
-
    const std::string GetRnrFunc() const { return fRnrFunc; }
+
+   void ResizeV(int s) { fVertexBuffer.resize(s); }
 
    int SizeV() const { return fVertexBuffer.size(); }
    int SizeN() const { return fNormalBuffer.size(); }
    int SizeI() const { return fIndexBuffer.size(); }
-   int SizeT() const { return fMatrix.size(); }
 
-   int GetBinarySize() { return (SizeV() + SizeN() + SizeT()) * sizeof(float) + SizeI() * sizeof(int); }
+   int GetBinarySize() { return (SizeV() + SizeN()) * sizeof(float) + SizeI() * sizeof(int); }
 
    int Write(char *msg, int maxlen);
+
+   static void CalcTextureSize(int nel, int align, int &sx, int &sy);
 };
 
 } // namespace Experimental

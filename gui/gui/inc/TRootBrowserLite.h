@@ -114,7 +114,7 @@ protected:
 public:
    TRootBrowserLite(TBrowser *b = nullptr, const char *title = "ROOT Browser", UInt_t width = 800, UInt_t height = 500);
    TRootBrowserLite(TBrowser *b, const char *title, Int_t x, Int_t y, UInt_t width, UInt_t height);
-   virtual ~TRootBrowserLite();
+   ~TRootBrowserLite() override;
 
    void         Add(TObject *obj, const char *name = nullptr, Int_t check = -1) override;
    virtual void AddToBox(TObject *obj, const char *name);
@@ -152,7 +152,7 @@ public:
 
    // overridden from TGMainFrame
    void     CloseWindow() override;
-   Bool_t   ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2) override;
+   Bool_t   ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2) override;
    void     ReallyDelete() override;
 
    // auxiliary (a la private) methods

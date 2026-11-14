@@ -15,7 +15,6 @@
 
 #include <iostream>
 
-ClassImp(TPaveClass);
 
 
 /** \class TPaveClass
@@ -61,7 +60,7 @@ TPaveClass::~TPaveClass()
 
 TPaveClass::TPaveClass(const TPaveClass &PaveClass) : TPaveLabel(PaveClass)
 {
-   ((TPaveClass&)PaveClass).Copy(*this);
+   PaveClass.TPaveClass::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -141,19 +140,14 @@ void TPaveClass::ShowClassesUsing(const char *classes)
 
 void TPaveClass::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
 {
-   char quote = '"';
-   out<<"   "<<std::endl;
-   if (gROOT->ClassSaved(TPaveClass::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TPaveClass *";
-   }
-   out<<"pclass = new TPaveClass("<<fX1<<","<<fY1<<","<<fX2<<","<<fY2
-      <<","<<quote<<fLabel<<quote<<","<<quote<<fOption<<quote<<");"<<std::endl;
+   SavePrimitiveConstructor(out, Class(), "pclass",
+                            TString::Format("%g, %g, %g, %g, \"%s\", \"%s\"", fX1, fY1, fX2, fY2,
+                                            TString(fLabel).ReplaceSpecialCppChars().Data(),
+                                            TString(fOption).ReplaceSpecialCppChars().Data()));
 
-   SaveFillAttributes(out,"pclass",0,1001);
-   SaveLineAttributes(out,"pclass",1,1,1);
-   SaveTextAttributes(out,"pclass",22,0,1,62,0);
+   SaveFillAttributes(out, "pclass", -1, -1);
+   SaveLineAttributes(out, "pclass", 1, 1, 1);
+   SaveTextAttributes(out, "pclass", 22, 0, 1, 62, 0);
 
-   out<<"   pclass->Draw();"<<std::endl;
+   out << "   pclass->Draw();\n";
 }

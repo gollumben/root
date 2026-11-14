@@ -13,7 +13,7 @@ extern "C" {
 /// Default options when address sanitizer starts up in ROOT executables.
 /// This is relevant when ROOT's build option `asan` is on.
 /// These can be overridden / augmented by the ASAN_OPTIONS environment variable.
-/// Using ASAN_OPTIONS=help=1 and starting an instrumented ROOT exectuable, available options will be printed.
+/// Using ASAN_OPTIONS=help=1 and starting an instrumented ROOT executable, available options will be printed.
 const char* __asan_default_options() { 
 
 #ifdef ASAN_DETECT_LEAKS
@@ -22,21 +22,25 @@ const char* __asan_default_options() {
 #define DETECT_LEAKS ":detect_leaks=0"
 #endif
 
+  // TODO: Re-enable check_initialization_order=1, currently finds a false
+  // positive in llvm::DataLayout::reset accessing DefaultAlignments while
+  // loading the Net library.
+
   return "strict_string_checks=1"
          ":detect_stack_use_after_return=1"
-         ":check_initialization_order=1"
          ":detect_container_overflow=1"
          ":alloc_dealloc_mismatch=0"
          DETECT_LEAKS
-         ":verify_asan_link_order=0";
+         ":verify_asan_link_order=0"
+         ":detect_odr_violation=0";
 }
 
-/// Default options when leak sanitizer starts up in ROOT exectuables.
-/// This is relevant when ROOT's build options `asan` is on.
+/// Default options when leak sanitizer starts up in ROOT executables.
+/// This is relevant when ROOT's build option `asan` is on.
 /// These can be overridden / augmented by the LSAN_OPTIONS environment variable.
-/// Using LSAN_OPTIONS=help=1 and starting an instrumented ROOT exectuable, available options will be printed.
+/// Using LSAN_OPTIONS=help=1 and starting an instrumented ROOT executable, available options will be printed.
 const char* __lsan_default_options() {
-   return "exitcode=0:max_leaks=10:print_suppressions=1";
+   return "max_leaks=10:print_suppressions=1";
 }
 
 /// Default suppressions for leak sanitizer in ROOT.

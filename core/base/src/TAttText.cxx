@@ -9,18 +9,18 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include <iostream>
-#include "Strlen.h"
 #include "TROOT.h"
 #include "TAttText.h"
 #include "TVirtualPad.h"
-#include "TStyle.h"
-#include "TVirtualX.h"
-#include "TError.h"
+#include "TVirtualPadPainter.h"
 #include "TVirtualPadEditor.h"
+#include "TMathBase.h"
+#include "TStyle.h"
+#include "TError.h"
 #include "TColor.h"
 
-ClassImp(TAttText);
+#include <iostream>
+#include <cstring>
 
 /** \class TAttText
 \ingroup Base
@@ -127,8 +127,8 @@ End_Macro
 ### Color transparency
 `SetTextColorAlpha()`, allows to set a transparent color.
 In the following example the text color of the text `text`
-is set to blue with a transparency of 35%. The color `kBlue`
-itself remains fully opaque.
+is set to blue with an opacity of 35% (i.e. a transparency of 65%).
+(The color `kBlue` itself is internally stored as fully opaque.)
 
 ~~~ {.cpp}
 text->SetTextColorAlpha(kBlue, 0.35);
@@ -138,6 +138,9 @@ The transparency is available on all platforms when the flag `OpenGL.CanvasPrefe
 in `$ROOTSYS/etc/system.rootrc`, or on Mac with the Cocoa backend. On the file output
 it is visible with PDF, PNG, Gif, JPEG, SVG, TeX ... but not PostScript.
 
+Alternatively, you can call at the top of your script `gSytle->SetCanvasPreferGL();`.
+Or if you prefer to activate GL for a single canvas `c`, then use `c->SetSupportGL(true);`.
+
 \anchor ATTTEXT4
 ## Text Size
 
@@ -145,13 +148,19 @@ If the text precision (see next paragraph) is smaller than 3, the text
 size (`textsize`) is a fraction of the current pad size. Therefore the
 same `textsize` value can generate text outputs with different absolute
 sizes in two different pads.
-The text size in pixels (`charheight`) is computed the following way:
+The text size in pixels (`charheight`) computed in the following way:
 
 ~~~ {.cpp}
-   pad_width  = gPad->XtoPixel(gPad->GetX2());
-   pad_height = gPad->YtoPixel(gPad->GetY1());
-   if (pad_width < pad_height)  charheight = textsize*pad_width;
-   else                         charheight = textsize*pad_height;
+   UInt_t pad_width  = gPad->GetPadWidth();
+   UInt_t pad_height = gPad->GetPadHeight();
+   Float_t charheight = textsize*TMath::Min(pad_width, pad_height);
+~~~
+
+This value can be obtained using GetTextSizePixels() method:
+
+~~~ {.cpp}
+   TText txt;
+   auto charheight = text.GetTextSizePixels(*gPad);
 ~~~
 
 If the text precision is equal to 3, the text size doesn't depend on the pad's
@@ -193,62 +202,54 @@ method `GetTextFont`.
 \anchor ATTTEXT51
 ### Font quality and speed
 
-When precision 0 is used, only the original non-scaled system fonts are
+When precision 0 is used, only the original non-scaled X11 system fonts are
 used. The fonts have a minimum (4) and maximum (37) size in pixels. These
 fonts are fast and are of good quality. Their size varies with large steps
 and they cannot be rotated.
 Precision 1 and 2 fonts have a different behaviour depending if the
 True Type Fonts (TTF) are used or not. If TTF are used, you always get very good
-quality scalable and rotatable fonts. However TTF are slow.
+quality scalable and rotatable fonts.
+These days TTF fonts are rendered fast enough and can be used in all cases.
 
 \anchor ATTTEXT52
 ### How to use True Type Fonts
 
-One can activate the TTF by adding (or activating) the following line
+TTF fonts are used by default. They can be deactivated via the following line
 in the `.rootrc` file:
 
 ~~~ {.cpp}
-   Unix.*.Root.UseTTFonts:     true
-~~~
-
-It is possible to check the TTF are in use in a Root session
-with the command:
-
-~~~ {.cpp}
-   gEnv->Print();
-~~~
-
-If the TTF are in use the following line will appear at the beginning of the
-printout given by this command:
-
-~~~ {.cpp}
-   Unix.*.Root.UseTTFonts:   true                           [Global]
+   Unix.*.Root.UseTTFonts:     false
 ~~~
 
 \anchor ATTTEXT53
 ### List of the currently supported fonts
 
 ~~~ {.cpp}
-   Font number         X11 Names             Win32/TTF Names
-       1 :       times-medium-i-normal      "Times New Roman"
-       2 :       times-bold-r-normal        "Times New Roman"
-       3 :       times-bold-i-normal        "Times New Roman"
-       4 :       helvetica-medium-r-normal  "Arial"
-       5 :       helvetica-medium-o-normal  "Arial"
-       6 :       helvetica-bold-r-normal    "Arial"
-       7 :       helvetica-bold-o-normal    "Arial"
-       8 :       courier-medium-r-normal    "Courier New"
-       9 :       courier-medium-o-normal    "Courier New"
-      10 :       courier-bold-r-normal      "Courier New"
-      11 :       courier-bold-o-normal      "Courier New"
-      12 :       symbol-medium-r-normal     "Symbol"
-      13 :       times-medium-r-normal      "Times New Roman"
-      14 :                                  "Wingdings"
-      15 :       Symbol italic (derived from Symbol)
+   Font number      TTF Names                   PostScript/PDF Names
+       1 :       "Free Serif Italic"         "Times-Italic"
+       2 :       "Free Serif Bold"           "Times-Bold"
+       3 :       "Free Serif Bold Italic"    "Times-BoldItalic"
+       4 :       "Tex Gyre Regular"          "Helvetica"
+       5 :       "Tex Gyre Italic"           "Helvetica-Oblique"
+       6 :       "Tex Gyre Bold"             "Helvetica-Bold"
+       7 :       "Tex Gyre Bold Italic"      "Helvetica-BoldOblique"
+       8 :       "Free Mono"                 "Courier"
+       9 :       "Free Mono Oblique"         "Courier-Oblique"
+      10 :       "Free Mono Bold"            "Courier-Bold"
+      11 :       "Free Mono Bold Oblique"    "Courier-BoldOblique"
+      12 :       "Symbol"                    "Symbol"
+      13 :       "Free Serif"                "Times-Roman"
+      14 :       "Wingdings"                 "ZapfDingbats"
 ~~~
 
-The following picture shows how each font looks. The number on the left
-is the "text font code". In this picture precision 2 was selected.
+The PostScript and PDF backends use the original PostScript-defined 13 fonts' styles
+forming four type families (Courier, Helvetica, Times, Symbol) as listed in the
+"Core Font Set" section of [this page](https://en.wikipedia.org/wiki/PostScript_fonts).
+These fonts are always available and do not need to be loaded in the PS or PDF files
+allowing to keep the files' sizes small.
+
+On screen, text is rendered using free TTF fonts similar to the PDF ones. The corresponding
+font files are coming with the ROOT distribution in `$ROOTSYS/fonts/Free*`.
 
 Begin_Macro
 fonts.C
@@ -307,32 +308,78 @@ void TAttText::Copy(TAttText &atttext) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Return the text size in percent of the pad size.
+///
+/// If the font precision is greater than 2, the text size returned is the size in pixel
+/// converted into percent of the pad size, otherwise the size returned is the same as the
+/// size given as input parameter.
+
+Float_t TAttText::GetTextSizePercent(Float_t size)
+{
+   if ((GetTextFont() % 10 < 3) || !gPad)
+      return size;
+
+   auto size0 = fTextSize;
+   fTextSize = size;
+   size = GetTextSizeRelative(*gPad);
+   fTextSize = size0;
+   return size;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Return the text size in relative units
+///
+/// If the font precision grater then 2 use pad dimensions to get value
+
+Float_t TAttText::GetTextSizeRelative(TVirtualPad &pad) const
+{
+   Float_t rsize = GetTextSize();
+   if (GetTextFont() % 10 > 2) {
+      UInt_t padw = pad.GetPadWidth();
+      UInt_t padh = pad.GetPadHeight();
+      rsize /= TMath::Max((UInt_t) 1, TMath::Min(padw, padh));
+   }
+   return rsize;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Return the text size in pixels for the specified pad
+///
+/// If the font precision less than 3 size defined as percent of pad size and
+/// scaled to minimal pad size
+
+Float_t TAttText::GetTextSizePixels(TVirtualPad &pad) const
+{
+   Float_t tsize = GetTextSize();
+   if (GetTextFont() % 10 <= 2) {
+      UInt_t padw = pad.GetPadWidth();
+      UInt_t padh = pad.GetPadHeight();
+      tsize *= TMath::Min(padw, padh);
+   }
+   return tsize;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Change current text attributes if necessary.
 
 void TAttText::Modify()
 {
-   if (!gPad) return;
+   if (gPad)
+      ModifyOn(*gPad);
+}
 
-   // Do we need to change font?
-   if (!gPad->IsBatch()) {
-      gVirtualX->SetTextAngle(fTextAngle);
-      Float_t wh = (Float_t)gPad->XtoPixel(gPad->GetX2());
-      Float_t hh = (Float_t)gPad->YtoPixel(gPad->GetY1());
-      Float_t tsize;
-      if (wh < hh)  tsize = fTextSize*wh;
-      else          tsize = fTextSize*hh;
-      if (fTextFont%10 > 2) tsize = fTextSize;
+////////////////////////////////////////////////////////////////////////////////
+/// Change current text attributes if necessary on specified pad.
 
-      if (gVirtualX->GetTextFont() != fTextFont) {
-            gVirtualX->SetTextFont(fTextFont);
-            gVirtualX->SetTextSize(tsize);
-      }
-      if (gVirtualX->GetTextSize() != tsize)
-            gVirtualX->SetTextSize(tsize);
-      gVirtualX->SetTextAlign(fTextAlign);
-      gVirtualX->SetTextColor(fTextColor);
-   }
-   gPad->SetAttTextPS(fTextAlign,fTextAngle,fTextColor,fTextFont,fTextSize);
+void TAttText::ModifyOn(TVirtualPad &pad)
+{
+   auto pp = pad.GetPainter();
+   if (!pp)
+      return;
+
+   pp->OnPad(&pad);
+
+   pp->SetAttText(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -354,25 +401,16 @@ void TAttText::SaveTextAttributes(std::ostream &out, const char *name, Int_t ali
                                   Float_t angdef, Int_t coldef, Int_t fondef,
                                   Float_t sizdef)
 {
-   if (fTextAlign != alidef) {
-      out<<"   "<<name<<"->SetTextAlign("<<fTextAlign<<");"<<std::endl;
-   }
-   if (fTextColor != coldef) {
-      if (fTextColor > 228) {
-         TColor::SaveColor(out, fTextColor);
-         out<<"   "<<name<<"->SetTextColor(ci);" << std::endl;
-      } else
-         out<<"   "<<name<<"->SetTextColor("<<fTextColor<<");"<<std::endl;
-   }
-   if (fTextFont != fondef) {
-      out<<"   "<<name<<"->SetTextFont("<<fTextFont<<");"<<std::endl;
-   }
-   if (fTextSize != sizdef) {
-      out<<"   "<<name<<"->SetTextSize("<<fTextSize<<");"<<std::endl;
-   }
-   if (fTextAngle != angdef) {
-      out<<"   "<<name<<"->SetTextAngle("<<fTextAngle<<");"<<std::endl;
-   }
+   if (fTextAlign != alidef)
+      out << "   " << name << "->SetTextAlign(" << fTextAlign << ");\n";
+   if (fTextColor != coldef)
+      out << "   " << name << "->SetTextColor(" << TColor::SavePrimitiveColor(fTextColor) << ");\n";
+   if (fTextFont != fondef)
+      out << "   " << name << "->SetTextFont(" << fTextFont << ");\n";
+   if (fTextSize != sizdef)
+      out << "   " << name << "->SetTextSize(" << fTextSize << ");\n";
+   if (fTextAngle != angdef)
+      out << "   " << name << "->SetTextAngle(" << fTextAngle << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -385,8 +423,10 @@ void TAttText::SetTextAttributes()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set a transparent marker color. talpha defines the percentage of
-/// the color opacity from 0. (fully transparent) to 1. (fully opaque).
+/// Set a transparent text color.
+/// \param tcolor defines the text color
+/// \param talpha defines the percentage of opacity from 0. (fully transparent) to 1. (fully opaque).
+/// \note talpha is used only on the [supported platforms](\ref col_trans_available).
 
 void TAttText::SetTextColorAlpha(Color_t tcolor, Float_t talpha)
 {
@@ -409,4 +449,9 @@ void TAttText::SetTextSizePixels(Int_t npixels)
       Float_t dy = pad->AbsPixeltoY(0) - pad->AbsPixeltoY(npixels);
       fTextSize = dy/(pad->GetY2() - pad->GetY1());
    }
+}
+
+void TAttText::SetTextColor(TColorNumber lcolor)
+{
+   SetTextColor(lcolor.number());
 }

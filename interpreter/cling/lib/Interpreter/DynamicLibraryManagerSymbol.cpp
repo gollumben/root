@@ -25,6 +25,7 @@
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/Error.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/Format.h"
@@ -36,6 +37,26 @@
 #include <unordered_set>
 #include <vector>
 
+#if defined (__FreeBSD__)
+#include <sys/user.h>
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/queue.h>
+
+// libprocstat pulls in sys/elf.h which seems to clash with llvm/BinaryFormat/ELF.h
+// similar collision happens with ZFS. Defining ZFS disables this include.
+# ifndef ZFS
+#   define ZFS
+#   define defined_ZFS_for_libprocstat
+# endif
+#include <libprocstat.h>
+# ifdef defined_ZFS_for_libprocstat
+#   undef ZFS
+#   undef defined_ZFS_for_libprocstat
+# endif
+
+#include <libutil.h>
+#endif
 
 #ifdef LLVM_ON_UNIX
 #include <dlfcn.h>
@@ -345,14 +366,15 @@ std::string cached_realpath(llvm::StringRef path, llvm::StringRef base_path = ""
 
   // Handle path list items
   for (auto item : p) {
-    if (item.startswith(".")) {
-      if (item == "..") {
-        size_t s = result.rfind(sep);
-        if (s != llvm::StringRef::npos) result.resize(s);
-        if (result.empty()) result = sep;
-      }
-      continue;
-    } else if (item == "~") {
+    if (item == ".")
+      continue; // skip "." element in "abc/./def"
+    if (item == "..") {
+      // collapse "a/b/../c" to "a/c"
+      size_t s = result.rfind(sep);
+      if (s != llvm::StringRef::npos)
+        result.resize(s);
+      if (result.empty())
+        result = sep;
       continue;
     }
 
@@ -362,7 +384,7 @@ std::string cached_realpath(llvm::StringRef path, llvm::StringRef base_path = ""
     if (S_ISLNK(st_mode)) {
       llvm::StringRef symlink = cached_readlink(result.c_str());
       if (llvm::sys::path::is_relative(symlink)) {
-        result.set_size(old_size);
+        result.resize(old_size);
         result = cached_realpath(symlink, result, true, symlooplevel - 1);
       } else {
         result = cached_realpath(symlink, "", true, symlooplevel - 1);
@@ -419,8 +441,7 @@ static Expected<StringRef> getDynamicStrTab(const ELFFile<ELFT>* Elf) {
 
 static llvm::StringRef GetGnuHashSection(llvm::object::ObjectFile *file) {
   for (auto S : file->sections()) {
-    llvm::StringRef name;
-    S.getName(name);
+    llvm::StringRef name = llvm::cantFail(S.getName());
     if (name == ".gnu.hash") {
       return llvm::cantFail(S.getContents());
     }
@@ -508,7 +529,7 @@ namespace cling {
       }
 
       bool Contains(StringRef Path) {
-        return m_Paths.count(Path);
+        return m_Paths.count(Path.str());
       }
     };
 
@@ -590,10 +611,13 @@ namespace cling {
   void HandleDynTab(const ELFFile<ELFT>* Elf, llvm::StringRef FileName,
                     llvm::SmallVector<llvm::StringRef,2>& RPath,
                     llvm::SmallVector<llvm::StringRef,2>& RunPath,
-                    std::vector<StringRef>& Deps) {
+                    std::vector<StringRef>& Deps,
+                    bool& isPIEExecutable) {
     const char *Data = "";
     if (Expected<StringRef> StrTabOrErr = getDynamicStrTab(Elf))
       Data = StrTabOrErr.get().data();
+
+    isPIEExecutable = false;
 
     auto DynamicEntriesOrError = Elf->dynamicEntries();
     if (!DynamicEntriesOrError) {
@@ -612,6 +636,11 @@ namespace cling {
           break;
         case ELF::DT_RUNPATH:
           SplitPaths(Data + Dyn.d_un.d_val, RunPath, utils::kAllowNonExistant, platform::kEnvDelim, false);
+          break;
+        case ELF::DT_FLAGS_1:
+          // Check if this is not a pie executable.
+          if (Dyn.d_un.d_val & llvm::ELF::DF_1_PIE)
+            isPIEExecutable = true;
           break;
         // (Dyn.d_tag == ELF::DT_NULL) continue;
         // (Dyn.d_tag == ELF::DT_AUXILIARY || Dyn.d_tag == ELF::DT_FILTER)
@@ -688,8 +717,9 @@ namespace cling {
 
           llvm::StringRef FileRealPath = llvm::sys::path::parent_path(FileName);
           llvm::StringRef FileRealName = llvm::sys::path::filename(FileName);
-          const BasePath& BaseP = m_BasePaths.RegisterBasePath(FileRealPath.str());
-          LibraryPath LibPath(BaseP, FileRealName); //bp, str
+          const BasePath& BaseP =
+            m_BasePaths.RegisterBasePath(FileRealPath.str());
+          LibraryPath LibPath(BaseP, FileRealName.str()); //bp, str
 
           if (m_SysLibraries.GetRegisteredLib(LibPath) ||
               m_Libraries.GetRegisteredLib(LibPath)) {
@@ -718,11 +748,14 @@ namespace cling {
           auto ObjFileOrErr =
             llvm::object::ObjectFile::createObjectFile(FileName);
           if (llvm::Error Err = ObjFileOrErr.takeError()) {
+            // Note: It is important to always call handleAllErrors, otherwise
+            // the destructor of llvm::Error will abort the program "due to an
+            // unhandled Error"
+            std::string Message;
+            handleAllErrors(std::move(Err), [&](llvm::ErrorInfoBase& EIB) {
+              Message += EIB.message() + "; ";
+            });
             if (DEBUG > 1) {
-              std::string Message;
-              handleAllErrors(std::move(Err), [&](llvm::ErrorInfoBase &EIB) {
-                Message += EIB.message() + "; ";
-              });
               cling::errs()
                 << "Dyld::ScanForLibraries: Failed to read object file "
                 << FileName.str() << " Errors: " << Message << "\n";
@@ -731,15 +764,28 @@ namespace cling {
           }
           llvm::object::ObjectFile *BinObjF = ObjFileOrErr.get().getBinary();
           if (BinObjF->isELF()) {
-            if (const auto* ELF = dyn_cast<ELF32LEObjectFile>(BinObjF))
-              HandleDynTab(ELF->getELFFile(), FileName, RPath, RunPath, Deps);
-            else if (const auto* ELF = dyn_cast<ELF32BEObjectFile>(BinObjF))
-              HandleDynTab(ELF->getELFFile(), FileName, RPath, RunPath, Deps);
-            else if (const auto* ELF = dyn_cast<ELF64LEObjectFile>(BinObjF))
-              HandleDynTab(ELF->getELFFile(), FileName, RPath, RunPath, Deps);
-            else if (const auto* ELF = dyn_cast<ELF64BEObjectFile>(BinObjF))
-              HandleDynTab(ELF->getELFFile(), FileName, RPath, RunPath, Deps);
+            bool isPIEExecutable = false;
 
+            if (const auto* ELF = dyn_cast<ELF32LEObjectFile>(BinObjF))
+              HandleDynTab(&ELF->getELFFile(), FileName, RPath, RunPath, Deps,
+                           isPIEExecutable);
+            else if (const auto* ELF = dyn_cast<ELF32BEObjectFile>(BinObjF))
+              HandleDynTab(&ELF->getELFFile(), FileName, RPath, RunPath, Deps,
+                           isPIEExecutable);
+            else if (const auto* ELF = dyn_cast<ELF64LEObjectFile>(BinObjF))
+              HandleDynTab(&ELF->getELFFile(), FileName, RPath, RunPath, Deps,
+                           isPIEExecutable);
+            else if (const auto* ELF = dyn_cast<ELF64BEObjectFile>(BinObjF))
+              HandleDynTab(&ELF->getELFFile(), FileName, RPath, RunPath, Deps,
+                           isPIEExecutable);
+
+            if ((level == 0) && isPIEExecutable) {
+              if (searchSystemLibraries)
+                m_SysLibraries.UnregisterLib(LibPath);
+              else
+                m_Libraries.UnregisterLib(LibPath);
+              return;
+            }
           } else if (BinObjF->isMachO()) {
             MachOObjectFile *Obj = (MachOObjectFile*)BinObjF;
             for (const auto &Command : Obj->load_commands()) {
@@ -847,7 +893,7 @@ namespace cling {
     uint32_t SymbolsCount = 0;
     std::list<llvm::StringRef> symbols;
     for (const llvm::object::SymbolRef &S : BinObjFile->symbols()) {
-      uint32_t Flags = S.getFlags();
+      uint32_t Flags = llvm::cantFail(S.getFlags());
       // Do not insert in the table symbols flagged to ignore.
       if (Flags & IgnoreSymbolFlags)
         continue;
@@ -880,7 +926,7 @@ namespace cling {
       const auto *ElfObj = cast<llvm::object::ELFObjectFileBase>(BinObjFile);
 
       for (const object::SymbolRef &S : ElfObj->getDynamicSymbolIterators()) {
-        uint32_t Flags = S.getFlags();
+        uint32_t Flags = llvm::cantFail(S.getFlags());
         // DO NOT insert to table if symbol was undefined
         if (Flags & llvm::object::SymbolRef::SF_Undefined)
           continue;
@@ -918,8 +964,10 @@ namespace cling {
         // All the symbols are already flagged as exported. 
         // We cannot really ignore symbols based on flags as we do on unix.
         StringRef Name;
-        if (I->getSymbolName(Name))
+        if (Error E = I->getSymbolName(Name)) {
+          consumeError(std::move(E));
           continue;
+        }
         if (Name.empty())
           continue;
 
@@ -945,7 +993,7 @@ namespace cling {
     // Generate BloomFilter
     for (const auto &S : symbols) {
       if (m_UseHashTable)
-        Lib->AddBloom(Lib->AddSymbol(S));
+        Lib->AddBloom(Lib->AddSymbol(S.str()));
       else
         Lib->AddBloom(S);
     }
@@ -964,11 +1012,14 @@ namespace cling {
 
     auto ObjF = llvm::object::ObjectFile::createObjectFile(library_filename);
     if (llvm::Error Err = ObjF.takeError()) {
+      // Note: It is important to always call handleAllErrors, otherwise the
+      // destructor of llvm::Error will abort the program "due to an unhandled
+      // Error"
+      std::string Message;
+      handleAllErrors(std::move(Err), [&](llvm::ErrorInfoBase& EIB) {
+        Message += EIB.message() + "; ";
+      });
       if (DEBUG > 1) {
-        std::string Message;
-        handleAllErrors(std::move(Err), [&](llvm::ErrorInfoBase &EIB) {
-            Message += EIB.message() + "; ";
-          });
         cling::errs() << "Dyld::ContainsSymbol: Failed to read object file "
                       << library_filename << " Errors: " << Message << "\n";
       }
@@ -1016,7 +1067,7 @@ namespace cling {
       [&library_filename](llvm::iterator_range<llvm::object::symbol_iterator> range,
          unsigned IgnoreSymbolFlags, llvm::StringRef mangledName) -> bool {
       for (const llvm::object::SymbolRef &S : range) {
-        uint32_t Flags = S.getFlags();
+        uint32_t Flags = llvm::cantFail(S.getFlags());
         // Do not insert in the table symbols flagged to ignore.
         if (Flags & IgnoreSymbolFlags)
           continue;
@@ -1090,6 +1141,21 @@ namespace cling {
     if (!cling::DynamicLibraryManager::isSharedLibrary(FileName))
       return true;
 
+#ifdef _WIN32
+    // Never bind JIT'd code to legacy MSVC runtimes (msvcp60.dll & co, still
+    // shipped in System32, which is part of the search path): they export
+    // std::basic_string and friends with mangled names that match modern
+    // lookups but with an incompatible ABI, silently corrupting any object
+    // they touch. The runtimes this process was built against are already
+    // loaded, so their exports are found in-process before this library scan
+    // is ever consulted.
+    std::string Stem = llvm::sys::path::stem(FileName).lower();
+    if (StringRef(Stem).starts_with("msvcp") ||
+        StringRef(Stem).starts_with("msvcr") ||
+        StringRef(Stem).starts_with("msvcirt"))
+      return true;
+#endif
+
     // No need to check linked libraries, as this function is only invoked
     // for symbols that cannot be found (neither by dlsym nor in the JIT).
     if (m_DynamicLibraryManager.isLibraryLoaded(FileName))
@@ -1098,9 +1164,16 @@ namespace cling {
 
     auto ObjF = llvm::object::ObjectFile::createObjectFile(FileName);
     if (!ObjF) {
+      // Note: It is important to always call handleAllErrors, otherwise the
+      // destructor of llvm::Error will abort the program "due to an unhandled
+      // Error"
+      std::string Message;
+      handleAllErrors(ObjF.takeError(), [&](llvm::ErrorInfoBase &EIB) {
+        Message += EIB.message() + "; ";
+      });
       if (DEBUG > 1)
         cling::errs() << "[DyLD] Failed to read object file "
-                      << FileName << "\n";
+                      << FileName << ". Message: '" << Message << "\n";
       return true;
     }
 
@@ -1117,8 +1190,7 @@ namespace cling {
 
     if (llvm::isa<llvm::object::ELFObjectFileBase>(*file)) {
       for (auto S : file->sections()) {
-        llvm::StringRef name;
-        S.getName(name);
+        llvm::StringRef name = llvm::cantFail(S.getName());
         if (name == ".text") {
           // Check if the library has only debug symbols, usually when
           // stripped with objcopy --only-keep-debug. This check is done by
@@ -1164,7 +1236,7 @@ namespace cling {
 
   std::string Dyld::searchLibrariesForSymbol(StringRef mangledName,
                                              bool searchSystem/* = true*/) {
-    assert(!llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(mangledName) &&
+    assert(!llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(mangledName.str()) &&
            "Library already loaded, please use dlsym!");
     assert(!mangledName.empty());
 
@@ -1341,6 +1413,17 @@ namespace cling {
       if (_NSGetExecutablePath(buf, &bufsize) >= 0)
         return cached_realpath(buf);
       return cached_realpath(info.dli_fname);
+# elif defined (__FreeBSD__)
+      procstat* ps = procstat_open_sysctl();
+      kinfo_proc* kp = kinfo_getproc(getpid());
+
+      char buf[PATH_MAX] = "";
+      if (kp!=NULL) {
+        procstat_getpathname(ps, kp, buf, sizeof(buf));
+      };
+      free(kp);
+      procstat_close(ps);
+      return cached_realpath(buf);
 # elif defined(LLVM_ON_UNIX)
       char buf[PATH_MAX] = { 0 };
       // Cross our fingers that /proc/self/exe exists.

@@ -25,18 +25,17 @@ of all tracks that will be deleted on destruction of
 gGeoManager.
 */
 
-ClassImp(TVirtualGeoTrack);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Virtual tracks default constructor
 
 TVirtualGeoTrack::TVirtualGeoTrack()
 {
-   fPDG        = 0;
-   fId         = -1;
-   fParent     = 0;
-   fParticle   = 0;
-   fTracks     = 0;
+   fPDG = 0;
+   fId = -1;
+   fParent = nullptr;
+   fParticle = nullptr;
+   fTracks = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -45,11 +44,11 @@ TVirtualGeoTrack::TVirtualGeoTrack()
 
 TVirtualGeoTrack::TVirtualGeoTrack(Int_t id, Int_t pdgcode, TVirtualGeoTrack *parent, TObject *particle)
 {
-   fPDG        = pdgcode;
-   fId         = id;
-   fParent     = parent;
-   fParticle   = particle;
-   fTracks     = 0;
+   fPDG = pdgcode;
+   fId = id;
+   fParent = parent;
+   fParticle = particle;
+   fTracks = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -82,19 +81,22 @@ Int_t TVirtualGeoTrack::GetDaughterId(Int_t index) const
 
 TVirtualGeoTrack *TVirtualGeoTrack::FindTrackWithId(Int_t id) const
 {
-   TVirtualGeoTrack* trk=0;
-   if (GetId()==id) {
-      trk = (TVirtualGeoTrack*)this;
+   TVirtualGeoTrack *trk = nullptr;
+   if (GetId() == id) {
+      trk = (TVirtualGeoTrack *)this;
       return trk;
    }
-   TVirtualGeoTrack* kid=0;
+   TVirtualGeoTrack *kid = nullptr;
    Int_t nd = GetNdaughters();
-   for (Int_t i=0; i<nd; i++) if (GetDaughterId(i) == id) return GetDaughter(i);
-   for (Int_t i=0; i<nd; i++) {
+   for (Int_t i = 0; i < nd; i++)
+      if (GetDaughterId(i) == id)
+         return GetDaughter(i);
+   for (Int_t i = 0; i < nd; i++) {
       kid = GetDaughter(i);
-      if (kid!=0) {
+      if (kid != nullptr) {
          trk = kid->FindTrackWithId(id);
-         if (trk!=0) break;
+         if (trk != nullptr)
+            break;
       }
    }
    return trk;
@@ -114,13 +116,17 @@ const char *TVirtualGeoTrack::GetName() const
 Bool_t TVirtualGeoTrack::IsInTimeRange() const
 {
    Double_t tmin, tmax;
-   Bool_t timecut = gGeoManager->GetTminTmax(tmin,tmax);
-   if (!timecut) return kTRUE;
+   Bool_t timecut = gGeoManager->GetTminTmax(tmin, tmax);
+   if (!timecut)
+      return kTRUE;
    const Double_t *point = GetFirstPoint();
-   if (!point) return kFALSE;
-   if (point[3]>tmax) return kFALSE;
+   if (!point)
+      return kFALSE;
+   if (point[3] > tmax)
+      return kFALSE;
    point = GetLastPoint();
-   if (point[3]<tmin) return kFALSE;
+   if (point[3] < tmin)
+      return kFALSE;
    return kTRUE;
 }
 
@@ -183,5 +189,3 @@ void TVirtualGeoTrack::SetName(const char *name)
       return;
    }
 }
-
-

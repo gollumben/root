@@ -31,14 +31,14 @@ namespace {
          fCoord = new Int_t[hist->GetNdimensions()];
          fCoord[0] = -1;
       }
-      virtual ~THnSparseBinIter() { delete [] fCoord; }
+      ~THnSparseBinIter() override { delete [] fCoord; }
 
-      virtual Int_t GetCoord(Int_t dim) const;
-      virtual Long64_t Next(Int_t* coord = 0);
+      Int_t GetCoord(Int_t dim) const override;
+      Long64_t Next(Int_t* coord = nullptr) override;
 
    private:
-      THnSparseBinIter(const THnSparseBinIter&); // intentionally unimplemented
-      THnSparseBinIter& operator=(const THnSparseBinIter&); // intentionally unimplemented
+      THnSparseBinIter(const THnSparseBinIter&) = delete; // intentionally unimplemented
+      THnSparseBinIter& operator=(const THnSparseBinIter&) = delete; // intentionally unimplemented
 
       const THnSparse* fHist;
       Int_t* fCoord; // coord buffer for fIndex; fCoord[0] == -1 if not yet calculated
@@ -72,7 +72,7 @@ Long64_t THnSparseBinIter::Next(Int_t* coord /*= 0*/)
    do {
       ++fIndex;
       if (fIndex >= fHist->GetNbins()) {
-         fHist = 0;
+         fHist = nullptr;
          return -1;
       }
       if (RespectsAxisRange()) {
@@ -147,7 +147,7 @@ private:
 /// stores the
 
 THnSparseCoordCompression::THnSparseCoordCompression(Int_t dim, const Int_t* nbins):
-   fNdimensions(dim), fCoordBufferSize(0), fBitOffsets(0)
+   fNdimensions(dim), fCoordBufferSize(0), fBitOffsets(nullptr)
 {
    fBitOffsets = new Int_t[dim + 1];
 
@@ -262,54 +262,6 @@ ULong64_t THnSparseCoordCompression::SetBufferFromCoord(const Int_t* coord_in,
    return GetHashFromBuffer(buf_out);
 }
 
-/*
-////////////////////////////////////////////////////////////////////////////////
-/// Calculate hash from bin indexes.
-
-ULong64_t THnSparseCoordCompression::GetHashFromCoords(const Int_t* coord) const
-{
-   // Bins are addressed in two different modes, depending
-   // on whether the compact bin index fits into a Long64_t or not.
-   // If it does, we can use it as a "perfect hash" for the TExMap.
-   // If not we build a hash from the compact bin index, and use that
-   // as the TExMap's hash.
-
-   if (fCoordBufferSize <= 8) {
-      // fits into a Long64_t
-      ULong64_t hash1 = 0;
-      for (Int_t i = 0; i < fNdimensions; ++i) {
-         hash1 += coord[i] << fBitOffsets[i];
-      }
-      return hash1;
-   }
-
-   // else: doesn't fit into a Long64_t:
-   memset(coord, 0, fCoordBufferSize);
-   for (Int_t i = 0; i < fNdimensions; ++i) {
-      const Int_t offset = fBitOffsets[i] / 8;
-      const Int_t shift = fBitOffsets[i] % 8;
-      ULong64_t val = coord[i];
-
-      Char_t* pbuf = fCoordBuffer + offset;
-      *pbuf += 0xff & (val << shift);
-      val = val >> (8 - shift);
-      while (val) {
-         ++pbuf;
-         *pbuf += 0xff & val;
-         val = val >> 8;
-      }
-   }
-
-   ULong64_t hash = 5381;
-   Char_t* str = fCoordBuffer;
-   while (str - fCoordBuffer < fCoordBufferSize) {
-      hash *= 5;
-      hash += *(str++);
-   }
-   return hash;
-}
-*/
-
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Calculate hash from compact bin index.
@@ -369,9 +321,9 @@ public:
 
 private:
    // intentionally not implemented
-   THnSparseCompactBinCoord(const THnSparseCompactBinCoord&);
+   THnSparseCompactBinCoord(const THnSparseCompactBinCoord&) = delete;
    // intentionally not implemented
-   THnSparseCompactBinCoord& operator=(const THnSparseCompactBinCoord&);
+   THnSparseCompactBinCoord& operator=(const THnSparseCompactBinCoord&) = delete;
 
 private:
    ULong64_t fHash;      // hash for current coordinates; 0 if not calculated
@@ -390,7 +342,7 @@ private:
 
 THnSparseCompactBinCoord::THnSparseCompactBinCoord(Int_t dim, const Int_t* nbins):
    THnSparseCoordCompression(dim, nbins),
-   fHash(0), fCoordBuffer(0), fCurrentBin(0)
+   fHash(0), fCoordBuffer(nullptr), fCurrentBin(nullptr)
 {
    fCurrentBin = new Int_t[dim];
    size_t bufAllocSize = GetBufferSize();
@@ -418,7 +370,6 @@ of the chunks holds an array of THnSparseCompactBinCoord and the content
 THnSparse) and passed in at construction time.
 */
 
-ClassImp(THnSparseArrayChunk);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// (Default) initialize a chunk. Takes ownership of cont (~THnSparseArrayChunk deletes it),
@@ -426,8 +377,8 @@ ClassImp(THnSparseArrayChunk);
 
 THnSparseArrayChunk::THnSparseArrayChunk(Int_t coordsize, bool errors, TArray* cont):
       fCoordinateAllocationSize(-1), fSingleCoordinateSize(coordsize), fCoordinatesSize(0),
-      fCoordinates(0), fContent(cont),
-      fSumw2(0)
+      fCoordinates(nullptr), fContent(cont),
+      fSumw2(nullptr)
 {
    fCoordinateAllocationSize = fSingleCoordinateSize * cont->GetSize();
    fCoordinates = new Char_t[fCoordinateAllocationSize];
@@ -505,7 +456,7 @@ To construct a THnSparse object you must use one of its templated, derived
 classes:
 - THnSparseD (typedef for THnSparseT<ArrayD>): bin content held by a Double_t,
 - THnSparseF (typedef for THnSparseT<ArrayF>): bin content held by a Float_t,
-- THnSparseL (typedef for THnSparseT<ArrayL>): bin content held by a Long_t,
+- THnSparseL (typedef for THnSparseT<ArrayL64>): bin content held by a Long64_t,
 - THnSparseI (typedef for THnSparseT<ArrayI>): bin content held by an Int_t,
 - THnSparseS (typedef for THnSparseT<ArrayS>): bin content held by a Short_t,
 - THnSparseC (typedef for THnSparseT<ArrayC>): bin content held by a Char_t,
@@ -536,14 +487,14 @@ be retrieved by THnSparse::GetBinContent(linidx, (Int_t*)coord).
 After the call, coord will contain the bin coordinate of each axis for the bin
 with linear index linidx. A possible call would be
 
-   std::cout << hs.GetBinContent(0, coord);
-   std::cout <<" is the content of bin [x = " << coord[0] "
-        << " | y = " << coord[1] << "]" << std::endl;
+    std::cout << hs.GetBinContent(0, coord);
+    std::cout <<" is the content of bin [x = " << coord[0] "
+         << " | y = " << coord[1] << "]" << std::endl;
 
 ## Efficiency
 TH1 and TH2 are generally faster than THnSparse for one and two dimensional
 distributions. THnSparse becomes competitive for a sparsely filled TH3
-with large numbers of bins per dimension. The tutorial sparsehist.C
+with large numbers of bins per dimension. The tutorial \ref hist103_THnSparse_hist.C
 shows the turning point. On a AMD64 with 8GB memory, THnSparse "wins"
 starting with a TH3 with 30 bins per dimension. Using a THnSparse for a
 one-dimensional histogram is only reasonable if it has a huge number of bins.
@@ -581,13 +532,12 @@ retrieve the matching bin.
 */
 
 
-ClassImp(THnSparse);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Construct an empty THnSparse.
 
 THnSparse::THnSparse():
-   fChunkSize(1024), fFilledBins(0), fCompactCoord(0)
+   fChunkSize(1024), fFilledBins(0), fCompactCoord(nullptr)
 {
    fBinContent.SetOwner();
 }
@@ -604,13 +554,72 @@ THnSparse::THnSparse(const char* name, const char* title, Int_t dim,
                      const Int_t* nbins, const Double_t* xmin, const Double_t* xmax,
                      Int_t chunksize):
    THnBase(name, title, dim, nbins, xmin, xmax),
-   fChunkSize(chunksize), fFilledBins(0), fCompactCoord(0)
+   fChunkSize(chunksize), fFilledBins(0), fCompactCoord(nullptr)
 {
    fCompactCoord = new THnSparseCompactBinCoord(dim, nbins);
    fBinContent.SetOwner();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Construct a THnSparse with chunksize as the size of the chunks.
+/// "axes" is a vector of TAxis, its size sets the number of dimensions.
+/// This method is convenient for passing the Axes on the fly:
+/// auto h0= new THnSparseI{"h0", "", {{100, -50., 50.}, {50, -1000., 1000.}}};
+
+THnSparse::THnSparse(const char* name, const char* title,
+                     const std::vector<TAxis>& axes,
+                     Int_t chunksize):
+THnBase(name, title, axes),
+  fChunkSize(chunksize), fFilledBins(0), fCompactCoord(nullptr)
+{
+  const size_t dim=axes.size();
+  auto nbins=new Int_t[dim];
+  for (size_t i=0; i<dim; i++)
+    nbins[i]=axes.at(i).GetNbins();
+  fCompactCoord = new THnSparseCompactBinCoord(dim, nbins);
+  fBinContent.SetOwner();
+  delete[] nbins;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Construct a THnSparse with dim dimensions and unequal binning.
+/// nbins and std::vector xbins are used to describe bin edges for each dimension.
+/// chunksize represents the size of the chunks.
+
+THnSparse::THnSparse(const char *name, const char *title, Int_t dim, const Int_t *nbins,
+                     const std::vector<std::vector<double>> &xbins, Int_t chunksize)
+   : THnBase(name, title, dim, nbins, xbins), fChunkSize(chunksize), fFilledBins(0), fCompactCoord(nullptr)
+{
+   fCompactCoord = new THnSparseCompactBinCoord(dim, nbins);
+   fBinContent.SetOwner();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Construct a THnSparse as a copy of "other"
+
+THnSparse::THnSparse(const THnSparse &other)
+   : THnBase(other),
+     fChunkSize(other.fChunkSize),
+     fFilledBins(other.fFilledBins),
+     fBins(other.fBins),
+     fBinsContinued(other.fBinsContinued),
+     fCompactCoord(nullptr)
+{
+
+   TObjArray *copiedContent = (TObjArray *)other.fBinContent.Clone();
+   fBinContent = *copiedContent;
+   copiedContent->SetOwner(kFALSE);
+   delete copiedContent;
+   fBinContent.SetOwner(kTRUE);
+
+   Int_t dim = other.GetNdimensions();
+   std::vector<Int_t> nbins(dim);
+   for (Int_t i = 0; i < dim; i++)
+      nbins[i] = other.GetAxis(i)->GetNbins();
+
+   fCompactCoord = new THnSparseCompactBinCoord(dim, nbins.data());
+}
+
 /// Destruct a THnSparse
 
 THnSparse::~THnSparse() {
@@ -655,7 +664,7 @@ void THnSparse::InitStorage(Int_t* nbins, Int_t chunkSize)
 void THnSparse::FillExMap()
 {
    TIter iChunk(&fBinContent);
-   THnSparseArrayChunk* chunk = 0;
+   THnSparseArrayChunk* chunk = nullptr;
    THnSparseCoordCompression compactCoord(*GetCompactCoord());
    Long64_t idx = 0;
    if (2 * GetNbins() > fBins.Capacity())
@@ -866,7 +875,7 @@ Double_t THnSparse::GetSparseFractionMem() const {
    Int_t arrayElementSize = 0;
    if (fFilledBins) {
       TClass* clArray = GetChunk(0)->fContent->IsA();
-      TDataMember* dm = clArray ? clArray->GetDataMember("fArray") : 0;
+      TDataMember* dm = clArray ? clArray->GetDataMember("fArray") : nullptr;
       arrayElementSize = dm ? dm->GetDataType()->Size() : 0;
    }
    if (!arrayElementSize) {
@@ -951,7 +960,7 @@ void THnSparse::Sumw2()
 
    fTsumw2 = 0.;
    TIter iChunk(&fBinContent);
-   THnSparseArrayChunk* chunk = 0;
+   THnSparseArrayChunk* chunk = nullptr;
    while ((chunk = (THnSparseArrayChunk*) iChunk()))
       chunk->Sumw2();
 }

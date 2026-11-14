@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : TMVA::MCFitter                                                        *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation                                                            *
@@ -22,7 +22,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::MCFitter
@@ -43,7 +43,6 @@ Fitter using Monte Carlo sampling of parameters.
 #include "TMVA/Types.h"
 #include "TRandom3.h"
 
-ClassImp(TMVA::MCFitter);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor
@@ -94,7 +93,6 @@ Double_t TMVA::MCFitter::Run( std::vector<Double_t>& pars )
 
    // timing of MC
    Timer timer( fSamples, GetName() );
-   if (fIPyMaxIter) *fIPyMaxIter = fSamples;
 
    std::vector<Double_t> parameters;
    std::vector<Double_t> bestParameters;
@@ -122,8 +120,6 @@ Double_t TMVA::MCFitter::Run( std::vector<Double_t>& pars )
 
    // loop over all MC samples
    for (Int_t sample = 0; sample < fSamples; sample++) {
-     if (fIPyCurrentIter) *fIPyCurrentIter = sample;
-     if (fExitFromTraining && *fExitFromTraining) break;
 
       // dice the parameters
       parIt = parameters.begin();

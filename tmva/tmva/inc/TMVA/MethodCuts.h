@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodCuts                                                            *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Multivariate optimisation of signal efficiency for given background       *
@@ -27,7 +27,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodCuts
@@ -63,54 +63,51 @@ namespace TMVA {
    public:
 
       MethodCuts( const TString& jobName,
-                  const TString& methodTitle, 
+                  const TString& methodTitle,
                   DataSetInfo& theData,
                   const TString& theOption = "MC:150:10000:");
 
       MethodCuts( DataSetInfo& theData,
                   const TString& theWeightFile);
 
-      // this is a workaround which is necessary since CINT is not capable of handling dynamic casts
-      static MethodCuts* DynamicCast( IMethod* method ) { return dynamic_cast<MethodCuts*>(method); }
-
       virtual ~MethodCuts( void );
 
-      virtual Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets );
+      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets ) override;
 
       // training method
-      void Train( void );
+      void Train( void ) override;
 
       using MethodBase::ReadWeightsFromStream;
 
-      void AddWeightsXMLTo      ( void* parent ) const;
+      void AddWeightsXMLTo      ( void* parent ) const override;
 
-      void ReadWeightsFromStream( std::istream & i );
-      void ReadWeightsFromXML   ( void* wghtnode );
+      void ReadWeightsFromStream( std::istream & i ) override;
+      void ReadWeightsFromXML   ( void* wghtnode ) override;
 
       // calculate the MVA value (for CUTs this is just a dummy)
-      Double_t GetMvaValue( Double_t* err = 0, Double_t* errUpper = 0 );
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
 
       // write method specific histos to target file
-      void WriteMonitoringHistosToFile( void ) const;
+      void WriteMonitoringHistosToFile( void ) const override;
 
       // test the method
-      void TestClassification();
-     
+      void TestClassification() override;
+
       // also overwrite --> not computed for cuts
-      Double_t GetSeparation  ( TH1*, TH1* ) const { return -1; }
-      Double_t GetSeparation  ( PDF* = 0, PDF* = 0 ) const { return -1; }
-      Double_t GetSignificance( void )       const { return -1; }
+      Double_t GetSeparation  ( TH1*, TH1* ) const override { return -1; }
+      Double_t GetSeparation  ( PDF* = nullptr, PDF* = nullptr ) const override { return -1; }
+      Double_t GetSignificance( void )       const override { return -1; }
       Double_t GetmuTransform ( TTree *)           { return -1; }
-      Double_t GetEfficiency  ( const TString&, Types::ETreeType, Double_t& );
-      Double_t GetTrainingEfficiency(const TString& );
+      Double_t GetEfficiency  ( const TString&, Types::ETreeType, Double_t& ) override;
+      Double_t GetTrainingEfficiency(const TString& ) override;
 
       // rarity distributions (signal or background (default) is uniform in [0,1])
-      Double_t GetRarity( Double_t, Types::ESBType ) const { return 0; }
+      Double_t GetRarity( Double_t, Types::ESBType ) const override { return 0; }
 
       // accessors for Minuit
       Double_t ComputeEstimator( std::vector<Double_t> & );
-      
-      Double_t EstimatorFunction( std::vector<Double_t> & );
+
+      Double_t EstimatorFunction( std::vector<Double_t> & ) override;
       Double_t EstimatorFunction( Int_t ievt1, Int_t ievt2 );
 
       void     SetTestSignalEfficiency( Double_t effS ) { fTestSignalEff = effS; }
@@ -121,24 +118,24 @@ namespace TMVA {
       Double_t GetCuts  ( Double_t effS, Double_t* cutMin, Double_t* cutMax ) const;
 
       // ranking of input variables (not available for cuts)
-      const Ranking* CreateRanking() { return 0; }
+      const Ranking* CreateRanking() override { return nullptr; }
 
-      void DeclareOptions();
-      void ProcessOptions();
+      void DeclareOptions() override;
+      void ProcessOptions() override;
 
       // maximum |cut| value
       static const Double_t fgMaxAbsCutVal;
 
       // no check of options at this place
-      void CheckSetup() {}
+      void CheckSetup() override {}
 
    protected:
 
       // make ROOT-independent C++ class for classifier response (classifier-specific implementation)
-      void MakeClassSpecific( std::ostream&, const TString& ) const;
+      void MakeClassSpecific( std::ostream&, const TString& ) const override;
 
       // get help message text
-      void GetHelpMessage() const;
+      void GetHelpMessage() const override;
 
    private:
 
@@ -152,7 +149,7 @@ namespace TMVA {
 
       // efficiency calculation method
       // - kUseEventSelection: computes efficiencies from given data sample
-      // - kUsePDFs          : creates smoothed PDFs from data samples, and 
+      // - kUsePDFs          : creates smoothed PDFs from data samples, and
       //                       uses this to compute efficiencies
       enum EEffMethod     { kUseEventSelection = 0,
                             kUsePDFs };
@@ -164,56 +161,56 @@ namespace TMVA {
                             kForceSmart };
 
       // general
-      TString                 fFitMethodS;         // chosen fit method (string)
-      EFitMethodType          fFitMethod;          // chosen fit method
-      TString                 fEffMethodS;         // chosen efficiency calculation method (string)
-      EEffMethod              fEffMethod;          // chosen efficiency calculation method
-      std::vector<EFitParameters>* fFitParams;     // vector for series of fit methods
-      Double_t                fTestSignalEff;      // used to test optimized signal efficiency
-      Double_t                fEffSMin;            // used to test optimized signal efficiency
-      Double_t                fEffSMax;            // used to test optimized signal efficiency
-      Double_t*               fCutRangeMin;        // minimum of allowed cut range
-      Double_t*               fCutRangeMax;        // maximum of allowed cut range
-      std::vector<Interval*>  fCutRange;           // allowed ranges for cut optimisation
+      TString                 fFitMethodS;         ///< chosen fit method (string)
+      EFitMethodType          fFitMethod;          ///< chosen fit method
+      TString                 fEffMethodS;         ///< chosen efficiency calculation method (string)
+      EEffMethod              fEffMethod;          ///< chosen efficiency calculation method
+      std::vector<EFitParameters>* fFitParams;     ///< vector for series of fit methods
+      Double_t                fTestSignalEff;      ///< used to test optimized signal efficiency
+      Double_t                fEffSMin;            ///< used to test optimized signal efficiency
+      Double_t                fEffSMax;            ///< used to test optimized signal efficiency
+      Double_t*               fCutRangeMin;        ///< minimum of allowed cut range
+      Double_t*               fCutRangeMax;        ///< maximum of allowed cut range
+      std::vector<Interval*>  fCutRange;           ///< allowed ranges for cut optimisation
 
       // for the use of the binary tree method
       BinarySearchTree*       fBinaryTreeS;
       BinarySearchTree*       fBinaryTreeB;
 
       // MC method
-      Double_t**              fCutMin;             // minimum requirement
-      Double_t**              fCutMax;             // maximum requirement
-      Double_t*               fTmpCutMin;          // temporary minimum requirement
-      Double_t*               fTmpCutMax;          // temporary maximum requirement
-      TString*                fAllVarsI;           // what to do with variables
+      Double_t**              fCutMin;             ///< minimum requirement
+      Double_t**              fCutMax;             ///< maximum requirement
+      Double_t*               fTmpCutMin;          ///< temporary minimum requirement
+      Double_t*               fTmpCutMax;          ///< temporary maximum requirement
+      TString*                fAllVarsI;           ///< what to do with variables
 
       // relevant for all methods
-      Int_t                   fNpar;               // number of parameters in fit (default: 2*Nvar)
-      Double_t                fEffRef;             // reference efficiency
-      std::vector<Int_t>*     fRangeSign;          // used to match cuts to fit parameters (and vice versa)
-      TRandom*                fRandom;             // random generator for MC optimisation method
+      Int_t                   fNpar;               ///< number of parameters in fit (default: 2*Nvar)
+      Double_t                fEffRef;             ///< reference efficiency
+      std::vector<Int_t>*     fRangeSign;          ///< used to match cuts to fit parameters (and vice versa)
+      TRandom*                fRandom;             ///< random generator for MC optimisation method
 
       // basic statistics
-      std::vector<Double_t>*  fMeanS;              // means of variables (signal)
-      std::vector<Double_t>*  fMeanB;              // means of variables (background)
-      std::vector<Double_t>*  fRmsS;               // RMSs of variables (signal)
-      std::vector<Double_t>*  fRmsB;               // RMSs of variables (background)
+      std::vector<Double_t>*  fMeanS;              ///< means of variables (signal)
+      std::vector<Double_t>*  fMeanB;              ///< means of variables (background)
+      std::vector<Double_t>*  fRmsS;               ///< RMSs of variables (signal)
+      std::vector<Double_t>*  fRmsB;               ///< RMSs of variables (background)
 
-      TH1*                    fEffBvsSLocal;       // intermediate eff. background versus eff signal histo
+      TH1*                    fEffBvsSLocal;       ///< intermediate eff. background versus eff signal histo
 
       // PDF section
-      std::vector<TH1*>*      fVarHistS;           // reference histograms (signal)
-      std::vector<TH1*>*      fVarHistB;           // reference histograms (background)
-      std::vector<TH1*>*      fVarHistS_smooth;    // smoothed reference histograms (signal)        
-      std::vector<TH1*>*      fVarHistB_smooth;    // smoothed reference histograms (background)
-      std::vector<PDF*>*      fVarPdfS;            // reference PDFs (signal)
-      std::vector<PDF*>*      fVarPdfB;            // reference PDFs (background)
+      std::vector<TH1*>*      fVarHistS;           ///< reference histograms (signal)
+      std::vector<TH1*>*      fVarHistB;           ///< reference histograms (background)
+      std::vector<TH1*>*      fVarHistS_smooth;    ///< smoothed reference histograms (signal)
+      std::vector<TH1*>*      fVarHistB_smooth;    ///< smoothed reference histograms (background)
+      std::vector<PDF*>*      fVarPdfS;            ///< reference PDFs (signal)
+      std::vector<PDF*>*      fVarPdfB;            ///< reference PDFs (background)
 
       // negative efficiencies
-      Bool_t                  fNegEffWarning;      // flag risen in case of negative efficiency warning
+      Bool_t                  fNegEffWarning;      ///< flag risen in case of negative efficiency warning
 
 
-      // the definition of fit parameters can be different from the actual 
+      // the definition of fit parameters can be different from the actual
       // cut requirements; these functions provide the matching
       void     MatchParsToCuts( const std::vector<Double_t>&, Double_t*, Double_t* );
       void     MatchParsToCuts( Double_t*, Double_t*, Double_t* );
@@ -221,7 +218,7 @@ namespace TMVA {
       void     MatchCutsToPars( std::vector<Double_t>&, Double_t*, Double_t* );
       void     MatchCutsToPars( std::vector<Double_t>&, Double_t**, Double_t**, Int_t ibin );
 
-      // creates PDFs in case these are used to compute efficiencies 
+      // creates PDFs in case these are used to compute efficiencies
       // (corresponds to: EffMethod == kUsePDFs)
       void     CreateVariablePDFs( void );
 
@@ -233,9 +230,9 @@ namespace TMVA {
                                 Double_t& effS, Double_t& effB );
 
       // default initialisation method called by all constructors
-      void     Init( void );
+      void     Init( void ) override;
 
-      ClassDef(MethodCuts,0);  // Multivariate optimisation of signal efficiency
+      ClassDefOverride(MethodCuts,0);  // Multivariate optimisation of signal efficiency
    };
 
 } // namespace TMVA

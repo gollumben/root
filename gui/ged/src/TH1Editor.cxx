@@ -113,7 +113,6 @@ in graphical user interface) see THistPainter::Paint
 #include "TGDoubleSlider.h"
 #include "TGSlider.h"
 #include "TView.h"
-#include "TCanvas.h"
 #include "TTreePlayer.h"
 #include "TSelectorDraw.h"
 #include "TGMsgBox.h"
@@ -123,7 +122,6 @@ in graphical user interface) see THistPainter::Paint
 
 #include <cstdlib>
 
-ClassImp(TH1Editor);
 
 enum ETH1Wid{
    kTH1_TITLE,
@@ -166,7 +164,7 @@ TH1Editor::TH1Editor(const TGWindow *p,  Int_t width,
    // Histogram draw options
    TGCompositeFrame *fHistLbl = new TGCompositeFrame(this, 145, 10,
                                                            kHorizontalFrame |
-                                                           kLHintsExpandX   |
+                                                           kFitWidth        |
                                                            kFixedWidth      |
                                                            kOwnBackground);
    fHistLbl->AddFrame(new TGLabel(fHistLbl,"Histogram"),
@@ -277,7 +275,7 @@ TH1Editor::TH1Editor(const TGWindow *p,  Int_t width,
 
    // Bar Menu => appears when the BAR checkbox is set
    f10 = new TGCompositeFrame(this, 145, 10, kHorizontalFrame |
-                                             kLHintsExpandX   |
+                                             kFitWidth        |
                                              kFixedWidth      |
                                              kOwnBackground);
    f10->AddFrame(new TGLabel(f10,"Bar"),
@@ -343,7 +341,7 @@ void TH1Editor::CreateBinTab()
 
    TGCompositeFrame *title1 = new TGCompositeFrame(fBin, 145, 10,
                                                          kHorizontalFrame |
-                                                         kLHintsExpandX   |
+                                                         kFitWidth        |
                                                          kFixedWidth      |
                                                          kOwnBackground);
    title1->AddFrame(new TGLabel(title1, "Rebin"),
@@ -450,7 +448,7 @@ void TH1Editor::CreateBinTab()
                                                     kVerticalFrame);
    TGCompositeFrame *title2 = new TGCompositeFrame(sldCont, 145, 10,
                                                             kHorizontalFrame |
-                                                            kLHintsExpandX   |
+                                                            kFitWidth        |
                                                             kFixedWidth      |
                                                             kOwnBackground);
    title2->AddFrame(new TGLabel(title2, "Axis Range"),
@@ -1481,8 +1479,7 @@ void TH1Editor::DoHBar(Bool_t on)
 void TH1Editor::DoSliderMoved()
 {
    if (fAvoidSignal) return;
-   if (fGedEditor->GetPad()->GetCanvas())
-      fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+   fGedEditor->GetPad()->FeedbackMode(kTRUE);
    fGedEditor->GetPad()->cd();
    if (fDelaydraw->GetState()==kButtonDown && fDim->GetState()==kButtonDown) {
       static Int_t px1,py1,px2,py2;
@@ -1495,8 +1492,7 @@ void TH1Editor::DoSliderMoved()
       py1   = fGedEditor->GetPad()->YtoAbsPixel(ymin);
       px2   = fGedEditor->GetPad()->XtoAbsPixel(xright);
       py2   = fGedEditor->GetPad()->YtoAbsPixel(ymax);
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+      fGedEditor->GetPad()->FeedbackMode(kTRUE);
       fGedEditor->GetPad()->SetLineWidth(1);
       fGedEditor->GetPad()->SetLineColor(2);
       fGedEditor->GetPad()->SetLineWidth(1);
@@ -1580,16 +1576,14 @@ void TH1Editor::DoSliderMoved()
 void TH1Editor::DoSliderPressed()
 {
    if (fAvoidSignal) return;
-   if (fGedEditor->GetPad()->GetCanvas())
-      fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+   fGedEditor->GetPad()->FeedbackMode(kTRUE);
    fGedEditor->GetPad()->cd();
    static Float_t ymin,ymax,xleft,xright;
    Int_t sldmin = (Int_t)((fSlider->GetMinPosition())+0.5);
    Int_t sldmax = (Int_t)((fSlider->GetMaxPosition())+0.5);
    if (fDelaydraw->GetState() == kButtonDown &&
        fDim->GetState()==kButtonDown) {
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+      fGedEditor->GetPad()->FeedbackMode(kTRUE);
       fGedEditor->GetPad()->SetLineWidth(1);
       fGedEditor->GetPad()->SetLineColor(2);
       xleft = fHist->GetXaxis()->GetBinLowEdge(sldmin);
@@ -1618,8 +1612,7 @@ void TH1Editor::DoSliderPressed()
       fP5old[1] = fP6old[1] = fP7old[1] = fP8old[1] = rmax[1];
       fP1old[2] = fP2old[2] = fP5old[2] = fP6old[2] = rmin[2];
       fP3old[2] = fP4old[2] = fP7old[2] = fP8old[2] = rmax[2];
-      if (fGedEditor->GetPad()->GetCanvas())
-         fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+      fGedEditor->GetPad()->FeedbackMode(kTRUE);
       fGedEditor->GetPad()->SetLineWidth(1);
       fGedEditor->GetPad()->SetLineColor(2);
       PaintBox3D(fP2old, fP3old, fP7old, fP6old);
@@ -1906,12 +1899,12 @@ void TH1Editor::DoBinLabel()
    else nx = fHist->GetXaxis()->GetNbins();
    if (nx < 2) return;
    Int_t *div = Dividers(nx);
-   Int_t diff = TMath::Abs(num - div[1]);
+   Int_t diff = std::abs(num - div[1]);
    Int_t c = 1;
    for (Int_t i = 2; i <= div[0]; i++) {
-      if ((TMath::Abs(num - div[i])) < diff) {
+      if ((std::abs(num - div[i])) < diff) {
          c = i;
-         diff = TMath::Abs(num - div[i]);
+         diff = std::abs(num - div[i]);
       }
    }
    fBinNumberEntry->SetNumber(div[c]);
@@ -2399,8 +2392,7 @@ void TH1Editor::ChangeErrorCombo(Int_t i)
 
 void TH1Editor::PaintBox3D(Float_t *p1, Float_t *p2,Float_t *p3, Float_t *p4)
 {
-   if (fGedEditor->GetPad()->GetCanvas())
-      fGedEditor->GetPad()->GetCanvas()->FeedbackMode(kTRUE);
+   fGedEditor->GetPad()->FeedbackMode(kTRUE);
    fGedEditor->GetPad()->SetLineWidth(1);
    fGedEditor->GetPad()->SetLineColor(2);
    fGedEditor->GetPad()->cd();

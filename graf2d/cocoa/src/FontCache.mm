@@ -120,29 +120,6 @@ bool GetFamilyName(CTFontDescriptorRef fontDescriptor, std::vector<char> &name)
    return false;
 }
 
-#ifdef MAC_OS_X_VERSION_10_9
-
-//______________________________________________________________________________
-bool GetPostscriptName(CTFontDescriptorRef fontDescriptor, std::vector<char> &name)
-{
-   //If success, this function returns a null-terminated string in a vector.
-   assert(fontDescriptor != 0 && "GetPostscriptName, parameter 'fontDescriptor' is null");
-
-   name.clear();
-
-   Util::CFScopeGuard<CFStringRef> cfFamilyName((CFStringRef)CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontNameAttribute));
-
-   if (const CFIndex cfLen = CFStringGetLength(cfFamilyName.Get())) {
-      name.resize(cfLen + 1);//+ 1 for '\0'.
-      if (CFStringGetCString(cfFamilyName.Get(), &name[0], name.size(), kCFStringEncodingMacRoman))
-         return true;
-   }
-
-   return false;
-}
-
-#endif
-
 //______________________________________________________________________________
 void GetWeightAndSlant(CTFontDescriptorRef fontDescriptor, X11::XLFDName &newXLFD)
 {
@@ -306,7 +283,7 @@ char **FontCache::ListFonts(const X11::XLFDName &xlfd, int maxNames, int &count)
    //To extract font names, I have to: create CFString, create font descriptor, create
    //CFArray, create CTFontCollection, that's a mess!!!
    //It's good I have my small and ugly RAII classes, otherwise the code will be
-   //total trash and sodomy because of all possible cleanup actions.
+   //messy because of all possible cleanup actions.
 
    //First, create a font collection.
    const Util::CFScopeGuard<CTFontCollectionRef> collectionGuard(CreateFontCollection(xlfd));
@@ -358,19 +335,6 @@ char **FontCache::ListFonts(const X11::XLFDName &xlfd, int maxNames, int &count)
             newXLFD.fPixelSize = xlfd.fPixelSize;
       }
 
-#ifdef MAC_OS_X_VERSION_10_9
-      //To avoid a warning from Core Text, save a mapping from a name seen by ROOT (family)
-      //to a right postscript name (required by Core Text).
-
-      //It's a null-terminated string:
-      std::vector<char> postscriptName;
-      if (GetPostscriptName(font, postscriptName)) {
-         if (fXLFDtoPostscriptNames.find(&familyName[0]) == fXLFDtoPostscriptNames.end())
-            fXLFDtoPostscriptNames[&familyName[0]] = &postscriptName[0];
-      }
-#endif
-
-
       //Ok, now lets create XLFD name, and place into list.
       CreateXLFDString(newXLFD, xlfdString);
       //
@@ -417,6 +381,9 @@ void FontCache::FreeFontNames(char **fontList)
 //______________________________________________________________________________
 unsigned FontCache::GetTextWidth(FontStruct_t font, const char *text, int nChars)
 {
+   if (nChars == 0)
+      return 0;
+
    typedef std::vector<CGSize>::size_type size_type;
    //
    CTFontRef fontRef = (CTFontRef)font;
@@ -567,117 +534,6 @@ CTFontRef FontCache::SelectSymbolFont(Float_t fontSize, unsigned fontIndex)
    }
 
    return fSelectedFont = it->second.Get();
-}
-
-//_________________________________________________________________
-void FontCache::GetTextBounds(UInt_t &w, UInt_t &h, const char *text)const
-{
-   assert(fSelectedFont != 0 && "GetTextBounds: no font was selected");
-
-   try {
-      const Quartz::TextLine ctLine(text, fSelectedFont);
-      ctLine.GetBounds(w, h);
-      h += 2;
-   } catch (const std::exception &) {
-      throw;
-   }
-}
-
-//_________________________________________________________________
-void FontCache::GetTextBounds(UInt_t &w, UInt_t &h, const std::vector<UniChar> &unichars)const
-{
-   assert(fSelectedFont != 0 && "GetTextBounds: no font was selected");
-
-   try {
-      const Quartz::TextLine ctLine(unichars, fSelectedFont);
-      ctLine.GetBounds(w, h);
-      h += 2;
-   } catch (const std::exception &) {
-      throw;
-   }
-}
-
-//_________________________________________________________________
-double FontCache::GetAscent()const
-{
-   assert(fSelectedFont != 0 && "GetAscent, no font was selected");
-   return CTFontGetAscent(fSelectedFont) + 1;
-}
-
-//_________________________________________________________________
-double FontCache::GetAscent(const char *text)const
-{
-   assert(text != 0 && "GetAscent, parameter 'text' is null");
-   assert(fSelectedFont != 0 && "GetAscent, no font was selected");
-
-   try {
-      const Quartz::TextLine ctLine(text, fSelectedFont);
-      Int_t ascent = 0, descent = 0;
-      ctLine.GetAscentDescent(ascent, descent);
-      return ascent;
-   } catch (const std::exception &) {
-      throw;
-   }
-}
-
-//_________________________________________________________________
-double FontCache::GetAscent(const std::vector<UniChar> &unichars)const
-{
-   assert(fSelectedFont != 0 && "GetAscent, no font was selected");
-
-   try {
-      const Quartz::TextLine ctLine(unichars, fSelectedFont);
-      Int_t ascent = 0, descent = 0;
-      ctLine.GetAscentDescent(ascent, descent);
-      return ascent;
-   } catch (const std::exception &) {
-      throw;
-   }
-}
-
-//_________________________________________________________________
-double FontCache::GetDescent()const
-{
-   assert(fSelectedFont != 0 && "GetDescent, no font was selected");
-   return CTFontGetDescent(fSelectedFont) + 1;
-}
-
-//_________________________________________________________________
-double FontCache::GetDescent(const char *text)const
-{
-   assert(text != 0 && "GetDescent, parameter 'text' is null");
-   assert(fSelectedFont != 0 && "GetDescent, no font was selected");
-
-   try {
-      const Quartz::TextLine ctLine(text, fSelectedFont);
-      Int_t ascent = 0, descent = 0;
-      ctLine.GetAscentDescent(ascent, descent);
-      return descent;
-   } catch (const std::exception &) {
-      throw;
-   }
-}
-
-//_________________________________________________________________
-double FontCache::GetDescent(const std::vector<UniChar> &unichars)const
-{
-   assert(fSelectedFont != 0 && "GetDescent, no font was selected");
-
-   try {
-      const Quartz::TextLine ctLine(unichars, fSelectedFont);
-      Int_t ascent = 0, descent = 0;
-      ctLine.GetAscentDescent(ascent, descent);
-      return descent;
-   } catch (const std::exception &) {
-      throw;
-   }
-}
-
-//_________________________________________________________________
-double FontCache::GetLeading()const
-{
-   assert(fSelectedFont != 0 && "GetLeading, no font was selected");
-   return CTFontGetLeading(fSelectedFont);
 }
 
 

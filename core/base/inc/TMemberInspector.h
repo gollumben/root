@@ -31,7 +31,15 @@ class TClass;
 class TMemberInspector {
 public:
    enum EObjectPointerState {
+// clang++ <v20 (-Wshadow) complains about shadowing TError.h global variable kUnset. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
       kUnset, // No Inspect() call has been seen yet.
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
       kNoObjectGiven, // No object was given to the initial Inspect() call.
       kValidObjectGiven // The address points to an actual object.
    };
@@ -39,6 +47,7 @@ private:
    class TParentBuf;
    TParentBuf* fParent; // current inspection "path"
    EObjectPointerState fObjectPointerState; // whether the address is valid or only an offset
+   UInt_t fNestedTransient;
 
    TMemberInspector(const TMemberInspector &) = delete;
    TMemberInspector &operator=(const TMemberInspector &) = delete;
@@ -75,6 +84,10 @@ public:
 
    void GenericShowMembers(const char *topClassName, const void *obj,
                            Bool_t transientMember);
+
+   void DecrementNestedTransient() { --fNestedTransient; }
+   void IncrementNestedTransient() { ++fNestedTransient; }
+   bool IsNestedTransient() { return fNestedTransient != 0; }
 
    ClassDef(TMemberInspector,0)  //ABC for inspecting class data members
 };

@@ -1,9 +1,12 @@
 // Author: Stefan Schmitt
 // DESY, 13/10/08
 
-//  Version 17.6,  updated doxygen-style comments, add one argument for scanLCurve
+//  Version 17.9, add new methods GetDF(), GetSURE(), ScanSURE(), GetSqrtEvEmatrix()
 //
 //  History:
+//    Version 17.8, add new method GetDXDY() for histograms
+//    Version 17.7, updates in the TUnfold implementation
+//    Version 17.6,  updated doxygen-style comments, add one argument for scanLCurve
 //    Version 17.5, fix memory leak and other bugs
 //    Version 17.4, in parallel to changes in TUnfoldBinning
 //    Version 17.3, in parallel to changes in TUnfoldBinning
@@ -65,7 +68,7 @@
 //  matrices with large dimensions.                                     //
 //                                                                      //
 //  Thus the algorithm should not used for large dimensions of x and y  //
-//    dim(x) should not exceed O(100)                                   //    
+//    dim(x) should not exceed O(100)                                   //
 //    dim(y) should not exceed O(500)                                   //
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
@@ -89,16 +92,17 @@
 
 #include <TH1D.h>
 #include <TH2D.h>
+#include <TGraph.h>
 #include <TObject.h>
 #include <TArrayI.h>
 #include <TSpline.h>
 #include <TMatrixDSparse.h>
 #include <TMatrixD.h>
+#include <TObjArray.h>
 #include <TString.h>
 
-#define TUnfold_VERSION "V17.6"
+#define TUnfold_VERSION "V17.9"
 #define TUnfold_CLASS_VERSION 17
-
 
 class TUnfold : public TObject {
  private:
@@ -171,7 +175,7 @@ class TUnfold : public TObject {
    /// type of regularisation
    ERegMode fRegMode;
  private:
-   /// number of input bins which are dropped because they have error=0
+   /// number of input bins which are dropped because they have error=nullptr
    Int_t fIgnoredBins;
    /// machine accuracy used to determine matrix rank after eigenvalue analysis
    Double_t fEpsMatrix;
@@ -274,37 +278,49 @@ public:
            EConstraint constraint=kEConstraintArea);
    // for root streamer and derived classes
    TUnfold(void);
-   virtual ~TUnfold(void);
+   ~TUnfold(void) override;
    // define input distribution
-   virtual Int_t SetInput(const TH1 *hist_y, Double_t scaleBias=0.0,Double_t oneOverZeroError=0.0,const TH2 *hist_vyy=0,const TH2 *hist_vyy_inv=0);
-   // Unfold with given choice of tau and input 
+   virtual Int_t SetInput(const TH1 *hist_y, Double_t scaleBias=0.0,Double_t oneOverZeroError=0.0,const TH2 *hist_vyy=nullptr,const TH2 *hist_vyy_inv=nullptr);
+   // Unfold with given choice of tau and input
    virtual Double_t DoUnfold(Double_t tau);
    Double_t DoUnfold(Double_t tau,const TH1 *hist_y, Double_t scaleBias=0.0);
    // scan the L curve using successive calls to DoUnfold(Double_t) at various tau
    virtual Int_t ScanLcurve(Int_t nPoint,Double_t tauMin,
                             Double_t tauMax,TGraph **lCurve,
-			    TSpline **logTauX=0,TSpline **logTauY=0,
-                            TSpline **logTauCurvature=0);
-
+                            TSpline **logTauX=nullptr,TSpline **logTauY=nullptr,
+                            TSpline **logTauCurvature=nullptr);
+   // minimize Stein's unbiased risk estimator using successive calls to DoUnfold at various tau. Optionally, the contributions to SURE (DF and Chi2A) or the L-curve are saved
+   virtual Int_t ScanSURE(Int_t nPoint,Double_t tauMin,
+                          Double_t tauMax,
+                          TGraph **logTauSURE=nullptr,
+                          TGraph **df_chi2A=nullptr,
+                          TGraph **lCurve=nullptr);
+   // calculate square roots of the Eigenvalues of the Error matrix
+   TVectorD GetSqrtEvEmatrix(void) const;
    // access unfolding results
    Double_t GetTau(void) const;
-   void GetOutput(TH1 *output,const Int_t *binMap=0) const;
-   void GetEmatrix(TH2 *ematrix,const Int_t *binMap=0) const;
-   void GetRhoIJ(TH2 *rhoij,const Int_t *binMap=0) const;
-   Double_t GetRhoI(TH1 *rhoi,const Int_t *binMap=0,TH2 *invEmat=0) const;
-   void GetFoldedOutput(TH1 *folded,const Int_t *binMap=0) const;
+   void GetOutput(TH1 *output,const Int_t *binMap=nullptr) const;
+   void GetEmatrix(TH2 *ematrix,const Int_t *binMap=nullptr) const;
+   void GetRhoIJ(TH2 *rhoij,const Int_t *binMap=nullptr) const;
+   Double_t GetRhoI(TH1 *rhoi,const Int_t *binMap=nullptr,TH2 *invEmat=nullptr) const;
+   void GetFoldedOutput(TH1 *folded,const Int_t *binMap=nullptr) const;
+
+   double GetDF(void) const; // effective number of degrees of freedom
+   double GetSURE(void) const; // Stein's unbiased risk estimator
 
    // access input parameters
    void GetProbabilityMatrix(TH2 *A,EHistMap histmap) const;
-   void GetNormalisationVector(TH1 *s,const Int_t *binMap=0) const; // get the vector of normalisation factors, equivalent to the initial bias vector
-   void GetInput(TH1 *inputData,const Int_t *binMap=0) const; // get input data
+   void GetNormalisationVector(TH1 *s,const Int_t *binMap=nullptr) const; // get the vector of normalisation factors, equivalent to the initial bias vector
+   void GetInput(TH1 *inputData,const Int_t *binMap=nullptr) const; // get input data
    void GetInputInverseEmatrix(TH2 *ematrix);   // get input data inverse of error matrix
-   void GetBias(TH1 *bias,const Int_t *binMap=0) const; // get bias (includind biasScale)
+   void GetBias(TH1 *bias,const Int_t *binMap=nullptr) const; // get bias (includind biasScale)
    Int_t GetNr(void) const; // number of regularisation conditions
    void GetL(TH2 *l) const; // get matrix of regularisation conditions
    void GetLsquared(TH2 *lsquared) const;
 
    // access various properties of the result
+   /// get matrix connecting input and output changes
+   void GetDXDY(TH2 *dxdy) const;
    /// get maximum global correlation determined in recent unfolding
    inline Double_t GetRhoMax(void) const { return fRhoMax; }
    /// get average global correlation determined in recent unfolding
@@ -333,12 +349,12 @@ public:
    Int_t RegularizeBins2D(int start_bin, int step1, int nbin1, int step2, int nbin2, ERegMode regmode);  // regularize a 2-dimensional grid
    /// get numerical accuracy for Eigenvalue analysis when inverting
    /// matrices with rank problems
-   inline Double_t GetEpsMatrix(void) const { return  fEpsMatrix; } 
+   inline Double_t GetEpsMatrix(void) const { return  fEpsMatrix; }
    /// set numerical accuracy for Eigenvalue analysis when inverting
    /// matrices with rank problems
    void SetEpsMatrix(Double_t eps); // set accuracy for eigenvalue analysis
 
-   ClassDef(TUnfold, TUnfold_CLASS_VERSION) //Unfolding with support for L-curve analysis
+   ClassDefOverride(TUnfold, TUnfold_CLASS_VERSION) //Unfolding with support for L-curve analysis
 };
 
 #endif

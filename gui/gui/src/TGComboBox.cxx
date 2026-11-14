@@ -56,18 +56,13 @@ Selecting an item in the combobox will generate the event:
 #include <iostream>
 
 
-ClassImp(TGComboBoxPopup);
-ClassImp(TGComboBox);
 
-ClassImp(TGLineStyleComboBox);
-ClassImp(TGLineWidthComboBox);
-ClassImp(TGFontTypeComboBox);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a combo box popup frame.
 
 TGComboBoxPopup::TGComboBoxPopup(const TGWindow *p, UInt_t w, UInt_t h,
-                                 UInt_t options, ULong_t back) :
+                                 UInt_t options, Pixel_t back) :
    TGCompositeFrame (p, w, h, options, back), fListBox(0), fSelected(0)
 {
    SetWindowAttributes_t wattr;
@@ -79,6 +74,7 @@ TGComboBoxPopup::TGComboBoxPopup(const TGWindow *p, UInt_t w, UInt_t h,
    wattr.fBorderPixel = fgBlackPixel;
    wattr.fBorderWidth = 1;
    gVirtualX->ChangeWindowAttributes(fId, &wattr);
+   gVirtualX->SetWindowHint(fId, TVirtualX::kHintCombo);
 
    AddInput(kStructureNotifyMask);
    fEditDisabled = kEditDisable | kEditDisableGrab  | kEditDisableBtnEnable;
@@ -227,7 +223,7 @@ void TGComboBoxPopup::KeyPressed(TGFrame *f, UInt_t keysym, UInt_t)
 /// Create a combo box widget.
 
 TGComboBox::TGComboBox(const TGWindow *p, Int_t id, UInt_t options,
-                       ULong_t back) :
+                       Pixel_t back) :
    TGCompositeFrame (p, 10, 10, options | kOwnBackground, back)
 {
    fWidgetId  = id;
@@ -246,12 +242,12 @@ TGComboBox::TGComboBox(const TGWindow *p, Int_t id, UInt_t options,
 /// Create an editable combo box widget.
 
 TGComboBox::TGComboBox(const TGWindow *p, const char *text, Int_t id,
-                       UInt_t options, ULong_t back) :
+                       UInt_t options, Pixel_t back) :
             TGCompositeFrame (p, 10, 10, options | kOwnBackground, back)
 {
    fWidgetId  = id;
    fMsgWindow = p;
-   fSelEntry = 0;
+   fSelEntry = nullptr;
 
    fTextEntry = new TGTextEntry(this, text, id);
    fTextEntry->SetFrameDrawn(kFALSE);
@@ -585,7 +581,7 @@ Bool_t TGComboBox::HandleSelectionRequest(Event_t *event)
 /// messages to the combobox message handling window. Parm2 contains
 /// the id of the selected listbox entry.
 
-Bool_t TGComboBox::ProcessMessage(Long_t msg, Long_t, Long_t parm2)
+Bool_t TGComboBox::ProcessMessage(Longptr_t msg, Longptr_t, Longptr_t parm2)
 {
    TGLBEntry *e;
 
@@ -632,7 +628,7 @@ Bool_t TGComboBox::ProcessMessage(Long_t msg, Long_t, Long_t parm2)
 
 void TGComboBox::Selected(Int_t widgetId, Int_t id)
 {
-   Long_t args[2];
+   Longptr_t args[2];
 
    args[0] = widgetId;
    args[1] = id;
@@ -648,10 +644,10 @@ void TGComboBox::SetEnabled(Bool_t on)
    fDDButton->SetEnabled(on);
    if (on) {
       SetFlags(kWidgetIsEnabled);
-      fSelEntry->SetBackgroundColor(GetBackground());
+      if (fSelEntry) fSelEntry->SetBackgroundColor(GetBackground());
    } else {
       ClearFlags(kWidgetIsEnabled);
-      fSelEntry->SetBackgroundColor(GetDefaultFrameBackground());
+      if (fSelEntry) fSelEntry->SetBackgroundColor(GetDefaultFrameBackground());
    }
    fClient->NeedRedraw(fSelEntry);
 }
@@ -705,46 +701,32 @@ void TGComboBox::RemoveAll()
 
 void TGComboBox::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   // save options and custom color if not default
+   auto extra_args = SaveCtorArgs(out, kHorizontalFrame | kSunkenFrame | kDoubleBorder);
 
-   out << std::endl << "   // combo box" << std::endl;
-   out << "   TGComboBox *";
+   out << "\n   // combo box\n";
 
-   if (!fTextEntry) {
-      out << GetName() << " = new TGComboBox(" << fParent->GetName() << "," << fWidgetId;
-   } else {
-      out << GetName() << " = new TGComboBox(" << fParent->GetName() << ",";
-      out << '\"' <<  fTextEntry->GetText() << '\"' << "," <<fWidgetId;
-   }
+   out << "   TGComboBox *" << GetName() << " = new TGComboBox(" << fParent->GetName();
+   if (fTextEntry)
+      out << ", \""  << TString(fTextEntry->GetText()).ReplaceSpecialCppChars() << "\"";
+   out << ", " << fWidgetId << extra_args << ");\n";
 
-   if (fBackground == GetWhitePixel()) {
-      if (GetOptions() == (kHorizontalFrame | kSunkenFrame | kDoubleBorder)) {
-         out <<");" << std::endl;
-      } else {
-         out << "," << GetOptionString() << ");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
-   TGTextLBEntry *b;
-   TGFrameElement *el;
    TGListBox *lb = GetListBox();
 
    TIter next(((TGLBContainer *)lb->GetContainer())->GetList());
 
-   while ((el = (TGFrameElement *) next())) {
-      b = (TGTextLBEntry *) el->fFrame;
+   while (auto el = (TGFrameElement *)next()) {
+      auto b = (TGTextLBEntry *)el->fFrame;
       out << "   " << GetName() << "->AddEntry(";
       b->SavePrimitive(out, option);
-      out <<  ");" << std::endl;
+      out << ");" << std::endl;
    }
 
-   out << "   " << GetName() << "->Resize(" << GetWidth()  << ","
-       << GetHeight() << ");" << std::endl;
-   out << "   " << GetName() << "->Select(" << GetSelected() << ");" << std::endl;
+   out << "   " << GetName() << "->Resize(" << GetWidth() << "," << GetHeight() << ");\n";
+   out << "   " << GetName() << "->Select(" << GetSelected() << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -773,16 +755,13 @@ TGLineStyleComboBox::TGLineStyleComboBox(const TGWindow *p, Int_t id,
 
 void TGLineStyleComboBox::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   out << std::endl << "   // line style combo box" << std::endl;
-   out << "   TGLineStyleComboBox *";
-
-   out << GetName() << " = new TGLineStyleComboBox(" << fParent->GetName()
-       << "," << fWidgetId << ");" << std::endl;
+   out << "\n   // line style combo box\n";
+   out << "   TGLineStyleComboBox *" << GetName() << " = new TGLineStyleComboBox(" << fParent->GetName() << ","
+       << fWidgetId << ");\n";
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
-   out << "   " << GetName() << "->Resize(" << GetWidth()  << ","
-       << GetHeight() << ");" << std::endl;
-   out << "   " << GetName() << "->Select(" << GetSelected() << ");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
+   out << "   " << GetName() << "->Resize(" << GetWidth() << "," << GetHeight() << ");\n";
+   out << "   " << GetName() << "->Select(" << GetSelected() << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -815,16 +794,13 @@ TGLineWidthComboBox::TGLineWidthComboBox(const TGWindow *p, Int_t id,
 
 void TGLineWidthComboBox::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   out << std::endl << "   // line width combo box" << std::endl;
-   out << "   TGLineWidthComboBox *";
-
-   out << GetName() << " = new TGLineWidthComboBox(" << fParent->GetName()
-       << "," << fWidgetId << ");" << std::endl;
+   out << "\n   // line width combo box\n";
+   out << "   TGLineWidthComboBox *" << GetName() << " = new TGLineWidthComboBox(" << fParent->GetName() << ","
+       << fWidgetId << ");\n";
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
-   out << "   " << GetName() << "->Resize(" << GetWidth()  << ","
-       << GetHeight() << ");" << std::endl;
-   out << "   " << GetName() << "->Select(" << GetSelected() << ");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
+   out << "   " << GetName() << "->Resize(" << GetWidth() << "," << GetHeight() << ");\n";
+   out << "   " << GetName() << "->Select(" << GetSelected() << ");\n";
 }
 
 static const char *gFonts[][2] = {    //   unix name,     name
@@ -842,7 +818,7 @@ static const char *gFonts[][2] = {    //   unix name,     name
    { "-*-courier-bold-o-*-*-12-*-*-*-*-*-*-*",     "11. courier bold italic"  },
    { "-*-symbol-medium-r-*-*-12-*-*-*-*-*-*-*",    "12. symbol"               },
    { "-*-times-medium-r-*-*-12-*-*-*-*-*-*-*",     "13. times"                },
-   { 0, 0}
+   { nullptr, nullptr }
 };
 
 ////////////////////////////////////////////////////////////////////////////////

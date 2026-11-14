@@ -31,6 +31,7 @@
 #include "Rtypes.h"
 #include "TError.h"
 
+#include <cassert>
 
 template<class Element> class TMatrixTSym;
 template<class Element> class TMatrixTSparse;
@@ -40,7 +41,7 @@ template<class Element> class TMatrixT : public TMatrixTBase<Element> {
 
 protected:
 
-   Element  fDataStack[TMatrixTBase<Element>::kSizeMax]; //! data container
+   Element  fDataStack[TMatrixTBase<Element>::kSizeMax]; ///<! data container
    Element *fElements;                                   //[fNelems] elements themselves
 
    Element *New_m   (Int_t size);
@@ -56,9 +57,19 @@ public:
 
    enum {kWorkMax = 100};
    enum EMatrixCreatorsOp1 { kZero,kUnit,kTransposed,kInverted,kAtA };
-   enum EMatrixCreatorsOp2 { kMult,kTransposeMult,kInvMult,kMultTranspose,kPlus,kMinus };
+   enum EMatrixCreatorsOp2 { kMult,kTransposeMult,kInvMult,kMultTranspose,
+// clang++ <v20 (-Wshadow) complains about shadowing TAttMarker.h global enum EMarkerStyle. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kPlus,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
+      kMinus };
 
-   TMatrixT(): fDataStack(), fElements(0) { }
+   TMatrixT(): fDataStack(), fElements(nullptr) { }
    TMatrixT(Int_t nrows,Int_t ncols);
    TMatrixT(Int_t row_lwb,Int_t row_upb,Int_t col_lwb,Int_t col_upb);
    TMatrixT(Int_t nrows,Int_t ncols,const Element *data,Option_t *option="");
@@ -66,7 +77,7 @@ public:
    TMatrixT(const TMatrixT      <Element> &another);
    TMatrixT(const TMatrixTSym   <Element> &another);
    TMatrixT(const TMatrixTSparse<Element> &another);
-   template <class Element2> TMatrixT(const TMatrixT<Element2> &another): fElements(0)
+   template <class Element2> TMatrixT(const TMatrixT<Element2> &another): fElements(nullptr)
    {
       R__ASSERT(another.IsValid());
       Allocate(another.GetNrows(),another.GetNcols(),another.GetRowLwb(),another.GetColLwb());
@@ -80,7 +91,7 @@ public:
    TMatrixT(const TMatrixTSym <Element> &a,EMatrixCreatorsOp2 op,const TMatrixTSym<Element> &b);
    TMatrixT(const TMatrixTLazy<Element> &lazy_constructor);
 
-   virtual ~TMatrixT() { TMatrixT::Clear(); }
+   ~TMatrixT() override { TMatrixT::Clear(); }
 
    // Elementary constructors
 
@@ -107,19 +118,26 @@ public:
    void MultT(const TMatrixTSym<Element> &a,const TMatrixT   <Element> &b);
    void MultT(const TMatrixTSym<Element> &a,const TMatrixTSym<Element> &b) { Mult(a,b); }
 
-   virtual const Element *GetMatrixArray  () const;
-   virtual       Element *GetMatrixArray  ();
-   virtual const Int_t   *GetRowIndexArray() const { return 0; }
-   virtual       Int_t   *GetRowIndexArray()       { return 0; }
-   virtual const Int_t   *GetColIndexArray() const { return 0; }
-   virtual       Int_t   *GetColIndexArray()       { return 0; }
+   inline void SetElement(Int_t rown, Int_t coln, Element val);
 
-   virtual       TMatrixTBase<Element> &SetRowIndexArray(Int_t * /*data*/) { MayNotUse("SetRowIndexArray(Int_t *)"); return *this; }
-   virtual       TMatrixTBase<Element> &SetColIndexArray(Int_t * /*data*/) { MayNotUse("SetColIndexArray(Int_t *)"); return *this; }
+   const Element *GetMatrixArray  () const override;
+         Element *GetMatrixArray  () override;
+   const Int_t   *GetRowIndexArray() const override { return nullptr; }
+         Int_t   *GetRowIndexArray() override       { return nullptr; }
+   const Int_t   *GetColIndexArray() const override { return nullptr; }
+         Int_t   *GetColIndexArray() override       { return nullptr; }
 
-   virtual void Clear(Option_t * /*option*/ ="") { if (this->fIsOwner) Delete_m(this->fNelems,fElements);
-                                                   else fElements = 0;
-                                                   this->fNelems = 0; }
+         TMatrixTBase<Element> &SetRowIndexArray(Int_t * /*data*/) override { MayNotUse("SetRowIndexArray(Int_t *)"); return *this; }
+         TMatrixTBase<Element> &SetColIndexArray(Int_t * /*data*/) override { MayNotUse("SetColIndexArray(Int_t *)"); return *this; }
+
+   void Clear(Option_t * /*option*/ ="") override
+   {
+      if (this->fIsOwner)
+         Delete_m(this->fNelems, fElements);
+      else
+         fElements = nullptr;
+      this->fNelems = 0;
+   }
 
            TMatrixT    <Element> &Use     (Int_t row_lwb,Int_t row_upb,Int_t col_lwb,Int_t col_upb,Element *data);
    const   TMatrixT    <Element> &Use     (Int_t row_lwb,Int_t row_upb,Int_t col_lwb,Int_t col_upb,const Element *data) const
@@ -130,22 +148,22 @@ public:
            TMatrixT    <Element> &Use     (TMatrixT<Element> &a);
    const   TMatrixT    <Element> &Use     (const TMatrixT<Element> &a) const;
 
-   virtual TMatrixTBase<Element> &GetSub  (Int_t row_lwb,Int_t row_upb,Int_t col_lwb,Int_t col_upb,
-                                           TMatrixTBase<Element> &target,Option_t *option="S") const;
+   TMatrixTBase<Element> &GetSub  (Int_t row_lwb,Int_t row_upb,Int_t col_lwb,Int_t col_upb,
+                                           TMatrixTBase<Element> &target,Option_t *option="S") const override;
            TMatrixT    <Element>  GetSub  (Int_t row_lwb,Int_t row_upb,Int_t col_lwb,Int_t col_upb,Option_t *option="S") const;
-   virtual TMatrixTBase<Element> &SetSub  (Int_t row_lwb,Int_t col_lwb,const TMatrixTBase<Element> &source);
+   TMatrixTBase<Element> &SetSub  (Int_t row_lwb,Int_t col_lwb,const TMatrixTBase<Element> &source) override;
 
-   virtual TMatrixTBase<Element> &ResizeTo(Int_t nrows,Int_t ncols,Int_t /*nr_nonzeros*/ =-1);
-   virtual TMatrixTBase<Element> &ResizeTo(Int_t row_lwb,Int_t row_upb,Int_t col_lwb,Int_t col_upb,Int_t /*nr_nonzeros*/ =-1);
+   TMatrixTBase<Element> &ResizeTo(Int_t nrows,Int_t ncols,Int_t /*nr_nonzeros*/ =-1) override;
+   TMatrixTBase<Element> &ResizeTo(Int_t row_lwb,Int_t row_upb,Int_t col_lwb,Int_t col_upb,Int_t /*nr_nonzeros*/ =-1) override;
    inline  TMatrixTBase<Element> &ResizeTo(const TMatrixT<Element> &m) {
                                             return ResizeTo(m.GetRowLwb(),m.GetRowUpb(),m.GetColLwb(),m.GetColUpb());
                                  }
 
-   virtual Double_t Determinant  () const;
-   virtual void     Determinant  (Double_t &d1,Double_t &d2) const;
+   Double_t Determinant  () const override;
+   void     Determinant  (Double_t &d1,Double_t &d2) const override;
 
-           TMatrixT<Element> &Invert      (Double_t *det=0);
-           TMatrixT<Element> &InvertFast  (Double_t *det=0);
+           TMatrixT<Element> &Invert      (Double_t *det = nullptr);
+           TMatrixT<Element> &InvertFast  (Double_t *det = nullptr);
            TMatrixT<Element> &Transpose   (const TMatrixT<Element> &source);
    inline  TMatrixT<Element> &T           () { return this->Transpose(*this); }
            TMatrixT<Element> &Rank1Update (const TVectorT<Element> &v,Element alpha=1.0);
@@ -156,8 +174,8 @@ public:
    TMatrixT<Element> &NormByRow   (const TVectorT<Element> &v,Option_t *option="D");
 
    // Either access a_ij as a(i,j)
-   inline       Element                     operator()(Int_t rown,Int_t coln) const;
-   inline       Element                    &operator()(Int_t rown,Int_t coln);
+   inline       Element                     operator()(Int_t rown,Int_t coln) const override;
+   inline       Element                    &operator()(Int_t rown,Int_t coln) override;
 
    // or as a[i][j]
    inline const TMatrixTRow_const<Element>  operator[](Int_t rown) const { return TMatrixTRow_const<Element>(*this,rown); }
@@ -204,10 +222,9 @@ public:
 
    const TMatrixT<Element> EigenVectors(TVectorT<Element> &eigenValues) const;
 
-   ClassDef(TMatrixT,4) // Template of General Matrix class
+   ClassDefOverride(TMatrixT,4) // Template of General Matrix class
 };
 
-#ifndef __CINT__
 // When building with -fmodules, it instantiates all pending instantiations,
 // instead of delaying them until the end of the translation unit.
 // We 'got away with' probably because the use and the definition of the
@@ -216,7 +233,6 @@ public:
 // In case we are building with -fmodules, we need to forward declare the
 // specialization in order to compile the dictionary G__Matrix.cxx.
 template <> TClass *TMatrixT<double>::Class();
-#endif // __CINT__
 
 
 template <class Element> inline const Element           *TMatrixT<Element>::GetMatrixArray() const { return fElements; }
@@ -278,6 +294,21 @@ template <class Element> inline Element &TMatrixT<Element>::operator()(Int_t row
       return TMatrixTBase<Element>::NaNValue();
    }
    return (fElements[arown*this->fNcols+acoln]);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Efficiently sets element (rown,coln) equal to val
+/// Index bound checks can be deactivated by defining NDEBUG
+
+template <class Element>
+inline void TMatrixT<Element>::SetElement(Int_t rown, Int_t coln, Element val)
+{
+   assert(this->IsValid());
+   rown = rown - this->fRowLwb;
+   coln = coln - this->fColLwb;
+   assert((rown < this->fNrows && rown >= 0) && "SetElement() error: row index outside matrix range");
+   assert((coln < this->fNcols && coln >= 0) && "SetElement() error: column index outside matrix range");
+   fElements[rown * this->fNcols + coln] = val;
 }
 
 inline namespace TMatrixTAutoloadOps {

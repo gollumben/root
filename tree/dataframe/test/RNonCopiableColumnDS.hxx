@@ -19,7 +19,7 @@ private:
    std::vector<std::string> fColNames{fgColumnName};
    RNonCopiable fNonCopiable;
    RNonCopiable *fCounterAddr = &fNonCopiable;
-   std::vector<void *> GetColumnReadersImpl(std::string_view, const std::type_info &)
+   std::vector<void *> GetColumnReadersImpl(std::string_view, const std::type_info &) final
    {
       std::vector<void *> ret{(void *)(&fCounterAddr)};
       return ret;
@@ -28,19 +28,25 @@ private:
 public:
    using NonCopiable_t = RNonCopiable;
    constexpr const static auto fgColumnName = "nonCopiable";
-   RNonCopiableColumnDS(){};
-   ~RNonCopiableColumnDS(){};
-   const std::vector<std::string> &GetColumnNames() const { return fColNames; };
-   bool HasColumn(std::string_view colName) const { return colName == fColNames[0]; };
-   std::string GetTypeName(std::string_view) const { return "RNonCopiable"; };
-   std::vector<std::pair<ULong64_t, ULong64_t>> GetEntryRanges()
+
+   RNonCopiableColumnDS() = default;
+   // Rule of five
+   RNonCopiableColumnDS(const RNonCopiableColumnDS &) = delete;
+   RNonCopiableColumnDS &operator=(const RNonCopiableColumnDS &) = delete;
+   RNonCopiableColumnDS(RNonCopiableColumnDS &&) = delete;
+   RNonCopiableColumnDS &operator=(RNonCopiableColumnDS &&) = delete;
+   ~RNonCopiableColumnDS() final = default;
+
+   const std::vector<std::string> &GetColumnNames() const final { return fColNames; };
+   bool HasColumn(std::string_view colName) const final { return colName == fColNames[0]; };
+   std::string GetTypeName(std::string_view) const final { return "RNonCopiable"; };
+   std::vector<std::pair<ULong64_t, ULong64_t>> GetEntryRanges() final
    {
       auto entryRanges(std::move(fEntryRanges)); // empty fEntryRanges
       return entryRanges;
    };
-   bool SetEntry(unsigned int, ULong64_t){ return true;};
-   void SetNSlots(unsigned int){};
-   std::string GetLabel(){
+   bool SetEntry(unsigned int, ULong64_t) final { return true; };
+   std::string GetLabel() final {
       return "NonCopiableColumnDS";
    }
 };

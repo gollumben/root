@@ -22,12 +22,11 @@
 A GL rendering class for TEveBoxSet.
 */
 
-ClassImp(TEveBoxSetGL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor.
 
-TEveBoxSetGL::TEveBoxSetGL() : TEveDigitSetGL(), fM(0), fBoxDL(0)
+TEveBoxSetGL::TEveBoxSetGL() : TEveDigitSetGL(), fM(nullptr), fBoxDL(0)
 {
    fDLCache = kFALSE; // Disable display list, used internally for boxes, cones.
    fMultiColor = kTRUE;
@@ -473,7 +472,7 @@ void TEveBoxSetGL::DirectDraw(TGLRnrCtx& rnrCtx) const
    {
       MakeDisplayList();
 
-      if (! mB.fSingleColor && ! mB.fValueIsColor && mB.fPalette == 0)
+      if (! mB.fSingleColor && ! mB.fValueIsColor && mB.fPalette == nullptr)
       {
          mB.AssertPalette();
       }

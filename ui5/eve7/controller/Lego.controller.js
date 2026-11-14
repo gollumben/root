@@ -1,23 +1,9 @@
 sap.ui.define([
     'sap/ui/core/mvc/Controller',
-    'sap/ui/core/Component',
     "sap/ui/core/ResizeHandler",
     'sap/ui/core/UIComponent',
-    'sap/ui/model/json/JSONModel',
-    'sap/ui/model/Sorter',
-    'sap/m/Column',
-    'sap/m/ColumnListItem',
-    'sap/m/Input',
-    'sap/m/Label',
-    'sap/m/Button',
-    "sap/m/FormattedText",
-    "sap/ui/layout/VerticalLayout",
-    "sap/ui/layout/HorizontalLayout",
-    "sap/ui/table/Column",
-    "sap/m/MessageBox"
-], function (Controller, Component, ResizeHandler, UIComponent, JSONModel, Sorter,
-    mColumn, mColumnListItem, mInput, mLabel, mButton,
-    FormattedText, VerticalLayout, HorizontalLayout, tableColumn, MessageBox) {
+    'rootui5/eve7/lib/EveManager'
+], function (Controller, ResizeHandler, UIComponent, EveManager) {
 
     "use strict";
 
@@ -25,7 +11,7 @@ sap.ui.define([
 
         onInit: function () {
             // disable narrowing axis range
-            JSROOT.settings.Zooming = false;
+            EVE.JSR.settings.Zooming = false;
 
             let data = this.getView().getViewData();
             if (data) {
@@ -40,8 +26,17 @@ sap.ui.define([
 
         onViewObjectMatched: function (oEvent) {
             let args = oEvent.getParameter("arguments");
-            this.setupManagerAndViewType(JSROOT.$eve7tmp.eveViewerId, JSROOT.$eve7tmp.mgr);
-            delete JSROOT.$eve7tmp;
+            // Main's switchSingle() passes the manager in EVE.$eve7tmp. Without it
+            // (browser forward, or this address opened directly) take it from the
+            // main page; if there is none yet, go there: this view has no
+            // standalone mode.
+            let moredata = EVE.$eve7tmp || EveManager.FindMainPageViewer(this.getView(), args.viewName);
+            delete EVE.$eve7tmp;
+            if (!moredata) {
+                UIComponent.getRouterFor(this).navTo("Default", {}, true);
+                return;
+            }
+            this.setupManagerAndViewType(moredata.eveViewerId, moredata.mgr);
         },
 
         setupManagerAndViewType: function (eveViewerId, mgr) {
@@ -56,11 +51,9 @@ sap.ui.define([
 
             let scene = this.mgr.GetElement(sceneId);
             let chld = scene.childs[0];
-            let element = this.byId("legoX");
-            element.setHtmlText("Pointset infected by TCanvas / Lego Stack");
 
             this.eve_lego = chld;
-            this.canvas_json = JSROOT.parse(atob(chld.fTitle));
+            this.canvas_json = EVE.JSR.parse(atob(chld.fTitle));
         },
         onResize : function() {
             // use timeout
@@ -69,19 +62,27 @@ sap.ui.define([
             this.resize_tmout = setTimeout(this.onResizeTimeout.bind(this), 250); // minimal latency
         },
         drawHist: function () {
+            if (!this.controllerIsMapped()) return;
+
             let domref = this.byId("legoPlotPlace").getDomRef();
             if (!this.jst_ptr) {
                 this.jst_ptr = 1;
-                JSROOT.draw(domref, this.canvas_json).then(hist_painter => {
+                EVE.JSR.draw(domref, this.canvas_json).then(hist_painter => {
                     this.canv_painter = hist_painter.getCanvPainter();
                 });
             }
             else {
-                // if completely different, call JSROOT.cleanup(dom) first.
-                JSROOT.redraw(domref, this.canvas_json).then(hist_painter => {
+                // if completely different, called cleanup(dom) first.
+                EVE.JSR.redraw(domref, this.canvas_json).then(hist_painter => {
                     this.canv_painter = hist_painter.getCanvPainter();
                 });
             }
+        },
+        controllerIsMapped() {
+            // a router page that was redirected to the main page has no manager
+            if (!this.mgr) return false;
+            let ev = this.mgr.GetElement(this.eveViewerId);
+            return ev.fRnrSelf;
         },
         onResizeTimeout: function () {
             this.drawHist(); // AMT when to draw hist ??
@@ -96,9 +97,11 @@ sap.ui.define([
         },
 
         endChanges: function (oEvent) {
+            if (!this.controllerIsMapped()) return;
+
             let domref = this.byId("legoPlotPlace").getDomRef();
-            this.canvas_json = JSROOT.parse( atob(this.eve_lego.fTitle) );
-            JSROOT.redraw(domref, this.canvas_json);
+            this.canvas_json = EVE.JSR.parse( atob(this.eve_lego.fTitle) );
+            EVE.JSR.redraw(domref, this.canvas_json);
         },
 
         elementRemoved: function (elId) {
@@ -109,6 +112,21 @@ sap.ui.define([
         },
 
         UnselectElement: function (selection_obj, element_id) {
+        },
+        switchSingle: function () {
+            let oRouter = UIComponent.getRouterFor(this);
+            EVE.$eve7tmp = { mgr: this.mgr, eveViewerId: this.eveViewerId };
+
+            oRouter.navTo("Lego", { viewName: this.mgr.GetElement(this.eveViewerId).fName });
+        },
+
+        swap: function () {
+            this.mgr.controllers[0].switchViewSides(this.mgr.GetElement(this.eveViewerId));
+        },
+
+        detachViewer: function () {
+            this.mgr.controllers[0].removeView(this.mgr.GetElement(this.eveViewerId));
+            this.destroy();
         }
     });
 });

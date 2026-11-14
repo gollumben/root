@@ -2,6 +2,7 @@
 // Author: Peter Malzacher   19/06/99
 
 /** \class TRotation
+    \legacy{TRotation, Consider using instead ROOT::Math::Rotation3D.}
     \ingroup Physics
 
 The TRotation class describes a rotation of objects of the TVector3 class.
@@ -184,8 +185,8 @@ TVector3 class:
 #include "TRotation.h"
 #include "TMath.h"
 #include "TQuaternion.h"
+#include <cmath>
 
-ClassImp(TRotation);
 
 #define TOLERANCE (1.0E-6)
 
@@ -268,7 +269,7 @@ TRotation::TRotation(const TQuaternion & Q) {
    double two_yr = 2 * Q.fVectorPart.Y() * Q.fRealPart;
    double two_zr = 2 * Q.fVectorPart.Z() * Q.fRealPart;
 
-   // protect agains zero quaternion
+   // protect against zero quaternion
    double mag2 = Q.QMag2();
    if (mag2 > 0) {
 
@@ -289,7 +290,7 @@ TRotation::TRotation(const TQuaternion & Q) {
       fyz = two_yz - two_xr;
       fzy = two_yz + two_xr;
 
-      // protect agains non-unit quaternion
+      // protect against non-unit quaternion
       if (TMath::Abs(mag2-1) > 1e-10) {
          fxx /= mag2;
          fyy /= mag2;
@@ -322,7 +323,7 @@ TRotation::TRotation(const TQuaternion & Q) {
 /// Rotate along an axis.
 
 TRotation & TRotation::Rotate(Double_t a, const TVector3& axis) {
-   if (a != 0.0) {
+   if (std::fmod(a, 2 * TMath::Pi()) != 0.) {
       Double_t ll = axis.Mag();
       if (ll == 0.0) {
          Warning("Rotate(angle,axis)"," zero axis");

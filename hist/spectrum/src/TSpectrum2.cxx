@@ -6,7 +6,7 @@
     \brief Advanced 2-dimensional spectra processing
     \author Miroslav Morhac
 
-    \legacy{TSpectrum2}
+    \legacy{TSpectrum2, For modeling a spectrum fitting and estimating the background one can use RooFit while for deconvolution and unfolding one can use TUnfold.}
 
  This class contains advanced spectra processing functions.
 
@@ -27,13 +27,13 @@
 
  These NIM papers are also available as doc or ps files from:
 
- - [SpectrumDec.ps.gz](ftp://root.cern.ch/root/SpectrumDec.ps.gz)
- - [SpectrumSrc.ps.gz](ftp://root.cern.ch/root/SpectrumSrc.ps.gz)
- - [SpectrumBck.ps.gz](ftp://root.cern.ch/root/SpectrumBck.ps.gz)
+ - [SpectrumDec.ps.gz](ftp://root.cern/root/SpectrumDec.ps.gz)
+ - [SpectrumSrc.ps.gz](ftp://root.cern/root/SpectrumSrc.ps.gz)
+ - [SpectrumBck.ps.gz](ftp://root.cern/root/SpectrumBck.ps.gz)
 
  See also the
- [online documentation](https://root.cern.ch/guides/tspectrum-manual) and
- [tutorials](https://root.cern.ch/doc/master/group__tutorial__spectrum.html).
+ [online documentation](https://root.cern/guides/tspectrum-manual) and
+ [tutorials](https://root.cern/doc/master/group__tutorial__spectrum.html).
 
  All the figures in this page were prepared using the DaqProVis
  system, Data Acquisition, Processing and Visualization system,
@@ -44,14 +44,14 @@
 #include "TSpectrum2.h"
 #include "TPolyMarker.h"
 #include "TList.h"
-#include "TH1.h"
+#include "TH2.h"
 #include "TMath.h"
+#include "TVirtualPad.h"
 #define PEAK_WINDOW 1024
 
 Int_t TSpectrum2::fgIterations    = 3;
 Int_t TSpectrum2::fgAverageWindow = 3;
 
-ClassImp(TSpectrum2);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -64,7 +64,7 @@ TSpectrum2::TSpectrum2() :TNamed("Spectrum", "Miroslav Morhac peak finder")
    fPositionX  = new Double_t[n];
    fPositionY  = new Double_t[n];
    fResolution = 1;
-   fHistogram  = 0;
+   fHistogram  = nullptr;
    fNPeaks     = 0;
 }
 
@@ -83,7 +83,7 @@ TSpectrum2::TSpectrum2(Int_t maxpositions, Double_t resolution) :TNamed("Spectru
    fPosition  = new Double_t[n];
    fPositionX = new Double_t[n];
    fPositionY = new Double_t[n];
-   fHistogram = 0;
+   fHistogram = nullptr;
    fNPeaks    = 0;
    SetResolution(resolution);
 }
@@ -123,28 +123,15 @@ void TSpectrum2::SetDeconIterations(Int_t n)
 ///
 ///   Function parameters:
 ///   - h: input 2-d histogram
-///   - numberIterations, (default value = 20)
-///     Increasing numberIterations make the result smoother and lower.
+///   - nIterX, nIterY, (default value = 20), iterations for X and Y
+///     Increasing number of iterations make the result smoother and lower.
 ///   - option: may contain one of the following options
-///      - to set the direction parameter
-///        "BackIncreasingWindow". By default the direction is BackDecreasingWindow
-///      - filterOrder-order of clipping filter. Possible values:
-///            - "BackOrder2" (default)
-///            - "BackOrder4"
-///            - "BackOrder6"
-///            - "BackOrder8"
-///      - "nosmoothing"- if selected, the background is not smoothed
-///         By default the background is smoothed.
-///      - smoothWindow-width of smoothing window. Possible values:
-///            - "BackSmoothing3" (default)
-///            - "BackSmoothing5"
-///            - "BackSmoothing7"
-///            - "BackSmoothing9"
-///            - "BackSmoothing11"
-///            - "BackSmoothing13"
-///            - "BackSmoothing15"
-///      - "Compton" if selected the estimation of Compton edge
-///                  will be included.
+///      - direction of change of clipping window
+///               - possible values=kBackIncreasingWindow
+///                                 kBackDecreasingWindow
+///      - filterType-determines the algorithm of the filtering
+///               - possible values=kBackSuccessiveFiltering
+///                                 kBackOneStepFiltering
 ///      - "same" : if this option is specified, the resulting background
 ///                 histogram is superimposed on the picture in the current pad.
 ///
@@ -154,12 +141,67 @@ void TSpectrum2::SetDeconIterations(Int_t n)
 ///  as the input histogram h, but only bins from binmin to binmax will be filled
 ///  with the estimated background.
 
-TH1 *TSpectrum2::Background(const TH1 * h, Int_t number_of_iterations,
-                                   Option_t * option)
+TH1 *TSpectrum2::Background(const TH1 *h, Int_t nIterX, Int_t nIterY, Option_t *option)
 {
-   Error("Background","function not yet implemented: h=%s, iter=%d, option=%sn"
-        , h->GetName(), number_of_iterations, option);
-   return 0;
+   if (h == nullptr)
+      return nullptr;
+   Int_t dimension = h->GetDimension();
+   if (dimension != 2) {
+      Error("Background", "Only implemented for 2-d histograms");
+      return nullptr;
+   }
+   TString opt = option;
+   opt.ToLower();
+
+   // set options
+   Int_t direction = kBackDecreasingWindow;
+   if (opt.Contains("backincreasingwindow"))
+      direction = kBackIncreasingWindow;
+   Int_t filterType = kBackSuccessiveFiltering;
+   if (opt.Contains("backonestepfiltering"))
+      filterType = kBackOneStepFiltering;
+   Int_t firstX = h->GetXaxis()->GetFirst();
+   Int_t lastX = h->GetXaxis()->GetLast();
+   Int_t sizeX = lastX - firstX + 1;
+   Int_t firstY = h->GetYaxis()->GetFirst();
+   Int_t lastY = h->GetYaxis()->GetLast();
+   Int_t sizeY = lastY - firstY + 1;
+   Int_t i, j;
+   Double_t **source = new Double_t *[sizeX];
+   for (i = 0; i < sizeX; i++) {
+      source[i] = new Double_t[sizeY];
+      for (j = 0; j < sizeY; j++)
+         source[i][j] = h->GetBinContent(i + firstX, j + firstY);
+   }
+
+   // find background (source is input and in output contains the background
+   Background(source, sizeX, sizeY, nIterX, nIterY, direction, filterType);
+
+   // create output histogram containing background
+   // only bins in the range of the input histogram are filled
+   Int_t nch = strlen(h->GetName());
+   char *hbname = new char[nch + 20];
+   snprintf(hbname, nch + 20, "%s_background", h->GetName());
+   TH2 *hb = (TH2 *)h->Clone(hbname);
+   hb->Reset();
+   hb->GetListOfFunctions()->Delete();
+   for (i = 0; i < sizeX; i++)
+      for (j = 0; j < sizeY; j++)
+         hb->SetBinContent(i + firstX, j + firstY, source[i][j]);
+   hb->SetEntries(sizeX * sizeY);
+
+   // if option "same is specified, draw the result in the pad
+   if (opt.Contains("same")) {
+      if (gPad)
+         delete gPad->GetPrimitive(hbname);
+      hb->Draw("same");
+   }
+   for (i = 0; i < sizeX; i++) {
+      delete[] source[i];
+   }
+   delete[] source;
+   delete[] hbname;
+   return hb;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -208,7 +250,7 @@ void TSpectrum2::Print(Option_t *) const
 Int_t TSpectrum2::Search(const TH1 * hin, Double_t sigma,
                              Option_t * option, Double_t threshold)
 {
-   if (hin == 0)
+   if (hin == nullptr)
       return 0;
    Int_t dimension = hin->GetDimension();
    if (dimension != 2) {
@@ -351,19 +393,19 @@ void TSpectrum2::SetResolution(Double_t resolution)
 /// ### Example 1 - Background_gamma64.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_gamma64.C
+/// ../../../tutorials/legacy/spectrum/Background_gamma64.C
 /// End_Macro
 ///
 /// ### Example 2- Background_gamma256.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_gamma256.C
+/// ../../../tutorials/legacy/spectrum/Background_gamma256.C
 /// End_Macro
 ///
 /// ### Example 3- Background_synt256.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Background_synt256.C
+/// ../../../tutorials/legacy/spectrum/Background_synt256.C
 /// End_Macro
 
 const char *TSpectrum2::Background(Double_t **spectrum,
@@ -539,7 +581,7 @@ const char *TSpectrum2::Background(Double_t **spectrum,
    for (i = 0; i < ssizex; i++)
       delete[]working_space[i];
    delete[]working_space;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -576,7 +618,7 @@ const char *TSpectrum2::Background(Double_t **spectrum,
 /// ### Example 4 - Smooth.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Smooth.C
+/// ../../../tutorials/legacy/spectrum/Smooth.C
 /// End_Macro
 
 const char* TSpectrum2::SmoothMarkov(Double_t **source, Int_t ssizex, Int_t ssizey, Int_t averWindow)
@@ -607,7 +649,7 @@ const char* TSpectrum2::SmoothMarkov(Double_t **source, Int_t ssizex, Int_t ssiz
       for (i = 0; i < ssizex; i++)
          delete[]working_space[i];
       delete [] working_space;
-      return 0;
+      return nullptr;
    }
 
    nom = 0;
@@ -762,7 +804,7 @@ const char* TSpectrum2::SmoothMarkov(Double_t **source, Int_t ssizex, Int_t ssiz
    for (i = 0; i < ssizex; i++)
       delete[]working_space[i];
    delete[]working_space;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -817,19 +859,19 @@ const char* TSpectrum2::SmoothMarkov(Double_t **source, Int_t ssizex, Int_t ssiz
 /// ### Example 5 - Deconvolution2_1.c
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Deconvolution2_1.C
+/// ../../../tutorials/legacy/spectrum/Deconvolution2_1.C
 /// End_Macro
 ///
 /// ### Example 6 - Deconvolution2_2.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Deconvolution2_2.C
+/// ../../../tutorials/legacy/spectrum/Deconvolution2_2.C
 /// End_Macro
 ///
 /// ### Example 7 - Deconvolution2_HR.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Deconvolution2_HR.C
+/// ../../../tutorials/legacy/spectrum/Deconvolution2_HR.C
 /// End_Macro
 
 const char *TSpectrum2::Deconvolution(Double_t **source, Double_t **resp,
@@ -995,7 +1037,7 @@ const char *TSpectrum2::Deconvolution(Double_t **source, Double_t **resp,
    for (i = 0; i < ssizex; i++)
       delete[]working_space[i];
    delete[]working_space;
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1060,31 +1102,31 @@ const char *TSpectrum2::Deconvolution(Double_t **source, Double_t **resp,
 /// ### Example 8 - Src.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Src.C
+/// ../../../tutorials/legacy/spectrum/Src.C
 /// End_Macro
 ///
 /// ### Example 9 - Src2.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Src2.C
+/// ../../../tutorials/legacy/spectrum/Src2.C
 /// End_Macro
 ///
 /// ### Example 10 - Src3.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Src3.C
+/// ../../../tutorials/legacy/spectrum/Src3.C
 /// End_Macro
 ///
 /// ### Example 11 - Src4.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Src4.C
+/// ../../../tutorials/legacy/spectrum/Src4.C
 /// End_Macro
 ///
 /// ### Example 12 - Src5.C
 ///
 /// Begin_Macro(source)
-/// ../../../tutorials/spectrum/Src5.C
+/// ../../../tutorials/legacy/spectrum/Src5.C
 /// End_Macro
 
 Int_t TSpectrum2::SearchHighRes(Double_t **source, Double_t **dest, Int_t ssizex, Int_t ssizey,
@@ -1707,7 +1749,7 @@ Int_t TSpectrum2::SearchHighRes(Double_t **source, Double_t **dest, Int_t ssizex
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// static function (called by TH1), interface to TSpectrum2::Search
+/// static function (called by TH2), interface to TSpectrum2::Search
 
 Int_t TSpectrum2::StaticSearch(const TH1 *hist, Double_t sigma, Option_t *option, Double_t threshold)
 {
@@ -1716,10 +1758,10 @@ Int_t TSpectrum2::StaticSearch(const TH1 *hist, Double_t sigma, Option_t *option
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// static function (called by TH1), interface to TSpectrum2::Background
+/// static function (called by TH2), interface to TSpectrum2::Background
 
-TH1 *TSpectrum2::StaticBackground(const TH1 *hist,Int_t niter, Option_t *option)
+TH1 *TSpectrum2::StaticBackground(const TH1 *hist, Int_t nIterX, Int_t nIterY, Option_t *option)
 {
    TSpectrum2 s;
-   return s.Background(hist,niter,option);
+   return s.Background(hist, nIterX, nIterY, option);
 }

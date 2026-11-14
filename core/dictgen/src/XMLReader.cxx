@@ -18,6 +18,7 @@
 
 
 #include "XMLReader.h"
+#include "RConversionRuleParser.h"
 #include "SelectionRules.h"
 #include "TClingUtils.h"
 
@@ -64,7 +65,7 @@ void XMLReader::PopulateMap(){
 }
 
 /*
- This function Gets the next tag from teh input file stream
+ This function Gets the next tag from the input file stream
  file - the open input stream
  out - we return the tag through that parameter
  lineCount - we are counting the line numbers here in order to print error messages in case of an error
@@ -453,7 +454,7 @@ bool XMLReader::GetAttributes(const std::string& tag, std::vector<Attributes>& o
 bool XMLReader::Parse(const std::string &fileName, SelectionRules& out)
 {
 
-   std::ifstream file(fileName);
+   std::ifstream file(fileName, std::ios::binary);
 
    PopulateMap();
 
@@ -938,6 +939,56 @@ bool XMLReader::Parse(const std::string &fileName, SelectionRules& out)
                          "XML at line %s: class attribute 'noStreamer' must be 'true' or 'false' (it was %s)\n",
                          lineNumCharp, iAttrValue.c_str());
                     }
+                  }
+
+                  // request RNTuple serialization mode
+                  if (tagKind == kClass && csr && "rntupleStreamerMode" == iAttrName) {
+                     if (iAttrValue == "false") {
+                        if (csr->RequestedRNTupleSerializationMode() == -1) {
+                           ROOT::TMetaUtils::Error(
+                              nullptr,
+                              "XML at line %s: class attribute 'rntupleStreamerMode' must be either 'true' or 'false', "
+                              "not both\n",
+                              lineNumCharp, iAttrValue.c_str());
+                        } else {
+                           csr->SetRequestedRNTupleSerializationMode(1);
+                        }
+                     } else if (iAttrValue == "true") {
+                        if (csr->RequestedRNTupleSerializationMode() == 1) {
+                           ROOT::TMetaUtils::Error(
+                              nullptr,
+                              "XML at line %s: class attribute 'rntupleStreamerMode' must be either 'true' or 'false', "
+                              "not both\n",
+                              lineNumCharp, iAttrValue.c_str());
+                        } else {
+                           if (!csr->RequestedRNTupleSoARecord().empty()) {
+                              ROOT::TMetaUtils::Error(
+                                 nullptr,
+                                 "XML at line %s: class attributes rntupleStreamerMode and rntupleSoARecord "
+                                 "are mutually exclusive\n",
+                                 lineNumCharp, iAttrValue.c_str());
+                           }
+                           csr->SetRequestedRNTupleSerializationMode(-1);
+                        }
+                     } else {
+                        ROOT::TMetaUtils::Error(
+                           nullptr,
+                           "XML at line %s: class attribute 'rntupleStreamerMode' must be 'true' or 'false' "
+                           "(it was %s)\n",
+                           lineNumCharp, iAttrValue.c_str());
+                     }
+                  }
+
+                  // request RNTuple SoA record type name
+                  if (tagKind == kClass && csr && "rntupleSoARecord" == iAttrName) {
+                     if (csr->RequestedRNTupleSerializationMode() == -1) {
+                        ROOT::TMetaUtils::Error(
+                           nullptr,
+                           "XML at line %s: class attributes rntupleStreamerMode and rntupleSoARecord "
+                           "are mutually exclusive\n",
+                           lineNumCharp, iAttrValue.c_str());
+                     }
+                     csr->SetRequestedRNTupleSoARecord(iAttrValue);
                   }
 
                   // request no input operator

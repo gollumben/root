@@ -21,6 +21,8 @@
 // For debug tracing
 #include "TClass.h"
 #include "TError.h"
+#define ROOT_CsgOps_cxx
+#include "CsgOps.h"
 
 #include <stdexcept>
 
@@ -48,7 +50,6 @@ extern "C"
 Implements a native ROOT-GL representation of an arbitrary set of polygons.
 */
 
-ClassImp(TGLFaceSet);
 
 Bool_t TGLFaceSet::fgEnforceTriangles = kFALSE;
 

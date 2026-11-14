@@ -26,7 +26,6 @@
 Sub-editor for TEveRGBAPalette class.
 */
 
-ClassImp(TEveRGBAPaletteSubEditor);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -34,19 +33,19 @@ ClassImp(TEveRGBAPaletteSubEditor);
 TEveRGBAPaletteSubEditor::TEveRGBAPaletteSubEditor(const TGWindow* p) :
    TGVerticalFrame(p),
 
-   fM(0),
+   fM(nullptr),
 
-   fUnderflowAction (0),
-   fUnderColor      (0),
-   fOverflowAction  (0),
-   fOverColor       (0),
+   fUnderflowAction (nullptr),
+   fUnderColor      (nullptr),
+   fOverflowAction  (nullptr),
+   fOverColor       (nullptr),
 
-   fMinMax(0), fOldMin(0), fOldMax(0),
+   fMinMax(nullptr), fOldMin(0), fOldMax(0),
 
-   fInterpolate(0),
-   fShowDefValue(0),
-   fDefaultColor(0),
-   fFixColorRange(0)
+   fInterpolate(nullptr),
+   fShowDefValue(nullptr),
+   fDefaultColor(nullptr),
+   fFixColorRange(nullptr)
 {
    {
       TGHorizontalFrame* f = new TGHorizontalFrame(this);
@@ -300,7 +299,6 @@ void TEveRGBAPaletteSubEditor::DoOverflowAction(Int_t mode)
 Editor for TEveRGBAPalette class.
 */
 
-ClassImp(TEveRGBAPaletteEditor);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -308,8 +306,8 @@ ClassImp(TEveRGBAPaletteEditor);
 TEveRGBAPaletteEditor::TEveRGBAPaletteEditor(const TGWindow *p, Int_t width, Int_t height,
                                              UInt_t options, Pixel_t back) :
    TGedFrame(p, width, height, options | kVerticalFrame, back),
-   fM (0),
-   fSE(0)
+   fM (nullptr),
+   fSE(nullptr)
 {
    MakeTitle("TEveRGBAPalette");
 

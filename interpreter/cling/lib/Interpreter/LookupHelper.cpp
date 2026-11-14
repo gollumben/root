@@ -16,15 +16,18 @@
 #include "cling/Utils/ParserStateRAII.h"
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/LocInfoType.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
-#include "clang/Sema/Scope.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/Overload.h"
+#include "clang/Sema/Scope.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
+
+#include "EnterUserCodeRAII.h"
 
 using namespace clang;
 
@@ -79,27 +82,10 @@ namespace cling {
     //
     P.getActions().getDiagnostics().setSuppressAllDiagnostics(
                                       diagOnOff == LookupHelper::NoDiagnostics);
-    PP.getDiagnostics().setSuppressAllDiagnostics(
-                                      diagOnOff == LookupHelper::NoDiagnostics);
-    //
-    //  Tell Sema we are not in the process of doing an instantiation.
-    //  fSFINAETrap will reset any SFINAE error count of a SFINAE context from "above".
-    //  fSFINAETrap will reset this value to the previous one; the line below is overwriting
-    //  the value set by fSFINAETrap.
-    P.getActions().InNonInstantiationSFINAEContext = true;
     //
     //  Tell the parser to not attempt spelling correction.
     //
     const_cast<LangOptions&>(PP.getLangOpts()).SpellChecking = 0;
-    //
-    //  Turn on ignoring of the main file eof token.
-    //
-    //  Note: We need this because token readahead in the following
-    //        routine calls ends up parsing it multiple times.
-    //
-    if (!PP.isIncrementalProcessingEnabled()) {
-      PP.enableIncrementalProcessing();
-    }
     assert(!code.empty() &&
            "prepareForParsing should only be called when need");
 
@@ -116,7 +102,7 @@ namespace cling {
       FID = SM.getFileID(FileStartLoc);
 
       bool Invalid = true;
-      llvm::StringRef FIDContents = SM.getBuffer(FID, &Invalid)->getBuffer();
+      llvm::StringRef FIDContents = SM.getBufferData(FID, &Invalid);
 
       // A FileID is a (cached via ContentCache) SourceManager view of a
       // FileManager::FileEntry (which is a wrapper on the file system file).
@@ -132,7 +118,7 @@ namespace cling {
       // Compare the contents of the cached buffer and the string we should
       // process. If there are hash collisions this assert should trigger
       // making it easier to debug.
-      CacheIsValid = FIDContents.equals(llvm::StringRef(code.str() + "\n"));
+      CacheIsValid = FIDContents == llvm::StringRef(code.str() + "\n");
       assert(CacheIsValid && "Hash collision!");
       if (CacheIsValid) {
         // We have already included this file once. Reuse the include loc.
@@ -203,7 +189,7 @@ namespace cling {
 
   ///\brief Look for a tag decl based on its name
   ///
-  ///\param declName name of the class, enum, uniorn or namespace being
+  ///\param declName name of the class, enum, union or namespace being
   ///       looked for
   ///\param resultDecl pointer that will be updated with the answer
   ///\param P Parse to use for the search
@@ -253,7 +239,7 @@ namespace cling {
             // Since we do not use this path for template handling, this
             // is not relevant for ROOT itself ....
             ASTContext &Context = S.getASTContext();
-            QualType T = Context.getTypedefType(typedefDecl);
+            QualType T = Context.getTypedefType(ElaboratedTypeKeyword::None, /*Qualifier=*/std::nullopt, typedefDecl);
             const TagType *TagTy = T->getAs<TagType>();
             if (TagTy) next = TagTy->getDecl();
           }
@@ -308,6 +294,14 @@ namespace cling {
         next = utils::Lookup::Named(&S, declName.substr(last, c + 1 - last), sofar);
         // If there is an ambiguity, we need to go the long route.
         if (next == (void *) -1) return false;
+        if (const auto *RD = dyn_cast_or_null<CXXRecordDecl>(next);
+            RD && RD->isInjectedClassName()) {
+          // We found an injected-class-name, which is not a scope.
+          // See [class.qual]p2.  Not skipping the injected-class-name, would
+          // lead to a wrong lookup result for "C::C" where C is a class name.
+          resultDecl = nullptr;
+          return true; // nothing found
+        }
         if (next) {
           resultDecl = next;
         }
@@ -322,43 +316,50 @@ namespace cling {
   {
     bool issigned = false;
     bool isunsigned = false;
-    if (typeName.startswith("signed ")) {
+    if (typeName.starts_with("signed ")) {
       issigned = true;
       typeName = StringRef(typeName.data()+7, typeName.size()-7);
     }
-    if (!issigned && typeName.startswith("unsigned ")) {
+    if (!issigned && typeName.starts_with("unsigned ")) {
       isunsigned = true;
       typeName = StringRef(typeName.data()+9, typeName.size()-9);
     }
-    if (typeName.equals("char")) {
+    if (typeName == "char") {
       if (isunsigned) return Context.UnsignedCharTy;
       return Context.SignedCharTy;
     }
-    if (typeName.equals("short")) {
+    if (typeName == "short") {
       if (isunsigned) return Context.UnsignedShortTy;
       return Context.ShortTy;
     }
-    if (typeName.equals("int")) {
+    if (typeName == "int") {
       if (isunsigned) return Context.UnsignedIntTy;
       return Context.IntTy;
     }
-    if (typeName.equals("long")) {
+    if (typeName == "long") {
       if (isunsigned) return Context.UnsignedLongTy;
       return Context.LongTy;
     }
-    if (typeName.equals("long long")) {
-      if (isunsigned) return Context.LongLongTy;
-      return Context.UnsignedLongLongTy;
+    if (typeName == "long long") {
+      if (isunsigned) return Context.UnsignedLongLongTy;
+      return Context.LongLongTy;
     }
     if (!issigned && !isunsigned) {
-      if (typeName.equals("bool")) return Context.BoolTy;
-      if (typeName.equals("float")) return Context.FloatTy;
-      if (typeName.equals("double")) return Context.DoubleTy;
-      if (typeName.equals("long double")) return Context.LongDoubleTy;
+      if (typeName == "bool")
+        return Context.BoolTy;
+      if (typeName == "float")
+        return Context.FloatTy;
+      if (typeName == "double")
+        return Context.DoubleTy;
+      if (typeName == "long double")
+        return Context.LongDoubleTy;
 
-      if (typeName.equals("wchar_t")) return Context.WCharTy;
-      if (typeName.equals("char16_t")) return Context.Char16Ty;
-      if (typeName.equals("char32_t")) return Context.Char32Ty;
+      if (typeName == "wchar_t")
+        return Context.WCharTy;
+      if (typeName == "char16_t")
+        return Context.Char16Ty;
+      if (typeName == "char32_t")
+        return Context.Char32Ty;
     }
     /* Missing
    CanQualType WideCharTy; // Same as WCharTy in C++, integer type in C99.
@@ -369,7 +370,7 @@ namespace cling {
 
   ///\brief Look for a tag decl based on its name
   ///
-  ///\param typeName name of the class, enum, uniorn or namespace being
+  ///\param typeName name of the class, enum, union or namespace being
   ///       looked for
   ///\param resultType reference to QualType that will be updated with the answer
   ///\param P Parse to use for the search
@@ -388,7 +389,7 @@ namespace cling {
     llvm::StringRef quickTypeName = typeName.trim();
     bool innerConst = false;
     bool outerConst = false;
-    if (quickTypeName.startswith("const ")) {
+    if (quickTypeName.starts_with("const ")) {
       // Use this syntax to avoid the redudant tests in substr.
       quickTypeName = StringRef(quickTypeName.data()+6,
                                 quickTypeName.size()-6);
@@ -397,7 +398,7 @@ namespace cling {
 
     enum PointerType { kPointerType, kLRefType, kRRefType, };
 
-    if (quickTypeName.endswith("const")) {
+    if (quickTypeName.ends_with("const")) {
       if (quickTypeName.size() < 6) return true;
       auto c = quickTypeName[quickTypeName.size()-6];
       if (c==' ' || c=='&' || c=='*') {
@@ -476,6 +477,13 @@ namespace cling {
 
     if (typeName.empty()) return TheQT;
 
+    // findType is called from TClingLookupHelper::GetPartiallyDesugaredNameWithScopeHandling
+    // which is called indirectly from TClassEdit::GetNormalizedName via
+    // the ResolvedTypedef code paths.  Through that code path nothing is
+    // taking the ROOT/Interpreter lock and since this code can modify the
+    // interpreter, we do need to take lock.
+    InterpreterAccessRAII LockAccess(*m_Interpreter);
+
     // Could trigger deserialization of decls.
     Interpreter::PushTransactionRAII RAII(m_Interpreter);
 
@@ -501,11 +509,11 @@ namespace cling {
     //
     clang::ParsedAttributes Attrs(P.getAttrFactory());
     // FIXME: All arguments to ParseTypeName are the default arguments. Remove.
-    TypeResult Res(P.ParseTypeName(0, DeclaratorContext::TypeNameContext,
+    TypeResult Res(P.ParseTypeName(0, DeclaratorContext::TypeName,
                                    clang::AS_none, 0, &Attrs));
     if (Res.isUsable()) {
       // Accept it only if the whole name was parsed.
-      if (P.NextToken().getKind() == clang::tok::eof) {
+      if (P.NextToken().getKind() == clang::tok::annot_repl_input_end) {
         TypeSourceInfo* TSI = 0;
         TheQT = clang::Sema::GetTypeFromParser(Res.get(), &TSI);
       }
@@ -521,7 +529,7 @@ namespace cling {
 
   const Decl* LookupHelper::findScope(llvm::StringRef className,
                                       DiagSetting diagOnOff,
-                                      const Type** resultType /* = 0 */,
+                                      const Type** resultType /* = nullptr */,
                                       bool instantiateTemplate/*=true*/) const {
 
     //
@@ -553,14 +561,15 @@ namespace cling {
           const TagDecl *tagdecl = dyn_cast<TagDecl>(quickResult);
           const TypedefNameDecl *typedefDecl = dyn_cast<TypedefNameDecl>(quickResult);
           if (typedefDecl) {
-            QualType T = Context.getTypedefType(typedefDecl);
+            QualType T = Context.getTypedefType(ElaboratedTypeKeyword::None, /*Qualifier=*/std::nullopt, typedefDecl);
             const TagType *TagTy = T->getAs<TagType>();
             if (TagTy) tagdecl = TagTy->getDecl();
             // NOTE: Should we instantiate here? ... maybe ...
             if (tagdecl && resultType) *resultType = T.getTypePtr();
 
           } else if (tagdecl && resultType) {
-            *resultType = tagdecl->getTypeForDecl();
+            QualType T = Context.getCanonicalTagType(tagdecl);
+            *resultType = T.getTypePtr();
           }
           // fprintf(stderr,"Short cut taken for %s.\n",className.str().c_str());
           if (tagdecl) {
@@ -633,7 +642,7 @@ namespace cling {
       return 0;
     }
 
-    Decl* TheDecl = 0;
+    const Decl* TheDecl = nullptr;
 
     if (P.getCurToken().getKind() == tok::annot_cxxscope) {
       CXXScopeSpec SS;
@@ -641,76 +650,49 @@ namespace cling {
                                              P.getCurToken().getAnnotationRange(),
                                              SS);
       if (SS.isValid()) {
-        NestedNameSpecifier* NNS = SS.getScopeRep();
-        NestedNameSpecifier::SpecifierKind Kind = NNS->getKind();
+        NestedNameSpecifier NNS = SS.getScopeRep();
         // Only accept the parse if we consumed all of the name.
-        if (P.NextToken().getKind() == clang::tok::eof) {
+        if (P.NextToken().getKind() == clang::tok::annot_repl_input_end) {
           //
           //  Be careful, not all nested name specifiers refer to classes
           //  and namespaces, and those are the only things we want.
           //
-          switch (Kind) {
-            case NestedNameSpecifier::Identifier: {
-                // Dependent type.
-                // We do not accept these.
-              }
+          switch (NNS.getKind()) {
+            case NestedNameSpecifier::Kind::Null: {
               break;
-            case NestedNameSpecifier::Namespace: {
+            }
+            case NestedNameSpecifier::Kind::Namespace: {
                 // Namespace.
-                NamespaceDecl* NSD = NNS->getAsNamespace();
-                NSD = NSD->getCanonicalDecl();
-                TheDecl = NSD;
+                auto NSBase = NNS.getAsNamespaceAndPrefix().Namespace;
+                if (auto* NSD = dyn_cast<NamespaceDecl>(NSBase)) {
+                  TheDecl = NSD->getCanonicalDecl();
+                } else if (auto* NSAD = dyn_cast<NamespaceAliasDecl>(NSBase)) {
+                  TheDecl = NSAD->getNamespace()->getCanonicalDecl();
+                }
               }
               break;
-            case NestedNameSpecifier::NamespaceAlias: {
-                // Namespace alias.
-                // Note: In the future, should we return the alias instead?
-                NamespaceAliasDecl* NSAD = NNS->getAsNamespaceAlias();
-                NamespaceDecl* NSD = NSAD->getNamespace();
-                NSD = NSD->getCanonicalDecl();
-                TheDecl = NSD;
-              }
-              break;
-            case NestedNameSpecifier::TypeSpec:
-                // Type name.
-                // Intentional fall-though
-            case NestedNameSpecifier::TypeSpecWithTemplate: {
+            case NestedNameSpecifier::Kind::Type: {
                 // Type name qualified with "template".
                 // Note: Do we need to check for a dependent type here?
-                NestedNameSpecifier *prefix = NNS->getPrefix();
-                if (prefix) {
-                   QualType temp
-                     = Context.getElaboratedType(ETK_None,prefix,
-                                                 QualType(NNS->getAsType(),0));
-                   *setResultType = temp.getTypePtr();
-                } else {
-                   *setResultType = NNS->getAsType();
-                }
+                *setResultType = NNS.getAsType();
                 const TagType* TagTy = (*setResultType)->getAs<TagType>();
                 if (TagTy) {
                   // It is a class, struct, or union.
                   TagDecl* TD = TagTy->getDecl();
                   if (TD) {
                     TheDecl = TD->getDefinition();
-                    // NOTE: if (TheDecl) ... check for theDecl->isInvalidDecl()
-                    if (TD && TD->isInvalidDecl()) {
-                      printf("Warning: FindScope got an invalid tag decl\n");
-                    }
-                    if (TheDecl && TheDecl->isInvalidDecl()) {
-                      printf("ERROR: FindScope about to return an invalid decl\n");
-                    }
                     if (!TheDecl && instantiateTemplate) {
 
                       // Make sure it is not just forward declared, and
                       // instantiate any templates.
-                      DeclContext *ctxt = TD;
+                      DeclContext *ctxt = const_cast<TagDecl*>(TD);
                       if (!S.RequireCompleteDeclContext(SS, ctxt)) {
                         // Success, type is complete, instantiations have
                         // been done.
                         TheDecl = TD->getDefinition();
                         if (TheDecl->isInvalidDecl()) {
                           // if the decl is invalid try to clean up
-                          UnloadDecl(&S, TheDecl);
+                          UnloadDecl(&S, const_cast<Decl*>(TheDecl));
                           *setResultType = nullptr;
                           return 0;
                         }
@@ -735,12 +717,12 @@ namespace cling {
                 }
               }
               break;
-            case clang::NestedNameSpecifier::Global: {
+            case clang::NestedNameSpecifier::Kind::Global: {
                 // Name was just "::" and nothing more.
                 TheDecl = Context.getTranslationUnitDecl();
               }
               break;
-          case NestedNameSpecifier::Super:
+          case NestedNameSpecifier::Kind::MicrosoftSuper:
             // Microsoft's __super::
             return 0;
           }
@@ -751,7 +733,7 @@ namespace cling {
     //
     //  Cleanup after failed parse as a nested-name-specifier.
     //
-    P.SkipUntil(clang::tok::eof);
+    P.SkipUntil(clang::tok::annot_repl_input_end);
     // Doesn't reset the diagnostic mappings
     S.getDiagnostics().Reset(/*soft=*/true);
     //
@@ -777,14 +759,15 @@ namespace cling {
       return 0;
     }
     if (P.getCurToken().getKind() == tok::annot_typename) {
-      ParsedType T = P.getTypeAnnotation(const_cast<Token&>(P.getCurToken()));
+      TypeResult T = P.getTypeAnnotation(const_cast<Token&>(P.getCurToken()));
       // Only accept the parse if we consumed all of the name.
-      if (P.NextToken().getKind() == clang::tok::eof)
-        if (!T.get().isNull()) {
+      if (P.NextToken().getKind() == clang::tok::annot_repl_input_end)
+        if (!T.get().get().isNull()) {
           TypeSourceInfo *TSI = 0;
-          clang::QualType QT = clang::Sema::GetTypeFromParser(T, &TSI);
-          if (const TagType* TT = QT->getAs<TagType>()) {
-            TheDecl = TT->getDecl()->getDefinition();
+          clang::QualType QT =
+            clang::Sema::GetTypeFromParser(T.get(), &TSI);
+          if (const auto *TD = QT->getAsTagDecl()) {
+            TheDecl = TD->getDefinition();
             *setResultType = QT.getTypePtr();
           }
         }
@@ -841,27 +824,30 @@ namespace cling {
         if (!P.getCurToken().is(clang::tok::identifier)) {
           return 0;
         }
-        NestedNameSpecifier *nested = SS.getScopeRep();
+        NestedNameSpecifier nested = SS.getScopeRep();
         if (!nested) return 0;
-        switch (nested->getKind()) {
-        case NestedNameSpecifier::Global:
+        switch (nested.getKind()) {
+        case NestedNameSpecifier::Kind::Global:
           where = Context.getTranslationUnitDecl();
           break;
-        case NestedNameSpecifier::Namespace:
-          where = nested->getAsNamespace();
+        case NestedNameSpecifier::Kind::Namespace: {
+          // LLVM22: covers both Namespace and NamespaceAlias
+          auto NSBase = nested.getAsNamespaceAndPrefix().Namespace;
+          if (auto* NSD = dyn_cast<NamespaceDecl>(NSBase))
+            where = const_cast<clang::NamespaceDecl*>(NSD);
+          else
+            return 0; // NamespaceAlias not supported here
           break;
-        case NestedNameSpecifier::NamespaceAlias:
-        case NestedNameSpecifier::Identifier:
-           return 0;
-        case NestedNameSpecifier::TypeSpec:
-        case NestedNameSpecifier::TypeSpecWithTemplate:
+        }
+        case NestedNameSpecifier::Kind::Type:
           {
-            const Type *ntype = nested->getAsType();
+            const Type *ntype = nested.getAsType();
             where = ntype->getAsCXXRecordDecl();
             if (!where) return 0;
             break;
           }
-        case NestedNameSpecifier::Super:
+        case NestedNameSpecifier::Kind::Null:
+        case NestedNameSpecifier::Kind::MicrosoftSuper:
           // Microsoft's __super::
           return 0;
         };
@@ -955,16 +941,15 @@ namespace cling {
     //  Convert the passed decl into a nested name specifier,
     //  a scope spec, and a decl context.
     //
-    NestedNameSpecifier* classNNS = 0;
+    NestedNameSpecifier classNNS = std::nullopt;
     if (const NamespaceDecl* NSD = dyn_cast<NamespaceDecl>(scopeDecl)) {
-      classNNS = NestedNameSpecifier::Create(Context, 0,
-                                             const_cast<NamespaceDecl*>(NSD));
+      classNNS = NestedNameSpecifier(Context, const_cast<NamespaceDecl*>(NSD), std::nullopt);
       SS.MakeTrivial(Context, classNNS, scopeDecl->getSourceRange());
       return foundDC;
     }
     else if (const RecordDecl* RD = dyn_cast<RecordDecl>(scopeDecl)) {
-      const Type* T = Context.getRecordType(RD).getTypePtr();
-      classNNS = NestedNameSpecifier::Create(Context, 0, false, T);
+      const Type* T = Context.getCanonicalTagType(RD).getTypePtr();
+      classNNS = NestedNameSpecifier(T);
       // We pass a 'random' but valid source range.
       SS.MakeTrivial(Context, classNNS, scopeDecl->getSourceRange());
       if (S.RequireCompleteDeclContext(SS, foundDC)) {
@@ -1011,8 +996,8 @@ namespace cling {
         return foundDC;
       } else {
         //const Type* T = Context.getRecordType(RD).getTypePtr();
-        const Type* T = Context.getTypeDeclType(RD).getTypePtr();
-        NestedNameSpecifier* classNNS = NestedNameSpecifier::Create(Context, 0, false, T);
+        const Type* T = Context.getCanonicalTagType(RD).getTypePtr();
+        NestedNameSpecifier classNNS = NestedNameSpecifier(T);
         // We pass a 'random' but valid source range.
         CXXScopeSpec SS;
         SS.MakeTrivial(Context, classNNS, scopeDecl->getSourceRange());
@@ -1104,8 +1089,8 @@ namespace cling {
     Expr::Classification ObjExprClassification;
     if (CXXRecordDecl* CRD = dyn_cast<CXXRecordDecl>(foundDC)) {
       if (objectIsConst)
-        ClassType = Context.getTypeDeclType(CRD).getCanonicalType().withConst();
-      else ClassType = Context.getTypeDeclType(CRD).getCanonicalType();
+        ClassType = Context.getCanonicalTagType(CRD).withConst();
+      else ClassType = Context.getCanonicalTagType(CRD);
       OpaqueValueExpr ObjExpr(SourceLocation(),
                               ClassType, VK_LValue);
       ObjExprClassification = ObjExpr.Classify(Context);
@@ -1124,7 +1109,7 @@ namespace cling {
       Sema& _S;
       ResetDiagSuppression(Sema &S, bool Old): _Old(Old), _S(S) {}
       ~ResetDiagSuppression() {
-        _S.getDiagnostics().setSuppressAllDiagnostics();
+        _S.getDiagnostics().setSuppressAllDiagnostics(_Old);
       }
     } DiagSuppressionRAII(S, OldSuppressAllDiagnostics);
 
@@ -1150,8 +1135,9 @@ namespace cling {
           S.AddMethodCandidate(MD, I.getPair(), MD->getParent(),
                                /*ObjectType=*/ClassType,
                                /*ObjectClassification=*/ObjExprClassification,
-                   llvm::makeArrayRef<Expr*>(GivenArgs.data(), GivenArgs.size()),
-                                   Candidates);
+                               llvm::ArrayRef<Expr*>(GivenArgs.data(),
+                                                     GivenArgs.size()),
+                               Candidates);
         }
         else {
           const FunctionProtoType* Proto = dyn_cast<FunctionProtoType>(
@@ -1165,7 +1151,8 @@ namespace cling {
              continue;
           }
           S.AddOverloadCandidate(FD, I.getPair(),
-                   llvm::makeArrayRef<Expr*>(GivenArgs.data(), GivenArgs.size()),
+                                 llvm::ArrayRef<Expr*>(GivenArgs.data(),
+                                                       GivenArgs.size()),
                                  Candidates);
         }
       }
@@ -1176,19 +1163,20 @@ namespace cling {
             !isa<CXXConstructorDecl>(FTD->getTemplatedDecl())) {
           // Class method template, not static, not a constructor, so has
           // an implicit object argument.
-          S.AddMethodTemplateCandidate(FTD, I.getPair(),
-                                      cast<CXXRecordDecl>(FTD->getDeclContext()),
-                         const_cast<TemplateArgumentListInfo*>(FuncTemplateArgs),
-                                       /*ObjectType=*/ClassType,
-                                  /*ObjectClassification=*/ObjExprClassification,
-                   llvm::makeArrayRef<Expr*>(GivenArgs.data(), GivenArgs.size()),
-                                       Candidates);
+          S.AddMethodTemplateCandidate(
+              FTD, I.getPair(), cast<CXXRecordDecl>(FTD->getDeclContext()),
+              const_cast<TemplateArgumentListInfo*>(FuncTemplateArgs),
+              /*ObjectType=*/ClassType,
+              /*ObjectClassification=*/ObjExprClassification,
+              llvm::ArrayRef<Expr*>(GivenArgs.data(), GivenArgs.size()),
+              Candidates);
         }
         else {
-          S.AddTemplateOverloadCandidate(FTD, I.getPair(),
-                const_cast<TemplateArgumentListInfo*>(FuncTemplateArgs),
-                llvm::makeArrayRef<Expr*>(GivenArgs.data(), GivenArgs.size()),
-                Candidates, /*SuppressUserConversions=*/false);
+          S.AddTemplateOverloadCandidate(
+              FTD, I.getPair(),
+              const_cast<TemplateArgumentListInfo*>(FuncTemplateArgs),
+              llvm::ArrayRef<Expr*>(GivenArgs.data(), GivenArgs.size()),
+              Candidates, /*SuppressUserConversions=*/false);
         }
       }
       else {
@@ -1326,12 +1314,12 @@ namespace cling {
        TagDecl *decl = llvm::dyn_cast<TagDecl>(foundDC);
        if (decl) {
           // We have a class or struct or something.
-          if (funcName.substr(1).equals(decl->getName())) {
-             ParsedType PT;
-             QualType QT( decl->getTypeForDecl(), 0 );
-             PT.set(QT);
-             FuncId.setDestructorName(SourceLocation(),PT,SourceLocation());
-             return true;
+          if (funcName.substr(1) == decl->getName()) {
+            ParsedType PT;
+            QualType QT = Context.getCanonicalTagType(decl);
+            PT.set(QT);
+            FuncId.setDestructorName(SourceLocation(), PT, SourceLocation());
+            return true;
           }
        }
        // So it starts with ~ but is not followed by the name of
@@ -1342,14 +1330,14 @@ namespace cling {
        TagDecl *decl = llvm::dyn_cast<TagDecl>(foundDC);
        if (decl) {
           // We have a class or struct or something.
-          if (funcName.equals(decl->getName())) {
-             ParsedType PT;
-             QualType QT( decl->getTypeForDecl(), 0 );
-             PT.set(QT);
-             FuncId.setConstructorName(PT,SourceLocation(),SourceLocation());
+          if (funcName == decl->getName()) {
+            ParsedType PT;
+            QualType QT = Context.getCanonicalTagType(decl);
+            PT.set(QT);
+            FuncId.setConstructorName(PT, SourceLocation(), SourceLocation());
           } else {
-             IdentifierInfo *TypeInfoII = &PP.getIdentifierTable().get(funcName);
-             FuncId.setIdentifier (TypeInfoII, SourceLocation() );
+            IdentifierInfo* TypeInfoII = &PP.getIdentifierTable().get(funcName);
+            FuncId.setIdentifier(TypeInfoII, SourceLocation());
           }
           return true;
        } else {
@@ -1393,11 +1381,13 @@ namespace cling {
       Decl *decl = llvm::dyn_cast<Decl>(foundDC);
       getContextAndSpec(SS,decl,Context,S);
     }
-    if (P.ParseUnqualifiedId(SS, /*EnteringContext*/false,
+    if (P.ParseUnqualifiedId(SS, ParsedType(),
+                             /*ObjectHadErrors=*/false,
+                             /*EnteringContext*/false,
                              /*AllowDestructorName*/true,
                              /*AllowConstructorName*/true,
                              /*AllowDeductionGuide*/ false,
-                             ParsedType(), &TemplateKWLoc,
+                             &TemplateKWLoc,
                              FuncId)) {
       // Failed parse, cleanup.
       return false;
@@ -1471,34 +1461,30 @@ namespace cling {
     DeclarationName FuncName = FuncNameInfo.getName();
     SourceLocation FuncNameLoc = FuncNameInfo.getLoc();
     LookupResult Result(S, FuncName, FuncNameLoc, Sema::LookupMemberName,
-                        Sema::NotForRedeclaration);
+                        RedeclarationKind::NotForRedeclaration);
     Result.suppressDiagnostics();
 
     bool LookupSuccess = true;
     if (FuncTemplateArgsBuffer.size()) {
       // It's a template. Calculate the NNS and do qualified template lookup.
-      NestedNameSpecifier* scopeNNS = nullptr;
+      NestedNameSpecifier scopeNNS = std::nullopt;
       SourceRange scopeSrcRange;
       if (isa<TranslationUnitDecl>(foundDC)) {
-        scopeNNS = NestedNameSpecifier::GlobalSpecifier(Context);
+        scopeNNS = NestedNameSpecifier::getGlobal();
       } else if (const auto *foundNS = dyn_cast<NamespaceDecl>(foundDC)) {
-        scopeNNS = NestedNameSpecifier::Create(Context, /*NNSPrefix*/ nullptr,
-                                               foundNS);
+        scopeNNS = NestedNameSpecifier(Context, foundNS, /*NNSPrefix*/ std::nullopt);
         scopeSrcRange = foundNS->getSourceRange();
       } else if (const auto *foundRD = dyn_cast<RecordDecl>(foundDC)) {
         // a type
-        const Type* foundTy = Context.getTypeDeclType(foundRD).getTypePtr();
-        scopeNNS = NestedNameSpecifier::Create(Context, /*NNSPrefix*/ nullptr,
-                                               /*Template*/ false, foundTy);
+        const Type* foundTy = Context.getCanonicalTagType(foundRD).getTypePtr();
+        scopeNNS = NestedNameSpecifier(foundTy);
         scopeSrcRange = foundRD->getSourceRange();
       }
       CXXScopeSpec SS;
       if (scopeNNS)
         SS.MakeTrivial(Context, scopeNNS, scopeSrcRange);
-      bool MemberOfUnknownSpecialization;
       S.LookupTemplateName(Result, P.getCurScope(), SS, QualType(),
-                           /*EnteringContext*/false,
-                           MemberOfUnknownSpecialization);
+                           /*EnteringContext*/false);
       // "Translation" of the TemplateDecl to the specialization is done
       // in findAnyFunctionSelector() given the ExplicitTemplateArgs.
       if (Result.empty())
@@ -1529,8 +1515,8 @@ namespace cling {
     //
     //  Check for lookup failure.
     //
-    if (Result.getResultKind() != LookupResult::Found &&
-        Result.getResultKind() != LookupResult::FoundOverloaded) {
+    if (Result.getResultKind() != LookupResultKind::Found &&
+        Result.getResultKind() != LookupResultKind::FoundOverloaded) {
        // Lookup failed.
        return 0;
     }
@@ -1629,7 +1615,7 @@ namespace cling {
       for(size_t i = 0, e = GivenTypes.size(); i < e; ++i) {
         const clang::QualType QT = GivenTypes[i].getCanonicalType();
         {
-          ExprValueKind VK = VK_RValue;
+          ExprValueKind VK = VK_PRValue;
           if (QT->getAs<LValueReferenceType>()) {
             VK = VK_LValue;
           }
@@ -1673,8 +1659,10 @@ namespace cling {
                                     llvm::StringRef("func.prototype.file"),
                                     diagOnOff);
 
+      // ParseTypeName might trigger deserialization.
+      Interpreter::PushTransactionRAII TforDeser(Interp);
       unsigned int nargs = 0;
-      while (P.getCurToken().isNot(tok::eof)) {
+      while (P.getCurToken().isNot(tok::annot_repl_input_end)) {
         TypeResult Res(P.ParseTypeName());
         if (!Res.isUsable()) {
           // Bad parse, done.
@@ -1684,7 +1672,9 @@ namespace cling {
         clang::QualType QT = clang::Sema::GetTypeFromParser(Res.get(), &TSI);
         QT = QT.getCanonicalType();
         {
-          ExprValueKind VK = VK_RValue;
+          // XValue is an object that can be "moved" whereas PRValue is temporary value
+          // This enables overloads that require the object to be moved
+          ExprValueKind VK = VK_XValue;
           if (QT->getAs<LValueReferenceType>()) {
             VK = VK_LValue;
           }
@@ -1708,14 +1698,14 @@ namespace cling {
         Expr* val = (OpaqueValueExpr*)( &ExprMemory[slot] );
         GivenArgs.push_back(val);
       }
-      if (P.getCurToken().isNot(tok::eof)) {
+      if (P.getCurToken().isNot(tok::annot_repl_input_end)) {
         // We did not consume all of the prototype, bad parse.
         return false;
       }
       //
       //  Cleanup after prototype parse.
       //
-      P.SkipUntil(clang::tok::eof);
+      P.SkipUntil(clang::tok::annot_repl_input_end);
       // Doesn't reset the diagnostic mappings
       Sema& S = P.getActions();
       S.getDiagnostics().Reset(/*soft=*/true);
@@ -1803,12 +1793,12 @@ namespace cling {
         SourceLocation loc;
         sema::TemplateDeductionInfo Info(loc);
         FunctionDecl *fdecl = 0;
-        Sema::TemplateDeductionResult TemplDedResult
+        clang::TemplateDeductionResult TemplDedResult
           = S.DeduceTemplateArguments(MethodTmpl,
                     const_cast<TemplateArgumentListInfo*>(ExplicitTemplateArgs),
                                       fdecl,
                                       Info);
-        if (TemplDedResult != Sema::TDK_Success) {
+        if (TemplDedResult != clang::TemplateDeductionResult::Success) {
           // Deduction failure.
           return 0;
         } else {
@@ -1946,13 +1936,14 @@ namespace cling {
 
       PrintingPolicy Policy(Context.getPrintingPolicy());
       Policy.SuppressTagKeyword = true;
+      Policy.SuppressTagKeywordInAnonNames = true; // Skip printing tags for anonymous entities
       Policy.SuppressUnwrittenScope = true;
       Policy.SuppressInitializers = true;
       Policy.AnonymousTagLocations = false;
       std::string proto;
       {
         bool first_time = true;
-        while (P.getCurToken().isNot(tok::eof)) {
+        while (P.getCurToken().isNot(tok::annot_repl_input_end)) {
           ExprResult Res = P.ParseAssignmentExpression();
           if (Res.isUsable()) {
             Expr* expr = Res.get();
@@ -1976,14 +1967,14 @@ namespace cling {
       }
       // For backward compatibility with CINT accept (for now?) a trailing close
       // parenthesis.
-      if (P.getCurToken().isNot(tok::eof) && P.getCurToken().isNot(tok::r_paren) ) {
+      if (P.getCurToken().isNot(tok::annot_repl_input_end) && P.getCurToken().isNot(tok::r_paren) ) {
         // We did not consume all of the arg list, bad parse.
         return false;
       }
       //
       //  Cleanup after the arg list parse.
       //
-      P.SkipUntil(clang::tok::eof);
+      P.SkipUntil(clang::tok::annot_repl_input_end);
       // Doesn't reset the diagnostic mappings
       S.getDiagnostics().Reset(/*soft=*/true);
       return true;
@@ -2027,7 +2018,7 @@ namespace cling {
     //
     {
       bool hasUnusableResult = false;
-      while (P.getCurToken().isNot(tok::eof)) {
+      while (P.getCurToken().isNot(tok::annot_repl_input_end)) {
         ExprResult Res = P.ParseAssignmentExpression();
         if (Res.isUsable()) {
           argExprs.push_back(Res.get());

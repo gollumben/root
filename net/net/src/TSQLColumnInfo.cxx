@@ -40,9 +40,8 @@
 #include "TSQLColumnInfo.h"
 #include "TSQLServer.h"
 #include "TROOT.h"
-#include "Riostream.h"
 
-ClassImp(TSQLColumnInfo);
+#include <iostream>
 
 ////////////////////////////////////////////////////////////////////////////////
 /// default contructor

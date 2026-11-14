@@ -14,6 +14,10 @@
 
 #include "TVirtualPad.h"
 #include "TAttBBox2D.h"
+#include <vector>
+#include <string>
+#include <map>
+#include <memory>
 
 class TVirtualViewer3D;
 class TVirtualPadPainter;
@@ -22,11 +26,17 @@ class TBox;
 class TLegend;
 class TArrow;
 class TPoint;
+class TWebCanvas;
+class TPadDrawOperation;
 
 class TPad : public TVirtualPad, public TAttBBox2D {
 
+friend class TWebCanvas;
+
 private:
-   TObject      *fTip;              ///<! tool tip associated with box
+   TObject      *fTip{nullptr};     ///<! tool tip associated with box
+   std::unique_ptr<TInteractive> fInteractive; ///<! current interactive object
+   std::map<std::string,std::unique_ptr<TPadDrawOperation>> fDrawOper, fDrawOperXor; ///<! map of draw operations performed outside of normal paint
 
 protected:
    Double_t      fX1;               ///<  X of lower X coordinate
@@ -98,25 +108,25 @@ protected:
    Bool_t        fAbsCoord;         ///<  Use absolute coordinates
    Bool_t        fEditable;         ///<  True if canvas is editable
    Bool_t        fFixedAspectRatio; ///<  True if fixed aspect ratio
-   TPad         *fMother;           ///<! pointer to mother of the list
-   TCanvas      *fCanvas;           ///<! Pointer to mother canvas
-   TList        *fPrimitives;       ///<->List of primitives (subpads)
-   TList        *fExecs;            ///<  List of commands to be executed when a pad event occurs
+   TPad         *fMother{nullptr};  ///<! pointer to mother of the list
+   TCanvas      *fCanvas{nullptr};  ///<! Pointer to mother canvas
+   TList        *fPrimitives{nullptr};///<->List of primitives (subpads)
+   TList        *fExecs{nullptr};   ///<  List of commands to be executed when a pad event occurs
    TString       fName;             ///<  Pad name
    TString       fTitle;            ///<  Pad title
-   TFrame       *fFrame;            ///<! Pointer to 2-D frame (if one exists)
-   TView        *fView;             ///<! Pointer to 3-D view (if one exists)
-   TObject      *fPadPointer;       ///<! free pointer
-   TObject      *fPadView3D;        ///<! 3D View of this TPad
+   TFrame       *fFrame{nullptr};   ///<! Pointer to 2-D frame (if one exists)
+   TView        *fView{nullptr};    ///<! Pointer to 3-D view (if one exists)
+   TObject      *fPadPointer{nullptr};///<! free pointer
+   TObject      *fPadView3D{nullptr};///<! 3D View of this TPad
    static Int_t  fgMaxPickDistance; ///<  Maximum Pick Distance
    Int_t         fNumPaletteColor;  ///<  Number of objects with an automatic color
    Int_t         fNextPaletteColor; ///<  Next automatic color
-   Bool_t       *fCollideGrid;      ///<! Grid used to find empty space when adding a box (Legend) in a pad
+   std::vector<Bool_t> fCollideGrid;///<! Grid used to find empty space when adding a box (Legend) in a pad
    Int_t         fCGnx;             ///<! Size of the collide grid along x
    Int_t         fCGny;             ///<! Size of the collide grid along y
 
    // 3D Viewer support
-   TVirtualViewer3D *fViewer3D;     ///<! Current 3D viewer
+   TVirtualViewer3D *fViewer3D{nullptr};///<! Current 3D viewer
 
    void          DestroyExternalViewer3D();
    Int_t         DistancetoPrimitive(Int_t px, Int_t py) override;
@@ -125,15 +135,17 @@ protected:
    void          PaintBorder(Color_t color, Bool_t tops);
    void          PaintBorderPS(Double_t xl,Double_t yl,Double_t xt,Double_t yt,Int_t bmode,Int_t bsize,Int_t dark,Int_t light) override;
    void          PaintDate();
+   void          PaintOperations(Bool_t withXor = kFALSE);
    void          SavePrimitive(std::ostream &out, Option_t *option = "") override;
    void          SetBatch(Bool_t batch=kTRUE) override;
+
+   TInteractive *Interactive(TObject *obj = nullptr, TInteractive *init = nullptr) override;
 
 private:
    TPad(const TPad &pad) = delete;
    TPad &operator=(const TPad &rhs) = delete;
 
-   void CopyBackgroundPixmap(Int_t x, Int_t y);
-   void CopyBackgroundPixmaps(TPad *start, TPad *stop, Int_t x, Int_t y);
+   void CopyBackgroundPixmaps(TPad *stop, Int_t x, Int_t y);
    void DrawDist(Rectangle_t aBBox, Rectangle_t bBBox, char mode);
 
    Bool_t            Collide(Int_t i, Int_t j, Int_t w, Int_t h);
@@ -159,11 +171,13 @@ public:
    TPad(const char *name, const char *title, Double_t xlow,
         Double_t ylow, Double_t xup, Double_t yup,
         Color_t color=-1, Short_t bordersize=-1, Short_t bordermode=-2);
-   virtual ~TPad();
+   ~TPad() override;
    void              AbsCoordinates(Bool_t set) override { fAbsCoord = set; }
-   Double_t          AbsPixeltoX(Int_t px) override { return fAbsPixeltoXk + px*fPixeltoX; }
-   Double_t          AbsPixeltoY(Int_t py) override { return fAbsPixeltoYk + py*fPixeltoY; }
-   virtual void      AbsPixeltoXY(Int_t xpixel, Int_t ypixel, Double_t &x, Double_t &y);
+   Double_t          AbsPixeltoX(Double_t px) override { return fAbsPixeltoXk + px*fPixeltoX; }
+   Double_t          AbsPixeltoY(Double_t py) override { return fAbsPixeltoYk + py*fPixeltoY; }
+   void              AbsPixeltoXY(Double_t xpixel, Double_t ypixel, Double_t &x, Double_t &y) override;
+   void              Add(TObject *obj, Option_t *opt = "", Bool_t modified = kTRUE) override;
+   void              AddFirst(TObject *obj, Option_t *opt = "", Bool_t modified = kTRUE) override;
    void              AddExec(const char *name, const char *command) override;
    virtual void      AutoExec();
    void              Browse(TBrowser *b) override;
@@ -180,6 +194,7 @@ public:
    void              CopyPixmaps() override;
    void              DeleteExec(const char *name) override;
    void              Divide(Int_t nx=1, Int_t ny=1, Float_t xmargin=0.01, Float_t ymargin=0.01, Int_t color=0) override; // *MENU*
+   void              DivideRatios(Int_t nrows, Int_t ncolumns, const std::vector<double>& widthRatios={}, const std::vector<double>& heightRatios={}, const double canvasTopMargin=0., const double canvasLeftMargin=0.);
    virtual void      DivideSquare(Int_t n, Float_t xmargin=0.01, Float_t ymargin=0.01, Int_t color=0);
    void              Draw(Option_t *option="") override;
    void              DrawClassObject(const TObject *obj, Option_t *option="") override;
@@ -187,6 +202,7 @@ public:
    virtual void      DrawCrosshair();
    TH1F             *DrawFrame(Double_t xmin, Double_t ymin, Double_t xmax, Double_t ymax, const char *title="") override;
    void              ExecuteEventAxis(Int_t event, Int_t px, Int_t py, TAxis *axis) override;
+   void              FeedbackMode(Bool_t set) override;
    TObject          *FindObject(const char *name) const override;
    TObject          *FindObject(const TObject *obj) const override;
    void              UseCurrentStyle() override;  // *MENU*
@@ -195,6 +211,7 @@ public:
    Int_t             GetCrosshair() const;
    Int_t             GetCanvasID() const override;
    TCanvasImp       *GetCanvasImp() const override;
+   Int_t             GetDoubleBuffer() const override;
    TFrame           *GetFrame() override;
    Int_t             GetEvent() const override;
    Int_t             GetEventX() const override;
@@ -211,6 +228,8 @@ public:
    Double_t          GetHNDC() const override { return fHNDC; }
    UInt_t            GetWw() const override;
    UInt_t            GetWh() const override;
+   UInt_t            GetPadWidth() const override;
+   UInt_t            GetPadHeight() const override;
    Double_t          GetAbsXlowNDC() const override { return fAbsXlowNDC; }
    Double_t          GetAbsYlowNDC() const override { return fAbsYlowNDC; }
    Double_t          GetAbsWNDC() const override { return fAbsWNDC; }
@@ -263,13 +282,16 @@ public:
    void              HighLight(Color_t col=kRed, Bool_t set=kTRUE) override;
    Bool_t            HasFixedAspectRatio() const override { return fFixedAspectRatio; }
    Bool_t            IsBatch() const override;
-   virtual Bool_t    IsEditable() const override { return fEditable; }
+   Bool_t            IsEditable() const override { return fEditable; }
    Bool_t            IsFolder() const override { return kTRUE; }
    Bool_t            IsModified() const override { return fModified; }
+   Int_t             IsAnyNeedRepaint() const;
    Bool_t            IsRetained() const override;
    Bool_t            IsVertical() const override { return !TestBit(kHori); }
+   Bool_t            IsWeb() const override;
    void              ls(Option_t *option="") const override;
-   void              Modified(Bool_t flag=1) override;  // *SIGNAL*
+   void              Modified(Bool_t flag=true) override;  // *SIGNAL*
+   void              ModifiedUpdate() override;
    Bool_t            OpaqueMoving() const override;
    Bool_t            OpaqueResizing() const override;
    Double_t          PadtoX(Double_t x) const override;
@@ -292,23 +314,27 @@ public:
    void              PaintPolyLineNDC(Int_t n, Double_t *x, Double_t *y, Option_t *option="") override;
    void              PaintPolyMarker(Int_t n, Float_t *x, Float_t *y, Option_t *option="") override;
    void              PaintPolyMarker(Int_t n, Double_t *x, Double_t *y, Option_t *option="") override;
+   void              PaintSegments(Int_t n, Double_t *x, Double_t *y, Option_t *option="") override;
+   void              PaintSegmentsNDC(Int_t n, Double_t *u, Double_t *v) override;
+   void              PaintMarker3D(Double_t x, Double_t y, Double_t z) override;
    void              PaintModified() override;
    void              PaintText(Double_t x, Double_t y, const char *text) override;
    void              PaintText(Double_t x, Double_t y, const wchar_t *text) override;
    void              PaintTextNDC(Double_t u, Double_t v, const char *text) override;
    void              PaintTextNDC(Double_t u, Double_t v, const wchar_t *text) override;
+   void              PaintTextUrl(Double_t x, Double_t y, const char *text, const char *url) override;
    virtual TPad     *Pick(Int_t px, Int_t py, TObjLink *&pickobj);
-   Double_t          PixeltoX(Int_t px) override;
-   Double_t          PixeltoY(Int_t py) override;
-   virtual void      PixeltoXY(Int_t xpixel, Int_t ypixel, Double_t &x, Double_t &y);
+   Double_t          PixeltoX(Double_t px) override;
+   Double_t          PixeltoY(Double_t py) override;
+   void              PixeltoXY(Double_t xpixel, Double_t ypixel, Double_t &x, Double_t &y) override;
    void              Pop() override;  // *MENU*
    void              Print(const char *filename="") const override;
    void              Print(const char *filename, Option_t *option) override;
    void              Range(Double_t x1, Double_t y1, Double_t x2, Double_t y2) override; // *MENU* *ARGS={x1=>fX1,y1=>fY1,x2=>fX2,y2=>fY2}
    virtual void      RangeChanged() { Emit("RangeChanged()"); } // *SIGNAL*
    void              RangeAxis(Double_t xmin, Double_t ymin, Double_t xmax, Double_t ymax) override;
-   virtual void      RangeAxisChanged() { Emit("RangeAxisChanged()"); } // *SIGNAL*
    void              RecursiveRemove(TObject *obj) override;
+   TObject          *Remove(TObject *obj, Bool_t modified = kTRUE) override;
    void              RedrawAxis(Option_t *option="") override;
    void              ResetView3D(TObject *view=nullptr) override { fPadView3D=view; }
    void              ResizePad(Option_t *option="") override;
@@ -321,7 +347,7 @@ public:
    void              SetCrosshair(Int_t crhair=1) override; // *TOGGLE*
    void              SetCursor(ECursor cursor) override;
    void              SetDoubleBuffer(Int_t mode=1) override;
-   void              SetDrawOption(Option_t *option="") override;
+   void              SetDrawOption(Option_t * = "") override {}
    void              SetEditable(Bool_t mode=kTRUE) override; // *TOGGLE*
    void              SetFixedAspectRatio(Bool_t fixed = kTRUE) override;  // *TOGGLE*
    void              SetGrid(Int_t valuex = 1, Int_t valuey = 1) override { fGridx = valuex; fGridy = valuey; Modified(); }
@@ -360,30 +386,36 @@ public:
 
    void              ShowGuidelines(TObject *object, const Int_t event, const char mode = 'i', const bool cling = true) override;
    void              Update() override;
-   Int_t             UtoAbsPixel(Double_t u) const override { return Int_t(fUtoAbsPixelk + u*fUtoPixel); }
-   Int_t             VtoAbsPixel(Double_t v) const override { return Int_t(fVtoAbsPixelk + v*fVtoPixel); }
+   void              UpdateAsync() override;
+
+   Int_t             UtoAbsPixel(Double_t u) const override;
+   Int_t             VtoAbsPixel(Double_t v) const override;
    Int_t             UtoPixel(Double_t u) const override;
    Int_t             VtoPixel(Double_t v) const override;
    TObject          *WaitPrimitive(const char *pname="", const char *emode="") override;
    Int_t             XtoAbsPixel(Double_t x) const override;
    Int_t             YtoAbsPixel(Double_t y) const override;
+   Int_t             HtoAbsPixel(Double_t y1, Double_t y2) const override;
+   Int_t             WtoAbsPixel(Double_t x1, Double_t x2) const override;
    Double_t          XtoPad(Double_t x) const override;
    Double_t          YtoPad(Double_t y) const override;
    Int_t             XtoPixel(Double_t x) const override;
    Int_t             YtoPixel(Double_t y) const override;
-   virtual void      XYtoAbsPixel(Double_t x, Double_t y, Int_t &xpixel, Int_t &ypixel) const;
-   virtual void      XYtoPixel(Double_t x, Double_t y, Int_t &xpixel, Int_t &ypixel) const;
+   void              XYtoAbsPixel(Double_t x, Double_t y, Int_t &xpixel, Int_t &ypixel) const override;
+   void              XYtoAbsPixel(Double_t x, Double_t y, Double_t &xpixel, Double_t &ypixel) const override;
+   void              XYtoPixel(Double_t x, Double_t y, Int_t &xpixel, Int_t &ypixel) const override;
+   void              XYtoPixel(Double_t x, Double_t y, Double_t &xpixel, Double_t &ypixel) const override;
 
    TObject          *CreateToolTip(const TBox *b, const char *text, Long_t delayms) override;
    void              DeleteToolTip(TObject *tip) override;
    void              ResetToolTip(TObject *tip) override;
    void              CloseToolTip(TObject *tip) override;
 
-   Int_t             IncrementPaletteColor(Int_t i, TString opt) override;
+   Int_t             IncrementPaletteColor(Int_t i, const TString &opt) override;
    Int_t             NextPaletteColor() override;
 
    void              DrawCollideGrid();
-   Bool_t            PlaceBox(TObject *o, Double_t w, Double_t h, Double_t &xl, Double_t &yb) override;
+   Bool_t            PlaceBox(TObject *o, Double_t w, Double_t h, Double_t &xl, Double_t &yb, Option_t* option = "lb") override;
 
    virtual void      x3d(Option_t *type=""); // Depreciated
 
@@ -408,135 +440,6 @@ public:
 
    ClassDefOverride(TPad,13)  //A Graphics pad
 };
-
-
-//______________________________________________________________________________
-inline void TPad::Modified(Bool_t flag)
-{
-   if (!fModified && flag) Emit("Modified()");
-   fModified = flag;
-}
-
-
-//______________________________________________________________________________
-inline void TPad::AbsPixeltoXY(Int_t xpixel, Int_t ypixel, Double_t &x, Double_t &y)
-{
-   x = AbsPixeltoX(xpixel);
-   y = AbsPixeltoY(ypixel);
-}
-
-
-//______________________________________________________________________________
-inline Double_t TPad::PixeltoX(Int_t px)
-{
-   if (fAbsCoord) return fAbsPixeltoXk + px*fPixeltoX;
-   else           return fPixeltoXk    + px*fPixeltoX;
-}
-
-
-//______________________________________________________________________________
-inline Double_t TPad::PixeltoY(Int_t py)
-{
-   if (fAbsCoord) return fAbsPixeltoYk + py*fPixeltoY;
-   else           return fPixeltoYk    + py*fPixeltoY;
-}
-
-
-//______________________________________________________________________________
-inline void TPad::PixeltoXY(Int_t xpixel, Int_t ypixel, Double_t &x, Double_t &y)
-{
-   x = PixeltoX(xpixel);
-   y = PixeltoY(ypixel);
-}
-
-
-//______________________________________________________________________________
-inline Int_t TPad::UtoPixel(Double_t u) const
-{
-   Double_t val;
-   if (fAbsCoord) val = fUtoAbsPixelk + u*fUtoPixel;
-   else           val = u*fUtoPixel;
-   if (val < -kMaxPixel) return -kMaxPixel;
-   if (val >  kMaxPixel) return  kMaxPixel;
-   return Int_t(val);
-}
-
-
-//______________________________________________________________________________
-inline Int_t TPad::VtoPixel(Double_t v) const
-{
-   Double_t val;
-   if (fAbsCoord) val = fVtoAbsPixelk + v*fVtoPixel;
-   else           val = fVtoPixelk    + v*fVtoPixel;
-   if (val < -kMaxPixel) return -kMaxPixel;
-   if (val >  kMaxPixel) return  kMaxPixel;
-   return Int_t(val);
-}
-
-
-//______________________________________________________________________________
-inline Int_t TPad::XtoAbsPixel(Double_t x) const
-{
-   Double_t val = fXtoAbsPixelk + x*fXtoPixel;
-   if (val < -kMaxPixel) return -kMaxPixel;
-   if (val >  kMaxPixel) return  kMaxPixel;
-   return Int_t(val);
-}
-
-
-//______________________________________________________________________________
-inline Int_t TPad::XtoPixel(Double_t x) const
-{
-   Double_t val;
-   if (fAbsCoord) val = fXtoAbsPixelk + x*fXtoPixel;
-   else           val = fXtoPixelk    + x*fXtoPixel;
-   if (val < -kMaxPixel) return -kMaxPixel;
-   if (val >  kMaxPixel) return  kMaxPixel;
-   return Int_t(val);
-}
-
-
-//______________________________________________________________________________
-inline Int_t TPad::YtoAbsPixel(Double_t y) const
-{
-   Double_t val = fYtoAbsPixelk + y*fYtoPixel;
-   if (val < -kMaxPixel) return -kMaxPixel;
-   if (val >  kMaxPixel) return  kMaxPixel;
-   return Int_t(val);
-}
-
-
-//______________________________________________________________________________
-inline Int_t TPad::YtoPixel(Double_t y) const
-{
-   Double_t val;
-   if (fAbsCoord) val = fYtoAbsPixelk + y*fYtoPixel;
-   else           val = fYtoPixelk    + y*fYtoPixel;
-   if (val < -kMaxPixel) return -kMaxPixel;
-   if (val >  kMaxPixel) return  kMaxPixel;
-   return Int_t(val);
-}
-
-
-//______________________________________________________________________________
-inline void TPad::XYtoAbsPixel(Double_t x, Double_t y, Int_t &xpixel, Int_t &ypixel) const
-{
-   xpixel = XtoAbsPixel(x);
-   ypixel = YtoAbsPixel(y);
-}
-
-
-//______________________________________________________________________________
-inline void TPad::XYtoPixel(Double_t x, Double_t y, Int_t &xpixel, Int_t &ypixel) const
-{
-   xpixel = XtoPixel(x);
-   ypixel = YtoPixel(y);
-}
-
-
-//______________________________________________________________________________
-inline void TPad::SetDrawOption(Option_t *)
-{ }
 
 #endif
 

@@ -11,13 +11,12 @@
 
 #include <iostream>
 #include "TAttFill.h"
-#include "TVirtualPad.h"
 #include "TStyle.h"
-#include "TVirtualX.h"
+#include "TVirtualPad.h"
+#include "TVirtualPadPainter.h"
 #include "TVirtualPadEditor.h"
 #include "TColor.h"
 
-ClassImp(TAttFill);
 
 /** \class TAttFill
 \ingroup Base
@@ -55,8 +54,8 @@ End_Macro
 ### Color transparency
 `SetFillColorAlpha()`, allows to set a transparent color.
 In the following example the fill color of the histogram `histo`
-is set to blue with a transparency of 35%. The color `kBlue`
-itself remains fully opaque.
+is set to blue with an opacity of 35% (i.e. a transparency of 65%).
+(The color `kBlue` itself is internally stored as fully opaque.)
 
 ~~~ {.cpp}
 histo->SetFillColorAlpha(kBlue, 0.35);
@@ -66,6 +65,9 @@ The transparency is available on all platforms when the flag
 `OpenGL.CanvasPreferGL` is set to `1` in `$ROOTSYS/etc/system.rootrc`, or on Mac
 with the Cocoa backend.
 On the file output it is visible with PDF, PNG, Gif, JPEG, SVG, TeX... but not PostScript.
+
+Alternatively, you can call at the top of your script `gSytle->SetCanvasPreferGL();`.
+Or if you prefer to activate GL for a single canvas `c`, then use `c->SetSupportGL(true);`.
 
 ### The ROOT Color Wheel.
 The wheel contains the recommended 216 colors to be used in web applications.
@@ -93,7 +95,7 @@ in your code instead of hardcoded color numbers, eg:
 Begin_Macro
 {
    TColorWheel *w = new TColorWheel();
-   cw = new TCanvas("cw","cw",0,0,400,400);
+   auto cw = new TCanvas("cw","cw",0,0,400,400);
    w->SetCanvas(cw);
    w->Draw();
 }
@@ -114,16 +116,13 @@ method `GetFillStyle`.
 
   -   0    : hollow
   -   1001 : Solid
-  -   3000+pattern_number (see below)
-  -   For TPad only:
+  -   3000 + pattern_number (see below)
+  -   4000..4100: 100% transparent .. 100% opaque
 
-     -   4000 :the window is transparent.
-     -   4000 to 4100 the window is 100% transparent to 100% opaque.
-
-      The pad transparency is visible in binary outputs files like gif, jpg, png etc ..
-      but not in vector graphics output files like PS, PDF and SVG. This convention
-      (fill style > 4000) is kept for backward compatibility. It is better to use
-      the color transparency instead.
+Historically the styles between 4000 and 4100 were introduced to implement pad
+transparency on platforms like X11 which does not support alpha channel in color.
+Since ROOT 6.40 any objects can use such fill styles. On supported platforms like
+Cocoa or GL or PS/PDF/SVG output style will be automatically converted to transparent colors.
 
 pattern_number can have any value from 1 to 25 (see table), or any
 value from 100 to 999. For the latest the numbering convention is the following:
@@ -213,13 +212,18 @@ void TAttFill::Copy(TAttFill &attfill) const
 
 void TAttFill::Modify()
 {
-   if (!gPad) return;
-   if (!gPad->IsBatch()) {
-      gVirtualX->SetFillColor(fFillColor);
-      gVirtualX->SetFillStyle(fFillStyle);
-   }
+   if (gPad)
+      ModifyOn(*gPad);
+}
 
-   gPad->SetAttFillPS(fFillColor,fFillStyle);
+////////////////////////////////////////////////////////////////////////////////
+/// Change current fill area attributes on speicifed pad
+
+void TAttFill::ModifyOn(TVirtualPad &pad)
+{
+   auto pp = pad.GetPainter();
+   if (pp)
+      pp->SetAttFill(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -236,16 +240,10 @@ void TAttFill::ResetAttFill(Option_t *)
 
 void TAttFill::SaveFillAttributes(std::ostream &out, const char *name, Int_t coldef, Int_t stydef)
 {
-   if (fFillColor != coldef) {
-      if (fFillColor > 228) {
-         TColor::SaveColor(out, fFillColor);
-         out<<"   "<<name<<"->SetFillColor(ci);" << std::endl;
-      } else
-         out<<"   "<<name<<"->SetFillColor("<<fFillColor<<");"<<std::endl;
-   }
-   if (fFillStyle != stydef) {
-      out<<"   "<<name<<"->SetFillStyle("<<fFillStyle<<");"<<std::endl;
-   }
+   if (fFillColor != coldef)
+      out << "   " << name << "->SetFillColor(" << TColor::SavePrimitiveColor(fFillColor) << ");\n";
+   if (fFillStyle != stydef)
+      out << "   " << name << "->SetFillStyle(" << fFillStyle << ");\n";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -257,10 +255,20 @@ void TAttFill::SetFillAttributes()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set a transparent fill color. falpha defines the percentage of
-/// the color opacity from 0. (fully transparent) to 1. (fully opaque).
+/// Set a transparent fill color.
+/// \param fcolor defines the fill color
+/// \param falpha defines the percentage of opacity from 0. (fully transparent) to 1. (fully opaque).
+/// \note falpha is used only on the [supported platforms](\ref col_trans_available).
 
 void TAttFill::SetFillColorAlpha(Color_t fcolor, Float_t falpha)
 {
    fFillColor = TColor::GetColorTransparent(fcolor, falpha);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set a fill color.
+
+void TAttFill::SetFillColor(TColorNumber lcolor)
+{
+   SetFillColor(lcolor.number());
 }

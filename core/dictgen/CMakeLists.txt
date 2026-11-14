@@ -27,15 +27,54 @@ ROOT_OBJECT_LIBRARY(Dictgen
   XMLReader.cxx
 )
 
+set(DICTGEN_HEADERS
+  BaseSelectionRule.h
+  ClassSelectionRule.h
+  cygpath.h
+  DictSelectionReader.h
+  LinkdefReader.h
+  rootcling_impl.h
+  Scanner.h
+  SelectionRules.h
+  TModuleGenerator.h
+  VariableSelectionRule.h
+  XMLReader.h
+)
+
+set(RELATIVE_RES_HEADERS ${DICTGEN_HEADERS})
+list(TRANSFORM RELATIVE_RES_HEADERS PREPEND res/)
+
+target_sources(Dictgen
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS res/
+  FILES
+    ${RELATIVE_RES_HEADERS}
+)
+
+# This directory contains files that include llvm, which can give warnings.
+if(NOT MSVC)
+  target_compile_options(Dictgen PRIVATE -Wno-error)
+endif()
+
+
 add_dependencies(Dictgen CLING)
+
+if(NOT builtin_cling)
+  # FIXME: Resolve this once the ClangTargets.cmake allows us to specify the
+  # targets we need.
+  add_dependencies(Dictgen clang-tablegen-targets)
+endif()
 
 target_include_directories(Dictgen PRIVATE
   ${CMAKE_SOURCE_DIR}/core/dictgen/src
   ${CMAKE_SOURCE_DIR}/core/dictgen/res
+  ${CMAKE_SOURCE_DIR}/builtins/optionparser
   ${CMAKE_SOURCE_DIR}/core/foundation/res
   ${CMAKE_SOURCE_DIR}/core/clingutils/res
   ${CMAKE_SOURCE_DIR}/core/base/inc
-  ${CMAKE_SOURCE_DIR}/core/clib/inc
+  ${CMAKE_SOURCE_DIR}/builtins/clib/inc
   ${CMAKE_SOURCE_DIR}/core/meta/inc
   ${CMAKE_SOURCE_DIR}/core/foundation/inc
   ${CMAKE_BINARY_DIR}/ginclude
@@ -51,7 +90,6 @@ set_target_properties(Dictgen PROPERTIES
   VISIBILITY_INLINES_HIDDEN "ON"
 )
 
-CHECK_CXX_COMPILER_FLAG("-fno-rtti" CXX_HAS_fno_rtti)
 if(CXX_HAS_fno_rtti)
     set_source_files_properties(src/rootcling_impl.cxx   PROPERTIES COMPILE_FLAGS "-fno-rtti")
     set_source_files_properties(src/LinkdefReader.cxx    PROPERTIES COMPILE_FLAGS "-fno-rtti")

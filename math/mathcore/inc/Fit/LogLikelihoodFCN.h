@@ -67,7 +67,7 @@ public:
       Constructor from unbin data set and model function (pdf) for object managed by users
    */
    LogLikelihoodFCN (const UnBinData & data, const IModelFunction & func, int weight = 0, bool extended = false, const ::ROOT::EExecutionPolicy &executionPolicy = ::ROOT::EExecutionPolicy::kSequential) :
-      BaseFCN(std::shared_ptr<UnBinData>(const_cast<UnBinData*>(&data), DummyDeleter<UnBinData>()), std::shared_ptr<IModelFunction>(dynamic_cast<IModelFunction*>(func.Clone() ) ) ),
+      BaseFCN(std::make_shared<UnBinData>(data), std::shared_ptr<IModelFunction>(dynamic_cast<IModelFunction*>(func.Clone() ) ) ),
       fIsExtended(extended),
       fWeight(weight),
       fNEffPoints(0),
@@ -109,7 +109,7 @@ public:
 
 
    /// clone the function (need to return Base for Windows)
-   virtual BaseFunction * Clone() const { return  new LogLikelihoodFCN(*this); }
+   BaseFunction * Clone() const override { return  new LogLikelihoodFCN(*this); }
 
 
    //using BaseObjFunction::operator();
@@ -118,20 +118,20 @@ public:
    virtual unsigned int NFitPoints() const { return fNEffPoints; }
 
    /// i-th likelihood contribution and its gradient
-   virtual double DataElement(const double * x, unsigned int i, double * g) const {
+   double DataElement(const double * x, unsigned int i, double * g, double *  h = nullptr, bool fullHessian = false) const override {
       if (i==0) this->UpdateNCalls();
-      return FitUtil::EvaluatePdf(BaseFCN::ModelFunction(), BaseFCN::Data(), x, i, g);
+      return FitUtil::Evaluate<T>::EvalPdf(BaseFCN::ModelFunction(), BaseFCN::Data(), x, i, g, h, BaseFCN::IsAGradFCN(), fullHessian);
    }
 
-   // need to be virtual to be instantited
-   virtual void Gradient(const double *x, double *g) const {
+   // need to be virtual to be instantiated
+   void Gradient(const double *x, double *g) const override {
       // evaluate the chi2 gradient
       FitUtil::Evaluate<typename BaseFCN::T>::EvalLogLGradient(BaseFCN::ModelFunction(), BaseFCN::Data(), x, g,
                                                                fNEffPoints, fExecutionPolicy);
    }
 
    /// get type of fit method function
-   virtual  typename BaseObjFunction::Type_t Type() const { return BaseObjFunction::kLogLikelihood; }
+   typename BaseObjFunction::Type_t Type() const override { return BaseObjFunction::kLogLikelihood; }
 
 
    // Use sum of the weight squared in evaluating the likelihood
@@ -152,28 +152,28 @@ private:
    /**
       Evaluation of the  function (required by interface)
     */
-   virtual double DoEval (const double * x) const {
+   double DoEval (const double * x) const override {
       this->UpdateNCalls();
       return FitUtil::Evaluate<T>::EvalLogL(BaseFCN::ModelFunction(), BaseFCN::Data(), x, fWeight, fIsExtended, fNEffPoints, fExecutionPolicy);
    }
 
    // for derivatives
-   virtual double  DoDerivative(const double * x, unsigned int icoord ) const {
+   double DoDerivative(const double * x, unsigned int icoord) const override {
       Gradient(x, &fGrad[0]);
       return fGrad[icoord];
    }
 
 
       //data member
-   bool fIsExtended;  // flag for indicating if likelihood is extended
-   int  fWeight;  // flag to indicate if needs to evaluate using weight or weight squared (default weight = 0)
+   bool fIsExtended;  ///< flag for indicating if likelihood is extended
+   int  fWeight;  ///< flag to indicate if needs to evaluate using weight or weight squared (default weight = 0)
 
 
-   mutable unsigned int fNEffPoints;  // number of effective points used in the fit
+   mutable unsigned int fNEffPoints;  ///< number of effective points used in the fit
 
-   mutable std::vector<double> fGrad; // for derivatives
+   mutable std::vector<double> fGrad; ///< for derivatives
 
-   ::ROOT::EExecutionPolicy fExecutionPolicy; // Execution policy
+   ::ROOT::EExecutionPolicy fExecutionPolicy; ///< Execution policy
 };
       // define useful typedef's
       // using LogLikelihoodFunction_v = LogLikelihoodFCN<ROOT::Math::IMultiGenFunction, ROOT::Math::IParametricFunctionMultiDimTempl<T>>;

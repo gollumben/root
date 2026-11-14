@@ -34,7 +34,7 @@ public:
    enum ETextAlignV_e   { kBottom, kTop, kCenterV };
 
 private:
-   TGLFont& operator=(const TGLFont& o); // Not implemented.
+   TGLFont& operator=(const TGLFont&) = delete;
 
    FTFont          *fFont;     // FTGL font.
    TGLFontManager  *fManager;  // Font manager.
@@ -48,12 +48,13 @@ protected:
    Int_t            fSize;   // free-type face size
    Int_t            fFile;   // free-type file name
    EMode            fMode;   // free-type FTGL class id
+   UInt_t           fTextAlign = 0; // set text align
 
    mutable Int_t    fTrashCount;
 public:
    TGLFont();
-   TGLFont(Int_t size, Int_t font, EMode mode, FTFont *f=0, TGLFontManager *mng=0);
-   TGLFont(const TGLFont& o);            // Not implemented.
+   TGLFont(Int_t size, Int_t font, EMode mode, FTFont *f = nullptr, TGLFontManager *mng = nullptr);
+   TGLFont(const TGLFont &o);
    virtual ~TGLFont();
 
    void CopyAttributes(const TGLFont &o);
@@ -74,6 +75,8 @@ public:
    Float_t GetDepth()    const { return fDepth; }
    void    SetDepth(Float_t d) { fDepth = d;    }
 
+   void  SetTextAlign(UInt_t align) { fTextAlign = align; }
+
    // FTGL wrapper functions
    Float_t GetAscent() const;
    Float_t GetDescent() const;
@@ -87,6 +90,7 @@ public:
    void  BBox(const wchar_t* txt,
               Float_t& llx, Float_t& lly, Float_t& llz,
               Float_t& urx, Float_t& ury, Float_t& urz) const;
+   Float_t Advance(const char* txt) const;
 
    void  Render(const char* txt, Double_t x, Double_t y, Double_t angle, Double_t mgn) const;
    void  Render(const wchar_t* txt, Double_t x, Double_t y, Double_t angle, Double_t mgn) const;
@@ -122,8 +126,8 @@ public:
    typedef std::vector<Int_t> FontSizeVec_t;
 
 private:
-   TGLFontManager(const TGLFontManager&);            // Not implemented
-   TGLFontManager& operator=(const TGLFontManager&); // Not implemented
+   TGLFontManager(const TGLFontManager&) = delete;
+   TGLFontManager& operator=(const TGLFontManager&) = delete;
 
 protected:
    typedef std::map<TGLFont, Int_t>           FontMap_t;

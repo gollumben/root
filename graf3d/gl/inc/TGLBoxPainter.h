@@ -36,7 +36,15 @@ private:
    TGLTH3Slice fXOYSlice;
 
    enum EBoxType {
+// clang++ <v20 (-Wshadow) complains about shadowing Buttons.h global enum EEditMode. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
       kBox, //boxes, sizes are proportional to bin content
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
       kBox1 //spheres, not boxes
    };
 
@@ -59,34 +67,34 @@ public:
    TGLBoxPainter(TH1 *hist, TPolyMarker3D * pm,
                  TGLPlotCamera *camera, TGLPlotCoordinates *coord);
 
-   char   *GetPlotInfo(Int_t px, Int_t py);
-   Bool_t  InitGeometry();
-   void    StartPan(Int_t px, Int_t py);
-   void    Pan(Int_t px, Int_t py);
-   void    AddOption(const TString &stringOption);
-   void    ProcessEvent(Int_t event, Int_t px, Int_t py);
+   char   *GetPlotInfo(Int_t px, Int_t py) override;
+   Bool_t  InitGeometry() override;
+   void    StartPan(Int_t px, Int_t py) override;
+   void    Pan(Int_t px, Int_t py) override;
+   void    AddOption(const TString &stringOption) override;
+   void    ProcessEvent(Int_t event, Int_t px, Int_t py) override;
 
 private:
    //Overriders
-   void    InitGL()const;
-   void    DeInitGL()const;
+   void    InitGL()const override;
+   void    DeInitGL()const override;
 
-   void    DrawPlot()const;
+   void    DrawPlot()const override;
    //Special type of TH3:
    void    DrawCloud()const;
 
    void    SetPlotColor()const;
 
-   void    DrawSectionXOZ()const;
-   void    DrawSectionYOZ()const;
-   void    DrawSectionXOY()const;
+   void    DrawSectionXOZ()const override;
+   void    DrawSectionYOZ()const override;
+   void    DrawSectionXOY()const override;
 
    void    DrawPalette()const;
-   void    DrawPaletteAxis()const;
+   void    DrawPaletteAxis()const override;
 
    Bool_t  HasSections()const;
 
-   ClassDef(TGLBoxPainter, 0)//Box painter
+   ClassDefOverride(TGLBoxPainter, 0)//Box painter
 };
 
 #endif

@@ -30,23 +30,15 @@ RooPolynomial::RooPolynomial(const char*, const char*, RooAbsReal&, const RooArg
 **/
 
 #include "RooPolynomial.h"
-#include "RooAbsReal.h"
 #include "RooArgList.h"
 #include "RooMsgService.h"
-#include "RooBatchCompute.h"
+#include "RooPolyVar.h"
+
+#include <RooFit/Detail/MathFuncs.h>
 
 #include "TError.h"
 #include <vector>
-using namespace std;
 
-ClassImp(RooPolynomial);
-
-////////////////////////////////////////////////////////////////////////////////
-/// coverity[UNINIT_CTOR]
-
-RooPolynomial::RooPolynomial()
-{
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a polynomial in the variable `x`.
@@ -68,134 +60,82 @@ RooPolynomial::RooPolynomial()
 ///   \mathrm{pol}(x) = 1 * x^0 + (0 * x^{\ldots}) + a * x^2 + b * x^3.
 /// \f]
 
-
-RooPolynomial::RooPolynomial(const char* name, const char* title,
-              RooAbsReal& x, const RooArgList& coefList, Int_t lowestOrder) :
-  RooAbsPdf(name, title),
-  _x("x", "Dependent", this, x),
-  _coefList("coefList","List of coefficients",this),
-  _lowestOrder(lowestOrder)
+RooPolynomial::RooPolynomial(const char *name, const char *title, RooAbsReal &x, const RooArgList &coefList,
+                             Int_t lowestOrder)
+   : RooAbsPdf(name, title),
+     _x("x", "Dependent", this, x),
+     _coefList("coefList", "List of coefficients", this),
+     _lowestOrder(lowestOrder)
 {
-  // Check lowest order
-  if (_lowestOrder<0) {
-    coutE(InputArguments) << "RooPolynomial::ctor(" << GetName()
-           << ") WARNING: lowestOrder must be >=0, setting value to 0" << endl ;
-    _lowestOrder=0 ;
-  }
+   // Check lowest order
+   if (_lowestOrder < 0) {
+      coutE(InputArguments) << "RooPolynomial::ctor(" << GetName()
+                            << ") WARNING: lowestOrder must be >=0, setting value to 0" << std::endl;
+      _lowestOrder = 0;
+   }
 
-  RooFIter coefIter = coefList.fwdIterator() ;
-  RooAbsArg* coef ;
-  while((coef = (RooAbsArg*)coefIter.next())) {
-    if (!dynamic_cast<RooAbsReal*>(coef)) {
-      coutE(InputArguments) << "RooPolynomial::ctor(" << GetName() << ") ERROR: coefficient " << coef->GetName()
-             << " is not of type RooAbsReal" << endl ;
-      R__ASSERT(0) ;
-    }
-    _coefList.add(*coef) ;
-  }
+   _coefList.addTyped<RooAbsReal>(coefList);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-RooPolynomial::RooPolynomial(const char* name, const char* title,
-                           RooAbsReal& x) :
-  RooAbsPdf(name, title),
-  _x("x", "Dependent", this, x),
-  _coefList("coefList","List of coefficients",this),
-  _lowestOrder(1)
-{ }
+RooPolynomial::RooPolynomial(const char *name, const char *title, RooAbsReal &x)
+   : RooAbsPdf(name, title),
+     _x("x", "Dependent", this, x),
+     _coefList("coefList", "List of coefficients", this)
+{
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy constructor
 
-RooPolynomial::RooPolynomial(const RooPolynomial& other, const char* name) :
-  RooAbsPdf(other, name),
-  _x("x", this, other._x),
-  _coefList("coefList",this,other._coefList),
-  _lowestOrder(other._lowestOrder)
-{ }
-
-////////////////////////////////////////////////////////////////////////////////
-/// Destructor
-
-RooPolynomial::~RooPolynomial()
-{ }
-
-////////////////////////////////////////////////////////////////////////////////
-
-Double_t RooPolynomial::evaluate() const
+RooPolynomial::RooPolynomial(const RooPolynomial &other, const char *name)
+   : RooAbsPdf(other, name),
+     _x("x", this, other._x),
+     _coefList("coefList", this, other._coefList),
+     _lowestOrder(other._lowestOrder)
 {
-  // Calculate and return value of polynomial
-
-  const unsigned sz = _coefList.getSize();
-  const int lowestOrder = _lowestOrder;
-  if (!sz) return lowestOrder ? 1. : 0.;
-  _wksp.clear();
-  _wksp.reserve(sz);
-  {
-    const RooArgSet* nset = _coefList.nset();
-    RooFIter it = _coefList.fwdIterator();
-    RooAbsReal* c;
-    while ((c = (RooAbsReal*) it.next())) _wksp.push_back(c->getVal(nset));
-  }
-  const Double_t x = _x;
-  Double_t retVal = _wksp[sz - 1];
-  for (unsigned i = sz - 1; i--; ) retVal = _wksp[i] + x * retVal;
-  return retVal * std::pow(x, lowestOrder) + (lowestOrder ? 1.0 : 0.0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Compute multiple values of Polynomial.  
-RooSpan<double> RooPolynomial::evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const {
-  RooSpan<const double> xData = _x->getValues(evalData, normSet);
-  int batchSize = xData.size();  
-  RooSpan<double> output = evalData.makeBatch(this, batchSize);
 
-  const int nCoef = _coefList.getSize();
-  const RooArgSet* listNormSet = _coefList.nset();
-  std::vector<RooBatchCompute::BracketAdapterWithMask> coefList;
-  for (int i=0; i<nCoef; i++) {
-    auto valBatch = static_cast<RooAbsReal&>(_coefList[i]).getValues(evalData, listNormSet);
-    coefList.emplace_back(valBatch);
-  }
+double RooPolynomial::evaluate() const
+{
+   const unsigned sz = _coefList.size();
+   if (!sz)
+      return _lowestOrder ? 1. : 0.;
 
-  RooBatchCompute::dispatch->computePolynomial(batchSize, output.data(), xData.data(), _lowestOrder, coefList);
-  return output;
+   RooPolyVar::fillCoeffValues(_wksp, _coefList);
+
+   return RooFit::Detail::MathFuncs::polynomial<true>(_wksp.data(), sz, _lowestOrder, _x);
+}
+
+/// Compute multiple values of Polynomial.
+void RooPolynomial::doEval(RooFit::EvalContext &ctx) const
+{
+   return RooPolyVar::doEvalImpl(this, ctx, _x.arg(), _coefList, _lowestOrder);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Advertise to RooFit that this function can be analytically integrated.
-Int_t RooPolynomial::getAnalyticalIntegral(RooArgSet& allVars, RooArgSet& analVars, const char* /*rangeName*/) const
+Int_t RooPolynomial::getAnalyticalIntegral(RooArgSet &allVars, RooArgSet &analVars, const char * /*rangeName*/) const
 {
-  if (matchArgs(allVars, analVars, _x)) return 1;
-  return 0;
+   return matchArgs(allVars, analVars, _x);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Do the analytical integral according to the code that was returned by getAnalyticalIntegral().
-Double_t RooPolynomial::analyticalIntegral(Int_t code, const char* rangeName) const
+double RooPolynomial::analyticalIntegral(Int_t code, const char *rangeName) const
 {
-  R__ASSERT(code==1) ;
+   R__ASSERT(code == 1);
 
-  const Double_t xmin = _x.min(rangeName), xmax = _x.max(rangeName);
-  const int lowestOrder = _lowestOrder;
-  const unsigned sz = _coefList.getSize();
-  if (!sz) return xmax - xmin;
-  _wksp.clear();
-  _wksp.reserve(sz);
-  {
-    const RooArgSet* nset = _coefList.nset();
-    RooFIter it = _coefList.fwdIterator();
-    unsigned i = 1 + lowestOrder;
-    RooAbsReal* c;
-    while ((c = (RooAbsReal*) it.next())) {
-      _wksp.push_back(c->getVal(nset) / Double_t(i));
-      ++i;
-    }
-  }
-  Double_t min = _wksp[sz - 1], max = _wksp[sz - 1];
-  for (unsigned i = sz - 1; i--; )
-    min = _wksp[i] + xmin * min, max = _wksp[i] + xmax * max;
-  return max * std::pow(xmax, 1 + lowestOrder) - min * std::pow(xmin, 1 + lowestOrder) +
-      (lowestOrder ? (xmax - xmin) : 0.);
+   const double xmin = _x.min(rangeName);
+   const double xmax = _x.max(rangeName);
+   const unsigned sz = _coefList.size();
+   if (!sz)
+      return _lowestOrder ? xmax - xmin : 0.0;
+
+   RooPolyVar::fillCoeffValues(_wksp, _coefList);
+
+   return RooFit::Detail::MathFuncs::polynomialIntegral<true>(_wksp.data(), sz, _lowestOrder, xmin, xmax);
 }

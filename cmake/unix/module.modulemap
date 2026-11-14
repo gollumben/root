@@ -1,0 +1,42 @@
+// This module contains header files from module Core which can be used in both
+// C and C++ context.
+module ROOT_Foundation_C  {
+  module "ThreadLocalStorage.h" { header "ThreadLocalStorage.h" export * }
+  module "strlcpy.h" { header "strlcpy.h" export * }
+
+  export *
+}
+
+// This module contains header files from module Core which are used as
+// configuration for ROOT. They contain a lot of macro definitions which are
+// supposed to be textually expanded in each TU.
+module ROOT_Config  {
+  // These headers are supposed to be only textually expanded for each TU.
+  module "ROOT/RVersion.hxx" { textual header "ROOT/RVersion.hxx" export * }
+  module "ROOT/RConfig.hxx" { textual header "ROOT/RConfig.hxx" export * }
+  module "RConfigure.h" { textual header "RConfigure.h" export * }
+  // FIXME: There is little benefit in keeping DllImport as a separate header.
+  // The majority of its uses already include Rtypes.h which includes DllImport.
+  module "DllImport.h" { header "DllImport.h" export * }
+
+  export *
+}
+
+module ROOT_Rtypes {
+  module "RtypesCore.h" { header "RtypesCore.h" export * }
+}
+
+// This module contains header files from module Core which do not need -frtti.
+// They are mainly needed for ROOT stage1 build.
+module ROOT_Foundation_Stage1_NoRTTI  {
+  module "ESTLType.h" { header "ESTLType.h" export * }
+  module "TClassEdit.h" { header "TClassEdit.h" export * }
+  module "TIsAProxy.h" { header "TIsAProxy.h" export * }
+  module "TVirtualIsAProxy.h" { header "TVirtualIsAProxy.h" export * }
+  module "TException.h" { header "TException.h" export * }
+
+  export *
+}
+
+// From this point on the contents of this file are automatically generated.
+@ROOT_GENERATED_MODULEMAP_CONTENT@

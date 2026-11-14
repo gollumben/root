@@ -21,15 +21,14 @@ A TLeaf for a 16 bit Integer data type.
 #include "TClonesArray.h"
 #include <iostream>
 
-ClassImp(TLeafS);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor for LeafS.
 
 TLeafS::TLeafS(): TLeaf()
 {
-   fValue = 0;
-   fPointer = 0;
+   fValue = nullptr;
+   fPointer = nullptr;
    fMinimum = 0;
    fMaximum = 0;
    fLenType = 2;
@@ -44,8 +43,8 @@ TLeafS::TLeafS(TBranch *parent, const char *name, const char *type)
    fLenType = 2;
    fMinimum = 0;
    fMaximum = 0;
-   fValue   = 0;
-   fPointer = 0;
+   fValue   = nullptr;
+   fPointer = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -53,7 +52,7 @@ TLeafS::TLeafS(TBranch *parent, const char *name, const char *type)
 
 TLeafS::~TLeafS()
 {
-   if (ResetAddress(0,kTRUE)) delete [] fValue;
+   if (ResetAddress(nullptr,true)) delete [] fValue;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -109,16 +108,16 @@ Double_t TLeafS::GetValue(Int_t i) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy/set fMinimum and fMaximum to include/be wide than those of the parameter
 
-Bool_t TLeafS::IncludeRange(TLeaf *input)
+bool TLeafS::IncludeRange(TLeaf *input)
 {
     if (input) {
         if (input->GetMaximum() > this->GetMaximum())
             this->SetMaximum( input->GetMaximum() );
         if (input->GetMinimum() < this->GetMinimum())
             this->SetMinimum( input->GetMinimum() );
-        return kTRUE;
+        return true;
     } else {
-        return kFALSE;
+        return false;
     }
 }
 
@@ -132,8 +131,11 @@ void TLeafS::Import(TClonesArray *list, Int_t n)
    char *clone;
    for (Int_t i=0;i<n;i++) {
       clone = (char*)list->UncheckedAt(i);
-      if (clone) memcpy(&fValue[j],clone + fOffset, 2*fLen);
-      else       memcpy(&fValue[j],&kShortUndefined,  2*fLen);
+      if (clone)
+         memcpy(&fValue[j],clone + fOffset, 2*fLen);
+      else       
+         for (Int_t k = 0; k < fLen; ++k)
+            fValue[j + k] = kShortUndefined;
       j += fLen;
    }
 }
@@ -233,7 +235,7 @@ void TLeafS::SetAddress(void *add)
          Int_t ncountmax = fLen;
          if (fLeafCount) ncountmax = fLen*(fLeafCount->GetMaximum() + 1);
          if ((fLeafCount && ncountmax > Int_t(fLeafCount->GetValue())) ||
-             ncountmax > fNdata || *fPointer == 0) {
+             ncountmax > fNdata || *fPointer == nullptr) {
             if (*fPointer) delete [] *fPointer;
             if (ncountmax > fNdata) fNdata = ncountmax;
             *fPointer = new Short_t[fNdata];

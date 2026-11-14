@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : Tools                                                                 *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation (see header for description)                               *
@@ -25,7 +25,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 /*! \class TMVA::Tools
@@ -52,6 +52,7 @@ Global auxiliary applications and data treatment routines.
 #include "TList.h"
 #include "TSpline.h"
 #include "TVector.h"
+#include "TDecompChol.h"
 #include "TMatrixD.h"
 #include "TMatrixDSymEigen.h"
 #include "TVectorD.h"
@@ -63,7 +64,7 @@ Global auxiliary applications and data treatment routines.
 #include <cstdlib>
 #include <iomanip>
 
-using namespace std;
+using std::vector, std::setw, std::istream, std::ostream;
 
 std::atomic<TMVA::Tools*> TMVA::Tools::fgTools{0};
 
@@ -270,52 +271,26 @@ void TMVA::Tools::ComputeStat( const std::vector<TMVA::Event*>& events, std::vec
 
 TMatrixD* TMVA::Tools::GetSQRootMatrix( TMatrixDSym* symMat )
 {
-   Int_t n = symMat->GetNrows();
-
-   // compute eigenvectors
-   TMatrixDSymEigen* eigen = new TMatrixDSymEigen( *symMat );
-
-   // D = ST C S
-   TMatrixD* si = new TMatrixD( eigen->GetEigenVectors() );
-   TMatrixD* s  = new TMatrixD( *si ); // copy
-   si->Transpose( *si ); // invert (= transpose)
-
-   // diagonal matrices
-   TMatrixD* d = new TMatrixD( n, n);
-   d->Mult( (*si), (*symMat) ); (*d) *= (*s);
-
-   // sanity check: matrix must be diagonal and positive definit
-   Int_t i, j;
-   Double_t epsilon = 1.0e-8;
-   for (i=0; i<n; i++) {
-      for (j=0; j<n; j++) {
-         if ((i != j && TMath::Abs((*d)(i,j))/TMath::Sqrt((*d)(i,i)*(*d)(j,j)) > epsilon) ||
-             (i == j && (*d)(i,i) < 0)) {
-            //d->Print();
-            Log() << kWARNING << "<GetSQRootMatrix> error in matrix diagonalization; printed S and B" << Endl;
-         }
-      }
+   TDecompChol chol(*symMat);
+   if (!chol.Decompose())
+   {
+      Log() << kWARNING << "<GetSQRootMatrix> matrix not positive definite; printed S and B" << Endl;
    }
 
-   // make exactly diagonal
-   for (i=0; i<n; i++) for (j=0; j<n; j++) if (j != i) (*d)(i,j) = 0;
+   TMatrixDSymEigen eigen = TMatrixDSymEigen(*symMat);
+   TMatrixD s = eigen.GetEigenVectors();
+   TMatrixDSym d_sqrt(symMat->GetNrows());
+   TMatrixDDiag d_diag(d_sqrt);
+   d_diag = eigen.GetEigenValues();
+   d_sqrt.Sqrt();
 
-   // compute the square-root C' of covariance matrix: C = C'*C'
-   for (i=0; i<n; i++) (*d)(i,i) = TMath::Sqrt((*d)(i,i));
-
-   TMatrixD* sqrtMat = new TMatrixD( n, n );
-   sqrtMat->Mult( (*s), (*d) );
-   (*sqrtMat) *= (*si);
+   // s d s^T
+   d_sqrt.Similarity(s);
 
    // invert square-root matrices
-   sqrtMat->Invert();
+   d_sqrt.Invert();
 
-   delete eigen;
-   delete s;
-   delete si;
-   delete d;
-
-   return sqrtMat;
+   return new TMatrixD(d_sqrt);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -969,7 +944,7 @@ void TMVA::Tools::FormattedOutput( const TMatrixD& M, const std::vector<TString>
    for (UInt_t irow=0; irow<nvar; irow++) {
       logger << setw(maxL) << V[irow] << ":";
       for (UInt_t icol=0; icol<nvar; icol++) {
-         logger << setw(vLengths[icol]+1) << Form( "%+1.3f", M(irow,icol) );
+         logger << setw(vLengths[icol]+1) << TString::Format( "%+1.3f", M(irow,icol) );
       }
       logger << Endl;
    }
@@ -1024,7 +999,7 @@ void TMVA::Tools::FormattedOutput( const TMatrixD& M,
    for (UInt_t irow=0; irow<nvvar; irow++) {
       logger << setw(maxL) << vert[irow] << ":";
       for (UInt_t icol=0; icol<nhvar; icol++) {
-         logger << setw(hLengths[icol]+1) << Form( "%+1.3f", M(irow,icol) );
+         logger << setw(hLengths[icol]+1) << TString::Format( "%+1.3f", M(irow,icol) );
       }
       logger << Endl;
    }
@@ -1048,7 +1023,7 @@ TString TMVA::Tools::GetXTitleWithUnit( const TString& title, const TString& uni
 TString TMVA::Tools::GetYTitleWithUnit( const TH1& h, const TString& unit, Bool_t normalised )
 {
    TString retval = ( normalised ? "(1/N) " : "" );
-   retval += Form( "dN_{ }/^{ }%.3g %s", h.GetXaxis()->GetBinWidth(1), unit.Data() );
+   retval += TString::Format( "dN_{ }/^{ }%.3g %s", h.GetXaxis()->GetBinWidth(1), unit.Data() );
    return retval;
 }
 
@@ -1114,8 +1089,8 @@ void TMVA::Tools::ReadAttr( void* node, const char* attrname, TString& value )
 
 void TMVA::Tools::AddAttr( void* node, const char* attrname, const char* value )
 {
-   if( node == 0 ) return;
-   gTools().xmlengine().NewAttr(node, 0, attrname, value );
+   if( !node ) return;
+   gTools().xmlengine().NewAttr(node, nullptr, attrname, value );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1233,7 +1208,7 @@ TString TMVA::Tools::StringFromInt( Long_t i )
 TString TMVA::Tools::StringFromDouble( Double_t d )
 {
    std::stringstream s;
-   s << Form( "%5.8e", d );
+   s << TString::Format( "%5.8e", d );
    return TString(s.str().c_str());
 }
 
@@ -1248,7 +1223,7 @@ void TMVA::Tools::WriteTMatrixDToXML( void* node, const char* name, TMatrixD* ma
    std::stringstream s;
    for (Int_t row = 0; row<mat->GetNrows(); row++) {
       for (Int_t col = 0; col<mat->GetNcols(); col++) {
-         s << Form( "%5.15e ", (*mat)[row][col] );
+         s << TString::Format( "%5.15e ", (*mat)[row][col] );
       }
    }
    xmlengine().AddRawLine( matnode, s.str().c_str() );
@@ -1331,7 +1306,7 @@ void TMVA::Tools::ROOTVersionMessage( MsgLogger& logger )
    Int_t   iday   = idatqq%100;
    Int_t   imonth = (idatqq/100)%100;
    Int_t   iyear  = (idatqq/10000);
-   TString versionDate = Form("%s %d, %4d",months[imonth-1],iday,iyear);
+   TString versionDate = TString::Format("%s %d, %4d",months[imonth-1],iday,iyear);
 
    logger << kHEADER ;
    logger << "You are running ROOT Version: " << gROOT->GetVersion() << ", " << versionDate << Endl;
@@ -1348,8 +1323,7 @@ void TMVA::Tools::TMVAWelcomeMessage( MsgLogger& logger, EWelcomeMessage msgType
    case kStandardWelcomeMsg:
       logger << Color("white") << "TMVA -- Toolkit for Multivariate Analysis" << Color("reset") << Endl;
       logger << "Copyright (C) 2005-2006 CERN, LAPP & MPI-K Heidelberg and Victoria U." << Endl;
-      logger << "Home page http://tmva.sourceforge.net" << Endl;
-      logger << "All rights reserved, please read http://tmva.sf.net/license.txt" << Endl << Endl;
+      logger << "Home page https://root.cern/manual/tmva/" << Endl;
       break;
 
    case kIsometricWelcomeMsg:
@@ -1643,7 +1617,6 @@ Double_t TMVA::Tools::Mean ( Iterator first,  Iterator last,  WeightIterator w)
 {
    Double_t sum = 0;
    Double_t sumw = 0;
-   int i = 0;
    if (w==NULL)
       {
          while ( first != last )
@@ -1655,7 +1628,6 @@ Double_t TMVA::Tools::Mean ( Iterator first,  Iterator last,  WeightIterator w)
                sum  += (*first);
                sumw += 1.0 ;
                ++first;
-               ++i;
             }
          if (sumw <= 0) {
             ::Error("TMVA::Tools::Mean","sum of weights <= 0 ?! that's a bit too much of negative event weights :) ");
@@ -1674,7 +1646,6 @@ Double_t TMVA::Tools::Mean ( Iterator first,  Iterator last,  WeightIterator w)
                sumw += (*w) ;
                ++w;
                ++first;
-               ++i;
             }
          if (sumw <= 0) {
             ::Error("TMVA::Tools::Mean","sum of weights <= 0 ?! that's a bit too much of negative event weights :) ");
@@ -1759,7 +1730,7 @@ Double_t TMVA::Tools::RMS(Long64_t n, const T *a, const Double_t *w)
 
 TH1* TMVA::Tools::GetCumulativeDist( TH1* h)
 {
-   TH1* cumulativeDist= (TH1*) h->Clone(Form("%sCumul",h->GetTitle()));
+   TH1* cumulativeDist= (TH1*) h->Clone(TString::Format("%sCumul",h->GetTitle()));
    //cumulativeDist->Smooth(5); // with this, I get less beautiful ROC curves, hence out!
 
    Float_t partialSum = 0;

@@ -24,8 +24,10 @@
 #include "TNamed.h"
 #include "TAttAxis.h"
 #include "TArrayD.h"
+#include <vector>
 
 class THashList;
+class TAxisModLab;
 
 class TAxis : public TNamed, public TAttAxis {
 
@@ -39,9 +41,9 @@ private:
    UShort_t     fBits2;         ///<  Second bit status word
    Bool_t       fTimeDisplay;   ///<  On/off displaying time values instead of numerics
    TString      fTimeFormat;    ///<  Date&time format, ex: 09/12/99 12:34:00
-   TObject     *fParent;        ///<! Object owning this axis
-   THashList   *fLabels;        ///<  List of labels
-   TList       *fModLabs;       ///<  List of modified labels
+   TObject     *fParent = nullptr;  ///<! Object owning this axis
+   THashList   *fLabels = nullptr;  ///<  List of labels
+   TList       *fModLabs = nullptr; ///<  List of modified labels
 
    /// TAxis extra status bits (stored in fBits2)
    enum {
@@ -51,6 +53,9 @@ private:
    };
 
    Bool_t       HasBinWithoutLabel() const;
+
+
+   TAxisModLab *FindModLab(Int_t num, Double_t v = 0., Double_t eps = 0.) const;
 
 public:
    /// TAxis status bits
@@ -75,8 +80,9 @@ public:
    TAxis();
    TAxis(Int_t nbins, Double_t xmin, Double_t xmax);
    TAxis(Int_t nbins, const Double_t *xbins);
+   TAxis(std::vector<double> const &bins);
    TAxis(const TAxis &axis);
-   virtual ~TAxis();
+   ~TAxis() override;
    TAxis& operator=(const TAxis&);
 
    Bool_t     CanExtend() const { return (fBits2 & kCanExtend);  }
@@ -94,11 +100,11 @@ public:
    void               CenterLabels(Bool_t center=kTRUE);
    void               CenterTitle(Bool_t center=kTRUE);
    const char        *ChooseTimeFormat(Double_t axislength=0);
-   virtual void       Copy(TObject &axis) const;
-   virtual void       Delete(Option_t * /*option*/ ="") { }
-   virtual Int_t      DistancetoPrimitive(Int_t px, Int_t py);
-   virtual TObject   *DrawClone(Option_t * /*option*/ ="") const {return 0;}
-   virtual void       ExecuteEvent(Int_t event, Int_t px, Int_t py);
+   void       Copy(TObject &axis) const override;
+   void       Delete(Option_t * /*option*/ ="") override { }
+   Int_t      DistancetoPrimitive(Int_t px, Int_t py) override;
+   TObject   *DrawClone(Option_t * /*option*/ ="") const override {return nullptr;}
+   void       ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
    virtual Int_t      FindBin(Double_t x);
    virtual Int_t      FindBin(Double_t x) const { return FindFixBin(x); }
    virtual Int_t      FindBin(const char *label);
@@ -119,6 +125,7 @@ public:
    virtual void       GetLowEdge(Double_t *edge) const;
            Bool_t     GetMoreLogLabels() const { return TestBit(kMoreLogLabels); }
            Int_t      GetNbins() const { return fNbins; }
+           Int_t      GetNlabels() const;
            Bool_t     GetNoExponent() const { return TestBit(kNoExponent); }
    virtual TObject   *GetParent() const {return fParent;}
            Bool_t     GetRotateTitle() const { return TestBit(kRotateTitle); }
@@ -126,7 +133,8 @@ public:
    virtual Bool_t     GetTimeDisplay() const {return fTimeDisplay;}
    virtual const char *GetTimeFormat() const {return fTimeFormat.Data();}
    virtual const char *GetTimeFormatOnly() const;
-   const char        *GetTitle() const {return fTitle.Data();}
+           UInt_t      GetTimeOffset();
+   const char        *GetTitle() const override {return fTitle.Data();}
    const TArrayD     *GetXbins() const {return &fXbins;}
            Int_t      GetFirst() const;
            Int_t      GetLast() const;
@@ -139,18 +147,22 @@ public:
                       }
    virtual void       LabelsOption(Option_t *option="h");  // *MENU*
            void       RotateTitle(Bool_t rotate=kTRUE); // *TOGGLE* *GETTER=GetRotateTitle
-   virtual void       SaveAttributes(std::ostream &out, const char *name, const char *subname);
+   void       SaveAttributes(std::ostream &out, const char *name, const char *subname) override;
    virtual void       Set(Int_t nbins, Double_t xmin, Double_t xmax);
    virtual void       Set(Int_t nbins, const Float_t *xbins);
    virtual void       Set(Int_t nbins, const Double_t *xbins);
    virtual void       SetBinLabel(Int_t bin, const char *label);
            void       SetDecimals(Bool_t dot = kTRUE); // *TOGGLE* *GETTER=GetDecimals
    virtual void       SetDefaults();
-   virtual void       SetDrawOption(Option_t * /*option*/ ="") { }
+   void       SetDrawOption(Option_t * /*option*/ ="") override { }
    void               ChangeLabel(Int_t labNum=0, Double_t labAngle = -1.,
                                   Double_t labSize = -1., Int_t labAlign = -1,
                                   Int_t labColor = -1 , Int_t labFont = -1,
-                                  TString labText = ""); // *MENU*
+                                  const TString &labText = ""); // *MENU*
+   void               ChangeLabelByValue(Double_t labValue, Double_t labAngle = -1.,
+                                  Double_t labSize = -1., Int_t labAlign = -1,
+                                  Int_t labColor = -1 , Int_t labFont = -1,
+                                  const TString &labText = ""); // *MENU*
    virtual void       SetLimits(Double_t xmin, Double_t xmax) { /* set axis limits */ fXmin = xmin; fXmax = xmax; } // *MENU*
            void       SetMoreLogLabels(Bool_t more=kTRUE);  // *TOGGLE* *GETTER=GetMoreLogLabels
            void       SetNoExponent(Bool_t noExponent=kTRUE);  // *TOGGLE* *GETTER=GetNoExponent
@@ -164,7 +176,7 @@ public:
    virtual void       UnZoom();  // *MENU*
    virtual void       ZoomOut(Double_t factor=0, Double_t offset=0);  // *MENU*
 
-   ClassDef(TAxis,10)  //Axis class
+   ClassDefOverride(TAxis,10)  //Axis class
 };
 
 ////////////////////////////////////////////////////////////////////////////////

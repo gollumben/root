@@ -12,10 +12,11 @@
 #ifndef ROOT_TGLPadPainter
 #define ROOT_TGLPadPainter
 
-#include "TVirtualPadPainter.h"
+#include "TPadPainterBase.h"
 #include "TGLFontManager.h"
 #include "TGLPadUtils.h"
 #include "TPoint.h"
+#include "GuiTypes.h"
 
 #include <vector>
 
@@ -25,12 +26,14 @@ class TRadialGradient;
 The _main_ purpose of TGLPadPainter is to enable 2d gl raphics
 inside standard TPad/TCanvas.
 */
-class TGLPadPainter : public TVirtualPadPainter {
+class TGLPadPainter : public TPadPainterBase {
 private:
    Rgl::Pad::PolygonStippleSet fSSet;
    Rgl::Pad::Tesselator        fTess;
-   Rgl::Pad::MarkerPainter     fMarker;
    Rgl::Pad::GLLimits          fLimits;
+
+   WinContext_t   fWinContext; // context of selected drawable
+   TAttFill       fGlFillAtt;  // fill attributes used for GL
 
    std::vector<Double_t>       fVs;//Vertex buffer for tesselator.
 
@@ -39,89 +42,93 @@ private:
 
    Int_t                       fVp[4];
 
-   std::vector<TPoint>         fPoly;
    Bool_t                      fIsHollowArea;
 
    Bool_t                      fLocked;
 
+   Bool_t IsInvertMode();
+
+   void SelectGLFont(Font_t font, Float_t size);
+
+   template<class ValueType>
+   void DrawPolyMarkerHelper(Int_t n, const ValueType *x, const ValueType *y);
+
+   template<class ValueType>
+   void DrawPolyLineHelper(Int_t n, const ValueType *x, const ValueType *y);
+
    template<class Char_t>
    void DrawTextHelper(Double_t x, Double_t y, const Char_t *text, ETextMode mode);
+
+protected:
+
+   Double_t GetTTFScale() const override { return 1./0.93376068; }
+
 public:
    TGLPadPainter();
 
-   //Final overriders for TVirtualPadPainter pure virtual functions.
-   //1. Part, which simply delegates to TVirtualX.
-   //Line attributes.
-   Color_t  GetLineColor() const;
-   Style_t  GetLineStyle() const;
-   Width_t  GetLineWidth() const;
+   void     SetOpacity(Int_t percent) override;
+   Float_t  GetTextMagnitude() const override;
 
-   void     SetLineColor(Color_t lcolor);
-   void     SetLineStyle(Style_t lstyle);
-   void     SetLineWidth(Width_t lwidth);
-   //Fill attributes.
-   Color_t  GetFillColor() const;
-   Style_t  GetFillStyle() const;
-   Bool_t   IsTransparent() const;
 
-   void     SetFillColor(Color_t fcolor);
-   void     SetFillStyle(Style_t fstyle);
-   void     SetOpacity(Int_t percent);
-   //Text attributes.
-   Short_t  GetTextAlign() const;
-   Float_t  GetTextAngle() const;
-   Color_t  GetTextColor() const;
-   Font_t   GetTextFont()  const;
-   Float_t  GetTextSize()  const;
-   Float_t  GetTextMagnitude() const;
+   void      OnPad(TVirtualPad *) override;
 
-   void     SetTextAlign(Short_t align);
-   void     SetTextAngle(Float_t tangle);
-   void     SetTextColor(Color_t tcolor);
-   void     SetTextFont(Font_t tfont);
-   void     SetTextSize(Float_t tsize);
-   void     SetTextSizePixels(Int_t npixels);
+   // Overwrite only attributes setters
+   void      SetAttFill(const TAttFill &att) override;
+   void      SetAttLine(const TAttLine &att) override;
+   void      SetAttMarker(const TAttMarker &att) override;
 
    //2. "Off-screen management" part.
-   Int_t    CreateDrawable(UInt_t w, UInt_t h);
-   void     ClearDrawable();
-   void     CopyDrawable(Int_t device, Int_t px, Int_t py);
-   void     DestroyDrawable(Int_t device);
-   void     SelectDrawable(Int_t device);
+   Int_t    CreateDrawable(UInt_t w, UInt_t h) override;
+   void     ClearDrawable() override;
+   void     ClearWindow(Int_t device) override;
+   Int_t    ResizeDrawable(Int_t device, UInt_t w, UInt_t h) override;
+   void     CopyDrawable(Int_t device, Int_t px, Int_t py) override;
+   void     DestroyDrawable(Int_t device) override;
+   void     SelectDrawable(Int_t device) override;
+   void     UpdateDrawable(Int_t mode) override;
+   void     SetDrawMode(Int_t device, Int_t mode) override;
 
-   void     InitPainter();
-   void     InvalidateCS();
-   void     LockPainter();
+   void     InitPainter() override;
+   void     InvalidateCS() override;
+   void     LockPainter() override;
 
-   void     DrawLine(Double_t x1, Double_t y1, Double_t x2, Double_t y2);
-   void     DrawLineNDC(Double_t u1, Double_t v1, Double_t u2, Double_t v2);
+   Bool_t    HasTTFonts() const override;
 
-   void     DrawBox(Double_t x1, Double_t y1, Double_t x2, Double_t y2, EBoxMode mode);
+   void     DrawLine(Double_t x1, Double_t y1, Double_t x2, Double_t y2) override;
+   void     DrawLineNDC(Double_t u1, Double_t v1, Double_t u2, Double_t v2) override;
+
+   void     DrawBox(Double_t x1, Double_t y1, Double_t x2, Double_t y2, EBoxMode mode) override;
    //TPad needs double and float versions.
-   void     DrawFillArea(Int_t n, const Double_t *x, const Double_t *y);
-   void     DrawFillArea(Int_t n, const Float_t *x, const Float_t *y);
+   void     DrawFillArea(Int_t n, const Double_t *x, const Double_t *y) override;
+   void     DrawFillArea(Int_t n, const Float_t *x, const Float_t *y) override;
 
    //TPad needs both double and float versions of DrawPolyLine.
-   void     DrawPolyLine(Int_t n, const Double_t *x, const Double_t *y);
-   void     DrawPolyLine(Int_t n, const Float_t *x, const Float_t *y);
-   void     DrawPolyLineNDC(Int_t n, const Double_t *u, const Double_t *v);
+   void     DrawPolyLine(Int_t n, const Double_t *x, const Double_t *y) override;
+   void     DrawPolyLine(Int_t n, const Float_t *x, const Float_t *y) override;
+   void     DrawPolyLineNDC(Int_t n, const Double_t *u, const Double_t *v) override;
 
    //TPad needs both versions.
-   void     DrawPolyMarker(Int_t n, const Double_t *x, const Double_t *y);
-   void     DrawPolyMarker(Int_t n, const Float_t *x, const Float_t *y);
+   void     DrawPolyMarker(Int_t n, const Double_t *x, const Double_t *y) override;
+   void     DrawPolyMarker(Int_t n, const Float_t *x, const Float_t *y) override;
 
-   void     DrawText(Double_t x, Double_t y, const char *text, ETextMode mode);
-   void     DrawText(Double_t, Double_t, const wchar_t *, ETextMode);
-   void     DrawTextNDC(Double_t x, Double_t y, const char *text, ETextMode mode);
-   void     DrawTextNDC(Double_t, Double_t, const wchar_t *, ETextMode);
+   void     DrawText(Double_t x, Double_t y, const char *text, ETextMode mode) override;
+   void     DrawText(Double_t, Double_t, const wchar_t *, ETextMode) override;
+   void     DrawTextNDC(Double_t x, Double_t y, const char *text, ETextMode mode) override;
+   void     DrawTextNDC(Double_t, Double_t, const wchar_t *, ETextMode) override;
+
+   void     DrawImage(TImage *img, Int_t x, Int_t y, Int_t flags = 0) override;
 
    //jpg, png, gif and bmp output.
-   void     SaveImage(TVirtualPad *pad, const char *fileName, Int_t type) const;
+   Bool_t   FillImageFromPad(TImage *image, TVirtualPad *pad) const override;
 
    //TASImage support.
    void     DrawPixels(const unsigned char *pixelData, UInt_t width, UInt_t height,
-                       Int_t dstX, Int_t dstY, Bool_t enableBlending);
+                       Int_t dstX, Int_t dstY, Bool_t enableBlending) override;
 
+   Bool_t   IsNative() const override { return kTRUE; }
+   Bool_t   IsX11() const override;
+   Bool_t   IsCocoa() const override;
+   Bool_t   IsSupportAlpha() const override { return kTRUE; }
 
 private:
 
@@ -138,8 +145,6 @@ private:
    void     SaveViewport();
    void     RestoreViewport();
 
-   void     DrawPolyMarker();
-
    //Aux. functions for a gradient and solid fill:
    void DrawPolygonWithGradient(Int_t n, const Double_t *x, const Double_t *y);
    //
@@ -151,7 +156,7 @@ private:
    TGLPadPainter(const TGLPadPainter &rhs);
    TGLPadPainter & operator = (const TGLPadPainter &rhs);
 
-   ClassDef(TGLPadPainter, 0)
+   ClassDefOverride(TGLPadPainter, 0)
 };
 
 #endif

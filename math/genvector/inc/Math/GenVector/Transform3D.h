@@ -72,6 +72,8 @@ namespace Impl {
 
     @ingroup GenVector
 
+    @see GenVector
+
 */
 
 template <typename T = double>
@@ -160,35 +162,35 @@ public:
    /**
       Construct from a 3D Rotation only with zero translation
    */
-   explicit Transform3D( const Rotation3D & r) {
+   explicit constexpr Transform3D( const Rotation3D & r) {
       AssignFrom(r);
    }
 
    // convenience methods for constructing a Transform3D from all the 3D rotations classes
    // (cannot use templates for conflict with LA)
 
-   explicit Transform3D( const AxisAngle & r) {
+   explicit constexpr Transform3D( const AxisAngle & r) {
       AssignFrom(Rotation3D(r));
    }
-   explicit Transform3D( const EulerAngles & r) {
+   explicit constexpr Transform3D( const EulerAngles & r) {
       AssignFrom(Rotation3D(r));
    }
-   explicit Transform3D( const Quaternion & r) {
+   explicit constexpr Transform3D( const Quaternion & r) {
       AssignFrom(Rotation3D(r));
    }
-   explicit Transform3D( const RotationZYX & r) {
+   explicit constexpr Transform3D( const RotationZYX & r) {
       AssignFrom(Rotation3D(r));
    }
 
    // Constructors from axial rotations
    // TO DO: implement direct methods for axial rotations without going through Rotation3D
-   explicit Transform3D( const RotationX & r) {
+   explicit constexpr Transform3D( const RotationX & r) {
       AssignFrom(Rotation3D(r));
    }
-   explicit Transform3D( const RotationY & r) {
+   explicit constexpr Transform3D( const RotationY & r) {
       AssignFrom(Rotation3D(r));
    }
-   explicit Transform3D( const RotationZ & r) {
+   explicit constexpr Transform3D( const RotationZ & r) {
       AssignFrom(Rotation3D(r));
    }
 
@@ -197,24 +199,21 @@ public:
       and with an identity rotation
    */
    template<class CoordSystem, class Tag>
-   explicit Transform3D( const DisplacementVector3D<CoordSystem,Tag> & v) {
+   explicit constexpr Transform3D( const DisplacementVector3D<CoordSystem,Tag> & v) {
       AssignFrom(Vector(v.X(),v.Y(),v.Z()));
    }
    /**
       Construct from a translation only, represented by a Cartesian 3D Vector,
       and with an identity rotation
    */
-   explicit Transform3D( const Vector & v) {
+   explicit constexpr Transform3D( const Vector & v) {
       AssignFrom(v);
    }
    /**
       Construct from a translation only, represented by a Translation3D class
       and with an identity rotation
    */
-   explicit Transform3D(const Translation3D<T> &t) { AssignFrom(t.Vect()); }
-
-   //#if !defined(__MAKECINT__) && !defined(G__DICTIONARY)  // this is ambigous with double * , double *
-
+   explicit constexpr Transform3D(const Translation3D<T> &t) { AssignFrom(t.Vect()); }
 
 #ifdef OLD_VERSION
    /**
@@ -424,7 +423,7 @@ public:
       }
    }
 
-   // use compiler generated copy ctor, copy assignmet and dtor
+   // use compiler generated copy ctor, copy assignment and destructor
 
    /**
       Construct from a linear algebra matrix of size at least 3x4,
@@ -433,7 +432,7 @@ public:
       are described by the 4-th column
    */
    template<class ForeignMatrix>
-   explicit Transform3D(const ForeignMatrix & m) {
+   explicit constexpr Transform3D(const ForeignMatrix & m) {
       SetComponents(m);
    }
 
@@ -839,7 +838,7 @@ public:
       const auto detZmask = (det == T(0));
       if (any_of(detZmask)) {
          std::cerr << "Transform3D::inverse error: zero determinant" << std::endl;
-         det(detZmask) = T(1);
+         where(detZmask, det) = T(1);
       }
       det = T(1) / det;
       detxx *= det;
@@ -853,15 +852,15 @@ public:
       T detzz = (fM[kXX] * fM[kYY] - fM[kXY] * fM[kYX]) * det;
       // Set det=0 cases to 0
       if (any_of(detZmask)) {
-         detxx(detZmask) = T(0);
-         detxy(detZmask) = T(0);
-         detxz(detZmask) = T(0);
-         detyx(detZmask) = T(0);
-         detyy(detZmask) = T(0);
-         detyz(detZmask) = T(0);
-         detzx(detZmask) = T(0);
-         detzy(detZmask) = T(0);
-         detzz(detZmask) = T(0);
+         where(detZmask, detxx) = T(0);
+         where(detZmask, detxy) = T(0);
+         where(detZmask, detxz) = T(0);
+         where(detZmask, detyx) = T(0);
+         where(detZmask, detyy) = T(0);
+         where(detZmask, detyz) = T(0);
+         where(detZmask, detzx) = T(0);
+         where(detZmask, detzy) = T(0);
+         where(detZmask, detzz) = T(0);
       }
       // set final components
       SetComponents(detxx, -detyx, detzx, -detxx * fM[kDX] + detyx * fM[kDY] - detzx * fM[kDZ], -detxy, detyy, -detzy,
@@ -985,18 +984,18 @@ protected:
    void SetIdentity(const typename SCALAR::mask_type m)
    {
       // set identity ( identity rotation and zero translation)
-      fM[kXX](m) = T(1);
-      fM[kXY](m) = T(0);
-      fM[kXZ](m) = T(0);
-      fM[kDX](m) = T(0);
-      fM[kYX](m) = T(0);
-      fM[kYY](m) = T(1);
-      fM[kYZ](m) = T(0);
-      fM[kDY](m) = T(0);
-      fM[kZX](m) = T(0);
-      fM[kZY](m) = T(0);
-      fM[kZZ](m) = T(1);
-      fM[kDZ](m) = T(0);
+      where(m, fM[kXX]) = T(1);
+      where(m, fM[kXY]) = T(0);
+      where(m, fM[kXZ]) = T(0);
+      where(m, fM[kDX]) = T(0);
+      where(m, fM[kYX]) = T(0);
+      where(m, fM[kYY]) = T(1);
+      where(m, fM[kYZ]) = T(0);
+      where(m, fM[kDY]) = T(0);
+      where(m, fM[kZX]) = T(0);
+      where(m, fM[kZY]) = T(0);
+      where(m, fM[kZZ]) = T(1);
+      where(m, fM[kDZ]) = T(0);
    }
 
 private:

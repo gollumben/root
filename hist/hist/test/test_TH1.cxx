@@ -1,8 +1,21 @@
 #include "gtest/gtest.h"
 
 #include "TH1.h"
+#include "TH2.h"
+#include "TH3.h"
 #include "TH1F.h"
 #include "THLimitsFinder.h"
+#include "TDirectory.h"
+#include "TList.h"
+#include "TROOT.h"
+
+#include <cmath>
+#include <cstddef>
+#include <memory>
+#include <random>
+#include <vector>
+
+#include "ROOT/TestSupport.hxx"
 
 // StatOverflows TH1
 TEST(TH1, StatOverflows)
@@ -45,4 +58,507 @@ TEST(THLimitsFinder, Degenerate)
    EXPECT_LT(xmin, xmax);
    EXPECT_LE(xmin, centralValue - 5.);
    EXPECT_GE(xmax, centralValue + 5.);
+}
+
+// see https://root-forum.cern.ch/t/bug-or-feature-in-ttree-draw/62862
+// Due to a poor binning choice in THLimitsFinder, the histograms in
+// TTree::Draw might not contain all values.
+TEST(THLimitsFinder, TTreeDraw_AutoBinning)
+{
+   TH1F histo("limitsFinder", "", 100, 0, 0);
+   histo.Fill(-999);
+   histo.Fill(0);
+   histo.BufferEmpty(1);
+
+   EXPECT_EQ(histo.GetEntries(), histo.GetEffectiveEntries());
+}
+
+// Simple cross-check that TH1::SmoothArray() is not doing anything if input
+// array is already smooth.
+TEST(TH1, SmoothArrayCrossCheck)
+{
+   std::vector<double> arr1{0., 1., 2., 3., 4.};
+   std::vector<double> arr2{1., 1., 1., 1., 1.};
+   TH1::SmoothArray(arr1.size(), arr1.data());
+   TH1::SmoothArray(arr2.size(), arr2.data());
+
+   for (std::size_t i = 0; i < arr1.size(); ++i) {
+      EXPECT_FLOAT_EQ(arr1[i], i);
+      EXPECT_FLOAT_EQ(arr2[i], 1.0);
+   }
+}
+
+// ROOT-5439
+TEST(TH1, DumpOutput)
+{
+   TH1F h;
+   const auto line_fArray = "*fArray                       ->0";
+   testing::internal::CaptureStdout();
+   h.Dump();
+   const std::string output = testing::internal::GetCapturedStdout();
+   EXPECT_TRUE(output.find(line_fArray) != std::string::npos) << "Could not find '" << line_fArray << "' in the multiline output '" << output;
+}
+
+
+// https://github.com/root-project/root/issues/17552
+TEST(TH1, AddBinContent)
+{
+   TH1F h1("h1", "h1", 10, 0, 1);
+   h1.AddBinContent(1,1.);
+   EXPECT_FLOAT_EQ(h1.GetBinContent(1),1.);
+   TH2F h2("h2", "h2", 10, 0, 1, 2, 0, 3);
+   h2.AddBinContent(1,1,1.);
+   EXPECT_FLOAT_EQ(h2.GetBinContent(1,1),1.);
+   TH3F h3("h3", "h3", 5, 0, 1, 2, 0, 2, 2, 0, 3);;
+   h3.AddBinContent(1,1,1,1.);
+   EXPECT_FLOAT_EQ(h3.GetBinContent(1,1,1),1.);
+}
+
+// https://github.com/root-project/root/pull/17751
+// https://root-forum.cern.ch/t/different-ways-of-normalizing-histograms/15582
+TEST(TH1, Normalize)
+{
+   TH1F h1("h1", "h1", 10, 0, 1);
+   h1.SetBinContent(1, 1.);
+   h1.SetBinContent(3, 5.);
+   h1.SetBinContent(5, 10.);
+   h1.SetBinContent(7, -1.);
+   h1.SetBinContent(10, 3.);
+   EXPECT_FLOAT_EQ(h1.GetEntries(), 5.);
+   EXPECT_FLOAT_EQ(h1.GetSumOfWeights(), 18.);
+   EXPECT_FLOAT_EQ(h1.Integral(), 18.);
+   EXPECT_FLOAT_EQ(h1.Integral("width"), 1.8);
+   EXPECT_FLOAT_EQ(h1.GetMaximum(), 10.);
+   TH1F h2(h1);
+   h2.Normalize();
+   EXPECT_FLOAT_EQ(h2.GetEntries(), 5);
+   EXPECT_FLOAT_EQ(h2.GetSumOfWeights(), 10.);
+   EXPECT_FLOAT_EQ(h2.Integral(), 10.);
+   EXPECT_FLOAT_EQ(h2.Integral("width"), 1.);
+   EXPECT_FLOAT_EQ(h2.GetMaximum(), 50. / 9);
+   TH1F h3(h1);
+   h3.Normalize("max");
+   EXPECT_FLOAT_EQ(h3.GetEntries(), 5.);
+   EXPECT_FLOAT_EQ(h3.GetSumOfWeights(), 1.8);
+   EXPECT_FLOAT_EQ(h3.Integral(), 1.8);
+   EXPECT_FLOAT_EQ(h3.Integral("width"), 0.18);
+   EXPECT_FLOAT_EQ(h3.GetMaximum(), 1.);
+   TH1F h4(h1);
+   h4.Normalize("sum");
+   EXPECT_FLOAT_EQ(h4.GetEntries(), 5.);
+   EXPECT_FLOAT_EQ(h4.GetSumOfWeights(), 1);
+   EXPECT_FLOAT_EQ(h4.Integral(), 1);
+   EXPECT_FLOAT_EQ(h4.Integral("width"), 0.1);
+   EXPECT_FLOAT_EQ(h4.GetMaximum(), 5. / 9);
+   const Float_t xbins[10 + 1]{0., 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.7, 0.8, 0.95, 1.};
+   TH1F v1("v1", "vbw", 10, xbins);
+   v1.SetBinContent(1, 1.);
+   v1.SetBinContent(3, 5.);
+   v1.SetBinContent(5, 10.);
+   v1.SetBinContent(7, -1.);
+   v1.SetBinContent(10, 3.);
+   EXPECT_FLOAT_EQ(v1.GetEntries(), 5.);
+   EXPECT_FLOAT_EQ(v1.GetSumOfWeights(), 18.);
+   EXPECT_FLOAT_EQ(v1.Integral(), 18.);
+   EXPECT_FLOAT_EQ(v1.Integral("width"), 1.25);
+   EXPECT_FLOAT_EQ(v1.GetMaximum(), 10.);
+   TH1F v2(v1);
+   v2.Normalize();
+   EXPECT_FLOAT_EQ(v2.GetEntries(), 5);
+   EXPECT_FLOAT_EQ(v2.GetSumOfWeights(), 14.399998);
+   EXPECT_FLOAT_EQ(v2.Integral(), 14.399998);
+   EXPECT_FLOAT_EQ(v2.Integral("width"), 1.);
+   EXPECT_FLOAT_EQ(v2.GetMaximum(), 7.9999990);
+}
+
+TEST(TH1, RegistrationToTDirectory_ImplicitOwnershipOff)
+{
+   const bool oldSetting = ROOT::Experimental::ObjectAutoRegistrationEnabled();
+   ROOT::Experimental::DisableObjectAutoRegistration();
+
+   TH1D histo1("histo1", "Test Histogram", 10, 0, 10);
+   auto histo2 = std::make_unique<TH1D>("histo2", "Test Histogram", 10, 0, 10);
+   TH1D *histo3 = new TH1D("histo3", "Test Histogram", 10, 0, 10);
+
+   {
+      TDirectory dir("dir", "Test Directory");
+      histo3->SetDirectory(&dir);
+
+      dir.cd();
+
+      TH1D histo4("histo4", "Test Histogram", 10, 0, 10);
+      auto histo5 = std::make_unique<TH1D>("histo5", "Test Histogram", 10, 0, 10);
+
+      EXPECT_EQ(dir.GetList()->GetSize(), 1);
+      EXPECT_EQ(dir.Get<TH1D>("histo3"), histo3);
+
+      EXPECT_EQ(histo1.GetDirectory(), nullptr);
+      EXPECT_EQ(histo2->GetDirectory(), nullptr);
+      EXPECT_EQ(histo3->GetDirectory(), &dir);
+      EXPECT_EQ(histo4.GetDirectory(), nullptr);
+      EXPECT_EQ(histo5->GetDirectory(), nullptr);
+
+      histo5.reset();
+
+      EXPECT_EQ(dir.GetList()->GetSize(), 1);
+      EXPECT_EQ(dir.Get<TH1D>("histo3"), histo3);
+   }
+
+   EXPECT_STREQ(histo1.GetName(), "histo1");
+   EXPECT_STREQ(histo2->GetName(), "histo2");
+
+   EXPECT_EQ(histo1.GetDirectory(), nullptr);
+   EXPECT_EQ(histo2->GetDirectory(), nullptr);
+
+   if (oldSetting)
+      ROOT::Experimental::EnableObjectAutoRegistration();
+}
+
+TEST(TH1, RegistrationToTDirectory_ImplicitOwnershipOn)
+{
+   const bool ownershipDisabledBefore = !ROOT::Experimental::ObjectAutoRegistrationEnabled();
+   ROOT::Experimental::EnableObjectAutoRegistration();
+
+   TH1D histo1("histo1", "Test Histogram", 10, 0, 10);
+   auto histo2 = std::make_unique<TH1D>("histo2", "Test Histogram", 10, 0, 10);
+   TH1D *histo3 = new TH1D("histo3", "Test Histogram", 10, 0, 10);
+
+   {
+      TDirectory dir("dir", "Test Directory");
+      histo3->SetDirectory(&dir);
+
+      dir.cd();
+
+      TH1D histo4("histo4", "Test Histogram", 10, 0, 10);
+      auto histo5 = std::make_unique<TH1D>("histo5", "Test Histogram", 10, 0, 10);
+
+      EXPECT_EQ(dir.GetList()->GetSize(), 3);
+      EXPECT_EQ(dir.Get<TH1D>("histo1"), nullptr);
+      EXPECT_EQ(dir.Get<TH1D>("histo2"), nullptr);
+      EXPECT_EQ(dir.Get<TH1D>("histo3"), histo3);
+      EXPECT_EQ(dir.Get<TH1D>("histo4"), &histo4);
+      EXPECT_EQ(dir.Get<TH1D>("histo5"), histo5.get());
+
+      EXPECT_EQ(histo1.GetDirectory(), gROOT);
+      EXPECT_EQ(histo2->GetDirectory(), gROOT);
+      EXPECT_EQ(histo3->GetDirectory(), &dir);
+      EXPECT_EQ(histo4.GetDirectory(), &dir);
+      EXPECT_EQ(histo5->GetDirectory(), &dir);
+
+      histo5.reset();
+
+      EXPECT_EQ(dir.GetList()->GetSize(), 2);
+      EXPECT_EQ(dir.Get<TH1D>("histo1"), nullptr);
+      EXPECT_EQ(dir.Get<TH1D>("histo2"), nullptr);
+      EXPECT_EQ(dir.Get<TH1D>("histo3"), histo3);
+      EXPECT_EQ(dir.Get<TH1D>("histo4"), &histo4);
+      EXPECT_EQ(dir.Get<TH1D>("histo5"), nullptr);
+   }
+
+   EXPECT_STREQ(histo1.GetName(), "histo1");
+   EXPECT_STREQ(histo2->GetName(), "histo2");
+
+   EXPECT_EQ(histo1.GetDirectory(), gROOT);
+   EXPECT_EQ(histo2->GetDirectory(), gROOT);
+
+   if (ownershipDisabledBefore)
+      ROOT::Experimental::DisableObjectAutoRegistration();
+}
+
+TEST(TAxis, BinComputation_FPAccuracy)
+{
+   // Example from 1703c54
+   EXPECT_EQ(TAxis(1, -1., 0.).FindBin(-1e-17), 1);
+
+   {
+      // https://root-forum.cern.ch/t/floating-point-rounding-error-when-filling-the-histogram/35189
+      TAxis axis(128, -0.352, 0.352);
+      constexpr double x = -0.0220;
+      EXPECT_EQ(axis.FindBin(x), 61);
+      EXPECT_EQ(axis.FindFixBin(x), 61);
+      EXPECT_LE(axis.GetBinLowEdge(61), x);
+      EXPECT_GT(axis.GetBinUpEdge(61), x);
+   }
+
+   {
+      // https://github.com/root-project/root/issues/14091
+      constexpr int nBins = 30;
+      constexpr double xMin = 3.0, xMax = 6.0;
+      TAxis ax(nBins, xMin, xMax);
+
+      for (Int_t i = 1; i <= ax.GetNbins(); i++) {
+         EXPECT_EQ(i, ax.FindBin(ax.GetBinLowEdge(i)));
+      }
+   }
+
+   {
+      TAxis axis(2000, -1000., 1000.);
+      EXPECT_EQ(axis.FindFixBin(std::nextafter(-1000., -2000.)), 0);
+      EXPECT_EQ(axis.FindFixBin(-1000.), 1);
+      EXPECT_EQ(axis.FindFixBin(std::nextafter(-1000., 0)), 1);
+
+      EXPECT_EQ(axis.FindFixBin(-500.00000000001), 500);
+      EXPECT_EQ(axis.FindFixBin(-500.), 501);
+      EXPECT_EQ(axis.FindFixBin(-499.9), 501);
+
+      EXPECT_EQ(axis.FindFixBin(-1.E-20), 1000);
+      EXPECT_EQ(axis.FindFixBin(std::nextafter(-0., -1)), 1000);
+      EXPECT_EQ(axis.FindFixBin(-0.), 1001);
+      EXPECT_EQ(axis.FindFixBin(0.), 1001);
+
+      EXPECT_EQ(axis.FindFixBin(499.9), 1500);
+      EXPECT_EQ(axis.FindFixBin(500.), 1501);
+
+      EXPECT_EQ(axis.FindFixBin(1000. - 1.E-13), 2000);
+      EXPECT_EQ(axis.FindFixBin(std::nextafter(1000., 0.)), 2000);
+      EXPECT_EQ(axis.FindFixBin(1000.), 2001);
+
+      EXPECT_EQ(axis.FindBin(std::nextafter(-1000., -2000.)), 0);
+      EXPECT_EQ(axis.FindBin(-1000.), 1);
+      EXPECT_EQ(axis.FindBin(std::nextafter(-1000., 0)), 1);
+
+      EXPECT_EQ(axis.FindBin(-500.00000000001), 500);
+      EXPECT_EQ(axis.FindBin(-500.), 501);
+      EXPECT_EQ(axis.FindBin(-499.9), 501);
+
+      EXPECT_EQ(axis.FindBin(-1.E-20), 1000);
+      EXPECT_EQ(axis.FindBin(std::nextafter(-0., -1)), 1000);
+      EXPECT_EQ(axis.FindBin(-0.), 1001);
+      EXPECT_EQ(axis.FindBin(0.), 1001);
+
+      EXPECT_EQ(axis.FindBin(499.9), 1500);
+      EXPECT_EQ(axis.FindBin(500.), 1501);
+
+      EXPECT_EQ(axis.FindBin(1000. - 1.E-13), 2000);
+      EXPECT_EQ(axis.FindBin(std::nextafter(1000., 0.)), 2000);
+      EXPECT_EQ(axis.FindBin(1000.), 2001);
+   }
+
+   for (const auto &[low, high] : std::initializer_list<std::pair<long double, long double>>{{-10654.1l, 32165.l},
+                                                                                             {-1.0656E23l, -20654.l},
+                                                                                             {1.1234E4l, 4.5678E20l},
+                                                                                             {1.E-60l, 1.E-20l},
+                                                                                             {-1.E-20l, -1.E-60l}}) {
+      constexpr int N = 100;
+      const double width = (high - low) / N;
+      std::mt19937 gen;
+      std::uniform_real_distribution dist{low - width, high + width};
+      TAxis axis(N, low, high);
+      for (unsigned int i = 0; i < 100000; ++i) {
+         long double x = dist(gen);
+         if (i == 0) {
+            x = std::nextafter(double(high), double(low));
+         }
+         const auto bin = axis.FindFixBin(x);
+         EXPECT_EQ(bin, axis.FindBin(x));
+
+         if (x < double(low)) {
+            EXPECT_EQ(bin, 0);
+         } else if (x >= double(high)) {
+            EXPECT_EQ(bin, N + 1);
+         }
+
+         EXPECT_LE(axis.GetBinLowEdge(bin), x);
+         EXPECT_LT(x, axis.GetBinUpEdge(bin));
+      }
+   }
+}
+
+// The tests below are taken from https://github.com/root-project/root/pull/14105
+TEST(TAxis, FindBinExact)
+{
+   // Test the case where bin edges are exactly represented as floating points
+   TAxis ax(88, 1010, 1098);
+   for (int i = 1; i <= ax.GetNbins(); i++) {
+      double x = ax.GetBinLowEdge(i);
+      EXPECT_EQ(i, ax.FindBin(x));
+      EXPECT_EQ(i, ax.FindFixBin(x));
+      x = ax.GetBinUpEdge(i);
+      EXPECT_EQ(i + 1, ax.FindBin(x));
+      EXPECT_EQ(i + 1, ax.FindFixBin(x));
+      x -= x * std::numeric_limits<double>::epsilon();
+      EXPECT_EQ(i, ax.FindBin(x));
+   }
+}
+TEST(TAxis, FindBinApprox)
+{
+   TAxis ax(90, 0., 10.);
+   for (int i = 1; i <= ax.GetNbins(); i++) {
+      double x = ax.GetBinLowEdge(i);
+      EXPECT_EQ(i, ax.FindBin(x));
+      EXPECT_EQ(i, ax.FindFixBin(x));
+      x = ax.GetBinUpEdge(i);
+      EXPECT_EQ(i + 1, ax.FindBin(x));
+      EXPECT_EQ(i + 1, ax.FindFixBin(x));
+      x -= x * std::numeric_limits<double>::epsilon();
+      EXPECT_EQ(i, ax.FindBin(x));
+   }
+}
+
+// https://github.com/root-project/root/issues/19359
+TEST(TH1, SetBufferedSumw2)
+{
+   // TH1::SetBuffer auto-adjusts small buffer sizes to at least 100 entries...
+   static constexpr std::size_t Entries = 200;
+   static constexpr double Weight = 2.0;
+
+   TH1D h1("name", "title", 1, 0, 1);
+   h1.SetBuffer(Entries);
+   for (std::size_t i = 0; i < Entries; i++) {
+      h1.Fill(0.5, Weight);
+   }
+   h1.Sumw2();
+
+   EXPECT_FLOAT_EQ(h1.GetBinContent(1), Entries * Weight);
+   EXPECT_FLOAT_EQ(h1.GetBinError(1), std::sqrt(Entries * Weight * Weight));
+}
+
+// https://github.com/root-project/root/issues/20185
+TEST(TAxis, EqualBinEdges)
+{
+   ROOT_EXPECT_ERROR(TAxis _({1, 1}), "TAxis::Set", "bin edges must be in increasing order");
+   ROOT_EXPECT_ERROR(TAxis _(1, -std::numeric_limits<double>::infinity(), 0), "TAxis::Set", "Axis limits need to be finite numbers");
+   ROOT_EXPECT_ERROR(TAxis _(1, 0., std::numeric_limits<double>::infinity()), "TAxis::Set", "Axis limits need to be finite numbers");
+   ROOT_EXPECT_ERROR(TAxis _(1, std::numeric_limits<double>::quiet_NaN(), 0), "TAxis::Set", "Axis limits need to be finite numbers");
+   ROOT_EXPECT_ERROR(TAxis _(1, 0, std::numeric_limits<double>::quiet_NaN()), "TAxis::Set", "Axis limits need to be finite numbers");
+}
+
+TEST(TH1L, SetBinContent)
+{
+   TH1L h("", "", 1, 0, 1);
+   // Something that does not fit into Int_t, but is exactly representable in Double_t
+   static constexpr long long Large = 1LL << 42;
+   h.SetBinContent(1, Large);
+   EXPECT_EQ(h.GetBinContent(1), Large);
+}
+
+// Reference cumulative bin content computed directly from the definition:
+// the sum of all source bins whose indices are no greater than (forward) or no
+// less than (backward) those of the target bin along every axis. Works for 1D,
+// 2D and 3D histograms (unused axes have a single bin at index 1).
+static double BruteForceCumulative(const TH1 &h, int ix, int iy, int iz, bool forward)
+{
+   double sum = 0.;
+   for (int jz = 1; jz <= h.GetNbinsZ(); ++jz) {
+      if (forward ? (jz > iz) : (jz < iz))
+         continue;
+      for (int jy = 1; jy <= h.GetNbinsY(); ++jy) {
+         if (forward ? (jy > iy) : (jy < iy))
+            continue;
+         for (int jx = 1; jx <= h.GetNbinsX(); ++jx) {
+            if (forward ? (jx > ix) : (jx < ix))
+               continue;
+            sum += h.GetBinContent(jx, jy, jz);
+         }
+      }
+   }
+   return sum;
+}
+
+// Same as above but accumulating the squared bin errors (variances add for the
+// independent bins entering each cumulative bin).
+static double BruteForceCumulativeErrorSq(const TH1 &h, int ix, int iy, int iz, bool forward)
+{
+   double sum = 0.;
+   for (int jz = 1; jz <= h.GetNbinsZ(); ++jz) {
+      if (forward ? (jz > iz) : (jz < iz))
+         continue;
+      for (int jy = 1; jy <= h.GetNbinsY(); ++jy) {
+         if (forward ? (jy > iy) : (jy < iy))
+            continue;
+         for (int jx = 1; jx <= h.GetNbinsX(); ++jx) {
+            if (forward ? (jx > ix) : (jx < ix))
+               continue;
+            const double err = h.GetBinError(jx, jy, jz);
+            sum += err * err;
+         }
+      }
+   }
+   return sum;
+}
+
+// 1D cumulative must match the textbook prefix/suffix sum in both directions.
+TEST(TH1, GetCumulative1D)
+{
+   TH1D h("h1", "h1", 5, 0, 5);
+   for (int i = 1; i <= 5; ++i)
+      h.SetBinContent(i, i); // 1, 2, 3, 4, 5
+
+   for (bool forward : {true, false}) {
+      std::unique_ptr<TH1> c{h.GetCumulative(forward)};
+      for (int i = 1; i <= 5; ++i)
+         EXPECT_DOUBLE_EQ(c->GetBinContent(i), BruteForceCumulative(h, i, 1, 1, forward)) << "bin " << i;
+   }
+}
+
+// 2D cumulative uses the inclusion-exclusion principle along both axes, not a
+// running sum over the flattened bins (the pre-6.42 behavior).
+TEST(TH1, GetCumulative2D)
+{
+   TH2D h("h2", "h2", 3, 0, 3, 3, 0, 3);
+   double v = 1.;
+   for (int iy = 1; iy <= 3; ++iy)
+      for (int ix = 1; ix <= 3; ++ix)
+         h.SetBinContent(ix, iy, v++); // 1..9
+
+   for (bool forward : {true, false}) {
+      std::unique_ptr<TH1> c{h.GetCumulative(forward)};
+      for (int iy = 1; iy <= 3; ++iy)
+         for (int ix = 1; ix <= 3; ++ix)
+            EXPECT_DOUBLE_EQ(c->GetBinContent(ix, iy), BruteForceCumulative(h, ix, iy, 1, forward))
+               << "bin (" << ix << ", " << iy << ")";
+   }
+
+   // Explicit hand-checked forward anchor: the top-right bin must hold the grand
+   // total, and bin (2,2) the sum of the lower-left 2x2 block (1+2+4+5 = 12).
+   std::unique_ptr<TH1> c{h.GetCumulative(true)};
+   EXPECT_DOUBLE_EQ(c->GetBinContent(1, 1), 1.);
+   EXPECT_DOUBLE_EQ(c->GetBinContent(2, 2), 12.);
+   EXPECT_DOUBLE_EQ(c->GetBinContent(3, 3), 45.);
+}
+
+// 3D cumulative must agree with the brute-force inclusion-exclusion result.
+TEST(TH1, GetCumulative3D)
+{
+   TH3D h("h3", "h3", 2, 0, 2, 3, 0, 3, 2, 0, 2);
+   double v = 1.;
+   for (int iz = 1; iz <= 2; ++iz)
+      for (int iy = 1; iy <= 3; ++iy)
+         for (int ix = 1; ix <= 2; ++ix)
+            h.SetBinContent(ix, iy, iz, v++);
+
+   for (bool forward : {true, false}) {
+      std::unique_ptr<TH1> c{h.GetCumulative(forward)};
+      for (int iz = 1; iz <= 2; ++iz)
+         for (int iy = 1; iy <= 3; ++iy)
+            for (int ix = 1; ix <= 2; ++ix)
+               EXPECT_DOUBLE_EQ(c->GetBinContent(ix, iy, iz), BruteForceCumulative(h, ix, iy, iz, forward))
+                  << "bin (" << ix << ", " << iy << ", " << iz << ")";
+   }
+}
+
+// When Sumw2 is enabled, the squared errors must accumulate over the same region
+// as the contents.
+TEST(TH1, GetCumulativeErrors)
+{
+   TH2D h("h2err", "h2err", 3, 0, 3, 3, 0, 3);
+   h.Sumw2();
+   double v = 1.;
+   for (int iy = 1; iy <= 3; ++iy) {
+      for (int ix = 1; ix <= 3; ++ix) {
+         h.SetBinContent(ix, iy, v);
+         h.SetBinError(ix, iy, 0.5 * v); // errors differ from contents
+         v += 1.;
+      }
+   }
+
+   for (bool forward : {true, false}) {
+      std::unique_ptr<TH1> c{h.GetCumulative(forward)};
+      for (int iy = 1; iy <= 3; ++iy)
+         for (int ix = 1; ix <= 3; ++ix) {
+            const double err = c->GetBinError(ix, iy);
+            EXPECT_DOUBLE_EQ(err * err, BruteForceCumulativeErrorSq(h, ix, iy, 1, forward))
+               << "bin (" << ix << ", " << iy << ")";
+         }
+   }
 }

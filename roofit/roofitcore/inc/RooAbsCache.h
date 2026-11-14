@@ -28,16 +28,16 @@ class RooAbsCache {
 
 public:
 
-  RooAbsCache(RooAbsArg* owner=0) ;
+  RooAbsCache(RooAbsArg* owner=nullptr) ;
 
-  RooAbsCache(const RooAbsCache&, RooAbsArg* owner=0 ) ;
+  RooAbsCache(const RooAbsCache&, RooAbsArg* owner=nullptr ) ;
 
   virtual ~RooAbsCache() ;
 
   void setOwner(RooAbsArg* owner);
 
   /// Interface for server redirect calls.
-  virtual Bool_t redirectServersHook(const RooAbsCollection& /*newServerList*/,
+  virtual bool redirectServersHook(const RooAbsCollection& /*newServerList*/,
                                      bool /*mustReplaceAll*/,
                                      bool /*nameChange*/,
                                      bool /*isRecursive*/) { return false; }
@@ -49,20 +49,19 @@ public:
   virtual void optimizeCacheMode(const RooArgSet&, RooArgSet&, RooLinkedList& ) {}
 
   /// Interface for constant term node finding calls.
-  virtual void findConstantNodes(const RooArgSet&, RooArgSet& , RooLinkedList&) {}
 
   /// Interface for printing of cache guts in tree mode printing.
   virtual void printCompactTreeHook(std::ostream&, const char *) {}
 
   virtual void wireCache() {}
-   
+
 protected:
 
-  RooAbsArg* _owner ; // Pointer to owning RooAbsArg
+  RooAbsArg* _owner ; ///< Pointer to owning RooAbsArg
 
-  ClassDef(RooAbsCache,1) // Base class for cache managers 
+  ClassDef(RooAbsCache,1) // Base class for cache managers
 
 } ;
 
 
-#endif 
+#endif

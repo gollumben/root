@@ -15,7 +15,9 @@
 #define ROOT_TGLFaceSet
 
 #include "TGLLogicalShape.h"
-#include "CsgOps.h"
+namespace RootCsg {
+class TBaseMesh;
+}
 #include <vector>
 
 ///////////////////////////////////////////////////////////////////////
@@ -32,7 +34,7 @@ private:
 public:
    TGLFaceSet(const TBuffer3D & buffer);
 
-   virtual void DirectDraw(TGLRnrCtx & rnrCtx) const;
+   void DirectDraw(TGLRnrCtx & rnrCtx) const override;
 
    void SetFromMesh(const RootCsg::TBaseMesh *m);
    void CalculateNormals();
@@ -47,12 +49,12 @@ public:
    static void   SetEnforceTriangles(Bool_t e);
 
 private:
-   void  GLDrawPolys() const;
+   void GLDrawPolys() const;
    Int_t CheckPoints(const Int_t *source, Int_t *dest) const;
 
    static Bool_t Eq(const Double_t *p1, const Double_t *p2);
 
-   ClassDef(TGLFaceSet,0) // a faceset logical shape
+   ClassDefOverride(TGLFaceSet,0) // a faceset logical shape
 };
 
 #endif

@@ -1,7 +1,6 @@
 /// \file gui_handler.cxx
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2017-06-29
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
  * Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.               *
@@ -20,6 +19,8 @@
 #include "simple_app.h"
 
 #include <sstream>
+#include <fstream>
+#include <iostream>
 #include <string>
 
 #include "include/base/cef_bind.h"
@@ -40,10 +41,9 @@
 #include "TBase64.h"
 #include <ROOT/RLogger.hxx>
 
-
-ROOT::Experimental::RLogChannel &CefWebDisplayLog()
+ROOT::RLogChannel &CefWebDisplayLog()
 {
-   static ROOT::Experimental::RLogChannel sChannel("ROOT.CefWebDisplay");
+   static ROOT::RLogChannel sChannel("ROOT.CefWebDisplay");
    return sChannel;
 }
 
@@ -123,9 +123,8 @@ void GuiHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser)
 // Returns a data: URI with the specified contents.
 std::string GuiHandler::GetDataURI(const std::string& data, const std::string& mime_type)
 {
-    return "data:" + mime_type + ";base64," +
-           CefURIEncode(CefBase64Encode(data.data(), data.size()), false)
-            .ToString();
+    return std::string("data:") + mime_type + ";base64," +
+           CefURIEncode(CefBase64Encode(data.data(), data.size()), false).ToString();
 }
 
 
@@ -139,12 +138,14 @@ void GuiHandler::OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> 
       return;
 
    // Display a load error message.
+   /*
    std::stringstream ss;
    ss << "<html><body bgcolor=\"white\">"
          "<h2>Failed to load URL "
       << failedUrl.ToString().substr(0,100) << " with error " << errorText.ToString() << " (" << errorCode
       << ").</h2></body></html>";
-   // frame->LoadURL(GetDataURI(ss.str(), "text/html"));
+   frame->LoadURL(GetDataURI(ss.str(), "text/html"));
+   */
 
    printf("Fail to load URL %s\n", failedUrl.ToString().substr(0,100).c_str());
 }
@@ -153,11 +154,7 @@ void GuiHandler::CloseAllBrowsers(bool force_close)
 {
    if (!CefCurrentlyOn(TID_UI)) {
       // Execute on the UI thread.
-#if CEF_VERSION_MAJOR < 95
-      CefPostTask(TID_UI, base::Bind(&GuiHandler::CloseAllBrowsers, this, force_close));
-#else
       CefPostTask(TID_UI, base::BindOnce(&GuiHandler::CloseAllBrowsers, this, force_close));
-#endif
       return;
    }
 
@@ -178,35 +175,32 @@ bool GuiHandler::OnConsoleMessage(CefRefPtr<CefBrowser> browser,
    switch (level) {
    case LOGSEVERITY_WARNING:
       if (fConsole > -1)
-         R__LOG_WARNING(CefWebDisplayLog()) << Form("CEF: %s:%d: %s", src.c_str(), line, message.ToString().c_str());
+         std::cout << TString::Format("CEF: %s:%d: %s", src.c_str(), line, message.ToString().c_str()) << std::endl;
       break;
    case LOGSEVERITY_ERROR:
       if (fConsole > -2)
-         R__LOG_ERROR(CefWebDisplayLog()) << Form("CEF: %s:%d: %s", src.c_str(), line, message.ToString().c_str());
+         std::cerr << TString::Format("CEF: %s:%d: %s", src.c_str(), line, message.ToString().c_str()) << std::endl;
       break;
    default:
       if (fConsole > 0)
-         R__LOG_DEBUG(0, CefWebDisplayLog()) << Form("CEF: %s:%d: %s", src.c_str(), line, message.ToString().c_str());
+         std::cout << TString::Format("CEF: %s:%d: %s", src.c_str(), line, message.ToString().c_str()) << std::endl;
       break;
    }
 
    return true;
 }
 
+
 cef_return_value_t GuiHandler::OnBeforeResourceLoad(
     CefRefPtr<CefBrowser> browser,
     CefRefPtr<CefFrame> frame,
     CefRefPtr<CefRequest> request,
-    CefRefPtr<CefResourceLoadCallBack> callback) {
+    CefRefPtr<CefCallback> callback) {
   CEF_REQUIRE_IO_THREAD();
-
-  // std::string url = request->GetURL().ToString();
-  // printf("OnBeforeResourceLoad url %s\n", url.c_str());
 
   return fResourceManager->OnBeforeResourceLoad(browser, frame, request,
                                                  callback);
 }
-
 
 
 class TCefHttpCallArg : public THttpCallArg {
@@ -256,7 +250,7 @@ public:
          fArg = std::make_shared<TCefHttpCallArg>();
    }
 
-   virtual ~TGuiResourceHandler() {}
+   ~TGuiResourceHandler() override {}
 
    void Cancel() override { CEF_REQUIRE_IO_THREAD(); }
 
@@ -273,8 +267,11 @@ public:
 
       return true;
    }
-
+#if CEF_VERSION_MAJOR > 114
+   void GetResponseHeaders(CefRefPtr<CefResponse> response, int64_t &response_length, CefString &redirectUrl) override
+#else
    void GetResponseHeaders(CefRefPtr<CefResponse> response, int64 &response_length, CefString &redirectUrl) override
+#endif
    {
       CEF_REQUIRE_IO_THREAD();
 
@@ -288,19 +285,14 @@ public:
          response_length = fArg->GetContentLength();
 
          if (fArg->NumHeader() > 0) {
-            // printf("******* Response with extra headers\n");
             CefResponse::HeaderMap headers;
             for (Int_t n = 0; n < fArg->NumHeader(); ++n) {
                TString name = fArg->GetHeaderName(n);
                TString value = fArg->GetHeader(name.Data());
                headers.emplace(CefString(name.Data()), CefString(value.Data()));
-               // printf("   header %s %s\n", name.Data(), value.Data());
             }
             response->SetHeaderMap(headers);
          }
-//         if (strstr(fArg->GetQuery(),"connection="))
-//            printf("Reply %s %s %s  len: %d %s\n", fArg->GetPathName(), fArg->GetFileName(), fArg->GetQuery(),
-//                  fArg->GetContentLength(), (const char *) fArg->GetContent() );
       }
       // DCHECK(!fArg->Is404());
    }
@@ -374,8 +366,9 @@ CefRefPtr<CefResourceHandler> GuiHandler::GetResourceHandler(
   if (serv->IsFileRequested(inp_path, fname)) {
      // process file - no need for special requests handling
 
-     // when file not exists - return nullptr
-     if (gSystem->AccessPathName(fname.Data()))
+     std::ifstream ifs(fname.Data());
+     // when file not exists - return default handler otherwise CEF terminates
+     if (!ifs)
         return new TGuiResourceHandler(serv, true);
 
      const char *mime = THttpServer::GetMimeType(fname.Data());
@@ -388,8 +381,6 @@ CefRefPtr<CefResourceHandler> GuiHandler::GetResourceHandler(
   }
 
   std::string inp_method = request->GetMethod().ToString();
-
-  // printf("REQUEST METHOD %s\n", inp_method.c_str());
 
   TGuiResourceHandler *handler = new TGuiResourceHandler(serv);
   handler->fArg->SetMethod(inp_method.c_str());

@@ -16,6 +16,21 @@
 #ifndef TETRIS_H
 #define TETRIS_H
 
+#ifdef __ROOTCLING__
+#pragma link C++ class Tetris+;
+#pragma link C++ class TetrisBox+;
+#pragma link C++ class TetrisPiece+;
+#pragma link C++ class CurrentPiece+;
+#pragma link C++ class TetrisBoard+;
+#pragma link C++ class NextPiecePad+;
+#pragma link C++ class InfoPad+;
+#pragma link C++ class NewGameButton+;
+#pragma link C++ class QuitButton+;
+#pragma link C++ class PauseButton+;
+#pragma link C++ class KeyHandler+;
+#pragma link C++ class UpdateLevelTimer+;
+#endif
+
 #include <TTimer.h>
 #include <TCanvas.h>
 #include <TGFrame.h>
@@ -41,7 +56,7 @@ private:
 
 public:
    TetrisBox(Int_t x=0, Int_t y=0, UInt_t type=0, TPad *pad=(TPad*)TVirtualPad::Pad());
-   virtual ~TetrisBox() { }
+   ~TetrisBox() override { }
 
    Int_t   GetX()                  { return fX; }
    Int_t   GetY()                  { return fY; }
@@ -61,8 +76,10 @@ public:
    virtual void MoveLeft()         { SetX(GetX()-1); }
 
    void    Erase();
-   void    Paint(Option_t *option="");
-   void    ExecuteEvent(Int_t, Int_t, Int_t)  { return; }  // disable any actions on it
+   void    Paint(Option_t *option="") override;
+   void    ExecuteEvent(Int_t, Int_t, Int_t) override  {}  // disable any actions on it
+
+   ClassDefOverride(TetrisBox, 0)
 };
 
 
@@ -140,8 +157,7 @@ private:
    Int_t   fWidth;      // board width
    Bool_t  fIsDropped;  // kTRUE when piece stopped
 
-   TetrisBoxPtr *fBoard;   //! 2d array of pointers to Tetrisboxes,
-                           // if pointer is 0 - the cell is empty
+   TetrisBoxPtr *fBoard;   ///<! 2d array of pointers to Tetrisboxes, if pointer is 0 - the cell is empty
    Int_t  fFilledLines;    // number of non empty lines in pad
 
    void   AllAboveLinesDown(Int_t line)    // assume that line is empty
@@ -154,11 +170,11 @@ private:
    Bool_t IsLineEmpty(int line);
    void   GluePiece(TetrisPiece *piece);
 
-   void   Clear(Option_t *option = "");
+   void   Clear(Option_t *option = "") override;
    void   Hide();
    void   Show();
-   void   Print(const char *option = "") const;
-   void   Print(const char *, Option_t *) { }  // removes "hiding" warning
+   void   Print(const char *option = "") const override;
+   void   Print(const char *, Option_t *) override { }  // removes "hiding" warning
    Bool_t IsEmptyLine(int line);
    Bool_t IsFullLine(Int_t line);
 
@@ -166,16 +182,18 @@ private:
 
 public:
    TetrisBoard(Float_t xlow, Float_t ylow, Float_t xup, Float_t yup);
-   virtual ~TetrisBoard() { }
+   ~TetrisBoard() override { }
 
    Int_t  GetHeight()                     { return fHeight; }
    Int_t  GetWidth()                      { return fWidth; }
    Bool_t IsEmpty(Int_t x, Int_t y)       { return !Board(x,y); }
    void   SetDropped(Bool_t flag=kTRUE)   { fIsDropped=flag; }
 
-   virtual void PaintModified();
+   void PaintModified() override;
    void   PieceDropped(TetrisPiece *piece, Int_t height);
-   void   ExecuteEvent(Int_t, Int_t, Int_t)  { return; }  // disable any actions on it
+   void   ExecuteEvent(Int_t, Int_t, Int_t) override  {}  // disable any actions on it
+
+   ClassDefOverride(TetrisBoard, 0)
 };
 
 
@@ -195,18 +213,20 @@ protected:
 
 public:
    CurrentPiece(UInt_t type, TetrisBoard* board);
-   ~CurrentPiece() { }
+   ~CurrentPiece() override { }
 
    Bool_t  MoveLeft(Int_t steps = 1);
    Bool_t  MoveRight(Int_t steps = 1);
-   Bool_t  RotateLeft();
-   Bool_t  RotateRight();
+   Bool_t  RotateLeft() override;
+   Bool_t  RotateRight() override;
    Bool_t  DropDown();
    Bool_t  OneLineDown();
-   Bool_t  Notify();
+   Bool_t  Notify() override;
    void    SetSpeed();
-   void    Paint(Option_t *option="");
-   void    ExecuteEvent(Int_t, Int_t, Int_t)  { return; }  // disable any actions on it
+   void    Paint(Option_t *option="") override;
+   void    ExecuteEvent(Int_t, Int_t, Int_t) override  { }  // disable any actions on it
+
+   ClassDefOverride(CurrentPiece, 0)
 };
 
 
@@ -222,14 +242,16 @@ private:
 
 public:
    NextPiecePad(Float_t xlow, Float_t ylow, Float_t xup, Float_t yup);
-   ~NextPiecePad() { }
+   ~NextPiecePad() override { }
 
    void   NewPiece() { fPiece->SetRandomType(); fPiece->Show(); Modified(kTRUE); }
    void   Hide()     { fPiece->Hide(); Modified(kTRUE); }
    void   Show()     { fPiece->Show(); Modified(kTRUE); }
 
    TetrisPiece  *GetPiece() { return fPiece; }
-   void ExecuteEvent(Int_t, Int_t, Int_t)  { return; }  // disable any actions on it
+   void ExecuteEvent(Int_t, Int_t, Int_t) override  { }  // disable any actions on it
+
+   ClassDefOverride(NextPiecePad, 0)
 };
 
 
@@ -242,9 +264,11 @@ class QuitButton : public TButton {
 
 public:
    QuitButton(Float_t xlow, Float_t ylow, Float_t xup, Float_t yup);
-   ~QuitButton() { }
+   ~QuitButton() override { }
 
-   void ExecuteEvent(Int_t event, Int_t px, Int_t py);
+   void ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
+
+   ClassDefOverride(QuitButton, 0)
 };
 
 
@@ -259,7 +283,7 @@ private:
 
 public:
    PauseButton(Float_t xlow, Float_t ylow, Float_t xup, Float_t yup);
-   ~PauseButton() { }
+   ~PauseButton() override { }
 
    void SetPressed(Bool_t state) {
       fPressed = state;
@@ -269,7 +293,9 @@ public:
    }
 
    Bool_t   IsPressed()               { return fPressed; }
-   void     ExecuteEvent(Int_t event, Int_t px, Int_t py);
+   void     ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
+
+   ClassDefOverride(PauseButton, 0)
 };
 
 
@@ -284,7 +310,7 @@ private:
 
 public:
    NewGameButton(Float_t xlow, Float_t ylow, Float_t xup, Float_t yup);
-   ~NewGameButton() { }
+   ~NewGameButton() override { }
 
    void SetPressed(Bool_t state) {
       fPressed = state;
@@ -294,7 +320,9 @@ public:
    }
 
    Bool_t   IsPressed()               { return fPressed; }
-   void ExecuteEvent(Int_t event, Int_t px, Int_t py);
+   void ExecuteEvent(Int_t event, Int_t px, Int_t py) override;
+
+   ClassDefOverride(NewGameButton, 0)
 };
 
 
@@ -308,15 +336,17 @@ protected:
 
 public:
    InfoPad(const char *title="",Float_t xlow=0, Float_t ylow=0, Float_t xup=0, Float_t yup=0);
-   virtual ~InfoPad() { }
+   ~InfoPad() override { }
 
    UInt_t  GetValue()                  { return fValue; }
    void    SetValue(Int_t value)       { fValue = value; Modified(kTRUE); }
    void    Reset(Option_t * = "")      { SetValue(0); }
    virtual void AddValue(Int_t addValue=1) { fValue = fValue+addValue; Modified(kTRUE); }
 
-   virtual void PaintModified();
-   void ExecuteEvent(Int_t, Int_t, Int_t)  { return; }  // disable any actions on it
+   void PaintModified() override;
+   void ExecuteEvent(Int_t, Int_t, Int_t) override  { }  // disable any actions on it
+
+   ClassDefOverride(InfoPad, 0)
 };
 
 
@@ -329,9 +359,11 @@ class KeyHandler : public TGFrame {
 
 public:
    KeyHandler();
-   ~KeyHandler();
+   ~KeyHandler() override;
 
-   Bool_t HandleKey(Event_t *event);    // handler of the key events
+   Bool_t HandleKey(Event_t *event) override;    // handler of the key events
+
+   ClassDefOverride(KeyHandler, 0)
 };
 
 
@@ -342,9 +374,11 @@ class UpdateLevelTimer : public TTimer {
 
 public:
    UpdateLevelTimer(ULong_t time);
-   ~UpdateLevelTimer() { }
+   ~UpdateLevelTimer() override { }
 
-   Bool_t Notify();
+   Bool_t Notify() override;
+
+   ClassDefOverride(UpdateLevelTimer, 0)
 };
 
 
@@ -389,7 +423,7 @@ protected:
 
 public:
    Tetris();
-   virtual ~Tetris() { delete fKeyHandler; }
+   ~Tetris() override { delete fKeyHandler; }
 
    Int_t  GetLevel()           { return fLevel->GetValue(); }
    Int_t  GetLinesRemoved()    { return fLinesRemoved->GetValue(); }
@@ -407,7 +441,7 @@ public:
    void   NewGame();
    void   StopGame();
 
-   ClassDef(Tetris,0)  // ROOT implementation of the Tetris game
+   ClassDefOverride(Tetris,0)  // ROOT implementation of the Tetris game
 };
 
 #endif   // TETRIS_H

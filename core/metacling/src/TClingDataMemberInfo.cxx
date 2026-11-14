@@ -43,6 +43,8 @@ from the Clang C++ compiler, not CINT.
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/Type.h"
 
+#include <CppInterOp/CppInterOp.h>
+
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/APSInt.h"
@@ -352,10 +354,9 @@ Longptr_t TClingDataMemberInfo::Offset()
       //   static constexpr Long64_t something = std::numeric_limits<Long64_t>::max();
       cling::Interpreter::PushTransactionRAII RAII(fInterp);
 
-      if (Longptr_t addr = reinterpret_cast<Longptr_t>(fInterp->getAddressOfGlobal(GlobalDecl(VD))))
-         return addr;
-      auto evalStmt = VD->ensureEvaluatedStmt();
-      if (evalStmt && evalStmt->Value) {
+      // We can't reassign constexpr or const variables. We can compute the
+      // initializer.
+      if (VD->hasInit() && (VD->isConstexpr() || VD->getType().isConstQualified())) {
          if (const APValue* val = VD->evaluateValue()) {
             if (VD->getType()->isIntegralType(C)) {
                return reinterpret_cast<Longptr_t>(val->getInt().getRawData());
@@ -388,22 +389,33 @@ Longptr_t TClingDataMemberInfo::Offset()
             } // not integral type
          } // have an APValue
       } // have an initializing value
+
+      // Try the slow operation.
+      if (Longptr_t addr = reinterpret_cast<Longptr_t>(fInterp->getAddressOfGlobal(GlobalDecl(VD))))
+         return addr;
    }
    // FIXME: We have to explicitly check for not enum constant because the
    // implementation of getAddressOfGlobal relies on mangling the name and in
    // clang there is misbehaviour in MangleContext::shouldMangleDeclName.
    // enum constants are essentially numbers and don't get addresses. However
    // ROOT expects the address to the enum constant initializer to be returned.
-   else if (const EnumConstantDecl *ECD = dyn_cast<EnumConstantDecl>(D))
+   else if (const EnumConstantDecl *ECD = dyn_cast<EnumConstantDecl>(D)) {
       // The raw data is stored as a long long, so we need to find the 'long'
       // part.
-#ifdef R__BYTESWAP
-      // In this case at the beginning.
-      return reinterpret_cast<Longptr_t>(ECD->getInitVal().getRawData());
-#else
-      // In this case in the second part.
-      return reinterpret_cast<Longptr_t>(((char*)ECD->getInitVal().getRawData())+sizeof(Longptr_t) );
-#endif
+
+      // The memory leak for `EnumConstantDecl` was fixed in:
+      // https://github.com/llvm/llvm-project/pull/78311
+      // We were relying on the leak to provide the address for EnumConstantDecl.
+      // Now store the data value as a member instead.
+      auto v = ECD->getInitVal();
+      if (v.getActiveBits() == 64 && v.isUnsigned()) {
+         // We silently cast a huge uint64_t to a int64_t (will become negative)
+         fEnumValue = static_cast<int64_t>(v.getZExtValue());
+      } else {
+         fEnumValue = v.getExtValue();
+      }
+      return reinterpret_cast<Longptr_t>(&fEnumValue);
+   }
    return -1L;
 }
 
@@ -450,22 +462,25 @@ long TClingDataMemberInfo::Property() const
    };
 
    getParentAccessAndNonTransparentDC();
-
+   // TODO: Now that we have the kIsNotReacheable we could return the property
+   // to be reflecting the local information.  However it is unclear if the
+   // information is used as-is (it appears to not be used in ROOT proper)
    switch (strictestAccess) {
       case clang::AS_public:
          property |= kIsPublic;
          break;
       case clang::AS_protected:
-         property |= kIsProtected;
+         property |= kIsProtected | kIsNotReacheable;
          break;
       case clang::AS_private:
-         property |= kIsPrivate;
+         property |= kIsPrivate | kIsNotReacheable;
          break;
       case clang::AS_none: //?
          property |= kIsPublic;
          break;
       default:
          // IMPOSSIBLE
+         assert(false && "Unexpected value for the access property value in Clang");
          break;
    }
    if (llvm::isa<clang::UsingShadowDecl>(thisDecl))
@@ -547,20 +562,13 @@ int TClingDataMemberInfo::TypeSize() const
       // Error, was not a data member, variable, or enumerator.
       return -1;
    }
-   clang::QualType qt = vd->getType();
-   if (qt->isIncompleteType()) {
-      // We cannot determine the size of forward-declared types.
-      return -1;
-   }
-   clang::ASTContext &context = GetDecl()->getASTContext();
-   // Truncate cast to fit to cint interface.
-   return static_cast<int>(context.getTypeSizeInChars(qt).getQuantity());
+   return Cpp::GetSizeOfType(vd->getType().getAsOpaquePtr());
 }
 
 const char *TClingDataMemberInfo::TypeName() const
 {
    if (!IsValid()) {
-      return 0;
+      return nullptr;
    }
 
    CheckForIoTypeAndName();
@@ -588,7 +596,7 @@ const char *TClingDataMemberInfo::TypeName() const
 const char *TClingDataMemberInfo::TypeTrueName(const ROOT::TMetaUtils::TNormalizedCtxt &normCtxt) const
 {
    if (!IsValid()) {
-      return 0;
+      return nullptr;
    }
 
    CheckForIoTypeAndName();
@@ -618,7 +626,7 @@ const char *TClingDataMemberInfo::TypeTrueName(const ROOT::TMetaUtils::TNormaliz
 const char *TClingDataMemberInfo::Name() const
 {
    if (!IsValid()) {
-      return 0;
+      return nullptr;
    }
 
    CheckForIoTypeAndName();
@@ -630,7 +638,7 @@ const char *TClingDataMemberInfo::Name() const
 const char *TClingDataMemberInfo::Title()
 {
    if (!IsValid()) {
-      return 0;
+      return nullptr;
    }
 
    //NOTE: We can't use it as a cache due to the "thoughtful" self iterator
@@ -669,7 +677,8 @@ llvm::StringRef TClingDataMemberInfo::ValidArrayIndex() const
       return llvm::StringRef();
    }
    const clang::DeclaratorDecl *FD = llvm::dyn_cast<clang::DeclaratorDecl>(GetTargetValueDecl());
-   if (FD) return ROOT::TMetaUtils::DataMemberInfo__ValidArrayIndex(*FD);
-   else return llvm::StringRef();
+   if (FD)
+      return ROOT::TMetaUtils::DataMemberInfo__ValidArrayIndex(*fInterp, *FD);
+   return {};
 }
 

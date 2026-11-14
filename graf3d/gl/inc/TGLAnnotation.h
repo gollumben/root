@@ -25,11 +25,30 @@ class TGMainFrame;
 class TGLAnnotation : public TGLOverlayElement
 {
 private:
-   TGLAnnotation(const TGLAnnotation&);            // Not implemented
-   TGLAnnotation& operator=(const TGLAnnotation&); // Not implemented
+   TGLAnnotation(const TGLAnnotation&) = delete;
+   TGLAnnotation& operator=(const TGLAnnotation&) = delete;
 
 protected:
-   enum EDrag        { kMove, kResize, kNone };
+   enum EDrag        {
+// clang++ <v20 (-Wshadow) complains about shadowing GuiTypes.h global enum ECursor. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kMove,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
+      kResize,
+// clang++ <v20 (-Wshadow) complains about shadowing GuiTypes.h global variable kNone. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kNone };
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
    enum ENameStack   { kMoveID, kEditID, kDeleteID, kResizeID };
 
    void MakeEditor();
@@ -40,10 +59,10 @@ protected:
    Float_t           fWidth;
    Float_t           fHeight;
 
-   Int_t             fMouseX, fMouseY; //! last mouse position
-   EDrag             fDrag;            //!
-   Float_t           fDrawW,  fDrawH;  //! width and height when drawing
-   Float_t           fTextSizeDrag;    //! text-size at start of drag
+   Int_t             fMouseX, fMouseY; ///<! last mouse position
+   EDrag             fDrag;            ///<!
+   Float_t           fDrawW,  fDrawH;  ///<! width and height when drawing
+   Float_t           fTextSizeDrag;    ///<! text-size at start of drag
 
    TGLVector3        fPointer;         // picked location in 3D space
    Bool_t            fActive;          // active item identifier
@@ -73,7 +92,7 @@ protected:
 public:
    TGLAnnotation(TGLViewerBase *parent, const char *text, Float_t posx, Float_t posy);
    TGLAnnotation(TGLViewerBase *parent, const char *text, Float_t posx, Float_t posy, TGLVector3 ref);
-   virtual ~TGLAnnotation();
+   ~TGLAnnotation() override;
 
    void  SetText(const TString& x)   { fText = x; }
    const TString& GetText()    const { return fText; }
@@ -99,18 +118,18 @@ public:
    TGLFont::ETextAlignH_e GetTextAlign() const { return fTextAlign; }
    void SetTextAlign(TGLFont::ETextAlignH_e a) { fTextAlign = a; }
 
-   virtual Bool_t MouseEnter(TGLOvlSelectRecord& selRec);
-   virtual Bool_t Handle(TGLRnrCtx& rnrCtx, TGLOvlSelectRecord& selRec,
-                         Event_t* event);
-   virtual void   MouseLeave();
+   Bool_t MouseEnter(TGLOvlSelectRecord& selRec) override;
+   Bool_t Handle(TGLRnrCtx& rnrCtx, TGLOvlSelectRecord& selRec,
+                         Event_t* event) override;
+   void   MouseLeave() override;
 
    void CloseEditor();
 
    void UpdateText();
 
-   virtual void   Render(TGLRnrCtx& rnrCtx);
+   void   Render(TGLRnrCtx& rnrCtx) override;
 
-   ClassDef(TGLAnnotation, 0); // GL-annotation.
+   ClassDefOverride(TGLAnnotation, 0); // GL-annotation.
 };
 
 #endif

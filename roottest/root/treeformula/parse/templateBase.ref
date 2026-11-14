@@ -1,0 +1,43 @@
+Processing runtemplateBase.C...
+Warning in <TClass::Init>: no dictionary for class edm::EDProduct is available
+Warning in <TClass::Init>: no dictionary for class CaloCrystal is available
+Warning in <TClass::Init>: no dictionary for class CaloLayer is available
+Warning in <TClass::Init>: no dictionary for class CaloTower is available
+Warning in <TClass::Init>: no dictionary for class edm::EDCollection<CaloTower> is available
+Warning in <TClass::Init>: no dictionary for class edm::EventAux is available
+Warning in <TClass::Init>: no dictionary for class CaloTowerCollection is available
+Warning in <TClass::Init>: no dictionary for class edm::PS_ID is available
+Warning in <TClass::Init>: no dictionary for class edm::ModuleDescription is available
+Warning in <TClass::Init>: no dictionary for class edm::Provenance is available
+Warning in <TClass::Init>: no dictionary for class edm::EventProvenance is available
+Warning in <TClass::Init>: no dictionary for class CommonJetData is available
+Warning in <TClass::Init>: no dictionary for class Jet is available
+Warning in <TClass::Init>: no dictionary for class CaloJet is available
+Warning in <TClass::Init>: no dictionary for class edm::EDCollection<CaloJet> is available
+Warning in <TClass::Init>: no dictionary for class CaloJetCollection is available
+**********************************************
+*    Row   * Instance * CaloJetCollection... *
+**********************************************
+*        0 *        0 *           65.9836427 *
+*        0 *        1 *           306.875187 *
+*        0 *        2 *           198.497944 *
+*        0 *        3 *           303.833691 *
+*        0 *        4 *           106.962421 *
+*        0 *        5 *           13.1706541 *
+*        0 *        6 *           30.6921234 *
+*        0 *        7 *           202.398849 *
+*        0 *        8 *           109.149052 *
+**********************************************
+**********************************************
+*    Row   * Instance * CaloJetCollection... *
+**********************************************
+*        0 *        0 *           32.9918213 *
+*        0 *        1 *           153.437594 *
+*        0 *        2 *           99.2489719 *
+*        0 *        3 *           151.916845 *
+*        0 *        4 *           53.4812107 *
+*        0 *        5 *           6.58532703 *
+*        0 *        6 *           15.3460617 *
+*        0 *        7 *           101.199425 *
+*        0 *        8 *           54.5745258 *
+**********************************************

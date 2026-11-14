@@ -12,10 +12,10 @@
 #include "RConfigure.h"
 
 #include "TVirtualPad.h"
+#include "TVirtualPadPainter.h"
 #include "TView3D.h"
 #include "TAxis3D.h"
 #include "TPolyLine3D.h"
-#include "TVirtualX.h"
 #include "TROOT.h"
 #include "TBuffer.h"
 #include "TClass.h"
@@ -26,7 +26,6 @@
 // Remove when TView3Der3DPad fix in ExecuteRotateView() is removed
 #include "TVirtualViewer3D.h"
 
-ClassImp(TView3D);
 
 //const Int_t kPerspective = BIT(14);
 
@@ -57,7 +56,7 @@ The following macro gives an example:
 
 Begin_Macro(source)
 {
-   cV3D = new TCanvas("cV3D","PolyLine3D & PolyMarker3D Window",200,10,500,500);
+   auto cV3D = new TCanvas("cV3D","PolyLine3D & PolyMarker3D Window",200,10,500,500);
 
    // Creating a view
    TView3D *view = (TView3D*) TView::CreateView(1);
@@ -109,7 +108,7 @@ Several coordinate systems are available:
 TView3D::TView3D() :TView()
 {
    fSystem = 0;
-   fOutline = 0;
+   fOutline = nullptr;
    fDefaultOutline = kFALSE;
    fAutoRange      = kFALSE;
    fChanged        = kFALSE;
@@ -157,7 +156,7 @@ TView3D::TView3D(Int_t system, const Double_t *rmin, const Double_t *rmax) : TVi
    SetBit(kMustCleanup);
 
    fSystem = system;
-   fOutline = 0;
+   fOutline = nullptr;
    fDefaultOutline = kFALSE;
    fAutoRange      = kFALSE;
    fChanged        = kFALSE;
@@ -277,7 +276,7 @@ TView3D::~TView3D()
 {
    if (fOutline) fOutline->Delete();
    delete fOutline;
-   fOutline = 0;
+   fOutline = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -761,10 +760,9 @@ void TView3D::ExecuteRotateView(Int_t event, Int_t px, Int_t py)
       gPad->SetTheta(90-newlatitude);
       gPad->Modified(kTRUE);
 
-      // Set line color, style and width
-      gVirtualX->SetLineColor(-1);
-      gVirtualX->SetLineStyle(-1);
-      gVirtualX->SetLineWidth(-1);
+      // reset line color, style and width
+      if (auto pp = gPad->GetPainter())
+         pp->SetAttLine({-1, -1, -1});
       break;
    }
 

@@ -8,6 +8,8 @@
  *                                                                    *
  **********************************************************************/
 
+#include <memory>
+
 #include "TF1Convolution.h"
 #include "TROOT.h"
 #include "TObject.h"
@@ -38,7 +40,6 @@ If no function range is given by default the function1 range + 10% is used
 One should use also a not too small number of points for the DFT (a minimum of 1000).  By default 10000 points are used.
 */
 
-ClassImp(TF1Convolution);
 
 Double_t TF1Convolution::fgExtraRangeFraction = 0.1;
 
@@ -76,17 +77,17 @@ void TF1Convolution::InitializeDataMembers(TF1* function1, TF1* function2, Bool_
          Error("InitializeDataMembers","function1 %s is not of dimension 1 ",function1->GetName());
       //TF1 * fnew1 = (TF1*) function1->IsA()->New();
       // since function1 is a TF1 (cannot be a derived class) we can instantiate it directly
-      fFunction1 = std::unique_ptr<TF1> (new TF1());
+      fFunction1 = std::make_unique<TF1> ();
       function1->Copy(*fFunction1);
    }
    if (function2) {
        if (function2->GetNdim() != 1)
          Error("InitializeDataMembers","function2 %s is not of dimension 1 ",function2->GetName());
       //TF1 * fnew2 = (TF1*) function2->IsA()->New();
-      fFunction2 = std::unique_ptr<TF1>(new TF1());
+      fFunction2 = std::make_unique<TF1>();
       function2->Copy(*fFunction2);
    }
-   if (fFunction1.get() == nullptr|| fFunction2.get() == nullptr)
+   if (fFunction1 == nullptr|| fFunction2 == nullptr)
       Fatal("InitializeDataMembers","Invalid functions - Abort");
 
    // Set kNotGlobal bit
@@ -213,12 +214,12 @@ TF1Convolution::TF1Convolution(TString formula1, TString formula2,  Double_t xmi
    TF1* f2 = (TF1*)(gROOT -> GetListOfFunctions() -> FindObject(formula2));
    // if function do not exists try using TFormula
    if (!f1) {
-      fFunction1 = std::unique_ptr<TF1>(new TF1("f_conv_1", formula1));
+      fFunction1 = std::make_unique<TF1>("f_conv_1", formula1);
       if (!fFunction1->GetFormula()->IsValid() )
          Error("TF1Convolution","Invalid formula for : %s",formula1.Data() );
    }
    if (!f2) {
-      fFunction2 = std::unique_ptr<TF1>(new TF1("f_conv_1", formula2));
+      fFunction2 = std::make_unique<TF1>("f_conv_1", formula2);
       if (!fFunction2->GetFormula()->IsValid() )
          Error("TF1Convolution","Invalid formula for : %s",formula2.Data() );
    }
@@ -238,7 +239,7 @@ TF1Convolution::TF1Convolution(TString formula1, TString formula2,  Double_t xmi
 
 TF1Convolution::TF1Convolution(const TF1Convolution &conv)
 {
-   conv.Copy((TObject &)*this);
+   conv.TF1Convolution::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -247,7 +248,7 @@ TF1Convolution::TF1Convolution(const TF1Convolution &conv)
 TF1Convolution &TF1Convolution::operator=(const TF1Convolution &rhs)
 {
    if (this != &rhs)
-      rhs.Copy(*this);
+      rhs.TF1Convolution::Copy(*this);
    return *this;
 }
 
@@ -303,7 +304,7 @@ void TF1Convolution::MakeFFTConv()
 
    // fill a graph with the result of the convolution
    if (!fGraphConv)
-      fGraphConv = std::unique_ptr<TGraph>(new TGraph(fNofPoints));
+      fGraphConv = std::make_unique<TGraph>(fNofPoints);
 
    for (int i=0;i<fNofPoints;i++)
    {
@@ -327,7 +328,9 @@ void TF1Convolution::MakeFFTConv()
 
 Double_t TF1Convolution::EvalFFTConv(Double_t t)
 {
-   if (!fFlagGraph)  MakeFFTConv();
+   if (!fFlagGraph) {
+      MakeFFTConv();
+   }
    // if cannot make FFT use numconv
    if (fGraphConv)
       return  fGraphConv -> Eval(t);
@@ -364,7 +367,7 @@ Double_t TF1Convolution::EvalNumConv(Double_t t)
 
 Double_t TF1Convolution::operator()(const Double_t *x, const Double_t *p)
 {
-   if (p!=0)   TF1Convolution::SetParameters(p);                           // first refresh the parameters
+   if (p!=nullptr)   TF1Convolution::SetParameters(p);                           // first refresh the parameters
 
    Double_t result = 0.;
    if (fFlagFFT)
@@ -428,10 +431,10 @@ void TF1Convolution::SetParameters(Double_t p0, Double_t p1, Double_t p2, Double
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set the fraction of extra range used when doing an FFT convolution.
+/// Set the fraction of extra range used when doing an convolution.
 /// The extra range is often needed to avoid mirroring effect of the resulting convolution
 /// function at the borders.
-/// By default an extra range of 0.1 is used.
+/// By default an extra range of 0.1 is used when doing FFT and it is not use for numerical convolution
 
 void TF1Convolution::SetExtraRange(Double_t percentage)
 {
@@ -517,9 +520,9 @@ void TF1Convolution::Copy(TObject &obj) const
    ((TF1Convolution &)obj).fParNames = fParNames;
 
    // we need to copy the content of the  unique_ptr's
-   ((TF1Convolution &)obj).fFunction1 = std::unique_ptr<TF1>((TF1 *)new TF1() );
-   ((TF1Convolution &)obj).fFunction2 = std::unique_ptr<TF1>((TF1 *)new TF1() );
-   fFunction1->Copy(*(((TF1Convolution &)obj).fFunction1 ) );
-   fFunction2->Copy(*(((TF1Convolution &)obj).fFunction2 ) );
+   ((TF1Convolution &)obj).fFunction1 = std::make_unique<TF1>();
+   ((TF1Convolution &)obj).fFunction2 = std::make_unique<TF1>();
+   fFunction1->Copy(*(((TF1Convolution &)obj).fFunction1));
+   fFunction2->Copy(*(((TF1Convolution &)obj).fFunction2));
    // fGraphConv is transient anyway, so we don't bother to copy it
 }

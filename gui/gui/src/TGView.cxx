@@ -52,13 +52,12 @@ event messages:
 #include "RConfigure.h"
 #include "TVirtualX.h"
 
-ClassImp(TGViewFrame);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a editor frame.
 
 TGViewFrame::TGViewFrame(TGView *v, UInt_t w, UInt_t h, UInt_t options,
-                         ULong_t back) :
+                         Pixel_t back) :
    TGCompositeFrame(v, w, h, options | kOwnBackground, back)
 {
    fView = v;
@@ -83,7 +82,6 @@ TGViewFrame::TGViewFrame(TGView *v, UInt_t w, UInt_t h, UInt_t options,
 }
 
 
-ClassImp(TGView);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create an editor view, containing an TGEditorFrame and (optionally)
@@ -91,7 +89,7 @@ ClassImp(TGView);
 
 TGView::TGView(const TGWindow *p, UInt_t w, UInt_t h, Int_t id,
                UInt_t xMargin, UInt_t yMargin, UInt_t options,
-               UInt_t sboptions, ULong_t back)
+               UInt_t sboptions, Pixel_t back)
        : TGCompositeFrame(p, w, h, options, GetDefaultFrameBackground())
 {
    fWidgetId    = id;
@@ -313,7 +311,7 @@ Bool_t TGView::HandleExpose(Event_t *event)
 ////////////////////////////////////////////////////////////////////////////////
 /// Process scrollbar messages.
 
-Bool_t TGView::ProcessMessage(Long_t msg, Long_t parm1, Long_t)
+Bool_t TGView::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t)
 {
    switch(GET_MSG(msg)) {
       case kC_HSCROLL:
@@ -464,7 +462,10 @@ void TGView::ScrollToPosition(TGLongPosition pos)
 void TGView::ScrollCanvas(Int_t new_top, Int_t direction)
 {
    Point_t points[4];
-   Int_t xsrc, ysrc, xdest, ydest, cpyheight, cpywidth;
+   Int_t xsrc, ysrc, xdest, ydest;
+#ifndef R__HAS_COCOA
+   Int_t cpyheight = 0, cpywidth = 0;
+#endif
 
    if (new_top < 0) {
       return;
@@ -478,11 +479,12 @@ void TGView::ScrollCanvas(Int_t new_top, Int_t direction)
       points[0].fX = points[3].fX = 0;
       points[1].fX = points[2].fX = fCanvas->GetWidth();
       xsrc = xdest = 0;
-      cpywidth = 0;
       if (new_top < fVisible.fY) {
          ysrc = 0;
          ydest = Int_t(fVisible.fY - new_top);
+#ifndef R__HAS_COCOA
          cpyheight = ydest;
+#endif
          if (ydest > (Int_t)fCanvas->GetHeight()) {
             ydest = fCanvas->GetHeight();
          }
@@ -492,7 +494,9 @@ void TGView::ScrollCanvas(Int_t new_top, Int_t direction)
       } else {
          ydest = 0;
          ysrc = Int_t(new_top - fVisible.fY);
+#ifndef R__HAS_COCOA
          cpyheight= ysrc;
+#endif
          if (ysrc > (Int_t)fCanvas->GetHeight()) {
             ysrc = fCanvas->GetHeight();
          }
@@ -512,12 +516,13 @@ void TGView::ScrollCanvas(Int_t new_top, Int_t direction)
       points[0].fY = points[1].fY = 0;
       points[2].fY = points[3].fY = fCanvas->GetHeight();
       ysrc = ydest = 0;
-      cpyheight = 0;
 
       if (new_top < fVisible.fX) {
          xsrc = 0;
          xdest = Int_t(fVisible.fX - new_top);
+#ifndef R__HAS_COCOA
          cpywidth = xdest;
+#endif
          if (xdest < 0) {
             xdest = fCanvas->GetWidth();
          }
@@ -526,7 +531,9 @@ void TGView::ScrollCanvas(Int_t new_top, Int_t direction)
       } else {
          xdest = 0;
          xsrc =  Int_t(new_top - fVisible.fX);
+#ifndef R__HAS_COCOA
          cpywidth = xsrc;
+#endif
          if (xsrc > (Int_t)fCanvas->GetWidth()) {
             xsrc = fCanvas->GetWidth();
          }

@@ -111,7 +111,7 @@ public:
       Instantiate(new ROOT::Math::WrappedFunction<const KernelFunction&>(kernfunc), events, data, dataWeight, xMin, xMax, option, rho);
    }
 
-   virtual ~TKDE();
+   ~TKDE() override;
 
    void Fill(Double_t data);
    void Fill(Double_t data, Double_t weight);
@@ -124,10 +124,10 @@ public:
    void SetTuneFactor(Double_t rho);
    void SetRange(Double_t xMin, Double_t xMax); ///< By default computed from the data
 
-   virtual void Draw(const Option_t* option = "");
+   void Draw(const Option_t* option = "") override;
 
    Double_t operator()(Double_t x) const;
-   Double_t operator()(const Double_t* x, const Double_t* p=0) const;  // Needed for creating TF1
+   Double_t operator()(const Double_t* x, const Double_t* p = nullptr) const;  // Needed for creating TF1
 
    Double_t GetValue(Double_t x) const { return (*this)(x); }
    Double_t GetError(Double_t x) const;
@@ -177,8 +177,8 @@ public:
 
 private:
 
-   TKDE(TKDE& kde);           // Disallowed copy constructor
-   TKDE operator=(TKDE& kde); // Disallowed assign operator
+   TKDE(TKDE& kde) = delete;
+   TKDE operator=(TKDE& kde) = delete;
 
    // Kernel function pointer. It is managed by class for internal kernels or externally for user defined kernels
    typedef ROOT::Math::IBaseFunctionOneDim* KernelFunction_Ptr;
@@ -190,11 +190,11 @@ private:
    std::vector<Double_t> fEvents;       ///< Original data storage
    std::vector<Double_t> fEventWeights; ///< Original data weights
 
-   TF1* fPDF;             //! Output Kernel Density Estimation PDF function
-   TF1* fUpperPDF;        //! Output Kernel Density Estimation upper confidence interval PDF function
-   TF1* fLowerPDF;        //! Output Kernel Density Estimation lower confidence interval PDF function
-   TF1* fApproximateBias; //! Output Kernel Density Estimation approximate bias
-   TGraphErrors* fGraph;  //! Graph with the errors
+   TF1* fPDF;             ///<! Output Kernel Density Estimation PDF function
+   TF1* fUpperPDF;        ///<! Output Kernel Density Estimation upper confidence interval PDF function
+   TF1* fLowerPDF;        ///<! Output Kernel Density Estimation lower confidence interval PDF function
+   TF1* fApproximateBias; ///<! Output Kernel Density Estimation approximate bias
+   TGraphErrors* fGraph;  ///<! Graph with the errors
 
    EKernelType fKernelType;
    EIteration fIteration;
@@ -279,7 +279,7 @@ private:
    void SetMean();
    void SetSigma(Double_t R);
    void SetKernel();
-   void SetKernelFunction(KernelFunction_Ptr kernfunc = 0);
+   void SetKernelFunction(KernelFunction_Ptr kernfunc = nullptr);
    void SetOptions(const Option_t* option, Double_t rho);
    void CheckOptions(Bool_t isUserDefinedKernel = kFALSE);
    void GetOptions(std::string optionType, std::string option);
@@ -298,7 +298,7 @@ private:
    TF1* GetPDFUpperConfidenceInterval(Double_t confidenceLevel = 0.95, UInt_t npx = 100, Double_t xMin = 1.0, Double_t xMax = 0.0);
    TF1* GetPDFLowerConfidenceInterval(Double_t confidenceLevel = 0.95, UInt_t npx = 100, Double_t xMin = 1.0, Double_t xMax = 0.0);
 
-   ClassDef(TKDE, 3) // One dimensional semi-parametric Kernel Density Estimation
+   ClassDefOverride(TKDE, 3) // One dimensional semi-parametric Kernel Density Estimation
 
 };
 

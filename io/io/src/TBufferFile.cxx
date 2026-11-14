@@ -12,14 +12,16 @@
 /**
 \file TBufferFile.cxx
 \class TBufferFile
-\ingroup IO
+\ingroup io_other
 
 The concrete implementation of TBuffer for writing/reading to/from a ROOT file or socket.
 */
 
-#include <string.h>
+#include <cstring>
 #include <typeinfo>
 #include <string>
+#include <limits>
+#include <cassert>
 
 #include "TFile.h"
 #include "TBufferFile.h"
@@ -54,7 +56,6 @@ const Version_t kMaxVersion     = 0x3FFF;      // highest possible version numbe
 const Int_t  kMapOffset         = 2;   // first 2 map entries are taken by null obj and self obj
 
 
-ClassImp(TBufferFile);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Thread-safe check on StreamerInfos of a TClass
@@ -83,8 +84,8 @@ TBufferFile::TBufferFile(TBuffer::EMode mode)
 /// Create an I/O buffer object. Mode should be either TBuffer::kRead or
 /// TBuffer::kWrite.
 
-TBufferFile::TBufferFile(TBuffer::EMode mode, Int_t bufsiz)
-            :TBufferIO(mode,bufsiz),
+TBufferFile::TBufferFile(TBuffer::EMode mode, Int_t bufsize)
+            :TBufferIO(mode,bufsize),
              fInfo(nullptr), fInfoStack()
 {
 }
@@ -100,8 +101,8 @@ TBufferFile::TBufferFile(TBuffer::EMode mode, Int_t bufsiz)
 /// is provided, a Fatal error will be issued if the Buffer attempts to
 /// expand.
 
-TBufferFile::TBufferFile(TBuffer::EMode mode, Int_t bufsiz, void *buf, Bool_t adopt, ReAllocCharFun_t reallocfunc) :
-   TBufferIO(mode,bufsiz,buf,adopt,reallocfunc),
+TBufferFile::TBufferFile(TBuffer::EMode mode, Int_t bufsize, void *buf, Bool_t adopt, ReAllocCharFun_t reallocfunc) :
+   TBufferIO(mode,bufsize,buf,adopt,reallocfunc),
    fInfo(nullptr), fInfoStack()
 {
 }
@@ -196,7 +197,7 @@ void TBufferFile::ReadTString(TString &s)
       else
          nbig = nwh;
 
-      s.Clobber(nbig);
+      nbig = s.Clobber(nbig); // update length since Clobber clamps to MaxSize (if Fatal does not abort)
       char *data = s.GetPointer();
       data[nbig] = 0;
       s.SetSize(nbig);
@@ -289,6 +290,10 @@ void TBufferFile::ReadCharStar(char* &s)
    Int_t nch;
    *this >> nch;
    if (nch > 0) {
+      if (nch == std::numeric_limits<Int_t>::max()) {
+         Error("ReadCharStar", "Cannot allocate buffer: maximum capacity exceeded (%d bytes)!", std::numeric_limits<Int_t>::max());
+         return;
+      }
       s = new char[nch+1];
       ReadFastArray(s, nch);
       s[nch] = 0;
@@ -314,10 +319,15 @@ void TBufferFile::WriteCharStar(char *s)
 ////////////////////////////////////////////////////////////////////////////////
 /// Set byte count at position cntpos in the buffer. Generate warning if
 /// count larger than kMaxMapCount. The count is excluded its own size.
+/// \note If underflow or overflow, an Error ir raised (stricter checks in Debug mode)
 
 void TBufferFile::SetByteCount(UInt_t cntpos, Bool_t packInVersion)
 {
-   UInt_t cnt = UInt_t(fBufCur - fBuffer) - cntpos - sizeof(UInt_t);
+   assert( (sizeof(UInt_t) + cntpos) <  static_cast<UInt_t>(fBufCur - fBuffer)
+        && (fBufCur >= fBuffer)
+        && static_cast<ULong64_t>(fBufCur - fBuffer) <= std::numeric_limits<UInt_t>::max()
+        && "Byte count position is after the end of the buffer");
+   const UInt_t cnt = UInt_t(fBufCur - fBuffer) - cntpos - sizeof(UInt_t);
    char  *buf = (char *)(fBuffer + cntpos);
 
    // if true, pack byte count in two consecutive shorts, so it can
@@ -429,8 +439,14 @@ Int_t TBufferFile::CheckByteCount(UInt_t startpos, UInt_t bcnt, const char *clas
 /// Read a Float16_t from the buffer,
 /// see comments about Float16_t encoding at TBufferFile::WriteFloat16().
 
-void TBufferFile::ReadFloat16(Float_t *f, TStreamerElement *ele)
+void TBufferFile::ReadFloat16(Float_t *f, TStreamerElement *elem)
 {
+   // The parameter should be const, however we have not yet decided how to
+   // transition the signature since the function is virtual.  This ensures
+   // that the function does not inadvertently use non-const parts of
+   // TStreamerElement.
+   const TStreamerElement *ele = elem;
+
    if (ele && ele->GetFactor() != 0) {
       ReadWithFactor(f, ele->GetFactor(), ele->GetXmin());
    } else {
@@ -445,8 +461,14 @@ void TBufferFile::ReadFloat16(Float_t *f, TStreamerElement *ele)
 /// Read a Double32_t from the buffer,
 /// see comments about Double32_t encoding at TBufferFile::WriteDouble32().
 
-void TBufferFile::ReadDouble32(Double_t *d, TStreamerElement *ele)
+void TBufferFile::ReadDouble32(Double_t *d, TStreamerElement *elem)
 {
+   // The parameter should be const, however we have not yet decided how to
+   // transition the signature since the function is virtual.  This ensures
+   // that the function does not inadvertently use non-const parts of
+   // TStreamerElement.
+   const TStreamerElement *ele = elem;
+
    if (ele && ele->GetFactor() != 0) {
       ReadWithFactor(d, ele->GetFactor(), ele->GetXmin());
    } else {
@@ -555,6 +577,7 @@ void TBufferFile::ReadWithNbits(Double_t *ptr, Int_t nbits)
 ///   - In case F the fNsp elements of array fPointvalue are converted to an unsigned 32 bit integer
 /// Note that the range specifier must follow the dimension specifier.
 /// Case B has more precision (9 to 10 significative digits than case A (6 to 7 digits).
+/// In Case A and E, the exponent is stored as is (8 bits), for a total of 21 bits (including 1 bit for sign)
 ///
 /// The range specifier has the general format: [xmin,xmax] or [xmin,xmax,nbits]
 ///   - [0,1];
@@ -581,13 +604,18 @@ void TBufferFile::ReadWithNbits(Double_t *ptr, Int_t nbits)
 /// It is important to understand the difference with the meaning of nbits
 ///   - in case of [-1,1,nbits], nbits is the total number of bits used to make
 /// the conversion from a float to an integer
-///   - in case of [0,0,nbits], nbits is the number of bits used for the mantissa
+///   - in case of [0,0,nbits], nbits is the number of bits used for the mantissa, to which is added 8 bits for the exponent.
 ///
-///  See example of use of the Float16_t data type in tutorial double32.C
+///  See example of use of the Float16_t data type in tutorial float16.C
 ///  \image html tbufferfile_double32.gif
 
-void TBufferFile::WriteFloat16(Float_t *f, TStreamerElement *ele)
+void TBufferFile::WriteFloat16(Float_t *f, TStreamerElement *elem)
 {
+   // The parameter should be const, however we have not yet decided how to
+   // transition the signature since the function is virtual.  This ensures
+   // that the function does not inadvertently use non-const parts of
+   // TStreamerElement.
+   const TStreamerElement *ele = elem;
 
    if (ele && ele->GetFactor() != 0) {
       //A range is specified. We normalize the double to the range and
@@ -650,8 +678,13 @@ void TBufferFile::WriteFloat16(Float_t *f, TStreamerElement *ele)
 ///  see example of use of the Double32_t data type in tutorial double32.C
 ///  \image html tbufferfile_double32.gif
 
-void TBufferFile::WriteDouble32(Double_t *d, TStreamerElement *ele)
+void TBufferFile::WriteDouble32(Double_t *d, TStreamerElement *elem)
 {
+   // The parameter should be const, however we have not yet decided how to
+   // transition the signature since the function is virtual.  This ensures
+   // that the function does not inadvertently use non-const parts of
+   // TStreamerElement.
+   const TStreamerElement *ele = elem;
 
    if (ele && ele->GetFactor() != 0) {
       //A range is specified. We normalize the double to the range and
@@ -704,7 +737,7 @@ Int_t TBufferFile::ReadArray(Bool_t *&b)
    Int_t n;
    *this >> n;
 
-   if (n <= 0 || n > fBufSize) return 0;
+   if (ShouldNotReadCollection(n)) return 0;
 
    if (!b) b = new Bool_t[n];
 
@@ -733,7 +766,7 @@ Int_t TBufferFile::ReadArray(Char_t *&c)
    *this >> n;
    Int_t l = sizeof(Char_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!c) c = new Char_t[n];
 
@@ -756,7 +789,7 @@ Int_t TBufferFile::ReadArray(Short_t *&h)
    *this >> n;
    Int_t l = sizeof(Short_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!h) h = new Short_t[n];
 
@@ -789,7 +822,7 @@ Int_t TBufferFile::ReadArray(Int_t *&ii)
    *this >> n;
    Int_t l = sizeof(Int_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!ii) ii = new Int_t[n];
 
@@ -822,7 +855,7 @@ Int_t TBufferFile::ReadArray(Long_t *&ll)
    *this >> n;
    Int_t l = sizeof(Long_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!ll) ll = new Long_t[n];
 
@@ -848,7 +881,7 @@ Int_t TBufferFile::ReadArray(Long64_t *&ll)
    *this >> n;
    Int_t l = sizeof(Long64_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!ll) ll = new Long64_t[n];
 
@@ -876,7 +909,7 @@ Int_t TBufferFile::ReadArray(Float_t *&f)
    *this >> n;
    Int_t l = sizeof(Float_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!f) f = new Float_t[n];
 
@@ -909,7 +942,7 @@ Int_t TBufferFile::ReadArray(Double_t *&d)
    *this >> n;
    Int_t l = sizeof(Double_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!d) d = new Double_t[n];
 
@@ -937,7 +970,7 @@ Int_t TBufferFile::ReadArrayFloat16(Float_t *&f, TStreamerElement *ele)
    Int_t n;
    *this >> n;
 
-   if (n <= 0 || 3*n > fBufSize) return 0;
+   if (ShouldNotReadCollection(3*n, n)) return 0;
 
    if (!f) f = new Float_t[n];
 
@@ -959,7 +992,7 @@ Int_t TBufferFile::ReadArrayDouble32(Double_t *&d, TStreamerElement *ele)
    Int_t n;
    *this >> n;
 
-   if (n <= 0 || 3*n > fBufSize) return 0;
+   if (ShouldNotReadCollection(3*n, n)) return 0;
 
    if (!d) d = new Double_t[n];
 
@@ -979,7 +1012,7 @@ Int_t TBufferFile::ReadStaticArray(Bool_t *b)
    Int_t n;
    *this >> n;
 
-   if (n <= 0 || n > fBufSize) return 0;
+   if (ShouldNotReadCollection(n)) return 0;
 
    if (!b) return 0;
 
@@ -1007,7 +1040,7 @@ Int_t TBufferFile::ReadStaticArray(Char_t *c)
    *this >> n;
    Int_t l = sizeof(Char_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!c) return 0;
 
@@ -1029,7 +1062,7 @@ Int_t TBufferFile::ReadStaticArray(Short_t *h)
    *this >> n;
    Int_t l = sizeof(Short_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!h) return 0;
 
@@ -1061,7 +1094,7 @@ Int_t TBufferFile::ReadStaticArray(Int_t *ii)
    *this >> n;
    Int_t l = sizeof(Int_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!ii) return 0;
 
@@ -1093,7 +1126,7 @@ Int_t TBufferFile::ReadStaticArray(Long_t *ll)
    *this >> n;
    Int_t l = sizeof(Long_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!ll) return 0;
 
@@ -1118,7 +1151,7 @@ Int_t TBufferFile::ReadStaticArray(Long64_t *ll)
    *this >> n;
    Int_t l = sizeof(Long64_t)*n;
 
-   if (l <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!ll) return 0;
 
@@ -1145,7 +1178,7 @@ Int_t TBufferFile::ReadStaticArray(Float_t *f)
    *this >> n;
    Int_t l = sizeof(Float_t)*n;
 
-   if (n <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!f) return 0;
 
@@ -1177,7 +1210,7 @@ Int_t TBufferFile::ReadStaticArray(Double_t *d)
    *this >> n;
    Int_t l = sizeof(Double_t)*n;
 
-   if (n <= 0 || l > fBufSize) return 0;
+   if (ShouldNotReadCollection(l, n)) return 0;
 
    if (!d) return 0;
 
@@ -1204,7 +1237,7 @@ Int_t TBufferFile::ReadStaticArrayFloat16(Float_t *f, TStreamerElement *ele)
    Int_t n;
    *this >> n;
 
-   if (n <= 0 || 3*n > fBufSize) return 0;
+   if (ShouldNotReadCollection(3*n, n)) return 0;
 
    if (!f) return 0;
 
@@ -1225,7 +1258,7 @@ Int_t TBufferFile::ReadStaticArrayDouble32(Double_t *d, TStreamerElement *ele)
    Int_t n;
    *this >> n;
 
-   if (n <= 0 || 3*n > fBufSize) return 0;
+   if (ShouldNotReadCollection(3*n, n)) return 0;
 
    if (!d) return 0;
 
@@ -1239,7 +1272,7 @@ Int_t TBufferFile::ReadStaticArrayDouble32(Double_t *d, TStreamerElement *ele)
 
 void TBufferFile::ReadFastArray(Bool_t *b, Int_t n)
 {
-   if (n <= 0 || n > fBufSize) return;
+   if (ShouldNotReadCollection(n)) return;
 
    if (sizeof(Bool_t) > 1) {
       for (int i = 0; i < n; i++)
@@ -1256,7 +1289,7 @@ void TBufferFile::ReadFastArray(Bool_t *b, Int_t n)
 
 void TBufferFile::ReadFastArray(Char_t *c, Int_t n)
 {
-   if (n <= 0 || n > fBufSize) return;
+   if (ShouldNotReadCollection(n)) return;
 
    Int_t l = sizeof(Char_t)*n;
    memcpy(c, fBufCur, l);
@@ -1277,7 +1310,7 @@ void TBufferFile::ReadFastArrayString(Char_t *c, Int_t n)
       *this >> len;
    }
    if (len) {
-      if (len <= 0 || len > fBufSize) return;
+      if (ShouldNotReadCollection(len)) return;
       Int_t blen = len;
       if (len >= n) len = n-1;
 
@@ -1297,7 +1330,7 @@ void TBufferFile::ReadFastArrayString(Char_t *c, Int_t n)
 void TBufferFile::ReadFastArray(Short_t *h, Int_t n)
 {
    Int_t l = sizeof(Short_t)*n;
-   if (n <= 0 || l > fBufSize) return;
+   if (ShouldNotReadCollection(l, n)) return;
 
 #ifdef R__BYTESWAP
 # ifdef USE_BSWAPCPY
@@ -1319,7 +1352,7 @@ void TBufferFile::ReadFastArray(Short_t *h, Int_t n)
 void TBufferFile::ReadFastArray(Int_t *ii, Int_t n)
 {
    Int_t l = sizeof(Int_t)*n;
-   if (l <= 0 || l > fBufSize) return;
+   if (ShouldNotReadCollection(l, n)) return;
 
 #ifdef R__BYTESWAP
 # ifdef USE_BSWAPCPY
@@ -1341,7 +1374,7 @@ void TBufferFile::ReadFastArray(Int_t *ii, Int_t n)
 void TBufferFile::ReadFastArray(Long_t *ll, Int_t n)
 {
    Int_t l = sizeof(Long_t)*n;
-   if (l <= 0 || l > fBufSize) return;
+   if (ShouldNotReadCollection(l, n)) return;
 
    TFile *file = (TFile*)fParent;
    if (file && file->GetVersion() < 30006) {
@@ -1357,7 +1390,7 @@ void TBufferFile::ReadFastArray(Long_t *ll, Int_t n)
 void TBufferFile::ReadFastArray(Long64_t *ll, Int_t n)
 {
    Int_t l = sizeof(Long64_t)*n;
-   if (l <= 0 || l > fBufSize) return;
+   if (ShouldNotReadCollection(l, n)) return;
 
 #ifdef R__BYTESWAP
    for (int i = 0; i < n; i++)
@@ -1374,7 +1407,7 @@ void TBufferFile::ReadFastArray(Long64_t *ll, Int_t n)
 void TBufferFile::ReadFastArray(Float_t *f, Int_t n)
 {
    Int_t l = sizeof(Float_t)*n;
-   if (l <= 0 || l > fBufSize) return;
+   if (ShouldNotReadCollection(l, n)) return;
 
 #ifdef R__BYTESWAP
 # ifdef USE_BSWAPCPY
@@ -1396,7 +1429,7 @@ void TBufferFile::ReadFastArray(Float_t *f, Int_t n)
 void TBufferFile::ReadFastArray(Double_t *d, Int_t n)
 {
    Int_t l = sizeof(Double_t)*n;
-   if (l <= 0 || l > fBufSize) return;
+   if (ShouldNotReadCollection(l, n)) return;
 
 #ifdef R__BYTESWAP
    for (int i = 0; i < n; i++)
@@ -1411,9 +1444,15 @@ void TBufferFile::ReadFastArray(Double_t *d, Int_t n)
 /// Read array of n floats (written as truncated float) from the I/O buffer.
 /// see comments about Float16_t encoding at TBufferFile::WriteFloat16
 
-void TBufferFile::ReadFastArrayFloat16(Float_t *f, Int_t n, TStreamerElement *ele)
+void TBufferFile::ReadFastArrayFloat16(Float_t *f, Int_t n, TStreamerElement *elem)
 {
-   if (n <= 0 || 3*n > fBufSize) return;
+   if (ShouldNotReadCollection(3*n, n)) return;
+
+   // The parameter should be const, however we have not yet decided how to
+   // transition the signature since the function is virtual.  This ensures
+   // that the function does not inadvertently use non-const parts of
+   // TStreamerElement.
+   const TStreamerElement *ele = elem;
 
    if (ele && ele->GetFactor() != 0) {
       //a range was specified. We read an integer and convert it back to a float
@@ -1453,7 +1492,7 @@ void TBufferFile::ReadFastArrayFloat16(Float_t *f, Int_t n, TStreamerElement *el
 
 void TBufferFile::ReadFastArrayWithFactor(Float_t *ptr, Int_t n, Double_t factor, Double_t minvalue)
 {
-   if (n <= 0 || 3*n > fBufSize) return;
+   if (ShouldNotReadCollection(3*n, n)) return;
 
    //a range was specified. We read an integer and convert it back to a float
    for (int j=0;j < n; j++) {
@@ -1467,7 +1506,7 @@ void TBufferFile::ReadFastArrayWithFactor(Float_t *ptr, Int_t n, Double_t factor
 
 void TBufferFile::ReadFastArrayWithNbits(Float_t *ptr, Int_t n, Int_t nbits)
 {
-   if (n <= 0 || 3*n > fBufSize) return;
+   if (ShouldNotReadCollection(3*n, n)) return;
 
    if (!nbits) nbits = 12;
    //we read the exponent and the truncated mantissa of the float
@@ -1493,9 +1532,14 @@ void TBufferFile::ReadFastArrayWithNbits(Float_t *ptr, Int_t n, Int_t nbits)
 /// Read array of n doubles (written as float) from the I/O buffer.
 /// see comments about Double32_t encoding at TBufferFile::WriteDouble32
 
-void TBufferFile::ReadFastArrayDouble32(Double_t *d, Int_t n, TStreamerElement *ele)
+void TBufferFile::ReadFastArrayDouble32(Double_t *d, Int_t n, TStreamerElement *elem)
 {
-   if (n <= 0 || 3*n > fBufSize) return;
+   // The parameter should be const, however we have not yet decided how to
+   // transition the signature since the function is virtual.  This ensures
+   // that the function does not inadvertently use non-const parts of
+   // TStreamerElement.
+   const TStreamerElement *ele = elem;
+   if (ShouldNotReadCollection(3*n, n)) return;
 
    if (ele && ele->GetFactor() != 0) {
       //a range was specified. We read an integer and convert it back to a double.
@@ -1543,7 +1587,7 @@ void TBufferFile::ReadFastArrayDouble32(Double_t *d, Int_t n, TStreamerElement *
 
 void TBufferFile::ReadFastArrayWithFactor(Double_t *d, Int_t n, Double_t factor, Double_t minvalue)
 {
-   if (n <= 0 || 3*n > fBufSize) return;
+   if (ShouldNotReadCollection(3*n, n)) return;
 
    //a range was specified. We read an integer and convert it back to a double.
    for (int j=0;j < n; j++) {
@@ -1557,7 +1601,7 @@ void TBufferFile::ReadFastArrayWithFactor(Double_t *d, Int_t n, Double_t factor,
 
 void TBufferFile::ReadFastArrayWithNbits(Double_t *d, Int_t n, Int_t nbits)
 {
-   if (n <= 0 || 3*n > fBufSize) return;
+   if (ShouldNotReadCollection(3*n, n)) return;
 
    if (!nbits) {
       //we read a float and convert it to double
@@ -1656,7 +1700,7 @@ void TBufferFile::ReadFastArray(void **start, const TClass *cl, Int_t n,
              // is indeed pointing to the same object as the object the user set up
              // in the default constructor).
              ) {
-            ((TClass*)cl)->Destructor(old,kFALSE); // call delete and desctructor
+            ((TClass*)cl)->Destructor(old,kFALSE); // call delete and destructor
          }
       }
 
@@ -1936,10 +1980,19 @@ void TBufferFile::WriteArrayDouble32(const Double_t *d, Int_t n, TStreamerElemen
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n bools into the I/O buffer.
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(const Bool_t *b, Int_t n)
+void TBufferFile::WriteFastArray(const Bool_t *b, Long64_t n)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = static_cast<Int_t>(sizeof(UChar_t));
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = sizeof(UChar_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -1955,10 +2008,19 @@ void TBufferFile::WriteFastArray(const Bool_t *b, Int_t n)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n characters into the I/O buffer.
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(const Char_t *c, Int_t n)
+void TBufferFile::WriteFastArray(const Char_t *c, Long64_t n)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = static_cast<Int_t>(sizeof(Char_t));
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = sizeof(Char_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -1969,17 +2031,26 @@ void TBufferFile::WriteFastArray(const Char_t *c, Int_t n)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n characters into the I/O buffer.
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArrayString(const Char_t *c, Int_t n)
+void TBufferFile::WriteFastArrayString(const Char_t *c, Long64_t n)
 {
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = static_cast<Int_t>(sizeof(Char_t));
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
+
    if (n < 255) {
       *this << (UChar_t)n;
    } else {
       *this << (UChar_t)255;
-      *this << n;
+      *this << (Int_t)n;
    }
-
-   if (n <= 0) return;
 
    Int_t l = sizeof(Char_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -1990,10 +2061,19 @@ void TBufferFile::WriteFastArrayString(const Char_t *c, Int_t n)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n shorts into the I/O buffer.
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(const Short_t *h, Int_t n)
+void TBufferFile::WriteFastArray(const Short_t *h, Long64_t n)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = static_cast<Int_t>(sizeof(Short_t));
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = sizeof(Short_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -2014,10 +2094,19 @@ void TBufferFile::WriteFastArray(const Short_t *h, Int_t n)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n ints into the I/O buffer.
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(const Int_t *ii, Int_t n)
+void TBufferFile::WriteFastArray(const Int_t *ii, Long64_t n)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = 4;
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = sizeof(Int_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -2037,11 +2126,20 @@ void TBufferFile::WriteFastArray(const Int_t *ii, Int_t n)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Write array of n longs into the I/O buffer.
+/// Write array of n longs into the I/O buffer with 8-byte width.
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(const Long_t *ll, Int_t n)
+void TBufferFile::WriteFastArray(const Long_t *ll, Long64_t n)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = 8;
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = 8*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -2050,13 +2148,22 @@ void TBufferFile::WriteFastArray(const Long_t *ll, Int_t n)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Write array of n unsigned longs into the I/O buffer.
+/// Write array of n unsigned longs into the I/O buffer with 8-byte width.
 /// This is an explicit case for unsigned longs since signed longs
 /// have a special tobuf().
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(const ULong_t *ll, Int_t n)
+void TBufferFile::WriteFastArray(const ULong_t *ll, Long64_t n)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = 8;
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = 8*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -2066,10 +2173,19 @@ void TBufferFile::WriteFastArray(const ULong_t *ll, Int_t n)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n long longs into the I/O buffer.
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(const Long64_t *ll, Int_t n)
+void TBufferFile::WriteFastArray(const Long64_t *ll, Long64_t n)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = static_cast<Int_t>(sizeof(Long64_t));
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = sizeof(Long64_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -2085,10 +2201,19 @@ void TBufferFile::WriteFastArray(const Long64_t *ll, Int_t n)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n floats into the I/O buffer.
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(const Float_t *f, Int_t n)
+void TBufferFile::WriteFastArray(const Float_t *f, Long64_t n)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = static_cast<Int_t>(sizeof(Float_t));
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = sizeof(Float_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -2109,10 +2234,19 @@ void TBufferFile::WriteFastArray(const Float_t *f, Int_t n)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n doubles into the I/O buffer.
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(const Double_t *d, Int_t n)
+void TBufferFile::WriteFastArray(const Double_t *d, Long64_t n)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   constexpr Int_t dataWidth = static_cast<Int_t>(sizeof(Double_t));
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = sizeof(Double_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -2129,10 +2263,25 @@ void TBufferFile::WriteFastArray(const Double_t *d, Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n floats (as truncated float) into the I/O buffer.
 /// see comments about Float16_t encoding at TBufferFile::WriteFloat16
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArrayFloat16(const Float_t *f, Int_t n, TStreamerElement *ele)
+void TBufferFile::WriteFastArrayFloat16(const Float_t *f, Long64_t n, TStreamerElement *elem)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   // The parameter should be const, however we have not yet decided how to
+   // transition the signature since the function is virtual.  This ensures
+   // that the function does not inadvertently use non-const parts of
+   // TStreamerElement.
+   const TStreamerElement *ele = elem;
+
+   constexpr Int_t dataWidth = static_cast<Int_t>(sizeof(Float_t));
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = sizeof(Float_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -2180,10 +2329,25 @@ void TBufferFile::WriteFastArrayFloat16(const Float_t *f, Int_t n, TStreamerElem
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of n doubles (as float) into the I/O buffer.
 /// see comments about Double32_t encoding at TBufferFile::WriteDouble32
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArrayDouble32(const Double_t *d, Int_t n, TStreamerElement *ele)
+void TBufferFile::WriteFastArrayDouble32(const Double_t *d, Long64_t n, TStreamerElement *elem)
 {
-   if (n <= 0) return;
+   if (n == 0) return;
+
+   // The parameter should be const, however we have not yet decided how to
+   // transition the signature since the function is virtual.  This ensures
+   // that the function does not inadvertently use non-const parts of
+   // TStreamerElement.
+   const TStreamerElement *ele = elem;
+
+   constexpr Int_t dataWidth = static_cast<Int_t>(sizeof(Float_t));
+   const Int_t maxElements = (std::numeric_limits<Int_t>::max() - Length())/dataWidth;
+   if (n < 0 || n > maxElements)
+   {
+      Fatal("WriteFastArray", "Not enough space left in the buffer (1GB limit). %lld elements is greater than the max left of %d", n, maxElements);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
 
    Int_t l = sizeof(Float_t)*n;
    if (fBufCur + l > fBufMax) AutoExpand(fBufSize+l);
@@ -2238,8 +2402,9 @@ void TBufferFile::WriteFastArrayDouble32(const Double_t *d, Int_t n, TStreamerEl
 ////////////////////////////////////////////////////////////////////////////////
 /// Write an array of object starting at the address 'start' and of length 'n'
 /// the objects in the array are assumed to be of class 'cl'
+/// \note Due to the current limit of the buffer size, the function aborts execution of the program in case of underflow or overflow. See https://github.com/root-project/root/issues/6734 for more details.
 
-void TBufferFile::WriteFastArray(void  *start, const TClass *cl, Int_t n,
+void TBufferFile::WriteFastArray(void  *start, const TClass *cl, Long64_t n,
                                  TMemberStreamer *streamer)
 {
    if (streamer) {
@@ -2249,6 +2414,11 @@ void TBufferFile::WriteFastArray(void  *start, const TClass *cl, Int_t n,
 
    char *obj = (char*)start;
    if (!n) n=1;
+   else if (n < 0)
+   {
+      Fatal("WriteFastArray", "Negative number of elements %lld", n);
+      return; // In case the user re-routes the error handler to not die when Fatal is called
+   }
    int size = cl->Size();
 
    for(Int_t j=0; j<n; j++,obj+=size) {
@@ -2263,8 +2433,9 @@ void TBufferFile::WriteFastArray(void  *start, const TClass *cl, Int_t n,
 /// Return:
 ///   - 0: success
 ///   - 2: truncated success (i.e actual class is missing. Only ptrClass saved.)
+///   - -1: underflow, operation skipped
 
-Int_t TBufferFile::WriteFastArray(void **start, const TClass *cl, Int_t n,
+Int_t TBufferFile::WriteFastArray(void **start, const TClass *cl, Long64_t n,
                                   Bool_t isPreAlloc, TMemberStreamer *streamer)
 {
    // if isPreAlloc is true (data member has a ->) we can assume that the pointer
@@ -2274,7 +2445,7 @@ Int_t TBufferFile::WriteFastArray(void **start, const TClass *cl, Int_t n,
       (*streamer)(*this,(void*)start,0);
       return 0;
    }
-
+   if (n < 0) return -1;
    int strInfo = 0;
 
    Int_t res = 0;
@@ -2378,7 +2549,9 @@ void *TBufferFile::ReadObjectAny(const TClass *clCast)
          }
          baseOffset = 0; // For now we do not support requesting from a class that is the base of one of the class for which there is transformation to ....
 
-         Info("ReadObjectAny","Using Converter StreamerInfo from %s to %s",clRef->GetName(),clCast->GetName());
+         if (gDebug > 0)
+            Info("ReadObjectAny","Using Converter StreamerInfo from %s to %s",clRef->GetName(),clCast->GetName());
+         clOnfile = clRef;
          clRef = const_cast<TClass*>(clCast);
 
       }
@@ -2491,7 +2664,7 @@ void TBufferFile::WriteObjectClass(const void *actualObjectStart, const TClass *
 
    if (!actualObjectStart) {
 
-      // save kNullTag to represent NULL pointer
+      // save kNullTag to represent nullptr pointer
       *this << (UInt_t) kNullTag;
 
    } else {
@@ -2631,7 +2804,7 @@ TClass *TBufferFile::ReadClass(const TClass *clReq, UInt_t *objTag)
         !(clReq->GetSchemaRules() &&
           clReq->GetSchemaRules()->HasRuleWithSourceClass(cl->GetName()) )
         ) ) {
-      Error("ReadClass", "The on-file class is \"'%s\" which is not compatible with the requested class: \"%s\"",
+      Error("ReadClass", "The on-file class is \"%s\" which is not compatible with the requested class: \"%s\"",
             cl->GetName(), clReq->GetName());
       // exception
    }
@@ -2793,9 +2966,12 @@ Version_t TBufferFile::ReadVersion(UInt_t *startpos, UInt_t *bcnt, const TClass 
    if (version<=1) {
       if (version <= 0)  {
          if (cl) {
-            if (cl->GetClassVersion() != 0
+            auto clversion = cl->GetClassVersion();
+            if ((clversion != 0
                 // If v.cnt < 6 then we have a class with a version that used to be zero and so there is no checksum.
-                && (v.cnt && v.cnt >= 6)
+                 && (v.cnt && v.cnt >= 6)) ||
+                // ::WriteVersion for a foreign class (no ClassDef) but defining Class_Version() { return 0; } does write checksum.
+                (clversion == 0 && version == 0 && cl->IsForeign())
                 ) {
                UInt_t checksum = 0;
                //*this >> checksum;
@@ -2805,11 +2981,11 @@ Version_t TBufferFile::ReadVersion(UInt_t *startpos, UInt_t *bcnt, const TClass 
                   return vinfo->TStreamerInfo::GetClassVersion(); // Try to get inlining.
                } else {
                   // There are some cases (for example when the buffer was stored outside of
-                  // a ROOT file) where we do not have a TStreamerInfo.  If the checksum is
+                  // a ROOT file) where we do not have a TStreamerInfo. If the checksum is
                   // the one from the current class, we can still assume that we can read
                   // the data so let use it.
                   if (checksum==cl->GetCheckSum() || cl->MatchLegacyCheckSum(checksum)) {
-                     version = cl->GetClassVersion();
+                     version = clversion;
                   } else {
                      if (fParent) {
                         Error("ReadVersion", "Could not find the StreamerInfo with a checksum of 0x%x for the class \"%s\" in %s.",
@@ -3169,7 +3345,7 @@ Int_t TBufferFile::ReadBuf(void *buf, Int_t max)
 
    if (max == 0) return 0;
 
-   Int_t n = TMath::Min(max, (Int_t)(fBufMax - fBufCur));
+   Int_t n = std::min(max, (Int_t)(fBufMax - fBufCur));
 
    memcpy(buf, fBufCur, n);
    fBufCur += n;
@@ -3240,21 +3416,21 @@ Int_t TBufferFile::ReadClassEmulated(const TClass *cl, void *object, const TClas
    //We attempt to recover if a version count was not written
    Version_t v = ReadVersion(&start,&count);
 
-   if (count) {
-      TStreamerInfo *sinfo = nullptr;
-      if( onFileClass ) {
-         sinfo = (TStreamerInfo*)cl->GetConversionStreamerInfo( onFileClass, v );
-         if( !sinfo )
-            return 0;
-      }
-
+   TStreamerInfo *sinfo = nullptr;
+   if (onFileClass) {
+      sinfo = (TStreamerInfo *)cl->GetConversionStreamerInfo(onFileClass, v);
+      if (!sinfo)
+         return 0;
+   }
+   if (!sinfo)
       sinfo = (TStreamerInfo*)cl->GetStreamerInfo(v);
+
+   if (count) {
       ApplySequence(*(sinfo->GetReadObjectWiseActions()), object);
       if (sinfo->IsRecovered()) count=0;
       CheckByteCount(start,count,cl);
    } else {
       SetBufferOffset(start);
-      TStreamerInfo *sinfo = ((TStreamerInfo*)cl->GetStreamerInfo());
       ApplySequence(*(sinfo->GetReadObjectWiseActions()), object);
    }
    return 0;
@@ -3264,13 +3440,16 @@ Int_t TBufferFile::ReadClassEmulated(const TClass *cl, void *object, const TClas
 /// Deserialize information from a buffer into an object.
 ///
 /// Note: This function is called by the xxx::Streamer() functions in
-/// rootcint-generated dictionaries.
+/// rootcling-generated dictionaries.
 /// This function assumes that the class version and the byte count
 /// information have been read.
 ///
+/// \param[in] cl pointer to the local TClass
+/// \param[out] pointer void pointer to object
 /// \param[in] version The version number of the class
 /// \param[in] start   The starting position in the buffer b
 /// \param[in] count   The number of bytes for this object in the buffer
+/// \param[in] onFileClass pointer to TClass object on file
 ///
 
 Int_t TBufferFile::ReadClassBuffer(const TClass *cl, void *pointer, Int_t version, UInt_t start, UInt_t count, const TClass *onFileClass)
@@ -3363,7 +3542,7 @@ Int_t TBufferFile::ReadClassBuffer(const TClass *cl, void *pointer, Int_t versio
 /// Deserialize information from a buffer into an object.
 ///
 /// Note: This function is called by the xxx::Streamer()
-/// functions in rootcint-generated dictionaries.
+/// functions in rootcling-generated dictionaries.
 ///
 
 Int_t TBufferFile::ReadClassBuffer(const TClass *cl, void *pointer, const TClass *onFileClass)
@@ -3445,9 +3624,10 @@ Int_t TBufferFile::ReadClassBuffer(const TClass *cl, void *pointer, const TClass
             // (tracking) was not enabled.  So let's create the StreamerInfo if it is the
             // one for the current version, otherwise let's complain ...
             // We could also get here when reading a file prior to the introduction of StreamerInfo.
-            // We could also get here if there old class version was '1' and the new class version is higher than 1
+            // We could also get here if the old class version was '1' and the new class version is higher than 1
+            // We could also get here if the stored-in-file class version was '3' and the current-in-memory class version is not defined
             // AND the checksum is the same.
-            if (v2file || version == cl->GetClassVersion() || version == 1 ) {
+            if (v2file || version == cl->GetClassVersion() || version == 1 || (version > 0 && cl->GetClassVersion() == -1) ) {
                R__LOCKGUARD(gInterpreterMutex);
 
                // We need to check if another thread did not get here first
@@ -3516,6 +3696,8 @@ Int_t TBufferFile::WriteClassBuffer(const TClass *cl, void *pointer)
       //Have to be sure between the check and the taking of the lock if the current streamer has changed
       R__LOCKGUARD(gInterpreterMutex);
       sinfo = (TStreamerInfo*)const_cast<TClass*>(cl)->GetCurrentStreamerInfo();
+      if (sinfo == nullptr)
+         sinfo = (TStreamerInfo*)const_cast<TClass*>(cl)->GetStreamerInfo();
       if (sinfo == nullptr) {
          const_cast<TClass*>(cl)->BuildRealData(pointer);
          sinfo = new TStreamerInfo(const_cast<TClass*>(cl));
@@ -3613,7 +3795,7 @@ Int_t TBufferFile::ApplySequenceVecPtr(const TStreamerInfoActions::TActionSequen
 
 Int_t TBufferFile::ApplySequence(const TStreamerInfoActions::TActionSequence &sequence, void *start_collection, void *end_collection)
 {
-   TStreamerInfoActions::TLoopConfiguration *loopconfig = sequence.fLoopConfig;
+   TStreamerInfoActions::TLoopConfiguration *loopconfig = sequence.fLoopConfig.get();
    if (gDebug) {
 
       // Get the address of the first item for the PrintDebug.

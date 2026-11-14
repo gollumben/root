@@ -47,7 +47,15 @@ public:
       enum EStatusFlags {
          kIsObject    = BIT(0),    // member is object
          kIsTransient = BIT(1),    // data member is transient
+// clang++ <v20 (-Wshadow) complains about shadowing TDictionary.h global enum EProperty. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
          kIsPointer   = BIT(2),    // data member is a pointer
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
          kBitMask     = 0x000000ff
       };
 
@@ -56,7 +64,7 @@ public:
       TProtoRealData() : fOffset(0), fDMIndex(-1), fLevel(0), fClassIndex(-1), fStatusFlag(0) {}
       TProtoRealData(const TRealData *rd);
       virtual ~TProtoRealData();
-      TRealData *CreateRealData(TClass *currentClass, TClass *parent, TRealData * parentData, int prevLevel) const;
+      TRealData *CreateRealData(TClass *currentClass, TClass *parent, TRealData * parentData, int prevLevel, bool quiet) const;
 
       Bool_t TestFlag(UInt_t f) const { return (Bool_t) ((fStatusFlag & f) != 0); }
       void SetFlag(UInt_t f, Bool_t on = kTRUE) {
@@ -82,20 +90,21 @@ private:
    Long_t   fProperty;       // Class properties, see EProperties
    Long_t   fClassProperty;  // Class C++ properties, see EClassProperties
    Long_t   fOffsetStreamer; // Offset to streamer function
+   bool     fOwner = true;   ///<! True if owns its content, false if it got a reference to the TClass content.
 
    TProtoClass(const TProtoClass &) = delete;
    TProtoClass &operator=(const TProtoClass &) = delete;
 
-   const char * GetClassName(Int_t index) const { return (index >= 0) ? fDepClasses[index].Data() : 0; }
+   const char * GetClassName(Int_t index) const { return (index >= 0) ? fDepClasses[index].Data() : nullptr; }
 
    // compute index of data member in the list
    static Int_t DataMemberIndex(TClass * cl, const char * name);
    // find data member  given an index
-   static TDataMember * FindDataMember(TClass * cl,  Int_t index);
+   static TDataMember * FindDataMember(TClass * cl,  Int_t index, bool quiet);
 
 public:
    TProtoClass():
-      fBase(0), fEnums(0), fSizeof(0), fCheckSum(0), fCanSplit(0),
+      fBase(nullptr), fEnums(nullptr), fSizeof(0), fCheckSum(0), fCanSplit(0),
       fStreamerType(0), fProperty(0), fClassProperty(0),
       fOffsetStreamer(0) {
    }
@@ -105,10 +114,8 @@ public:
    virtual ~TProtoClass();
 
    Bool_t FillTClass(TClass *pcl);
-   const TList *GetListOfEnums() {
-      return fEnums;
-   };
-   void Delete(Option_t *opt = "");
+   const TList *GetListOfEnums() { return fEnums; };
+   void Delete(Option_t *opt = "") override;
 
    int GetSize() { return fSizeof; }
    TList * GetBaseList() { return fBase; }
@@ -118,8 +125,7 @@ public:
    std::vector<TDataMember *> & GetData() { return fData; }
    std::vector<TString> & GetDepClasses() { return fDepClasses; }
 
-
-   ClassDef(TProtoClass, 2); //Persistent TClass
+   ClassDefOverride(TProtoClass, 2); //Persistent TClass
 };
 
 #endif

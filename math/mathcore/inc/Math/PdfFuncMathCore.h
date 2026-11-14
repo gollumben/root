@@ -8,8 +8,6 @@
  *                                                                    *
  **********************************************************************/
 
-
-
 /**
 
 Probability density functions, cumulative distribution functions
@@ -23,15 +21,11 @@ user must calculate the shift themselves if they wish.
 
 MathCore provides the majority of the probability density functions, of the
 cumulative distributions and of the quantiles (inverses of the cumulatives).
-Additional distributions are also provided by the
-<A HREF="../../MathMore/html/group__StatFunc.html">MathMore</A> library.
+Additional distributions are also provided by the \ref MathMore library.
 
 
 @defgroup StatFunc Statistical functions
-
 @ingroup  MathCore
-@ingroup  MathMore
-
 */
 
 #ifndef ROOT_Math_PdfFuncMathCore
@@ -58,12 +52,11 @@ namespace Math {
    *
    */
 
-   /** @name Probability Density Functions from MathCore
-   *   Additional PDF's are provided in the MathMore library
-   *   (see PDF functions from MathMore)
-   */
+/** @name Probability Density Functions from MathCore
+ *   Additional PDFs are provided in the MathMore library when the GSL is available.
+ */
 
-  //@{
+//@{
 
   /**
 
@@ -386,9 +379,9 @@ namespace Math {
 
   /**
 
-  Probability density function of the normal (Gaussian) distribution.
+  Probability density function of the normal (Gaussian) distribution with mean x0 and standard deviation sigma.
 
-  \f[ p(x) = {1 \over \sqrt{2 \pi \sigma^2}} e^{-x^2 / 2\sigma^2} \f]
+  \f[ p(x) = {1 \over \sqrt{2 \pi \sigma^2}} e^{-(x-x_0)^2 / 2\sigma^2} \f]
 
   For detailed description see
   <A HREF="http://mathworld.wolfram.com/NormalDistribution.html">
@@ -402,21 +395,27 @@ namespace Math {
   inline double gaussian_pdf(double x, double sigma = 1, double x0 = 0) {
 
     double tmp = (x-x0)/sigma;
-    return (1.0/(std::sqrt(2 * M_PI) * std::fabs(sigma))) * std::exp(-tmp*tmp/2);
+    return (1.0/(std::sqrt(2 * M_PI) * std::abs(sigma))) * std::exp(-tmp*tmp/2);
   }
 
    /**
 
   Probability density function of the bi-dimensional (Gaussian) distribution.
 
-  \f[ p(x) = {1 \over 2 \pi \sigma_x \sigma_y \sqrt{1-\rho^2}} \exp (-(x^2/\sigma_x^2 + y^2/\sigma_y^2 - 2 \rho x y/(\sigma_x\sigma_y))/2(1-\rho^2)) \f]
+  \f[ p(x,y) = {1 \over 2 \pi \sigma_x \sigma_y \sqrt{1-\rho^2}} \exp (-((x-x0)^2/\sigma_x^2 + (y-y0)^2/\sigma_y^2 - 2 \rho x y/(\sigma_x\sigma_y))/2(1-\rho^2)) \f]
 
   For detailed description see
   <A HREF="http://mathworld.wolfram.com/BivariateNormalDistribution.html">
   Mathworld</A>. It can also be evaluated using #normal_pdf which will
   call the same implementation.
 
- @param rho correlation , must be between -1,1
+  @param x x variable
+  @param y y variable
+  @param sigmax the stdev in x
+  @param sigmay the stdev in y
+  @param rho correlation, must be between -1,1
+  @param x0 the offset in x
+  @param y0 the offset in y
 
   @ingroup PdfFunc
 
@@ -465,6 +464,8 @@ namespace Math {
   for x>0. For detailed description see
   <A HREF="http://mathworld.wolfram.com/LogNormalDistribution.html">
   Mathworld</A>.
+  @param x x variable
+  @param m M = 0 for lognormal
   @param s scale parameter (not the sigma of the distribution which is not even defined)
   @param x0  location parameter, corresponds approximately to the most probable value. For x0 = 0, sigma = 1, the x_mpv = -0.22278
 
@@ -477,7 +478,7 @@ namespace Math {
     if ((x-x0) <= 0)
       return 0.0;
     double tmp = (std::log((x-x0)) - m)/s;
-    return 1.0 / ((x-x0) * std::fabs(s) * std::sqrt(2 * M_PI)) * std::exp(-(tmp * tmp) /2);
+    return 1.0 / ((x-x0) * std::abs(s) * std::sqrt(2 * M_PI)) * std::exp(-(tmp * tmp) /2);
   }
 
 
@@ -485,9 +486,9 @@ namespace Math {
 
   /**
 
-  Probability density function of the normal (Gaussian) distribution.
+  Probability density function of the normal (Gaussian) distribution with mean x0 and standard deviation sigma.
 
-  \f[ p(x) = {1 \over \sqrt{2 \pi \sigma^2}} e^{-x^2 / 2\sigma^2} \f]
+  \f[ p(x) = {1 \over \sqrt{2 \pi \sigma^2}} e^{-(x-x_0)^2 / 2\sigma^2} \f]
 
   For detailed description see
   <A HREF="http://mathworld.wolfram.com/NormalDistribution.html">
@@ -502,7 +503,7 @@ namespace Math {
     // Inlined to enable clad-auto-derivation for this function.
 
     double tmp = (x-x0)/sigma;
-    return (1.0/(std::sqrt(2 * M_PI) * std::fabs(sigma))) * std::exp(-tmp*tmp/2);
+    return (1.0/(std::sqrt(2 * M_PI) * std::abs(sigma))) * std::exp(-tmp*tmp/2);
 
   }
 
@@ -544,7 +545,7 @@ namespace Math {
 
   \f[ p_{r}(x) = \frac{\Gamma(\frac{r+1}{2})}{\sqrt{r \pi}\Gamma(\frac{r}{2})} \left( 1+\frac{x^2}{r}\right)^{-(r+1)/2}  \f]
 
-  for \f$k \geq 0\f$. For detailed description see
+  for \f$r \geq 0\f$. For detailed description see
   <A HREF="http://mathworld.wolfram.com/Studentst-Distribution.html">
   Mathworld</A>.
 
@@ -580,7 +581,7 @@ namespace Math {
   inline double uniform_pdf(double x, double a, double b, double x0 = 0) {
     // Inlined to enable clad-auto-derivation for this function.
 
-    //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! when a=b
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! when a=b
 
     if ((x-x0) < b && (x-x0) >= a)
       return 1.0/(b - a);

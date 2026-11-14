@@ -34,7 +34,7 @@ public:
 
    }
 
-   virtual T DoEvalPar(const T *data, const Double_t *p) const
+   T DoEvalPar(const T *data, const Double_t *p) const override
    {
 
       if (data == nullptr) {
@@ -77,17 +77,17 @@ public:
       return f1 + f2;
    }
 
-      virtual ROOT::Math::IBaseFunctionMultiDimTempl<T> *Clone() const {
+      ROOT::Math::IBaseFunctionMultiDimTempl<T> *Clone() const override {
          return new Func<T>(*this); 
       }
-      virtual unsigned int NDim() const { return 1; }
-      virtual unsigned int NPar() const {
+      unsigned int NDim() const override { return 1; }
+      unsigned int NPar() const override {
          return paramSize;
       }
-      virtual const double * Parameters() const {
+      const double * Parameters() const override {
          return params.data(); 
       }
-      virtual void SetParameters(const double * p) {
+      void SetParameters(const double * p) override {
          std::copy(p, p+paramSize, params.begin() );
          ComputeIntegrals(p);
       }
@@ -124,7 +124,7 @@ public:
       //wfSeq =  new ROOT::Math::WrappedMultiTF1Templ<double>(*fSeq);
       wfSeq =  new Func<double> (p);
 
-#ifdef R__HAS_VECCORE
+#ifdef R__HAS_STD_EXPERIMENTAL_SIMD
       // not needed but just to test vectorized ctor of TF1
       fVec = new TF1("fvCore", Func<ROOT::Double_v>(p), 100, 200, paramSize);
       //wfVec =  new ROOT::Math::WrappedMultiTF1Templ<ROOT::Double_v>(*fVec);
@@ -177,7 +177,7 @@ public:
       fitter.SetFunction(*wfSeq, false);
       fitter.Config().ParamsSettings() = paramSettings; 
       start = std::chrono::system_clock::now();
-      bool ret = fitter.Fit(*dataSB, 0, ROOT::EExecutionPolicy::kMultiThread);
+      bool ret = fitter.Fit(*dataSB, false, ROOT::EExecutionPolicy::kMultiThread);
       end =  std::chrono::system_clock::now();
       duration = end - start;
       std::cout << "Time for the parallel test: " << duration.count() << std::endl;
@@ -191,14 +191,14 @@ public:
       fitter.SetFunction(*wfSeq, false);
       fitter.Config().ParamsSettings() = paramSettings; 
       start = std::chrono::system_clock::now();
-      bool ret = fitter.Fit(*dataSB, 0, ROOT::EExecutionPolicy::kMultiProcess);
+      bool ret = fitter.Fit(*dataSB, false, ROOT::EExecutionPolicy::kMultiProcess);
       end =  std::chrono::system_clock::now();
       duration = end - start;
       std::cout << "Time for the multiprocess test:" << duration.count() << std::endl;
       return ret;
    }
 
-#ifdef R__HAS_VECCORE
+#ifdef R__HAS_STD_EXPERIMENTAL_SIMD
    bool testFitVec()
    {
       std::cout << "\n////////////////////////////VECTOR TEST////////////////////////////" << std::endl << std::endl;
@@ -249,7 +249,7 @@ public:
 private:
    TF1 *fSeq;
    ROOT::Math::IParametricFunctionMultiDimTempl<double> *wfSeq;
-#ifdef R__HAS_VECCORE
+#ifdef R__HAS_STD_EXPERIMENTAL_SIMD
    TF1 *fVec;
    ROOT::Math::IParametricFunctionMultiDimTempl<ROOT::Double_v> *wfVec;
 #endif
@@ -276,7 +276,7 @@ int main()
       return -1;
    }
 
-#if defined(R__USE_IMT) || defined(R__HAS_VECCORE)
+#if defined(R__USE_IMT) || defined(R__HAS_STD_EXPERIMENTAL_SIMD)
    auto seq = test.GetFitter().Result().MinFcnValue();
 #endif
 
@@ -291,7 +291,7 @@ int main()
       return 1;
 #endif
 
-#ifdef R__HAS_VECCORE
+#ifdef R__HAS_STD_EXPERIMENTAL_SIMD
    //Vectorized
    if (!test.testFitVec()) {
       Error("testLogLExecPolicy", "Vectorized Fit failed!");
@@ -302,7 +302,7 @@ int main()
       return 2;
 #endif
 
-#if defined(R__USE_IMT) && defined(R__HAS_VECCORE)
+#if defined(R__USE_IMT) && defined(R__HAS_STD_EXPERIMENTAL_SIMD)
    //Multithreaded and vectorized
    if (!test.testMTFitVec()) {
       Error("testLogLExecPolicy", "Multithreaded + vectorized Fit failed!");

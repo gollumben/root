@@ -22,14 +22,22 @@
 
 #include "TGeoManager.h"
 
+#include <set>
+
 class TGeoVGConverter : public TVirtualGeoConverter {
 public:
    TGeoVGConverter(TGeoManager *manager);
-   virtual ~TGeoVGConverter();
+   ~TGeoVGConverter() override;
 
-   virtual void       ConvertGeometry();
+   void ConvertGeometry() override;
 
-   ClassDef(TGeoVGConverter,0)  // VecGeom geometry converter
+   void SelectShapeType(TGeoShape::EShapeType) override;
+   void ExcludeShapeType(TGeoShape::EShapeType) override;
+
+   std::set<TGeoShape::EShapeType> fSelectedShapeTypes;
+   std::set<TGeoShape::EShapeType> fExcludedShapeTypes;
+
+   ClassDefOverride(TGeoVGConverter, 0) // VecGeom geometry converter
 };
 
 #endif

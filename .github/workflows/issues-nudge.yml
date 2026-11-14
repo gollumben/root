@@ -9,11 +9,11 @@ jobs:
     if: ${{ github.repository == 'root-project/root' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v1
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v3
         with:
-          node-version: '16'
-      - run: npm install octokit
+          node-version: '20'
+      - run: npm install 'octokit@^3'
       - run: node .github/actions/issues-nudge.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

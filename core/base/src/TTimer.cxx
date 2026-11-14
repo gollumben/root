@@ -28,8 +28,8 @@ You can use this class in one of the following ways:
      appropriate methods. Then when the time is up it will emit a
      Timeout() signal and call connected slots.
 
-Minimum timeout interval is defined in TSystem::ESysConstants as
-`kItimerResolution` (currently 10 ms).
+Minimum timeout interval is defined in Rtypes.h ESysConstants as
+`kItimerResolution` (currently 5 ms).
 
 Signal/slots example:
 ~~~{.cpp}
@@ -48,23 +48,28 @@ To emit the Timeout signal repeatedly with minimum timeout:
 #include "TSystem.h"
 #include "TROOT.h"
 
-ClassImp(TTimer);
 
 
 class TSingleShotCleaner : public TTimer {
 private:
    TList  *fGarbage;
 public:
-   TSingleShotCleaner() : TTimer(10, kTRUE) { fGarbage = new TList(); }
-   virtual ~TSingleShotCleaner() { fGarbage->Delete(); delete fGarbage; }
-   void TurnOn() {
-      TObject *obj = (TObject*) gTQSender;
+   TSingleShotCleaner() : TTimer(5, kTRUE) { fGarbage = new TList(); }
+   ~TSingleShotCleaner() override
+   {
+      fGarbage->Delete();
+      delete fGarbage;
+   }
+   void TurnOn() override
+   {
+      TObject *obj = (TObject *)gTQSender;
       fGarbage->Add(obj);
       Reset();
       if (gSystem)
          gSystem->AddTimer(this);
    }
-   Bool_t Notify() {
+   Bool_t Notify() override
+   {
       fGarbage->Delete();
       Reset();
       if (gSystem)
@@ -76,7 +81,7 @@ public:
 ////////////////////////////////////////////////////////////////////////////////
 /// Create timer that times out in ms milliseconds. If milliSec is 0
 /// then the timeout will be the minimum timeout (see TSystem::ESysConstants,
-/// i.e. 10 ms). If mode == kTRUE then the timer is synchronous else
+/// i.e. 5 ms). If mode == kTRUE then the timer is synchronous else
 /// a-synchronous. The default is synchronous. Add a timer to the system
 /// eventloop by calling TurnOn(). Set command to be executed from Notify()
 /// or set the object whose HandleTimer() method will be called via Notify(),
@@ -271,7 +276,7 @@ void TTimer::SingleShot(Int_t milliSec, const char *receiver_class,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// This function checks if the timer is running within gSystem 
+/// This function checks if the timer is running within gSystem
 /// (Has been started and did not finish yet).
 
 bool TTimer::IsRunning()

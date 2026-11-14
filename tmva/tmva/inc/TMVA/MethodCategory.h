@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodCompositeBase                                                   *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Virtual base class for all MVA method                                     *
@@ -25,7 +25,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodCategory
@@ -52,11 +52,7 @@ namespace TMVA {
    class Reader;   // DSMTEST
    class MethodBoost;   // DSMTEST
    class DataSetManager;  // DSMTEST
-   namespace Experimental {
-   class Classification;
-   }
    class MethodCategory : public MethodCompositeBase {
-      friend class Experimental::Classification;
 
    public :
 
@@ -71,12 +67,12 @@ namespace TMVA {
 
       virtual ~MethodCategory( void );
 
-      virtual Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t /*numberTargets*/ );
+      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t /*numberTargets*/ ) override;
       // training and boosting all the classifiers
-      void Train( void );
+      void Train( void ) override;
 
       // ranking of input variables
-      const Ranking* CreateRanking();
+      const Ranking* CreateRanking() override;
 
       // saves the name and options string of the boosted classifier
       TMVA::IMethod* AddMethod(const TCut&,
@@ -85,31 +81,31 @@ namespace TMVA {
                                const TString& theTitle,
                                const TString& theOptions);
 
-      void AddWeightsXMLTo( void* parent ) const;
-      void ReadWeightsFromXML( void* wghtnode );
+      void AddWeightsXMLTo( void* parent ) const override;
+      void ReadWeightsFromXML( void* wghtnode ) override;
 
-      Double_t GetMvaValue( Double_t* err=0, Double_t* errUpper = 0 );
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
 
       // regression response
-      virtual const std::vector<Float_t>& GetRegressionValues();
+      const std::vector<Float_t>& GetRegressionValues() override;
 
       // multi class response
-      virtual const std::vector<Float_t> &GetMulticlassValues();
+      const std::vector<Float_t> &GetMulticlassValues() override;
 
-      virtual void MakeClass( const TString& = TString("") ) const {};
+      void MakeClass( const TString& = TString("") ) const override {};
 
    protected :
 
       // signal/background classification response for all current set of data
-      virtual std::vector<Double_t> GetMvaValues(Long64_t firstEvt = 0, Long64_t lastEvt = -1, Bool_t logProgress = false);
+      std::vector<Double_t> GetMvaValues(Long64_t firstEvt = 0, Long64_t lastEvt = -1, Bool_t logProgress = false) override;
 
    private:
       // initializing mostly monitoring tools of the category process
-      void Init();
+      void Init() override;
 
       // the option handling methods
-      void DeclareOptions();
-      void ProcessOptions();
+      void DeclareOptions() override;
+      void ProcessOptions() override;
 
       // build the cut formula for event categorization
       Bool_t PassesCut( const Event* ev, UInt_t methodIdx );
@@ -124,7 +120,7 @@ namespace TMVA {
       std::vector <std::vector <UInt_t> > fVarMaps;
 
       // get help message text
-      void GetHelpMessage() const;
+      void GetHelpMessage() const override;
 
       TMVA::DataSetInfo& CreateCategoryDSI(const TCut&, const TString&, const TString&);
 
@@ -132,7 +128,7 @@ namespace TMVA {
 
       void InitCircularTree(const DataSetInfo& dsi);
 
-      TTree *                    fCatTree; //! needed in conjunction with TTreeFormulas for evaluation category expressions
+      TTree *                    fCatTree; ///<! needed in conjunction with TTreeFormulas for evaluation category expressions
       std::vector<TTreeFormula*> fCatFormulas;
 
       DataSetManager* fDataSetManager; // DSMTEST
@@ -140,7 +136,7 @@ namespace TMVA {
       friend class Reader;  // DSMTEST
       friend class MethodBoost;  // DSMTEST
 
-      ClassDef(MethodCategory,0);
+      ClassDefOverride(MethodCategory,0);
    };
 }
 

@@ -75,17 +75,13 @@ and the signal:
 
 #include <iostream>
 
-ClassImp(TGColorFrame);
-ClassImp(TG16ColorSelector);
-ClassImp(TGColorPopup);
-ClassImp(TGColorSelect);
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TGColorFrame constructor.
 /// The TGColorFrame is a small frame with border showing a specific color.
 
-TGColorFrame::TGColorFrame(const TGWindow *p, ULong_t color, Int_t /*n*/) :
+TGColorFrame::TGColorFrame(const TGWindow *p, Pixel_t color, Int_t /*n*/) :
    TGFrame(p, 20, 20, kOwnBackground, color)
 {
    SetBackgroundColor(color);
@@ -185,7 +181,7 @@ void TG16ColorSelector::SetActive(Int_t newat)
 ////////////////////////////////////////////////////////////////////////////////
 /// Process messages for TG16ColorSelector.
 
-Bool_t TG16ColorSelector::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
+Bool_t TG16ColorSelector::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2)
 {
    switch (GET_MSG(msg)) {
       case kC_COLORSEL:
@@ -218,7 +214,7 @@ Bool_t TG16ColorSelector::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
 /// The TGColorPopup is a popup containing a TG16ColorSelector and a "More..."
 /// button which popups up a TGColorDialog allowing custom color selection.
 
-TGColorPopup::TGColorPopup(const TGWindow *p, const TGWindow *m, ULong_t color) :
+TGColorPopup::TGColorPopup(const TGWindow *p, const TGWindow *m, Pixel_t color) :
    TGCompositeFrame(p, 10, 10, kDoubleBorder | kRaisedFrame | kOwnBackground,
                     GetDefaultFrameBackground())
 {
@@ -231,6 +227,7 @@ TGColorPopup::TGColorPopup(const TGWindow *p, const TGWindow *m, ULong_t color) 
    wattr.fOverrideRedirect = kTRUE;
    //wattr.fSaveUnder = kTRUE;
    gVirtualX->ChangeWindowAttributes(fId, &wattr);
+   gVirtualX->SetWindowHint(fId, TVirtualX::kHintTooltip);
 
    AddInput(kStructureNotifyMask);
 
@@ -344,7 +341,7 @@ Bool_t TGColorPopup::HandleButton(Event_t *event)
 ////////////////////////////////////////////////////////////////////////////////
 /// Process messages for TGColorPopup.
 
-Bool_t TGColorPopup::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
+Bool_t TGColorPopup::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2)
 {
    switch (GET_MSG(msg)) {
       case kC_COLORSEL:
@@ -388,13 +385,13 @@ void TGColorPopup::PreviewColor(Pixel_t color)
 ////////////////////////////////////////////////////////////////////////////////
 /// Emit a signal to see preview.
 
-void TGColorPopup::PreviewAlphaColor(ULong_t color)
+void TGColorPopup::PreviewAlphaColor(ULongptr_t color)
 {
    if (fClient->IsEditable()) return;
 
    TColor *tcolor = (TColor *)color;
    fCurrentColor = tcolor->GetPixel();
-   SendMessage(fMsgWindow, MK_MSG(kC_COLORSEL, kCOL_SELCHANGED), 0, (ULong_t)tcolor);
+   SendMessage(fMsgWindow, MK_MSG(kC_COLORSEL, kCOL_SELCHANGED), 0, (ULongptr_t)tcolor);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -403,7 +400,7 @@ void TGColorPopup::PreviewAlphaColor(ULong_t color)
 /// mark there is color area with a little down arrow.
 /// When clicked on the arrow the TGColorPopup pops up.
 
-TGColorSelect::TGColorSelect(const TGWindow *p, ULong_t color, Int_t id) :
+TGColorSelect::TGColorSelect(const TGWindow *p, Pixel_t color, Int_t id) :
    TGCheckButton(p, "", id)
 {
    if (!p && fClient->IsEditable() && !color) {
@@ -433,7 +430,7 @@ TGColorSelect::~TGColorSelect()
 ////////////////////////////////////////////////////////////////////////////////
 /// Process messages for TGColorSelect.
 
-Bool_t TGColorSelect::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
+Bool_t TGColorSelect::ProcessMessage(Longptr_t msg, Longptr_t parm1, Longptr_t parm2)
 {
    switch (GET_MSG(msg)) {
       case kC_COLORSEL:
@@ -442,13 +439,13 @@ Bool_t TGColorSelect::ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2)
                {
                   if (parm1 == 0) {
                      SetAlphaColor((ULong_t)parm2);
-                     parm1 = (Long_t)fWidgetId;  // parm1 needs to pass the widget Id
+                     parm1 = (Longptr_t)fWidgetId;  // parm1 needs to pass the widget Id
                      SendMessage(fMsgWindow, MK_MSG(kC_COLORSEL, kCOL_SELCHANGED),
                                  parm1, parm2);
                   }
                   else {
                      SetColor(parm2);
-                     parm1 = (Long_t)fWidgetId;  // parm1 needs to pass the widget Id
+                     parm1 = (Longptr_t)fWidgetId;  // parm1 needs to pass the widget Id
                      SendMessage(fMsgWindow, MK_MSG(kC_COLORSEL, kCOL_SELCHANGED),
                                  parm1, parm2);
                   }
@@ -676,30 +673,24 @@ void TGColorSelect::SetAlphaColor(ULong_t color, Bool_t emit)
 
 void TGColorSelect::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   char quote = '"';
    static Int_t nn = 1;
-   TString cvar = TString::Format("ColPar%d",nn);
+   TString cvar = TString::Format("ColPar%d",nn++);
 
    ULong_t color = GetColor();
    const char *colorname = TColor::PixelAsHexString(color);
    gClient->GetColorByName(colorname, color);
 
-   out << std::endl << "   // color select widget" << std::endl;
-   out << "   ULong_t " << cvar.Data() << ";" << std::endl;
-   out << "   gClient->GetColorByName(" << quote << colorname << quote
-       << ", " << cvar.Data() << ");" << std::endl;
+   out << "\n   // color select widget\n";
+   out << "   ULong_t " << cvar << ";\n";
+   out << "   gClient->GetColorByName(\"" << colorname << "\", " << cvar << ");\n";
 
-   out <<"   TGColorSelect *";
-   out << GetName() << " = new TGColorSelect(" << fParent->GetName()
-       << ", " << cvar.Data() << ", " << WidgetId() << ");" << std::endl;
-   nn++;
+   out <<"   TGColorSelect *" << GetName() << " = new TGColorSelect(" << fParent->GetName()
+       << ", " << cvar << ", " << WidgetId() << ");\n";
 
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
-   if (!IsEnabled()) {
-      out << "   " << GetName() << "->Disable();" << std::endl;
-   }
-   out << std::endl;
+   if (!IsEnabled())
+      out << "   " << GetName() << "->Disable();\n";
 }
 

@@ -9,14 +9,19 @@
 #include <ROOT/Browsable/RElement.hxx>
 
 #include <ROOT/Browsable/RLevelIter.hxx>
+#include <ROOT/Browsable/RItem.hxx>
 #include <ROOT/RLogger.hxx>
+
 #include "TBufferJSON.h"
 
-using namespace ROOT::Experimental::Browsable;
+#include <algorithm>
+
+using namespace ROOT::Browsable;
 using namespace std::string_literals;
 
-ROOT::Experimental::RLogChannel &ROOT::Experimental::BrowsableLog() {
-   static RLogChannel sLog("ROOT.Browsable");
+ROOT::RLogChannel &ROOT::BrowsableLog()
+{
+   static ROOT::RLogChannel sLog("ROOT.Browsable");
    return sLog;
 }
 
@@ -95,6 +100,17 @@ std::string RElement::GetContent(const std::string &kind)
    return ""s;
 }
 
+
+/////////////////////////////////////////////////////////////////////
+/// Returns item with element description
+
+std::unique_ptr<RItem> RElement::CreateItem() const
+{
+   auto item = std::make_unique<RItem>(GetName());
+   item->SetTitle(GetTitle());
+   return item;
+}
+
 /////////////////////////////////////////////////////////////////////
 /// Parse string path to produce RElementPath_t
 /// One should avoid to use string pathes as much as possible
@@ -158,7 +174,7 @@ std::string RElement::GetPathAsString(const RElementPath_t &path)
 
 /////////////////////////////////////////////////////////////////////
 /// Extract index from name
-/// Index coded by client with ###<indx>$$$ suffix
+/// Index coded by client with `###<indx>$$$` suffix
 /// Such coding used by browser to identify element by index
 
 int RElement::ExtractItemIndex(std::string &name)
@@ -169,4 +185,22 @@ int RElement::ExtractItemIndex(std::string &name)
    int indx = std::stoi(name.substr(p1+3,p2-p1-3));
    name.resize(p1);
    return indx;
+}
+
+bool gRElementLastKeyCycle = false;
+
+/////////////////////////////////////////////////////////////////////
+/// Is only last cycle from the list of keys is shown
+
+bool RElement::IsLastKeyCycle()
+{
+   return gRElementLastKeyCycle;
+}
+
+/////////////////////////////////////////////////////////////////////
+/// Set flag to show only last cycle from the list of keys
+
+void RElement::SetLastKeyCycle(bool on)
+{
+   gRElementLastKeyCycle = on;
 }

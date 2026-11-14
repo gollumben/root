@@ -35,11 +35,10 @@
 // *******************Deleting the data files****************************
 // **********************************************************************
 
-#include <map>
 #include <list>
 #include <array>
 #include <functional>
-#include <stdlib.h>
+#include <cstdlib>
 #include "TApplication.h"
 #include "TEntryList.h"
 #include "TEventList.h"
@@ -52,7 +51,6 @@
 #include "TFile.h"
 #include "TSystem.h"
 #include "TError.h"
-#include "snprintf.h"
 
 Int_t stressEntryList(Int_t nentries = 10000, Int_t nfiles = 10);
 void MakeTrees(Int_t nentries, Int_t nfiles);
@@ -95,7 +93,7 @@ Bool_t Test1(bool fixedCut)
    smallchain->Draw("x >> hcheck", "", "goff");
    wrongentries1 = 0;
    for (Int_t i=1; i<=range; i++){
-      if (TMath::Abs(hx->GetBinContent(i)-hcheck->GetBinContent(i)) > 0.1){
+      if (std::abs(hx->GetBinContent(i)-hcheck->GetBinContent(i)) > 0.1){
          wrongentries1++;
       }
    }
@@ -107,7 +105,7 @@ Bool_t Test1(bool fixedCut)
    bigchain->Draw("x >> hcheck_", "", "goff");
    wrongentries2 = 0;
    for (Int_t i=1; i<=range; i++){
-      if (TMath::Abs(hx->GetBinContent(i)-hcheck->GetBinContent(i)) > 0.1){
+      if (std::abs(hx->GetBinContent(i)-hcheck->GetBinContent(i)) > 0.1){
          wrongentries2++;
       }
    }
@@ -163,7 +161,7 @@ Bool_t Test1(bool fixedCut)
    smallchain->Draw("x>>hcheck", "", "goff");
    wrongentries4 = 0;
    for (Int_t i=1; i<=range; i++){
-      if (TMath::Abs(hx->GetBinContent(i)-hcheck->GetBinContent(i)) > 0.1){
+      if (std::abs(hx->GetBinContent(i)-hcheck->GetBinContent(i)) > 0.1){
          //printf("%d hx: %f hcheck %f\n", i, hx->GetBinContent(i), hcheck->GetBinContent(i));
          wrongentries4++;
       }
@@ -177,7 +175,7 @@ Bool_t Test1(bool fixedCut)
    smallchain->Draw("x >> hcheck", "", "goff");
    wrongentries5 = 0;
    for (Int_t i=1; i<=range; i++){
-      if (TMath::Abs(hx->GetBinContent(i)-hcheck->GetBinContent(i)) > 0.1){
+      if (std::abs(hx->GetBinContent(i)-hcheck->GetBinContent(i)) > 0.1){
          //printf("i=%d hx(i)=%f, hcheck(i)=%f\n", i, hx->GetBinContent(i), hcheck->GetBinContent(i));
          wrongentries5++;
       }
@@ -219,8 +217,10 @@ Bool_t Test2()
    TCut cut1("cut1", "x>0");
    TCut cut2("cut2", "y<0.1 && y>-0.1");
    TEntryList *elist1 = new TEntryList("elist1", "elist1");
-   chain->Draw(">>elist1", cut1, "entrylist");
    TEntryList *elist2 = new TEntryList("elist2", "elist2");
+   elist1->SetDirectory(gDirectory);
+   elist2->SetDirectory(gDirectory);
+   chain->Draw(">>elist1", cut1, "entrylist");
    chain->Draw(">>elist2", cut2, "entrylist");
 
    //add those 2 lists (1+2)
@@ -229,6 +229,7 @@ Bool_t Test2()
    elistsum->Add(elist2);
 
    TEntryList *elistcheck = new TEntryList("elistcheck", "elistcheck");
+   elistcheck->SetDirectory(gDirectory);
    chain->Draw(">>elistcheck", cut1 || cut2, "entrylist");
 
    Int_t n=elistcheck->GetN();
@@ -264,6 +265,7 @@ Bool_t Test2()
 
    //add by using "+" in TTree::Draw
    TEntryList *elistsum3 = new TEntryList("elistsum3", "elistsum3");
+   elistsum3->SetDirectory(gDirectory);
    chain->Draw(">>elistsum3", cut1, "entrylist");
    chain->Draw(">>+elistsum3", cut2, "entrylist");
    wrongentries3 = 0;
@@ -282,6 +284,7 @@ Bool_t Test2()
    elistsum->Subtract(elist2);
    n = elistsum->GetN();
    TEntryList *elistcheck2 = new TEntryList("elistcheck2","elistcheck2");
+   elistcheck2->SetDirectory(gDirectory);
    chain->Draw(">>elistcheck2", cut1 && !cut2, "entrylist");
 
    wrongentries4 = 0;
@@ -360,7 +363,7 @@ Bool_t Test3()
       bin1 = h1->GetBinContent(i);
       bin2 = h2->GetBinContent(i);
       bin3 = h3->GetBinContent(i);
-      if (TMath::Abs(bin1-bin2) > 0.1 || TMath::Abs(bin1-bin3) || TMath::Abs(bin2-bin3) > 0.1) {
+      if (std::abs(bin1-bin2) > 0.1 || std::abs(bin1-bin3) || std::abs(bin2-bin3) > 0.1) {
          //printf("bin1=%f, bin2=%f, bin3=%f\n", bin1, bin2, bin3);
          wrongbins++;
       }
@@ -408,7 +411,7 @@ Bool_t Test4()
       bin1 = h1->GetBinContent(i);
       bin2 = h2->GetBinContent(i);
       bin3 = h3->GetBinContent(i);
-      if (TMath::Abs(bin1-bin2) > 0.1 || TMath::Abs(bin1-bin3) || TMath::Abs(bin2-bin3) > 0.1) {
+      if (std::abs(bin1-bin2) > 0.1 || std::abs(bin1-bin3) || std::abs(bin2-bin3) > 0.1) {
          //printf("bin1=%f, bin2=%f, bin3=%f\n", bin1, bin2, bin3);
          wrongbins++;
       }
@@ -456,7 +459,7 @@ Bool_t Test5And6(const std::list<const char*>& treeNamesForChain )
       for (Int_t i=offset[itree]; i<offset[itree+1]; i++){
          real = i-offset[itree];
          cur = elfull->GetEntry(i);
-         if (TMath::Abs(real-cur)>0.1){
+         if (std::abs(real-cur)>0.1){
             //printf("real=%lld, cur=%lld\n", real, cur);
             wrongentries1++;
          }
@@ -468,7 +471,7 @@ Bool_t Test5And6(const std::list<const char*>& treeNamesForChain )
       for (Int_t i=offset[itree]; i<offset[itree+1]; i+=2){
          real = i-offset[itree];
          cur = elfull->GetEntry(i);
-         if (TMath::Abs(real-cur)>0.1){
+         if (std::abs(real-cur)>0.1){
             //printf("real=%lld, cur=%lld\n", real, cur);
             wrongentries2++;
          }
@@ -482,7 +485,7 @@ Bool_t Test5And6(const std::list<const char*>& treeNamesForChain )
    TEntryList *elempty = (TEntryList*)gDirectory->Get("elempty");
    //just a check
    Long64_t temp = elempty->GetEntry(3);
-   if (TMath::Abs(temp+1)>0.1)
+   if (std::abs(temp+1)>0.1)
    wrongentries5++;
 
    //Merge the almost full list with the almost empty list
@@ -499,7 +502,7 @@ Bool_t Test5And6(const std::list<const char*>& treeNamesForChain )
       for (Int_t i=offset[itree]; i<offset[itree+1]; i++){
          real = i-offset[itree];
          cur = elfull->GetEntry(i);
-         if (TMath::Abs(real-cur)>0.1){
+         if (std::abs(real-cur)>0.1){
             //printf("real=%lld, cur=%lld\n", real, cur);
             wrongentries3++;
          }
@@ -512,7 +515,7 @@ Bool_t Test5And6(const std::list<const char*>& treeNamesForChain )
       for (Int_t i=offset[itree]; i<offset[itree+1]; i+=2){
          real = i-offset[itree];
          cur = elfull->GetEntry(i);
-         if (TMath::Abs(real-cur)>0.1){
+         if (std::abs(real-cur)>0.1){
             //printf("real=%lld, cur=%lld\n", real, cur);
             wrongentries4++;
          }
@@ -524,7 +527,7 @@ Bool_t Test5And6(const std::list<const char*>& treeNamesForChain )
    chain->SetEntryList(elfull);
    chain->Draw("x>>hx", "", "goff");
    TH1F *hx = (TH1F*)gDirectory->Get("hx");
-   if (TMath::Abs(hx->GetEntries()-chain->GetEntries())>0.1){
+   if (std::abs(hx->GetEntries()-chain->GetEntries())>0.1){
       wrongentries5++;
       //printf("entries in chain: %lld, entries in histo: %f\n", chain->GetEntries(), hx->GetEntries());
    }
@@ -672,7 +675,7 @@ Int_t stressEntryList(Int_t nentries, Int_t nfiles)
    return retval;
 }
 //_____________________________batch only_____________________
-#ifndef __CINT__
+#ifndef __CLING__
 
 int main(int argc, char *argv[])
 {

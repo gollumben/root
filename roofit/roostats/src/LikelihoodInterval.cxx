@@ -63,26 +63,18 @@
 #include <string>
 #include <algorithm>
 #include <functional>
-#include <ctype.h>   // need to use c version of toupper defined here
+#include <cctype>   // need to use c version of toupper defined here
 
-/*
-// for debugging
-#include "RooNLLVar.h"
-#include "RooDataSet.h"
-#include "RooAbsData.h"
-*/
 
-ClassImp(RooStats::LikelihoodInterval); ;
 
 using namespace RooStats;
-using namespace std;
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor with name and title
 
 LikelihoodInterval::LikelihoodInterval(const char* name) :
-   ConfInterval(name), fBestFitParams(0), fLikelihoodRatio(0), fConfidenceLevel(0.95)
+   ConfInterval(name), fBestFitParams(nullptr), fLikelihoodRatio(nullptr), fConfidenceLevel(0.95)
 {
 }
 
@@ -114,20 +106,20 @@ LikelihoodInterval::~LikelihoodInterval()
 /// This is the main method to satisfy the RooStats::ConfInterval interface.
 /// It returns true if the parameter point is in the interval.
 
-Bool_t LikelihoodInterval::IsInInterval(const RooArgSet &parameterPoint) const
+bool LikelihoodInterval::IsInInterval(const RooArgSet &parameterPoint) const
 {
    RooFit::MsgLevel msglevel = RooMsgService::instance().globalKillBelow();
    RooMsgService::instance().setGlobalKillBelow(RooFit::FATAL);
   // Method to determine if a parameter point is in the interval
   if( !this->CheckParameters(parameterPoint) ) {
-    std::cout << "parameters don't match" << std::endl;
+    coutE(InputArguments) << "parameters don't match" << std::endl;
     RooMsgService::instance().setGlobalKillBelow(msglevel);
     return false;
   }
 
   // make sure likelihood ratio is set
   if(!fLikelihoodRatio) {
-    std::cout << "likelihood ratio not set" << std::endl;
+    coutE(Eval) << "likelihood ratio not set" << std::endl;
     RooMsgService::instance().setGlobalKillBelow(msglevel);
     return false;
   }
@@ -135,19 +127,19 @@ Bool_t LikelihoodInterval::IsInInterval(const RooArgSet &parameterPoint) const
 
 
   // set parameters
-  SetParameters(&parameterPoint, fLikelihoodRatio->getVariables() );
+  SetParameters(&parameterPoint, std::unique_ptr<RooArgSet>{fLikelihoodRatio->getVariables()}.get());
 
 
   // evaluate likelihood ratio, see if it's bigger than threshold
   if (fLikelihoodRatio->getVal()<0){
-    std::cout << "The likelihood ratio is < 0, indicates a bad minimum or numerical precision problems.  Will return true" << std::endl;
+    coutW(Eval) << "The likelihood ratio is < 0, indicates a bad minimum or numerical precision problems.  Will return true" << std::endl;
     RooMsgService::instance().setGlobalKillBelow(msglevel);
     return true;
   }
 
 
   // here we use Wilks' theorem.
-  if ( TMath::Prob( 2* fLikelihoodRatio->getVal(), parameterPoint.getSize()) < (1.-fConfidenceLevel) ){
+  if ( TMath::Prob( 2* fLikelihoodRatio->getVal(), parameterPoint.size()) < (1.-fConfidenceLevel) ){
     RooMsgService::instance().setGlobalKillBelow(msglevel);
     return false;
   }
@@ -170,14 +162,14 @@ RooArgSet* LikelihoodInterval::GetParameters() const
 ////////////////////////////////////////////////////////////////////////////////
 /// check that the parameters are correct
 
-Bool_t LikelihoodInterval::CheckParameters(const RooArgSet &parameterPoint) const
+bool LikelihoodInterval::CheckParameters(const RooArgSet &parameterPoint) const
 {
-  if (parameterPoint.getSize() != fParameters.getSize() ) {
-    std::cout << "size is wrong, parameters don't match" << std::endl;
+  if (parameterPoint.size() != fParameters.size() ) {
+    coutE(InputArguments) << "size is wrong, parameters don't match" << std::endl;
     return false;
   }
   if ( ! parameterPoint.equals( fParameters ) ) {
-    std::cout << "size is ok, but parameters don't match" << std::endl;
+    coutE(InputArguments) << "size is ok, but parameters don't match" << std::endl;
     return false;
   }
   return true;
@@ -191,7 +183,7 @@ Bool_t LikelihoodInterval::CheckParameters(const RooArgSet &parameterPoint) cons
 /// and is true if calculation is successful
 /// in case of error return also a lower limit value of zero
 
-Double_t LikelihoodInterval::LowerLimit(const RooRealVar& param, bool & status)
+double LikelihoodInterval::LowerLimit(const RooRealVar& param, bool & status)
 {
    double lower = 0;
    double upper = 0;
@@ -205,7 +197,7 @@ Double_t LikelihoodInterval::LowerLimit(const RooRealVar& param, bool & status)
 /// and is true if calculation is successful
 /// in case of error return also a lower limit value of zero
 
-Double_t LikelihoodInterval::UpperLimit(const RooRealVar& param, bool & status)
+double LikelihoodInterval::UpperLimit(const RooRealVar& param, bool & status)
 {
    double lower = 0;
    double upper = 0;
@@ -233,21 +225,19 @@ bool LikelihoodInterval::CreateMinimizer() {
    // bind the nll function in the right interface for the Minimizer class
    // as a function of only the parameters (poi + nuisance parameters)
 
-   RooArgSet * partmp = profilell->getVariables();
+   std::unique_ptr<RooArgSet> partmp{profilell->getVariables()};
    // need to remove constant parameters
-   RemoveConstantParameters(partmp);
+   RemoveConstantParameters(&*partmp);
 
    RooArgList params(*partmp);
-   delete partmp;
 
    // need to restore values and errors for POI
    if (fBestFitParams) {
-      for (int i = 0; i < params.getSize(); ++i) {
-         RooRealVar & par =  (RooRealVar &) params[i];
-         RooRealVar * fitPar =  (RooRealVar *) (fBestFitParams->find(par.GetName() ) );
+      for (auto *par : static_range_cast<RooRealVar *>(params)) {
+         RooRealVar * fitPar =  static_cast<RooRealVar *> (fBestFitParams->find(par->GetName() ) );
          if (fitPar) {
-            par.setVal( fitPar->getVal() );
-            par.setError( fitPar->getError() );
+            par->setVal( fitPar->getVal() );
+            par->setError( fitPar->getError() );
          }
       }
    }
@@ -255,9 +245,9 @@ bool LikelihoodInterval::CreateMinimizer() {
    const auto& config = GetGlobalRooStatsConfig();
 
    // now do binding of NLL with a functor for Minimizer
-   if (config.useLikelihoodOffset) {
-      ccoutI(InputArguments) << "LikelihoodInterval: using nll offset - set all RooAbsReal to hide the offset  " << std::endl;
-      RooAbsReal::setHideOffset(kFALSE); // need to keep this false
+   if (config.useLikelihoodOffset == "initial") {
+      ccoutI(InputArguments) << "LikelihoodInterval: using nll offset \"initial\" - set all RooAbsReal to hide the offset  " << std::endl;
+      RooAbsReal::setHideOffset(false); // need to keep this false
    }
    fFunctor = std::make_shared<RooFunctor>(nll, RooArgSet(), params);
 
@@ -281,15 +271,15 @@ bool LikelihoodInterval::CreateMinimizer() {
    fMinimizer->SetFunction(*fMinFunc);
 
    // set minimizer parameters
-   assert( params.getSize() == int(fMinFunc->NDim()) );
+   assert(params.size() == fMinFunc->NDim());
 
    for (unsigned int i = 0; i < fMinFunc->NDim(); ++i) {
-      RooRealVar & v = (RooRealVar &) params[i];
+      RooRealVar & v = static_cast<RooRealVar &>( params[i]);
       fMinimizer->SetLimitedVariable( i, v.GetName(), v.getVal(), v.getError(), v.getMin(), v.getMax() );
    }
    // for finding the contour need to find first global minimum
    bool iret = fMinimizer->Minimize();
-   if (!iret || fMinimizer->X() == 0) {
+   if (!iret || fMinimizer->X() == nullptr) {
       ccoutE(Minimization) << "Error: Minimization failed  " << std::endl;
       return false;
    }
@@ -317,12 +307,11 @@ bool LikelihoodInterval::FindLimits(const RooRealVar & param, double &lower, dou
    }
 
 
-   RooArgSet * partmp = fLikelihoodRatio->getVariables();
-   RemoveConstantParameters(partmp);
+   std::unique_ptr<RooArgSet> partmp{fLikelihoodRatio->getVariables()};
+   RemoveConstantParameters(&*partmp);
    RooArgList params(*partmp);
-   delete partmp;
-   int ix = params.index(&param);
-   if (ix < 0 ) {
+   int iX = params.index(&param);
+   if (iX < 0 ) {
       ccoutE(InputArguments) << "Error - invalid parameter " << param.GetName() << " specified for finding the interval limits " << std::endl;
       return false;
    }
@@ -341,30 +330,26 @@ bool LikelihoodInterval::FindLimits(const RooRealVar & param, double &lower, dou
    err_level = err_level/2; // since we are using -log LR
    fMinimizer->SetErrorDef(err_level);
 
-   unsigned int ivarX = ix;
+   unsigned int ivarX = iX;
 
    double elow = 0;
    double eup = 0;
    ret = fMinimizer->GetMinosError(ivarX, elow, eup );
-   if (!ret)  {
-      ccoutE(Minimization) << "Error  running Minos for parameter " << param.GetName() << std::endl;
-      return false;
-   }
 
    // WHEN error is zero normally is at limit
    if (elow == 0) {
       lower = param.getMin();
       ccoutW(Minimization) << "Warning: lower value for " << param.GetName() << " is at limit " << lower << std::endl;
-   }
-   else
+   } else {
       lower = fMinimizer->X()[ivarX] + elow;  // elow is negative
+   }
 
    if (eup == 0) {
       ccoutW(Minimization) << "Warning: upper value for " << param.GetName() << " is at limit " << upper << std::endl;
       upper = param.getMax();
-   }
-   else
+   } else {
       upper = fMinimizer->X()[ivarX] + eup;
+   }
 
    // store limits in the map
    // minos return error limit = minValue +/- error
@@ -375,19 +360,18 @@ bool LikelihoodInterval::FindLimits(const RooRealVar & param, double &lower, dou
 }
 
 
-Int_t LikelihoodInterval::GetContourPoints(const RooRealVar & paramX, const RooRealVar & paramY, Double_t * x, Double_t *y, Int_t npoints ) {
+Int_t LikelihoodInterval::GetContourPoints(const RooRealVar & paramX, const RooRealVar & paramY, double * x, double *y, Int_t npoints ) {
    // use Minuit to find the contour of the likelihood function at the desired CL
 
    // check the parameters
    // variable index in minimizer
    // is index in the RooArgList obtained from the profileLL variables
-   RooArgSet * partmp = fLikelihoodRatio->getVariables();
-   RemoveConstantParameters(partmp);
+   std::unique_ptr<RooArgSet> partmp{fLikelihoodRatio->getVariables()};
+   RemoveConstantParameters(&*partmp);
    RooArgList params(*partmp);
-   delete partmp;
-   int ix = params.index(&paramX);
-   int iy = params.index(&paramY);
-   if (ix < 0 || iy < 0) {
+   int iX = params.index(&paramX);
+   int iY = params.index(&paramY);
+   if (iX < 0 || iY < 0) {
       coutE(InputArguments) << "LikelihoodInterval - Error - invalid parameters specified for finding the contours; parX = " << paramX.GetName()
              << " parY = " << paramY.GetName() << std::endl;
          return 0;
@@ -408,8 +392,8 @@ Int_t LikelihoodInterval::GetContourPoints(const RooRealVar & paramX, const RooR
    fMinimizer->SetErrorDef(cont_level);
 
    unsigned int ncp = npoints;
-   unsigned int ivarX = ix;
-   unsigned int ivarY = iy;
+   unsigned int ivarX = iX;
+   unsigned int ivarY = iY;
    coutI(Minimization)  << "LikelihoodInterval - Finding the contour of " << paramX.GetName() << " ( " << ivarX << " ) and " << paramY.GetName() << " ( " << ivarY << " ) " << std::endl;
    ret = fMinimizer->Contour(ivarX, ivarY, ncp, x, y );
    if (!ret) {

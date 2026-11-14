@@ -20,14 +20,13 @@ Most member functions defined in this base class are in general
 overridden by the derived classes.
 */
 
-#include <iostream>
-#include "Strlen.h"
 #include "TNamed.h"
 #include "TROOT.h"
 #include "TVirtualPad.h"
 #include "TClass.h"
 
-ClassImp(TNamed);
+#include <iostream>
+#include <cstring>
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TNamed copy ctor.
@@ -128,6 +127,16 @@ void TNamed::ls(Option_t *opt) const
 void TNamed::Print(Option_t *) const
 {
    std::cout <<"OBJ: " << IsA()->GetName() << "\t" << GetName() << "\t" << GetTitle() << std::endl;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Save object name and title into the output stream "out".
+
+void TNamed::SavePrimitiveNameTitle(std::ostream &out, const char *variable_name)
+{
+   TString name = GetName(), title = GetTitle();
+   out << "   " << variable_name << "->SetName(\"" << name.ReplaceSpecialCppChars() << "\");" << std::endl;
+   out << "   " << variable_name << "->SetTitle(\"" << title.ReplaceSpecialCppChars() << "\");" << std::endl;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

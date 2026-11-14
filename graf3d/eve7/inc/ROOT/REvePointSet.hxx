@@ -15,9 +15,9 @@
 #include <ROOT/REveElement.hxx>
 #include <ROOT/REveProjectionBases.hxx>
 #include <ROOT/REveVector.hxx>
+#include <ROOT/REveSecondarySelectable.hxx>
 
 #include <TAttMarker.h>
-#include <TAttBBox.h>
 
 #include <cassert>
 
@@ -31,11 +31,7 @@ namespace Experimental {
 // external TRef or a number of integer indices.
 ////////////////////////////////////////////////////////////////////////////////
 
-class REvePointSet : public REveElement,
-                     public REveProjectable,
-                     public TAttMarker,
-                     public TAttBBox
-{
+class REvePointSet : public REveElement, public REveProjectable, public TAttMarker, public REveSecondarySelectable {
    friend class REvePointSetArray;
 
 private:
@@ -45,11 +41,12 @@ protected:
    std::vector<REveVector> fPoints;
    int                     fCapacity{0};
    int                     fSize{0};
+   int                     fTexX{0}, fTexY{0};
 
 public:
    REvePointSet(const std::string& name="", const std::string& title="", Int_t n_points = 0);
    REvePointSet(const REvePointSet &e);
-   virtual ~REvePointSet();
+   ~REvePointSet() override;
 
    REvePointSet *CloneElement() const override { return new REvePointSet(*this); }
 
@@ -101,7 +98,7 @@ protected:
    REvePointSet **fBins{nullptr};       //  Pointers to subjugated REvePointSet's.
    Int_t          fDefPointSetCapacity; //  Default capacity of subjugated REvePointSet's.
    Int_t          fNBins;               //  Number of subjugated REvePointSet's.
-   Int_t          fLastBin;             //! Index of the last filled REvePointSet.
+   Int_t          fLastBin;             ///<! Index of the last filled REvePointSet.
    Double_t       fMin, fCurMin;        //  Overall and current minimum value of the separating quantity.
    Double_t       fMax, fCurMax;        //  Overall and current maximum value of the separating quantity.
    Double_t       fBinWidth;            //  Separating quantity bin-width.
@@ -109,7 +106,7 @@ protected:
 
 public:
    REvePointSetArray(const std::string &name = "REvePointSetArray", const std::string &title = "");
-   virtual ~REvePointSetArray();
+   ~REvePointSetArray() override;
 
    void RemoveElementLocal(REveElement *el) override;
    void RemoveElementsLocal() override;
@@ -155,7 +152,7 @@ protected:
 
 public:
    REvePointSetProjected();
-   virtual ~REvePointSetProjected() {}
+   ~REvePointSetProjected() override {}
 
    void SetProjection(REveProjectionManager *proj, REveProjectable *model) override;
    void UpdateProjection() override;

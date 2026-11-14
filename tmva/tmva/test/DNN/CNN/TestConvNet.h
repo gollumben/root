@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  :                                                                       *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Testing Conv Net Features                                                 *
@@ -21,7 +21,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef TMVA_TEST_DNN_TEST_CNN_TEST_CONV_NET_H
@@ -733,7 +733,7 @@ auto testConvBackwardPass(size_t batchSize, size_t imgDepth, size_t imgHeight, s
 #ifdef DEBUG
       auto &outL = layer.GetOutput();
       auto & actGrad = layer.GetActivationGradients();
-      if (Architecture::GetTensorLayout() == TMVA::Experimental::MemoryLayout::ColumnMajor) {
+      if (Architecture::GetTensorLayout() == TMVA::DNN::MemoryLayout::ColumnMajor) {
          std::cout << "layer output size " << outL.GetFirstSize() << std::endl;
          if (outL.GetFirstSize() > 0) {
             if (outL.GetSize() < 100) {

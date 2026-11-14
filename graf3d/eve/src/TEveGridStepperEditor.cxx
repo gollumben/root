@@ -18,16 +18,15 @@
 Sub-editor for TEveGridStepper class.
 */
 
-ClassImp(TEveGridStepperSubEditor);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
 TEveGridStepperSubEditor::TEveGridStepperSubEditor(const TGWindow *p) :
    TGVerticalFrame(p),
-   fM (0),
-   fNx(0), fNy(0), fNz(0),
-   fDx(0), fDy(0), fDz(0)
+   fM (nullptr),
+   fNx(nullptr), fNy(nullptr), fNz(nullptr),
+   fDx(nullptr), fDy(nullptr), fDz(nullptr)
 {
    Int_t labelW = 15;
 
@@ -157,7 +156,6 @@ void TEveGridStepperSubEditor::DoDs()
 Editor for TEveGridStepper class.
 */
 
-ClassImp(TEveGridStepperEditor);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -165,8 +163,8 @@ ClassImp(TEveGridStepperEditor);
 TEveGridStepperEditor::TEveGridStepperEditor(const TGWindow *p, Int_t width, Int_t height,
                                              UInt_t options, Pixel_t back) :
    TGedFrame(p, width, height, options | kVerticalFrame, back),
-   fM  (0),
-   fSE (0)
+   fM  (nullptr),
+   fSE (nullptr)
 {
    MakeTitle("TEveGridStepper");
 

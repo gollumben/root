@@ -55,7 +55,7 @@ TKDEFGT::~TKDEFGT()
 void TKDEFGT::BuildModel(const std::vector<Double_t> &sources, Double_t sigma,
                          UInt_t dim, UInt_t p, UInt_t k)
 {
-   if (!sources.size()) {
+   if (sources.empty()) {
       Warning("TKDEFGT::BuildModel", "Bad input - zero size vector");
       return;
    }
@@ -249,7 +249,7 @@ void TKDEFGT::Kcenter(const TGL5DDataSet *sources)
       }
    }
 
-   for (UInt_t i = 0, nd = 0 ; i < nP; i++, nd += fDim) {
+   for (UInt_t i = 0; i < nP; i++) {
       fXboxsz[fIndx[i]]++;
       UInt_t ibase = fIndx[i] * fDim;
       fXC[ibase]     += sources->V1(i);
@@ -392,7 +392,7 @@ void TKDEFGT::Predict(const std::vector<Double_t> &ts, std::vector<Double_t> &v,
       return;
    }
 
-   if (!ts.size()) {
+   if (ts.empty()) {
       Warning("TKDEFGT::Predict", "Empty targets vector.");
       return;
    }

@@ -40,8 +40,8 @@ void REveDataSimpleProxyBuilder::Clean()
          for (auto &compound : product->RefChildren()) {
             REveCollectionCompound *collComp = dynamic_cast<REveCollectionCompound *>(compound);
             collComp->DestroyElements();
+            collComp->fUsed = false;
          }
-         (spbIt)->second->lastChildIdx=0;
          (spbIt)->second->map.clear();
       }
    }
@@ -106,18 +106,33 @@ REveCompound *REveDataSimpleProxyBuilder::GetHolder(REveElement *product, int id
       itemHolder = pmIt->second;
       // printf("GetHolder already in map %d \n", idx);
    } else {
-      if (product->NumChildren() > idx) {
-         auto cIt = std::next(product->RefChildren().begin(), idx);
-         itemHolder = dynamic_cast<REveCollectionCompound *>(*cIt);
-         // printf("GetHolder isreused %d \n", idx);
+      int testIdx = 0;
+      if (product->NumChildren() > (int)spb->map.size()) {
+         for (auto &cr : product->RefChildren()) {
+            REveCollectionCompound *cc = (REveCollectionCompound *)(cr);
+            if (!cc->fUsed) {
+               itemHolder = cc;
+               break;
+            }
+            testIdx++;
+         }
+         if (!itemHolder){
+            std::cerr << "REveDataSimpleProxyBuilder::GetHolder can't reuse product\n";
+         }
+         if (testIdx != (int)spb->map.size()) {
+            std::cout << "REveDataSimpleProxyBuilder::GetHolder number of used products do not match product size\n";
+         }
       }
       if (!itemHolder) {
+
+         if ((int)spb->map.size() != product->NumChildren()) {
+            std::cout << "REveDataSimpleProxyBuilder::GetHolder total number of products do not match product size\n";
+         };
          itemHolder = CreateCompound(true, true);
          product->AddElement(itemHolder);
-         // printf("Creating new holder\n");
       }
-      spb->lastChildIdx = idx;
       spb->map.emplace(idx, itemHolder);
+      itemHolder->fUsed = true;
       itemHolder->SetMainColor(Collection()->GetDataItem(idx)->GetMainColor());
       std::string name(TString::Format("%s %d", Collection()->GetCName(), idx));
       itemHolder->SetName(name);
@@ -127,7 +142,7 @@ REveCompound *REveDataSimpleProxyBuilder::GetHolder(REveElement *product, int id
 }
 
 void
-REveDataSimpleProxyBuilder::Build(const REveDataCollection *collection,
+REveDataSimpleProxyBuilder::BuildProduct(const REveDataCollection *collection,
                                   REveElement* product, const REveViewContext* vc)
 {
    // printf("REveDataSimpleProxyBuilder::Build %s %d\n", collection->GetCName(), collection->GetNItems());
@@ -138,13 +153,13 @@ REveDataSimpleProxyBuilder::Build(const REveDataCollection *collection,
       if (di->GetRnrSelf() && !di->GetFiltered())
       {
          REveCompound *itemHolder = GetHolder(product, index);
-         Build(collection->GetDataPtr(index), index, itemHolder, vc);
+         BuildItem(collection->GetDataPtr(index), index, itemHolder, vc);
       }
    }
 }
 
 void
-REveDataSimpleProxyBuilder::BuildViewType(const REveDataCollection* collection,
+REveDataSimpleProxyBuilder::BuildProductViewType(const REveDataCollection* collection,
                                           REveElement* product, const std::string& viewType, const REveViewContext* vc)
 {
    auto size = collection->GetNItems();
@@ -154,7 +169,7 @@ REveDataSimpleProxyBuilder::BuildViewType(const REveDataCollection* collection,
       if (di->GetRnrSelf() && !di->GetFiltered())
       {
          REveCompound *itemHolder = GetHolder(product, index);
-         BuildViewType(collection->GetDataPtr(index), index, itemHolder, viewType, vc);
+         BuildItemViewType(collection->GetDataPtr(index), index, itemHolder, viewType, vc);
       }
    }
    //      printf("END Build view type [%s] product size %d\n",viewType.c_str(), product->NumChildren());
@@ -200,9 +215,9 @@ void REveDataSimpleProxyBuilder::ModelChanges(const REveDataCollection::Ids_t &i
          holder = GetHolder(p->m_elements, itemIdx);
 
          if (HaveSingleProduct())
-            Build(Collection()->GetDataPtr(itemIdx), itemIdx, holder, p->m_viewContext);
+            BuildItem(Collection()->GetDataPtr(itemIdx), itemIdx, holder, p->m_viewContext);
          else
-            BuildViewType(Collection()->GetDataPtr(itemIdx), itemIdx, holder, p->m_viewType,  p->m_viewContext);
+            BuildItemViewType(Collection()->GetDataPtr(itemIdx), itemIdx, holder, p->m_viewType,  p->m_viewContext);
 
          applyColorAttrToChildren(holder);
          p->m_elements->ProjectChild(holder);
@@ -225,9 +240,9 @@ REveDataSimpleProxyBuilder::VisibilityModelChanges(int idx, REveElement* iCompou
 
    if (item->GetVisible() ) {
       if (HaveSingleProduct())
-         Build(Collection()->GetDataPtr(idx), idx, iCompound, vc);
+         BuildItem(Collection()->GetDataPtr(idx), idx, iCompound, vc);
       else
-         BuildViewType(Collection()->GetDataPtr(idx), idx, iCompound, viewType, vc);
+         BuildItemViewType(Collection()->GetDataPtr(idx), idx, iCompound, viewType, vc);
       returnValue = true;
    }
    return returnValue;
@@ -235,15 +250,22 @@ REveDataSimpleProxyBuilder::VisibilityModelChanges(int idx, REveElement* iCompou
 
 //______________________________________________________________________________
 
-void REveDataSimpleProxyBuilder::FillImpliedSelected(REveElement::Set_t &impSet, Product* p)
+void REveDataSimpleProxyBuilder::FillImpliedSelected(REveElement::Set_t &impSet, const std::set<int>& sec_idcs, Product* p)
 {
-   for (auto &s : Collection()->GetItemList()->RefSelectedSet()) {
-      // printf("Fill implied selected %d \n", s);
+   for (auto &s : sec_idcs) {
       auto spb = fProductMap[p->m_elements];
       auto it = spb->map.find(s);
       if (it != spb->map.end()) {
-         // printf("Fill implied selected %s \n", it->second->GetCName());
-         it->second->FillImpliedSelectedSet(impSet);
+         it->second->FillImpliedSelectedSet(impSet, sec_idcs);
+      }
+   }
+
+   // remove elements that are not added in any scene
+   for (auto it = impSet.begin(); it != impSet.end();) {
+      if ((*it)->GetElementId()) {
+         ++it;
+      } else {
+         it = impSet.erase(it);
       }
    }
 }
@@ -279,7 +301,7 @@ REveElement *REveCollectionCompound::GetSelectionMaster()
    fCollection->GetItemList()->RefSelectedSet().clear();
    try {
 
-      std::size_t found = fName.find_last_of(" ");
+      std::size_t found = fName.find_last_of(' ');
       if (found == std::string::npos)
       {
          throw(eh + TString::Format("Can't retrive item index from %s", fName.c_str()));

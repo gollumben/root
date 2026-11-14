@@ -27,7 +27,6 @@ unloaded enum.
 
 const unsigned int listSize=3;
 
-ClassImp(TListOfEnums);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -115,6 +114,15 @@ void TListOfEnums::AddAt(TObject *obj, Int_t idx)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Insert object at location idx in the list, with options.
+
+void TListOfEnums::AddAt(TObject *obj, Int_t idx, Option_t *opt)
+{
+   THashList::AddAt(obj, idx, opt);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Insert object after object after in the list.
 
 void TListOfEnums::AddAfter(const TObject *after, TObject *obj)
@@ -133,6 +141,24 @@ void TListOfEnums::AddAfter(TObjLink *after, TObject *obj)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Insert object after object after in the list, with options.
+
+void TListOfEnums::AddAfter(const TObject *after, TObject *obj, Option_t *opt)
+{
+   THashList::AddAfter(after, obj, opt);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object after object after in the list, with options.
+
+void TListOfEnums::AddAfter(TObjLink *after, TObject *obj, Option_t *opt)
+{
+   THashList::AddAfter(after, obj, opt);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Insert object before object before in the list.
 
 void TListOfEnums::AddBefore(const TObject *before, TObject *obj)
@@ -147,6 +173,24 @@ void TListOfEnums::AddBefore(const TObject *before, TObject *obj)
 void TListOfEnums::AddBefore(TObjLink *before, TObject *obj)
 {
    THashList::AddBefore(before, obj);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object before object before in the list, with options.
+
+void TListOfEnums::AddBefore(const TObject *before, TObject *obj, Option_t *opt)
+{
+   THashList::AddBefore(before, obj, opt);
+   MapObject(obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert object before object before in the list, with options.
+
+void TListOfEnums::AddBefore(TObjLink *before, TObject *obj, Option_t *opt)
+{
+   THashList::AddBefore(before, obj, opt);
    MapObject(obj);
 }
 
@@ -181,6 +225,21 @@ TEnum *TListOfEnums::Find(DeclId_t id) const
    if (!id) return nullptr;
 
    return (TEnum *)fIds->GetValue((Long64_t)id);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Specialize FindObject to do search for the
+/// a enum just by name or create it if its not already in the list
+
+TObject *TListOfEnums::FindObject(const char *name) const
+{
+   TObject *result = THashList::FindObject(name);
+   if (!result) {
+      TInterpreter::DeclId_t decl;
+      decl = gInterpreter->GetEnum(GetClass(), name);
+      if (decl) result = const_cast<TListOfEnums *>(this)->Get(decl, name);
+   }
+   return result;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

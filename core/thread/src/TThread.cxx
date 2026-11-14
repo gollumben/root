@@ -9,16 +9,16 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// TThread                                                              //
-//                                                                      //
-// This class implements threads. A thread is an execution environment  //
-// much lighter than a process. A single process can have multiple      //
-// threads. The actual work is done via the TThreadImp class (either    //
-// TPosixThread or TWin32Thread).                                       //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
+/** \class TThread
+
+\legacy{TThread}
+
+This class implements threads. A thread is an execution environment
+much lighter than a process. A single process can have multiple
+threads. The actual work is done via the TThreadImp class (either
+TPosixThread or TWin32Thread).
+
+**/
 
 #include "RConfigure.h"
 
@@ -35,11 +35,13 @@
 #include "TInterpreter.h"
 #include "TError.h"
 #include "TSystem.h"
-#include "Varargs.h"
 #include "ThreadLocalStorage.h"
 #include "TThreadSlots.h"
 #include "TRWMutexImp.h"
-#include "snprintf.h"
+
+#include <cstdio>
+
+#include <cstdarg>
 
 TThreadImp     *TThread::fgThreadImp = nullptr;
 Long_t          TThread::fgMainId = 0;
@@ -47,7 +49,7 @@ TThread        *TThread::fgMain = nullptr;
 TMutex         *TThread::fgMainMutex;
 std::atomic<char *> volatile TThread::fgXAct{nullptr};
 TMutex         *TThread::fgXActMutex = nullptr;
-TCondition     *TThread::fgXActCondi = 0;
+TCondition *TThread::fgXActCondi = nullptr;
 void **volatile TThread::fgXArr = nullptr;
 volatile Int_t  TThread::fgXAnb = 0;
 volatile Int_t  TThread::fgXArt = 0;
@@ -81,10 +83,10 @@ public:
 
       fgIsTearDown = kTRUE;
       TVirtualMutex *m = gGlobalMutex;
-      gGlobalMutex = 0;
+      gGlobalMutex = nullptr;
       delete m;
       TThreadImp *imp = TThread::fgThreadImp;
-      TThread::fgThreadImp = 0;
+      TThread::fgThreadImp = nullptr;
       delete imp;
    }
 };
@@ -146,9 +148,9 @@ void* TJoinHelper::JoinFunc(void *p)
    jp->fC->Signal();
    jp->fM->UnLock();
 
-   TThread::Exit(0);
+   TThread::Exit(nullptr);
 
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -178,7 +180,7 @@ Int_t TJoinHelper::Join()
          // If we received the signal or timed out, let's check the value
          if (fJoined) break;
       } else {
-         // If any other error occured, there is no point in trying again
+         // If any other error occurred, there is no point in trying again
          break;
       }
 
@@ -189,7 +191,7 @@ Int_t TJoinHelper::Join()
 
    // And wait for the help to finish to avoid the risk that it is still
    // running when the main tread is finished (and the thread library unloaded!)
-   TThread::fgThreadImp->Join(fH, 0);
+   TThread::fgThreadImp->Join(fH, nullptr);
 
    return fRc;
 }
@@ -197,7 +199,6 @@ Int_t TJoinHelper::Join()
 
 //------------------------------------------------------------------------------
 
-ClassImp(TThread);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -209,7 +210,7 @@ TThread::TThread(VoidRtnFunc_t fn, void *arg, EPriority pri)
    : TNamed("<anon>", "")
 {
    fDetached  = kFALSE;
-   fFcnVoid   = 0;
+   fFcnVoid = nullptr;
    fFcnRetn   = fn;
    fPriority  = pri;
    fThreadArg = arg;
@@ -226,7 +227,7 @@ TThread::TThread(VoidFunc_t fn, void *arg, EPriority pri)
    : TNamed("<anon>", "")
 {
    fDetached  = kTRUE;
-   fFcnRetn   = 0;
+   fFcnRetn = nullptr;
    fFcnVoid   = fn;
    fPriority  = pri;
    fThreadArg = arg;
@@ -243,7 +244,7 @@ TThread::TThread(const char *thname, VoidRtnFunc_t fn, void *arg,
                  EPriority pri) : TNamed(thname, "")
 {
    fDetached  = kFALSE;
-   fFcnVoid   = 0;
+   fFcnVoid = nullptr;
    fFcnRetn   = fn;
    fPriority  = pri;
    fThreadArg = arg;
@@ -260,7 +261,7 @@ TThread::TThread(const char *thname, VoidFunc_t fn, void *arg,
                  EPriority pri) : TNamed(thname, "")
 {
    fDetached  = kTRUE;
-   fFcnRetn   = 0;
+   fFcnRetn = nullptr;
    fFcnVoid   = fn;
    fPriority  = pri;
    fThreadArg = arg;
@@ -274,10 +275,10 @@ TThread::TThread(const char *thname, VoidFunc_t fn, void *arg,
 TThread::TThread(Long_t id)
 {
    fDetached  = kTRUE;
-   fFcnRetn   = 0;
-   fFcnVoid   = 0;
+   fFcnRetn = nullptr;
+   fFcnVoid = nullptr;
    fPriority  = kNormalPriority;
-   fThreadArg = 0;
+   fThreadArg = nullptr;
    Constructor();
 
    // Changing the id must be protected as it will be look at by multiple
@@ -320,11 +321,6 @@ void TThread::Init()
 {
    if (fgThreadImp || fgIsTearDown) return;
 
-#if !defined (_REENTRANT) && !defined (WIN32)
-   // Not having it means (See TVirtualMutext.h) that the LOCKGUARD macro are empty.
-   ::Fatal("Init","_REENTRANT must be #define-d for TThread to work properly.");
-#endif
-
    // 'Insure' gROOT is created before initializing the Thread safe behavior
    // (to make sure we do not have two attempting to create it).
    ROOT::GetROOT();
@@ -352,7 +348,7 @@ void TThread::Init()
      if (!ROOT::gCoreMutex) {
         // To avoid dead locks, caused by shared library opening and/or static initialization
         // taking the same lock as 'tls_get_addr_tail', we can not use UniqueLockRecurseCount.
-#ifdef R__HAS_TBB
+#ifdef ROOT_CORE_THREAD_TBB
         ROOT::gCoreMutex = new ROOT::TRWMutexImp<std::mutex, ROOT::Internal::RecurseCountsTBBUnique>();
 #else
         ROOT::gCoreMutex = new ROOT::TRWMutexImp<std::mutex, ROOT::Internal::RecurseCounts>();
@@ -368,8 +364,8 @@ void TThread::Init()
 
 void TThread::Constructor()
 {
-   fHolder = 0;
-   fClean  = 0;
+   fHolder = nullptr;
+   fClean = nullptr;
    fState  = kNewState;
 
    fId = -1;
@@ -381,7 +377,9 @@ void TThread::Constructor()
    SetComment("Constructor: MainInternalMutex Locked");
 
    if (fgMain) fgMain->fPrev = this;
-   fNext = fgMain; fPrev = 0; fgMain = this;
+   fNext = fgMain;
+   fPrev = nullptr;
+   fgMain = this;
 
    ThreadInternalUnLock();
    SetComment();
@@ -409,7 +407,8 @@ TThread::~TThread()
 
    ThreadInternalUnLock();
    SetComment();
-   if (fHolder) *fHolder = 0;
+   if (fHolder)
+      *fHolder = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -499,10 +498,11 @@ TThread *TThread::GetThread(const char *name)
 
 TThread *TThread::Self()
 {
-   TTHREAD_TLS(TThread*) self = 0;
+   TTHREAD_TLS(TThread *) self = nullptr;
 
    if (!self || fgIsTearDown) {
-      if (fgIsTearDown) self = 0;
+      if (fgIsTearDown)
+         self = nullptr;
       self = GetThread(SelfId());
    }
    return self;
@@ -562,7 +562,7 @@ Long_t TThread::SelfId()
 ////////////////////////////////////////////////////////////////////////////////
 /// Start the thread. This starts the static method TThread::Function()
 /// which calls the user function specified in the TThread ctor with
-/// the arg argument. 
+/// the arg argument.
 /// If affinity is specified (>=0), a CPU affinity will be associated
 /// with the current thread.
 /// Returns 0 on success, otherwise an error number will
@@ -824,7 +824,7 @@ void *TThread::Function(void *ptr)
    if (th->fDetached) {
       //Detached, non joinable thread
       (th->fFcnVoid)(arg);
-      ret = 0;
+      ret = nullptr;
       th->fState = kFinishedState;
    } else {
       //UnDetached, joinable thread
@@ -912,24 +912,16 @@ void **TThread::Tsd(void *dflt, Int_t k)
 void **TThread::GetTls(Int_t k) {
    TTHREAD_TLS_ARRAY(void*, ROOT::kMaxThreadSlot, tls);
 
-   // In order for the thread 'gDirectory' value to be properly
-   // initialized we set it now (otherwise it defaults
-   // to zero which is 'unexpected')
-   // We initialize it to gROOT rather than gDirectory, since
-   // TFile are currently expected to not be shared by two threads.
-   if (k == ROOT::kDirectoryThreadSlot && tls[k] == nullptr)
-      tls[k] = gROOT;
-
    return &(tls[k]);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Static method providing a thread safe printf. Appends a newline.
 
-void TThread::Printf(const char *va_(fmt), ...)
+void TThread::Printf(const char *fmt, ...)
 {
    va_list ap;
-   va_start(ap,va_(fmt));
+   va_start(ap, fmt);
 
    Int_t buf_size = 2048;
    char *buf;
@@ -937,7 +929,7 @@ void TThread::Printf(const char *va_(fmt), ...)
 again:
    buf = new char[buf_size];
 
-   int n = vsnprintf(buf, buf_size, va_(fmt), ap);
+   int n = vsnprintf(buf, buf_size, fmt, ap);
    // old vsnprintf's return -1 if string is truncated new ones return
    // total number of characters that would have been written
    if (n == -1 || n >= buf_size) {
@@ -950,7 +942,7 @@ again:
 
    void *arr[2];
    arr[1] = (void*) buf;
-   if (XARequest("PRTF", 2, arr, 0)) {
+   if (XARequest("PRTF", 2, arr, nullptr)) {
       delete [] buf;
       return;
    }
@@ -983,8 +975,9 @@ again:
       goto again;
    }
    if (level >= kSysError && level < kFatal) {
-      char *buf1 = new char[buf_size + strlen(gSystem->GetError()) + 5];
-      sprintf(buf1, "%s (%s)", buf, gSystem->GetError());
+      const std::size_t bufferSize = buf_size + strlen(gSystem->GetError()) + 5;
+      char *buf1 = new char[bufferSize];
+      snprintf(buf1, bufferSize, "%s (%s)", buf, gSystem->GetError());
       bp = buf1;
       delete [] buf;
    } else
@@ -994,7 +987,8 @@ again:
    arr[1] = (void*) Longptr_t(level);
    arr[2] = (void*) location;
    arr[3] = (void*) bp;
-   if (XARequest("ERRO", 4, arr, 0)) return;
+   if (XARequest("ERRO", 4, arr, nullptr))
+      return;
 
    if (level != kFatal)
       ::GetErrorHandler()(level, level >= gErrorAbortLevel, location, bp);
@@ -1012,14 +1006,16 @@ again:
 void TThread::DoError(int level, const char *location, const char *fmt,
                       va_list va) const
 {
-   char *loc = 0;
+   char *loc = nullptr;
 
    if (location) {
-      loc = new char[strlen(location) + strlen(GetName()) + 32];
-      sprintf(loc, "%s %s:0x%lx", location, GetName(), fId);
+      const std::size_t bufferSize = strlen(location) + strlen(GetName()) + 32;
+      loc = new char[bufferSize];
+      snprintf(loc, bufferSize, "%s %s:0x%lx", location, GetName(), fId);
    } else {
-      loc = new char[strlen(GetName()) + 32];
-      sprintf(loc, "%s:0x%lx", GetName(), fId);
+      const std::size_t bufferSize = strlen(GetName()) + 32;
+      loc = new char[bufferSize];
+      snprintf(loc, bufferSize, "%s:0x%lx", GetName(), fId);
    }
 
    ErrorHandler(level, loc, fmt, va);
@@ -1090,7 +1086,7 @@ void TThread::XAction()
    enum { kPRTF = 0, kCUPD = 5, kCANV = 10, kCDEL = 15,
           kPDCD = 20, kMETH = 25, kERRO = 30 };
    int iact = strstr(acts, fgXAct) - acts;
-   char *cmd = 0;
+   TString cmd;
 
    switch (iact) {
 
@@ -1128,8 +1124,8 @@ void TThread::XAction()
 
             case 2:
                //((TCanvas*)fgXArr[1])->Constructor();
-               cmd = Form("((TCanvas *)0x%zx)->Constructor();",(size_t)fgXArr[1]);
-               gROOT->ProcessLine(cmd);
+               cmd.Form("((TCanvas *)0x%zx)->Constructor();",(size_t)fgXArr[1]);
+               gROOT->ProcessLine(cmd.Data());
                break;
 
             case 5:
@@ -1137,8 +1133,8 @@ void TThread::XAction()
                //                 (char*)fgXArr[2],
                //                 (char*)fgXArr[3],
                //                *((Int_t*)(fgXArr[4])));
-               cmd = Form("((TCanvas *)0x%zx)->Constructor((char*)0x%zx,(char*)0x%zx,*((Int_t*)(0x%zx)));",(size_t)fgXArr[1],(size_t)fgXArr[2],(size_t)fgXArr[3],(size_t)fgXArr[4]);
-               gROOT->ProcessLine(cmd);
+               cmd.Form("((TCanvas *)0x%zx)->Constructor((char*)0x%zx,(char*)0x%zx,*((Int_t*)(0x%zx)));",(size_t)fgXArr[1],(size_t)fgXArr[2],(size_t)fgXArr[3],(size_t)fgXArr[4]);
+               gROOT->ProcessLine(cmd.Data());
                break;
             case 6:
                //((TCanvas*)fgXArr[1])->Constructor(
@@ -1146,8 +1142,8 @@ void TThread::XAction()
                //                 (char*)fgXArr[3],
                //                *((Int_t*)(fgXArr[4])),
                //                *((Int_t*)(fgXArr[5])));
-               cmd = Form("((TCanvas *)0x%zx)->Constructor((char*)0x%zx,(char*)0x%zx,*((Int_t*)(0x%zx)),*((Int_t*)(0x%zx)));",(size_t)fgXArr[1],(size_t)fgXArr[2],(size_t)fgXArr[3],(size_t)fgXArr[4],(size_t)fgXArr[5]);
-               gROOT->ProcessLine(cmd);
+               cmd.Form("((TCanvas *)0x%zx)->Constructor((char*)0x%zx,(char*)0x%zx,*((Int_t*)(0x%zx)),*((Int_t*)(0x%zx)));",(size_t)fgXArr[1],(size_t)fgXArr[2],(size_t)fgXArr[3],(size_t)fgXArr[4],(size_t)fgXArr[5]);
+               gROOT->ProcessLine(cmd.Data());
                break;
 
             case 8:
@@ -1158,8 +1154,8 @@ void TThread::XAction()
                //               *((Int_t*)(fgXArr[5])),
                //               *((Int_t*)(fgXArr[6])),
                //               *((Int_t*)(fgXArr[7])));
-               cmd = Form("((TCanvas *)0x%zx)->Constructor((char*)0x%zx,(char*)0x%zx,*((Int_t*)(0x%zx)),*((Int_t*)(0x%zx)),*((Int_t*)(0x%zx)),*((Int_t*)(0x%zx)));",(size_t)fgXArr[1],(size_t)fgXArr[2],(size_t)fgXArr[3],(size_t)fgXArr[4],(size_t)fgXArr[5],(size_t)fgXArr[6],(size_t)fgXArr[7]);
-               gROOT->ProcessLine(cmd);
+               cmd.Form("((TCanvas *)0x%zx)->Constructor((char*)0x%zx,(char*)0x%zx,*((Int_t*)(0x%zx)),*((Int_t*)(0x%zx)),*((Int_t*)(0x%zx)),*((Int_t*)(0x%zx)));",(size_t)fgXArr[1],(size_t)fgXArr[2],(size_t)fgXArr[3],(size_t)fgXArr[4],(size_t)fgXArr[5],(size_t)fgXArr[6],(size_t)fgXArr[7]);
+               gROOT->ProcessLine(cmd.Data());
                break;
 
          }
@@ -1167,8 +1163,8 @@ void TThread::XAction()
 
       case kCDEL:
          //((TCanvas*)fgXArr[1])->Destructor();
-         cmd = Form("((TCanvas *)0x%zx)->Destructor();",(size_t)fgXArr[1]);
-         gROOT->ProcessLine(cmd);
+         cmd.Form("((TCanvas *)0x%zx)->Destructor();",(size_t)fgXArr[1]);
+         gROOT->ProcessLine(cmd.Data());
          break;
 
       case kPDCD:
@@ -1186,7 +1182,7 @@ void TThread::XAction()
          ::Error("TThread::XAction", "wrong case");
    }
 
-   fgXAct = 0;
+   fgXAct = nullptr;
    if (condimp) condimp->Signal();
    condmutex->UnLock();
 }

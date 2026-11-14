@@ -9,19 +9,8 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// TGridJob                                                             //
-//                                                                      //
-// Abstract base class defining interface to a GRID job.                //
-//                                                                      //
-// Related classes are TGridJobStatus.                                  //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
-
 #include "TGridJob.h"
 
-ClassImp(TGridJob);
 
 
 ////////////////////////////////////////////////////////////////////////////////

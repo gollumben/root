@@ -31,6 +31,8 @@ namespace Math {
       Default tag for identifying any coordinate system
 
       @ingroup GenVector
+
+      @see GenVector
    */
 
    class  DefaultCoordinateSystemTag {};
@@ -41,6 +43,8 @@ namespace Math {
       Tag for identifying vectors based on a global coordinate system
 
       @ingroup GenVector
+
+      @see GenVector
    */
    class  GlobalCoordinateSystemTag {};
 
@@ -49,6 +53,8 @@ namespace Math {
       Tag for identifying vectors based on a local coordinate system
 
       @ingroup GenVector
+
+      @see GenVector
    */
    class   LocalCoordinateSystemTag {};
 

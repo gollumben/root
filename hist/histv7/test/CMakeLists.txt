@@ -1,15 +1,25 @@
-# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
-# All rights reserved.
-#
-# For the licensing terms see $ROOTSYS/LICENSE.
-# For the list of contributors see $ROOTSYS/README/CREDITS.
+HIST_ADD_GTEST(hist_atomic hist_atomic.cxx)
+HIST_ADD_GTEST(hist_auto hist_auto.cxx)
+HIST_ADD_GTEST(hist_axes hist_axes.cxx)
+HIST_ADD_GTEST(hist_axis_variant hist_axis_variant.cxx)
+HIST_ADD_GTEST(hist_categorical hist_categorical.cxx)
+HIST_ADD_GTEST(hist_concurrent hist_concurrent.cxx)
+HIST_ADD_GTEST(hist_engine hist_engine.cxx)
+HIST_ADD_GTEST(hist_engine_atomic hist_engine_atomic.cxx)
+HIST_ADD_GTEST(hist_hist hist_hist.cxx)
+HIST_ADD_GTEST(hist_index hist_index.cxx)
+HIST_ADD_GTEST(hist_profile hist_profile.cxx)
+HIST_ADD_GTEST(hist_profile_concurrent hist_profile_concurrent.cxx)
+HIST_ADD_GTEST(hist_regular hist_regular.cxx)
+HIST_ADD_GTEST(hist_slice hist_slice.cxx)
+HIST_ADD_GTEST(hist_stats hist_stats.cxx)
+HIST_ADD_GTEST(hist_user hist_user.cxx)
+HIST_ADD_GTEST(hist_variable hist_variable.cxx)
 
-if(MSVC AND MSVC_VERSION GREATER_EQUAL 1923)
-  # FIXME: using /O2 compiler flag prevent the following error when building in debug mode:
-  # axis.obj : fatal error LNK1179: invalid or corrupt file: duplicate COMDAT
-  # '??$?8DU?$char_traits@D@std@@@__ROOT@experimental@std@@YA_NV?$basic_string_view@DU?$char_traits@D@std@@@012@0@Z'
-  # Try to remove those lines when upgrading Visual Studio
-  string(REPLACE "-Od -Z7" "-O2" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+if(NOT DEFINED histv7_standalone)
+  ROOT_ADD_GTEST(hist_io hist_io.cxx LIBRARIES RIO ROOTHist)
+
+  if(pyroot)
+    ROOT_ADD_PYUNITTEST(hist_py hist.py)
+  endif()
 endif()
-
-ROOT_ADD_UNITTEST_DIR(ROOTHist)

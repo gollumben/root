@@ -4,74 +4,88 @@
 # For the licensing terms see $ROOTSYS/LICENSE.
 # For the list of contributors see $ROOTSYS/README/CREDITS.
 
+set (EXTRA_DICT_OPTS)
+if (runtime_cxxmodules AND WIN32)
+  set (EXTRA_DICT_OPTS NO_CXXMODULE)
+endif()
+
+if (builtin_glu)
+  set(EXTRA_GL_LIBS tessglu)
+else ()
+  if (WIN32)
+    set(EXTRA_GL_LIBS Glu32.lib)
+  else()
+    set(EXTRA_GL_LIBS OpenGL::GLU)
+  endif()
+endif()
+
+set(ROOTEVE_HEADERS
+  ROOT/REveBox.hxx
+  ROOT/REveBoxSet.hxx
+  ROOT/REveCalo.hxx
+  ROOT/REveCaloData.hxx
+  ROOT/REveCamera.hxx
+  ROOT/REveChunkManager.hxx
+  ROOT/REveClient.hxx
+  ROOT/REveCompound.hxx
+  ROOT/REveDataCollection.hxx
+  ROOT/REveDataProxyBuilderBase.hxx
+  ROOT/REveDataSimpleProxyBuilder.hxx
+  ROOT/REveDataSimpleProxyBuilderTemplate.hxx
+  ROOT/REveDataTable.hxx
+  ROOT/REveDigitSet.hxx
+  ROOT/REveElement.hxx
+  ROOT/REveEllipsoid.hxx
+  ROOT/REveFrameBox.hxx
+  ROOT/REveGeoOverlaps.hxx
+  ROOT/REveGeoPolyShape.hxx
+  ROOT/REveGeoShape.hxx
+  ROOT/REveGeoShapeExtract.hxx
+  ROOT/REveGeoTopNode.hxx
+  ROOT/REveGluTess.hxx
+  ROOT/REveJetCone.hxx
+  ROOT/REveLine.hxx
+  ROOT/REveLogo.hxx
+  ROOT/REveManager.hxx
+  ROOT/REvePathMark.hxx
+  ROOT/REvePointSet.hxx
+  ROOT/REvePolygonSetProjected.hxx
+  ROOT/REveProjectionAxis.hxx
+  ROOT/REveProjectionBases.hxx
+  ROOT/REveProjectionManager.hxx
+  ROOT/REveProjections.hxx
+  ROOT/REveRGBAPalette.hxx
+  ROOT/REveRenderData.hxx
+  ROOT/REveSMorph.hxx
+  ROOT/REveScalableStraightLineSet.hxx
+  ROOT/REveScene.hxx
+  ROOT/REveSceneInfo.hxx
+  ROOT/REveSecondarySelectable.hxx
+  ROOT/REveSelection.hxx
+  ROOT/REveShape.hxx
+  ROOT/REveStraightLineSet.hxx
+  ROOT/REveSystem.hxx
+  ROOT/REveTableInfo.hxx
+  ROOT/REveTableProxyBuilder.hxx
+  ROOT/REveText.hxx
+  ROOT/REveTrack.hxx
+  ROOT/REveTrackProjected.hxx
+  ROOT/REveTrackPropagator.hxx
+  ROOT/REveTrans.hxx
+  ROOT/REveTreeTools.hxx
+  ROOT/REveTypes.hxx
+  ROOT/REveUtil.hxx
+  ROOT/REveVSD.hxx
+  ROOT/REveVSDStructs.hxx
+  ROOT/REveVector.hxx
+  ROOT/REveViewContext.hxx
+  ROOT/REveViewer.hxx
+)
+
 ROOT_STANDARD_LIBRARY_PACKAGE(ROOTEve
   HEADERS
-    ROOT/REveChunkManager.hxx
-    ROOT/REveClient.hxx
-    ROOT/REveCompound.hxx
-    ROOT/REveBox.hxx
-    ROOT/REveBoxSet.hxx
-    ROOT/REveCaloData.hxx
-    ROOT/REveCalo.hxx
-    ROOT/REveDataCollection.hxx
-    ROOT/REveDataProxyBuilderBase.hxx
-    ROOT/REveDataSimpleProxyBuilder.hxx
-    ROOT/REveDataSimpleProxyBuilderTemplate.hxx
-    ROOT/REveDataTable.hxx
-    ROOT/REveDigitSet.hxx
-    ROOT/REveElement.hxx
-    ROOT/REveFrameBox.hxx
-    ROOT/REveGeoPolyShape.hxx
-    ROOT/REveGeoShapeExtract.hxx
-    ROOT/REveGeoShape.hxx
-    ROOT/REveGeomData.hxx
-    ROOT/REveGeomViewer.hxx
-    ROOT/REveGluTess.hxx
-    ROOT/REveJetCone.hxx
-    ROOT/REveEllipsoid.hxx
-    ROOT/REveLine.hxx
-    ROOT/REveManager.hxx
-    ROOT/REvePathMark.hxx
-    ROOT/REvePointSet.hxx
-    ROOT/REvePolygonSetProjected.hxx
-    ROOT/REveProjectionBases.hxx
-    ROOT/REveProjectionManager.hxx
-    ROOT/REveProjections.hxx
-    ROOT/REveRenderData.hxx
-    ROOT/REveRGBAPalette.hxx
-    ROOT/REveScalableStraightLineSet.hxx
-    ROOT/REveScene.hxx
-    ROOT/REveSceneInfo.hxx
-    ROOT/REveSecondarySelectable.hxx
-    ROOT/REveSelection.hxx
-    ROOT/REveShape.hxx
-    ROOT/REveStraightLineSet.hxx
-    ROOT/REveSystem.hxx
-    ROOT/REveTableInfo.hxx
-    ROOT/REveTableProxyBuilder.hxx
-    ROOT/REveTrack.hxx
-    ROOT/REveTrackProjected.hxx
-    ROOT/REveTrackPropagator.hxx
-    ROOT/REveTrans.hxx
-    ROOT/REveTreeTools.hxx
-    ROOT/REveTypes.hxx
-    ROOT/REveUtil.hxx
-    ROOT/REveVector.hxx
-    ROOT/REveViewer.hxx
-    ROOT/REveViewContext.hxx
-    ROOT/REveVSD.hxx
-    ROOT/REveVSDStructs.hxx
+    ${ROOTEVE_HEADERS}
   SOURCES
-    glu/memalloc.c
-    glu/dict.c
-    glu/geom.c
-    glu/mesh.c
-    glu/priorityq.c
-    glu/normal.c
-    glu/render.c
-    glu/sweep.c
-    glu/tess.c
-    glu/tessmono.c
     src/REveChunkManager.cxx
     src/REveBox.cxx
     src/REveBoxSet.cxx
@@ -88,16 +102,18 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTEve
     src/REveGeoPolyShape.cxx
     src/REveGeoShape.cxx
     src/REveGeoShapeExtract.cxx
-    src/REveGeomData.cxx
-    src/REveGeomViewer.cxx
+    src/REveGeoOverlaps.cxx
+    src/REveGeoTopNode.cxx
     src/REveGluTess.cxx
     src/REveJetCone.cxx
     src/REveEllipsoid.cxx
     src/REveLine.cxx
+    src/REveLogo.cxx
     src/REveManager.cxx
     src/REvePathMark.cxx
     src/REvePointSet.cxx
     src/REvePolygonSetProjected.cxx
+    src/REveProjectionAxis.cxx
     src/REveProjectionBases.cxx
     src/REveProjectionManager.cxx
     src/REveProjections.cxx
@@ -109,9 +125,11 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTEve
     src/REveSecondarySelectable.cxx
     src/REveSelection.cxx
     src/REveShape.cxx
+    src/REveSMorph.cxx
     src/REveStraightLineSet.cxx
     src/REveTableInfo.cxx
     src/REveTableProxyBuilder.cxx
+    src/REveText.cxx
     src/REveTrack.cxx
     src/REveTrackProjected.cxx
     src/REveTrackPropagator.cxx
@@ -121,6 +139,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTEve
     src/REveUtil.cxx
     src/REveVector.cxx
     src/REveViewer.cxx
+    src/REveCamera.cxx
     src/REveVSD.cxx
     src/REveVSDStructs.cxx
   DEPENDENCIES
@@ -129,33 +148,33 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTEve
     Physics
     EG
     TreePlayer
-    RCsg
     ROOTWebDisplay
     ROOTBrowserv7
+    ROOTGeomViewer
+  LIBRARIES
+    ROOTCsg
+    ${EXTRA_GL_LIBS}
+  ${EXTRA_DICT_OPTS}
 )
 
-if(builtin_nlohmannjson)
-   target_include_directories(ROOTEve PRIVATE ${CMAKE_SOURCE_DIR}/builtins)
-   target_compile_definitions(ROOTEve INTERFACE NLOHMANN_JSON_PROVIDES_FWD_HPP)
-else()
-   target_link_libraries(ROOTEve PUBLIC nlohmann_json::nlohmann_json)
+set(RELATIVE_INC_HEADERS ${ROOTEVE_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+target_sources(ROOTEve
+  PRIVATE
+    FILE_SET private_header_files
+    TYPE HEADERS
+    BASE_DIRS inc/
+    FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef.h
+  )
 
-   get_target_property(inc_dirs nlohmann_json::nlohmann_json INTERFACE_INCLUDE_DIRECTORIES)
-   foreach(dir ${inc_dirs})
-      if(EXISTS "${dir}/nlohmann/json_fwd.hpp")
-         set(found_fwd true)
-      endif()
-   endforeach()
+target_link_libraries(ROOTEve PUBLIC nlohmann_json::nlohmann_json)
 
-   if(found_fwd)
-      target_compile_definitions(ROOTEve INTERFACE NLOHMANN_JSON_PROVIDES_FWD_HPP)
-   else()
-      message("-- missing nlohmann/json_fwd.hpp required by eve7")
-   endif()
-
+if (APPLE AND NOT builtin_glu)
+  set_source_files_properties(src/REveGluTess.cxx PROPERTIES COMPILE_DEFINITIONS "GL_SILENCE_DEPRECATION")
+elseif(bultin_glu)
+  set_source_files_properties(src/REveGluTess.cxx PROPERTIES COMPILE_DEFINITIONS "ROOT_BUILTIN_GLU")
 endif()
-
-# this is required for glew
-target_include_directories(ROOTEve PRIVATE ${CMAKE_SOURCE_DIR}/graf3d/eve7)
 
 ROOT_ADD_TEST_SUBDIRECTORY(test)

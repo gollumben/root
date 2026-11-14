@@ -35,15 +35,15 @@ protected:
    virtual void        ConnectSignals2Slots();
 
 public:
-   TAttMarkerEditor(const TGWindow *p = 0,
+   TAttMarkerEditor(const TGWindow *p = nullptr,
                     Int_t width = 140, Int_t height = 30,
                     UInt_t options = kChildFrame,
                     Pixel_t back = GetDefaultFrameBackground());
-   virtual ~TAttMarkerEditor();
+   ~TAttMarkerEditor() override;
 
-   virtual void     SetModel(TObject* obj);
+   void     SetModel(TObject* obj) override;
    virtual void     DoMarkerColor(Pixel_t color);
-   virtual void     DoMarkerAlphaColor(ULong_t p);
+   virtual void     DoMarkerAlphaColor(ULongptr_t p);
    virtual void     DoMarkerSize();
    virtual void     DoMarkerStyle(Style_t style);
    virtual void     DoAlpha();
@@ -51,7 +51,7 @@ public:
    virtual void     DoLiveAlpha(Int_t a);
    virtual void     GetCurAlpha();
 
-   ClassDef(TAttMarkerEditor,0)  // GUI for editing marker attributes
+   ClassDefOverride(TAttMarkerEditor,0)  // GUI for editing marker attributes
 };
 
 #endif

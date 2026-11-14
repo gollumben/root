@@ -1,6 +1,5 @@
 // Author: Sergey Linev <s.linev@gsi.de>
 // Date: 2018-08-20
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
  * Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.               *
@@ -10,8 +9,8 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifndef ROOT7_RWebWindowWSHandler
-#define ROOT7_RWebWindowWSHandler
+#ifndef ROOT_RWebWindowWSHandler
+#define ROOT_RWebWindowWSHandler
 
 #include "THttpWSHandler.h"
 #include "TEnv.h"
@@ -24,7 +23,6 @@
 using namespace std::string_literals;
 
 namespace ROOT {
-namespace Experimental {
 
 /// just wrapper to deliver websockets call-backs to the RWebWindow class
 
@@ -36,6 +34,9 @@ protected:
       return IsDisabled() ? kFALSE : fWindow.ProcessBatchHolder(arg);
    }
 
+   std::string GetCodeVersion() override { return fWindow.GetClientVersion(); }
+
+
    void VerifyDefaultPageContent(std::shared_ptr<THttpCallArg> &arg) override
    {
       auto token = fWindow.GetConnToken();
@@ -44,7 +45,19 @@ protected:
          url.SetOptions(arg->GetQuery());
          // refuse connection which does not provide proper token
          if (!url.HasOption("token") || (token != url.GetValueFromOptions("token"))) {
-            // refuce loading of default web page without token
+            // refuse loading of default web page without token
+            arg->SetContent("refused");
+            arg->Set404();
+            return;
+         }
+      }
+
+      if (fWindow.IsRequireAuthKey()) {
+         TUrl url;
+         url.SetOptions(arg->GetQuery());
+         TString key = url.GetValueFromOptions("key");
+         if (key.IsNull() || !fWindow.HasKey(key.Data(), true)) {
+            // refuse loading of default web page without valid key
             arg->SetContent("refused");
             arg->Set404();
             return;
@@ -53,9 +66,17 @@ protected:
 
       auto version = fWindow.GetClientVersion();
       if (!version.empty()) {
-         std::string search = "jsrootsys/scripts/JSRoot.core."s;
-         std::string replace = version + "/jsrootsys/scripts/JSRoot.core."s;
-         // replace link to JSROOT main script to emulate new version
+         // replace link to JSROOT modules in import statements emulating new version for browser
+         std::string search = "from './jsrootsys/"s;
+         std::string replace = "from './"s + version + "/jsrootsys/"s;
+         arg->ReplaceAllinContent(search, replace);
+         // replace link to ROOT ui5 modules in import statements emulating new version for browser
+         search = "from './rootui5sys/"s;
+         replace = "from './"s + version + "/rootui5sys/"s;
+         arg->ReplaceAllinContent(search, replace);
+         // replace link on old JSRoot.core.js script - if still appears
+         search = "jsrootsys/scripts/JSRoot.core."s;
+         replace = version + "/jsrootsys/scripts/JSRoot.core."s;
          arg->ReplaceAllinContent(search, replace, true);
          arg->AddNoCacheHeader();
       }
@@ -79,14 +100,24 @@ protected:
       const char *ui5theme = gEnv->GetValue("WebGui.openui5theme","");
       if (ui5theme && *ui5theme)
          more_args.append("openui5theme: \""s + ui5theme + "\","s);
+      if (GetBoolEnv("WebGui.DarkMode") == 1)
+         more_args.append("dark: true,"s);
       int credits = gEnv->GetValue("WebGui.ConnCredits", 10);
       if ((credits > 0) && (credits != 10))
          more_args.append("credits: "s + std::to_string(credits) + ","s);
+      if ((fWindow.GetWidth() > 0) && (fWindow.GetHeight() > 0))
+         more_args.append("winW:"s + std::to_string(fWindow.GetWidth()) + ",winH:"s + std::to_string(fWindow.GetHeight()) + ","s);
+      if ((fWindow.GetX() >= 0) && (fWindow.GetY() >= 0))
+         more_args.append("winX:"s + std::to_string(fWindow.GetX()) + ",winY:"s + std::to_string(fWindow.GetY()) + ","s);
+      if (GetBoolEnv("WebGui.Debug") == 1)
+         more_args.append("debug: true,");
       auto user_args = fWindow.GetUserArgs();
       if (!user_args.empty())
          more_args.append("user_args: "s + user_args + ","s);
+      if (!RWebWindow::gJSROOTsettings.empty())
+         more_args.append("settings: "s + RWebWindow::gJSROOTsettings + ","s);
       if (!more_args.empty()) {
-         std::string search = "JSROOT.connectWebWindow({"s;
+         std::string search = "connectWebWindow({"s;
          std::string replace = search + more_args;
          arg->ReplaceAllinContent(search, replace, true);
          arg->AddNoCacheHeader();
@@ -102,7 +133,7 @@ public:
    {
    }
 
-   virtual ~RWebWindowWSHandler() = default;
+   ~RWebWindowWSHandler() override = default;
 
    /// returns content of default web-page
    /// THttpWSHandler interface
@@ -116,9 +147,7 @@ public:
    Bool_t ProcessWS(THttpCallArg *arg) override
    {
       if (!arg || IsDisabled()) return kFALSE;
-      auto res = fWindow.ProcessWS(*arg);
-      fWindow.CheckThreadAssign();
-      return res;
+      return fWindow.ProcessWS(*arg);
    }
 
    /// Allow processing of WS actions in arbitrary thread
@@ -133,7 +162,6 @@ public:
    static int GetBoolEnv(const std::string &name, int dfl = -1);
 };
 
-} // namespace Experimental
 } // namespace ROOT
 
 #endif

@@ -1,0 +1,2145 @@
+/// \file RFieldMeta.cxx
+/// \author Jonas Hahnfeld <jonas.hahnfeld@cern.ch>
+/// \date 2024-11-19
+
+// This file has concrete RField implementations that depend on ROOT Meta:
+//  - RClassField
+//  - RSoAField
+//  - REnumField
+//  - RPairField
+//  - RTupleField
+//  - RProxiedCollectionField
+//    - RMapField
+//    - RSetField
+//  - RStreamerField
+//  - RField<TObject>
+//  - RVariantField
+
+#include <ROOT/BitUtils.hxx>
+#include <ROOT/RField.hxx>
+#include <ROOT/RFieldBase.hxx>
+#include <ROOT/RFieldUtils.hxx>
+#include <ROOT/RFieldVisitor.hxx>
+#include <ROOT/RNTupleUtils.hxx>
+#include <ROOT/RSpan.hxx>
+
+#include <TBaseClass.h>
+#include <TBufferFile.h>
+#include <TClass.h>
+#include <TClassEdit.h>
+#include <TDataMember.h>
+#include <TEnum.h>
+#include <TObject.h>
+#include <TObjArray.h>
+#include <TObjString.h>
+#include <TRealData.h>
+#include <TSchemaRule.h>
+#include <TSchemaRuleSet.h>
+#include <TStreamerElement.h>
+#include <TVirtualObject.h>
+#include <TVirtualStreamerInfo.h>
+
+#include <algorithm>
+#include <array>
+#include <cstddef> // std::size_t
+#include <cstdint> // std::uint32_t et al.
+#include <cstring> // for memset
+#include <memory>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_set>
+#include <utility>
+#include <variant>
+
+using ROOT::Internal::GetRenormalizedTypeName;
+
+namespace {
+
+TClass *EnsureValidClass(std::string_view className)
+{
+   auto cl = TClass::GetClass(std::string(className).c_str());
+   if (cl == nullptr) {
+      throw ROOT::RException(R__FAIL("RField: no I/O support for type " + std::string(className)));
+   }
+   return cl;
+}
+
+/// Common checks used both by RClassField and RSoAField
+void EnsureValidUserClass(TClass *cl, const ROOT::RFieldBase &field, std::string_view fieldType)
+{
+   if (cl->GetState() < TClass::kInterpreted) {
+      throw ROOT::RException(R__FAIL(std::string(fieldType) + " " + cl->GetName() +
+                                     " cannot be constructed from a class that's not at least Interpreted"));
+   }
+   // Avoid accidentally supporting std types through TClass.
+   if (cl->Property() & kIsDefinedInStd) {
+      throw ROOT::RException(R__FAIL(field.GetTypeName() + " is not supported"));
+   }
+   if (field.GetTypeName() == "TObject") {
+      throw ROOT::RException(R__FAIL("TObject is only supported through RField<TObject>"));
+   }
+   if (cl->GetCollectionProxy()) {
+      throw ROOT::RException(R__FAIL(field.GetTypeName() + " has an associated collection proxy; "
+                                                           "use RProxiedCollectionField instead"));
+   }
+   // Classes with, e.g., custom streamers are not supported through this field. Empty classes, however, are.
+   // Can be overwritten with the "rntuple.streamerMode=true" class attribute
+   if (!cl->CanSplit() && cl->Size() > 1 &&
+       ROOT::Internal::GetRNTupleSerializationMode(cl) != ROOT::Internal::ERNTupleSerializationMode::kForceNativeMode) {
+      throw ROOT::RException(R__FAIL(field.GetTypeName() + " cannot be stored natively in RNTuple"));
+   }
+   if (ROOT::Internal::GetRNTupleSerializationMode(cl) ==
+       ROOT::Internal::ERNTupleSerializationMode::kForceStreamerMode) {
+      throw ROOT::RException(
+         R__FAIL(field.GetTypeName() + " has streamer mode enforced, not supported as native RNTuple class"));
+   }
+   // Detect custom streamers set on individual members at runtime via
+   // TClass::SetMemberStreamer() or TClass::AdoptMemberStreamer().
+   // CanSplit() only checks for custom streamers set at compile time (fHasCustomStreamerMember),
+   // but runtime streamers are stored in TRealData and must be checked here.
+   if (!cl->GetListOfRealData()) {
+      cl->BuildRealData();
+   }
+   for (auto realMember : ROOT::Detail::TRangeStaticCast<TRealData>(*cl->GetListOfRealData())) {
+      if (realMember->GetStreamer()) {
+         throw ROOT::RException(R__FAIL(std::string(field.GetTypeName()) + " has member " + realMember->GetName() +
+                                        " with a custom streamer; not supported natively in RNTuple"));
+      }
+   }
+}
+
+TEnum *EnsureValidEnum(std::string_view enumName)
+{
+   auto e = TEnum::GetEnum(std::string(enumName).c_str());
+   if (e == nullptr) {
+      throw ROOT::RException(R__FAIL("RField: no I/O support for enum type " + std::string(enumName)));
+   }
+   return e;
+}
+
+void EnsureValidAlignment(std::size_t alignment)
+{
+   if (!ROOT::Internal::IsValidAlignment(alignment))
+      throw ROOT::RException(R__FAIL(std::string("invalid alignment: ") + std::to_string(alignment)));
+}
+
+/// Create a comma-separated list of type names from the given fields. Uses either the real type names or the
+/// type aliases (if there are any, otherwise the actual type name). Used to construct template argument lists
+/// for templated types such as std::pair<...>, std::tuple<...>, std::variant<...>.
+std::string GetTypeList(std::span<std::unique_ptr<ROOT::RFieldBase>> itemFields, bool useTypeAliases)
+{
+   std::string result;
+   for (size_t i = 0; i < itemFields.size(); ++i) {
+      if (useTypeAliases && !itemFields[i]->GetTypeAlias().empty()) {
+         result += itemFields[i]->GetTypeAlias();
+      } else {
+         result += itemFields[i]->GetTypeName();
+      }
+      result.push_back(',');
+   }
+   if (result.empty()) {
+      throw ROOT::RException(R__FAIL("invalid empty type list provided as template argument"));
+   }
+   result.pop_back(); // remove trailing comma
+   return result;
+}
+
+std::string BuildSetTypeName(ROOT::RSetField::ESetType setType, const ROOT::RFieldBase &innerField, bool useTypeAlias)
+{
+   std::string typePrefix;
+   switch (setType) {
+   case ROOT::RSetField::ESetType::kSet: typePrefix = "std::set<"; break;
+   case ROOT::RSetField::ESetType::kUnorderedSet: typePrefix = "std::unordered_set<"; break;
+   case ROOT::RSetField::ESetType::kMultiSet: typePrefix = "std::multiset<"; break;
+   case ROOT::RSetField::ESetType::kUnorderedMultiSet: typePrefix = "std::unordered_multiset<"; break;
+   default: R__ASSERT(false);
+   }
+   return typePrefix +
+          ((useTypeAlias && !innerField.GetTypeAlias().empty()) ? innerField.GetTypeAlias()
+                                                                : innerField.GetTypeName()) +
+          ">";
+}
+
+std::string BuildMapTypeName(ROOT::RMapField::EMapType mapType, const ROOT::RFieldBase *innerField, bool useTypeAliases)
+{
+   if (const auto pairField = dynamic_cast<const ROOT::RPairField *>(innerField)) {
+      std::string typePrefix;
+      switch (mapType) {
+      case ROOT::RMapField::EMapType::kMap: typePrefix = "std::map<"; break;
+      case ROOT::RMapField::EMapType::kUnorderedMap: typePrefix = "std::unordered_map<"; break;
+      case ROOT::RMapField::EMapType::kMultiMap: typePrefix = "std::multimap<"; break;
+      case ROOT::RMapField::EMapType::kUnorderedMultiMap: typePrefix = "std::unordered_multimap<"; break;
+      default: R__ASSERT(false);
+      }
+      const auto &items = pairField->GetConstSubfields();
+      std::string type = typePrefix;
+      for (int i : {0, 1}) {
+         if (useTypeAliases && !items[i]->GetTypeAlias().empty()) {
+            type += items[i]->GetTypeAlias();
+         } else {
+            type += items[i]->GetTypeName();
+         }
+         if (i == 0)
+            type.push_back(',');
+      }
+      return type + ">";
+   }
+
+   throw ROOT::RException(R__FAIL("RMapField inner field type must be of RPairField"));
+}
+
+} // anonymous namespace
+
+ROOT::RRuleField::RRuleField(std::string_view fieldName, std::string_view typeName, TClass *classp,
+                             ROOT::ENTupleStructure structure)
+   : RFieldBase(fieldName, typeName, structure, false /* isSimple */), fClass(classp)
+{
+}
+
+ROOT::DescriptorId_t ROOT::RRuleField::LookupMember(const ROOT::RNTupleDescriptor &desc, std::string_view memberName,
+                                                    ROOT::DescriptorId_t classFieldId) const
+{
+   auto idSourceMember = desc.FindFieldId(memberName, classFieldId);
+   if (idSourceMember != ROOT::kInvalidDescriptorId)
+      return idSourceMember;
+
+   for (const auto &subFieldDesc : desc.GetFieldIterable(classFieldId)) {
+      const auto &subFieldName = subFieldDesc.GetFieldName();
+      if (subFieldName.length() > 2 && subFieldName[0] == ':' && subFieldName[1] == '_') {
+         idSourceMember = LookupMember(desc, memberName, subFieldDesc.GetId());
+         if (idSourceMember != ROOT::kInvalidDescriptorId)
+            return idSourceMember;
+      }
+   }
+
+   return ROOT::kInvalidDescriptorId;
+}
+
+void ROOT::RRuleField::SetStagingClass(const std::string &className, unsigned int classVersion)
+{
+   TClass::GetClass(className.c_str())->GetStreamerInfo(classVersion);
+   if (classVersion != GetTypeVersion() || className != GetTypeName()) {
+      fStagingClass = TClass::GetClass((className + std::string("@@") + std::to_string(classVersion)).c_str());
+      if (!fStagingClass) {
+         // For a rename rule, we may simply ask for the old class name
+         fStagingClass = TClass::GetClass(className.c_str());
+      }
+   } else {
+      fStagingClass = fClass;
+   }
+   R__ASSERT(fStagingClass);
+   R__ASSERT(static_cast<unsigned int>(fStagingClass->GetClassVersion()) == classVersion);
+}
+
+void ROOT::RRuleField::PrepareStagingArea(const std::vector<const TSchemaRule *> &rules,
+                                          const ROOT::RNTupleDescriptor &desc,
+                                          const ROOT::RFieldDescriptor &classFieldDesc)
+{
+   std::size_t stagingAreaSize = 0;
+   for (const auto rule : rules) {
+      for (auto source : TRangeDynCast<TSchemaRule::TSources>(rule->GetSource())) {
+         auto [itr, isNew] = fStagingItems.emplace(source->GetName(), RStagingItem());
+         if (!isNew) {
+            // This source member has already been processed by another rule (and we only support one type per member)
+            continue;
+         }
+         RStagingItem &stagingItem = itr->second;
+
+         const auto memberFieldId = LookupMember(desc, source->GetName(), classFieldDesc.GetId());
+         if (memberFieldId == kInvalidDescriptorId) {
+            throw RException(R__FAIL(std::string("cannot find on disk rule source member ") + GetTypeName() + "." +
+                                     source->GetName()));
+         }
+
+         auto memberType = source->GetTypeForDeclaration() + source->GetDimensions();
+         auto memberField = Create("" /* we don't need a field name */, std::string(memberType)).Unwrap();
+         memberField->SetOnDiskId(memberFieldId);
+         auto fieldZero = std::make_unique<RFieldZero>();
+         Internal::SetAllowFieldSubstitutions(*fieldZero, true);
+         fieldZero->Attach(std::move(memberField));
+         stagingItem.fField = std::move(fieldZero);
+
+         stagingItem.fOffset = fStagingClass->GetDataMemberOffset(source->GetName());
+         // Since we successfully looked up the source member in the RNTuple on-disk metadata, we expect it
+         // to be present in the TClass instance, too.
+         R__ASSERT(stagingItem.fOffset != TVirtualStreamerInfo::kMissing);
+         stagingAreaSize = std::max(stagingAreaSize, stagingItem.fOffset + stagingItem.fField->begin()->GetValueSize());
+      }
+   }
+
+   if (stagingAreaSize) {
+      R__ASSERT(static_cast<Int_t>(stagingAreaSize) <= fStagingClass->Size()); // we may have removed rules
+      // We use std::make_unique instead of MakeUninitArray to zero-initialize the staging area.
+      fStagingArea = std::make_unique<unsigned char[]>(stagingAreaSize);
+
+      for (const auto &[_, si] : fStagingItems) {
+         const auto &memberField = *si.fField->cbegin();
+         if (!(memberField.GetTraits() & kTraitTriviallyConstructible)) {
+            CallConstructValueOn(memberField, fStagingArea.get() + si.fOffset);
+         }
+      }
+   }
+}
+
+std::vector<const ROOT::TSchemaRule *> ROOT::RRuleField::FindRules(const ROOT::RFieldDescriptor *fieldDesc) const
+{
+   ROOT::Detail::TSchemaRuleSet::TMatches rules;
+
+   const auto ruleset = fClass->GetSchemaRules();
+   if (!ruleset)
+      return rules;
+
+   if (!fieldDesc) {
+      // If we have no on-disk information for the field, we still process the rules on the current in-memory version
+      // of the class
+      rules = ruleset->FindRules(fClass->GetName(), fClass->GetClassVersion(), fClass->GetCheckSum());
+   } else {
+      // We need to change (back) the name normalization from RNTuple to ROOT Meta
+      std::string normalizedName;
+      TClassEdit::GetNormalizedName(normalizedName, fieldDesc->GetTypeName());
+      // We do have an on-disk field that correspond to the current RClassField instance. Ask for rules matching the
+      // on-disk version of the field.
+      if (fieldDesc->GetTypeChecksum()) {
+         rules = ruleset->FindRules(normalizedName, fieldDesc->GetTypeVersion(), *fieldDesc->GetTypeChecksum());
+      } else {
+         rules = ruleset->FindRules(normalizedName, fieldDesc->GetTypeVersion());
+      }
+   }
+
+   // Cleanup and sort rules
+   // Check that any given source member uses the same type in all rules
+   std::unordered_map<std::string, std::string> sourceNameAndType;
+   std::size_t nskip = 0; // skip whole-object-rules that were moved to the end of the rules vector
+   for (auto itr = rules.begin(); itr != rules.end() - nskip;) {
+      const auto rule = *itr;
+
+      // Erase unknown rule types
+      if (rule->GetRuleType() != ROOT::TSchemaRule::kReadRule) {
+         R__LOG_WARNING(ROOT::Internal::NTupleLog())
+            << "ignoring I/O customization rule with unsupported type: " << rule->GetRuleType();
+         itr = rules.erase(itr);
+         continue;
+      }
+
+      bool hasConflictingSourceMembers = false;
+      for (auto source : TRangeDynCast<TSchemaRule::TSources>(rule->GetSource())) {
+         auto memberType = source->GetTypeForDeclaration() + source->GetDimensions();
+         auto [itrSrc, isNew] = sourceNameAndType.emplace(source->GetName(), memberType);
+         if (!isNew && (itrSrc->second != memberType)) {
+            R__LOG_WARNING(ROOT::Internal::NTupleLog())
+               << "ignoring I/O customization rule due to conflicting source member type: " << itrSrc->second << " vs. "
+               << memberType << " for member " << source->GetName();
+            hasConflictingSourceMembers = true;
+            break;
+         }
+      }
+      if (hasConflictingSourceMembers) {
+         itr = rules.erase(itr);
+         continue;
+      }
+
+      // Rules targeting the entire object need to be executed at the end
+      if (rule->GetTarget() == nullptr) {
+         nskip++;
+         if (itr != rules.end() - nskip)
+            std::iter_swap(itr++, rules.end() - nskip);
+         continue;
+      }
+
+      ++itr;
+   }
+
+   return rules;
+}
+
+void ROOT::RRuleField::AddReadCallbacksFromIORule(const TSchemaRule *rule, std::size_t subObjectOffset)
+{
+   auto func = rule->GetReadFunctionPointer();
+   if (func == nullptr) {
+      // Can happen for rename rules
+      return;
+   }
+   fReadCallbacks.emplace_back(
+      [func, subObjectOffset, stagingClass = fStagingClass, stagingArea = fStagingArea.get()](void *target) {
+         TVirtualObject onfileObj{nullptr};
+         onfileObj.fClass = stagingClass;
+         onfileObj.fObject = stagingArea;
+         func(static_cast<char *>(target) + subObjectOffset, &onfileObj);
+         onfileObj.fObject = nullptr; // TVirtualObject does not own the value
+      });
+}
+
+//------------------------------------------------------------------------------
+
+ROOT::RClassField::RClassField(std::string_view fieldName, const RClassField &source)
+   : ROOT::RRuleField(fieldName, source.GetTypeName(), source.fClass, ROOT::ENTupleStructure::kRecord),
+     fSubfieldsInfo(source.fSubfieldsInfo)
+{
+   for (const auto &f : source.GetConstSubfields()) {
+      RFieldBase::Attach(f->Clone(f->GetFieldName()));
+   }
+   fTraits = source.GetTraits();
+}
+
+ROOT::RClassField::RClassField(std::string_view fieldName, std::string_view className)
+   : RClassField(fieldName, EnsureValidClass(className))
+{
+}
+
+ROOT::RClassField::RClassField(std::string_view fieldName, TClass *classp)
+   : ROOT::RRuleField(fieldName, GetRenormalizedTypeName(classp->GetName()), classp, ROOT::ENTupleStructure::kRecord)
+{
+   EnsureValidUserClass(fClass, *this, "RClassField");
+
+   if (!ROOT::Internal::GetRNTupleSoARecord(fClass).empty()) {
+      throw ROOT::RException(R__FAIL(GetTypeName() + " is a SoA field and cannot be used through RClassField"));
+   }
+
+   if (!(fClass->ClassProperty() & kClassHasExplicitCtor))
+      fTraits |= kTraitTriviallyConstructible;
+   if (!(fClass->ClassProperty() & kClassHasExplicitDtor))
+      fTraits |= kTraitTriviallyDestructible;
+
+   std::string renormalizedAlias;
+   if (Internal::NeedsMetaNameAsAlias(classp->GetName(), renormalizedAlias))
+      fTypeAlias = renormalizedAlias;
+
+   int i = 0;
+   const auto *bases = fClass->GetListOfBases();
+   assert(bases);
+   for (auto baseClass : ROOT::Detail::TRangeStaticCast<TBaseClass>(*bases)) {
+      if (baseClass->GetDelta() < 0) {
+         throw RException(R__FAIL(std::string("virtual inheritance is not supported: ") + GetTypeName() +
+                                  " virtually inherits from " + baseClass->GetName()));
+      }
+      TClass *c = baseClass->GetClassPointer();
+      auto subField =
+         RFieldBase::Create(std::string(kPrefixInherited) + "_" + std::to_string(i), c->GetName()).Unwrap();
+      fTraits &= subField->GetTraits();
+      Attach(std::move(subField), RSubfieldInfo{kBaseClass, static_cast<std::size_t>(baseClass->GetDelta())});
+      i++;
+   }
+   for (auto dataMember : ROOT::Detail::TRangeStaticCast<TDataMember>(*fClass->GetListOfDataMembers())) {
+      // Skip, for instance, unscoped enum constants defined in the class
+      if (dataMember->Property() & kIsStatic)
+         continue;
+      // Skip members explicitly marked as transient by user comment
+      if (!dataMember->IsPersistent()) {
+         // TODO(jblomer): we could do better
+         fTraits &= ~(kTraitTriviallyConstructible | kTraitTriviallyDestructible);
+         continue;
+      }
+
+      // NOTE: we use the already-resolved type name for the fields, otherwise TClass::GetClass may fail to resolve
+      // context-dependent types (e.g. typedefs defined in the class itself - which will not be fully qualified in
+      // the string returned by dataMember->GetFullTypeName())
+      std::string typeName{dataMember->GetTrueTypeName()};
+
+      // For C-style arrays, complete the type name with the size for each dimension, e.g. `int[4][2]`
+      if (dataMember->Property() & kIsArray) {
+         for (int dim = 0, n = dataMember->GetArrayDim(); dim < n; ++dim) {
+            typeName += "[" + std::to_string(dataMember->GetMaxIndex(dim)) + "]";
+         }
+      }
+
+      auto subField = RFieldBase::Create(dataMember->GetName(), typeName).Unwrap();
+
+      fTraits &= subField->GetTraits();
+      Attach(std::move(subField), RSubfieldInfo{kDataMember, static_cast<std::size_t>(dataMember->GetOffset())});
+   }
+   fTraits |= kTraitTypeChecksum;
+}
+
+ROOT::RClassField::~RClassField()
+{
+   if (fStagingArea) {
+      for (const auto &[_, si] : fStagingItems) {
+         if (!(si.fField->GetTraits() & kTraitTriviallyDestructible)) {
+            auto deleter = GetDeleterOf(*si.fField);
+            deleter->operator()(fStagingArea.get() + si.fOffset, true /* dtorOnly */);
+         }
+      }
+   }
+}
+
+void ROOT::RClassField::Attach(std::unique_ptr<RFieldBase> child, RSubfieldInfo info)
+{
+   fSubfieldsInfo.push_back(info);
+   RFieldBase::Attach(std::move(child));
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RClassField::CloneImpl(std::string_view newName) const
+{
+   return std::unique_ptr<RClassField>(new RClassField(newName, *this));
+}
+
+std::size_t ROOT::RClassField::AppendImpl(const void *from)
+{
+   std::size_t nbytes = 0;
+   for (unsigned i = 0; i < fSubfields.size(); i++) {
+      nbytes += CallAppendOn(*fSubfields[i], static_cast<const unsigned char *>(from) + fSubfieldsInfo[i].fOffset);
+   }
+   return nbytes;
+}
+
+void ROOT::RClassField::ReadGlobalImpl(ROOT::NTupleSize_t globalIndex, void *to)
+{
+   for (const auto &[_, si] : fStagingItems) {
+      CallReadOn(*si.fField, globalIndex, fStagingArea.get() + si.fOffset);
+   }
+   for (unsigned i = 0; i < fSubfields.size(); i++) {
+      CallReadOn(*fSubfields[i], globalIndex, static_cast<unsigned char *>(to) + fSubfieldsInfo[i].fOffset);
+   }
+}
+
+void ROOT::RClassField::ReadInClusterImpl(RNTupleLocalIndex localIndex, void *to)
+{
+   for (const auto &[_, si] : fStagingItems) {
+      CallReadOn(*si.fField, localIndex, fStagingArea.get() + si.fOffset);
+   }
+   for (unsigned i = 0; i < fSubfields.size(); i++) {
+      CallReadOn(*fSubfields[i], localIndex, static_cast<unsigned char *>(to) + fSubfieldsInfo[i].fOffset);
+   }
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RClassField::BeforeConnectPageSource(ROOT::Internal::RPageSource &pageSource)
+{
+   std::vector<const TSchemaRule *> rules;
+   // On-disk members that are not targeted by an I/O rule; all other sub fields of the in-memory class
+   // will be marked as artificial (added member in a new class version or member set by rule).
+   std::unordered_set<std::string> regularSubfields;
+   // We generally don't support changing the number of base classes, with the exception of changing from/to zero
+   // base classes. The variable stores the number of on-disk base classes.
+   int nOnDiskBaseClasses = 0;
+
+   if (GetOnDiskId() == kInvalidDescriptorId) {
+      // This can happen for added base classes or added members of class type
+      rules = FindRules(nullptr);
+      if (!rules.empty())
+         SetStagingClass(GetTypeName(), GetTypeVersion());
+   } else {
+      const auto descriptorGuard = pageSource.GetSharedDescriptorGuard();
+      const ROOT::RNTupleDescriptor &desc = descriptorGuard.GetConstRef();
+      const auto &fieldDesc = desc.GetFieldDescriptor(GetOnDiskId());
+
+      if (fieldDesc.GetStructure() == ENTupleStructure::kStreamer) {
+         // Streamer field on disk but meanwhile the type can be represented as a class field; replace this field
+         // by a streamer field to read the data from disk.
+         auto substitute = std::make_unique<RStreamerField>(GetFieldName(), GetTypeName());
+         substitute->SetOnDiskId(GetOnDiskId());
+         return substitute;
+      }
+
+      for (auto linkId : fieldDesc.GetLinkIds()) {
+         const auto &subFieldDesc = desc.GetFieldDescriptor(linkId);
+         regularSubfields.insert(subFieldDesc.GetFieldName());
+         if (!subFieldDesc.GetFieldName().empty() && subFieldDesc.GetFieldName()[0] == ':')
+            nOnDiskBaseClasses++;
+      }
+
+      rules = FindRules(&fieldDesc);
+
+      // If we found a rule, we know it is valid to read on-disk data because we found the rule according to the on-disk
+      // (source) type name and version/checksum.
+      if (rules.empty()) {
+         // Otherwise we require compatible type names, after renormalization. GetTypeName() is already renormalized,
+         // but RNTuple data written with ROOT v6.34 might not have renormalized the field type name. Ask the
+         // RNTupleDescriptor, which knows about the spec version, for a fixed up type name.
+         std::string descTypeName = desc.GetTypeNameForComparison(fieldDesc);
+         if (GetTypeName() != descTypeName) {
+            throw RException(R__FAIL("incompatible type name for field " + GetFieldName() + ": " + GetTypeName() +
+                                     " vs. " + descTypeName));
+         }
+      }
+
+      const bool hasSources = std::any_of(rules.begin(), rules.end(), [](const auto &r) {
+         return r->GetSource() && (r->GetSource()->GetEntries() > 0);
+      });
+
+      // A staging class (conversion streamer info) only exists if there is at least one rule that has an
+      // on disk source member defined.
+      if (hasSources) {
+         // For unversioned classes, the in-memory layout may by chance have the same transient version number
+         // than the recorded (transient, at the time of writing) on-disk version.  Therefore, we also need to compare
+         // the checksums to find out if we need a conversion streamer info.
+         std::uint32_t assignedVersionForOnDiskLayout = fieldDesc.GetTypeVersion();
+         R__ASSERT(fieldDesc.GetTypeChecksum());
+         if (fieldDesc.GetTypeVersion() != GetTypeVersion() || *fieldDesc.GetTypeChecksum() != fClass->GetCheckSum() ||
+             fieldDesc.GetTypeName() != GetTypeName()) {
+            auto oldCl = TClass::GetClass(fieldDesc.GetTypeName().c_str());
+            R__ASSERT(oldCl);
+            auto onDiskStreamerInfo = oldCl->FindStreamerInfo(*fieldDesc.GetTypeChecksum());
+            R__ASSERT(onDiskStreamerInfo);
+            assignedVersionForOnDiskLayout = onDiskStreamerInfo->GetClassVersion();
+         }
+         SetStagingClass(fieldDesc.GetTypeName(), assignedVersionForOnDiskLayout);
+         PrepareStagingArea(rules, desc, fieldDesc);
+         for (auto &[_, si] : fStagingItems) {
+            Internal::CallConnectPageSourceOnField(*si.fField, pageSource);
+            si.fField = std::move(static_cast<RFieldZero *>(si.fField.get())->ReleaseSubfields()[0]);
+         }
+      }
+
+      // Remove target member of read rules from the list of regular members of the underlying on-disk field
+      for (const auto rule : rules) {
+         if (!rule->GetTarget())
+            continue;
+
+         for (const auto target : ROOT::Detail::TRangeStaticCast<const TObjString>(*rule->GetTarget())) {
+            regularSubfields.erase(std::string(target->GetString()));
+         }
+      }
+   }
+
+   for (const auto rule : rules) {
+      AddReadCallbacksFromIORule(rule);
+   }
+
+   // Iterate over all sub fields in memory and mark those as missing that are not in the descriptor.
+   int nInMemoryBaseClasses = 0;
+   for (auto &field : fSubfields) {
+      const auto &fieldName = field->GetFieldName();
+      if (regularSubfields.count(fieldName) == 0) {
+         CallSetArtificialOn(*field);
+      }
+      if (!fieldName.empty() && fieldName[0] == ':')
+         nInMemoryBaseClasses++;
+   }
+
+   if (nInMemoryBaseClasses != 0 && nOnDiskBaseClasses != 0 && nInMemoryBaseClasses != nOnDiskBaseClasses) {
+      throw RException(
+         R__FAIL(std::string("incompatible number of base classes for field ") + GetFieldName() + ": " + GetTypeName() +
+                 ", " + std::to_string(nInMemoryBaseClasses) +
+                 " base classes in memory "
+                 " vs. " +
+                 std::to_string(nOnDiskBaseClasses) + " base classes on-disk\n" +
+                 Internal::GetTypeTraceReport(*this, pageSource.GetSharedDescriptorGuard().GetConstRef())));
+   }
+
+   return nullptr;
+}
+
+void ROOT::RClassField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   EnsureMatchingOnDiskField(desc, kDiffTypeVersion | kDiffTypeName).ThrowOnError();
+}
+
+void ROOT::RClassField::ConstructValue(void *where) const
+{
+   fClass->New(where);
+}
+
+ROOT::RClassField::RClassDeleter::RClassDeleter(TClass *cl) : RDeleter(cl->GetClassAlignment()), fClass(cl) {}
+
+void ROOT::RClassField::RClassDeleter::operator()(void *objPtr, bool dtorOnly)
+{
+   fClass->Destructor(objPtr, true /* dtorOnly */);
+   RDeleter::operator()(objPtr, dtorOnly);
+}
+
+std::vector<ROOT::RFieldBase::RValue> ROOT::RClassField::SplitValue(const RValue &value) const
+{
+   std::vector<RValue> result;
+   auto valuePtr = value.GetPtr<void>();
+   auto charPtr = static_cast<unsigned char *>(valuePtr.get());
+   result.reserve(fSubfields.size());
+   for (unsigned i = 0; i < fSubfields.size(); i++) {
+      result.emplace_back(
+         fSubfields[i]->BindValue(std::shared_ptr<void>(valuePtr, charPtr + fSubfieldsInfo[i].fOffset)));
+   }
+   return result;
+}
+
+std::size_t ROOT::RClassField::GetValueSize() const
+{
+   return fClass->GetClassSize();
+}
+
+std::size_t ROOT::RClassField::GetAlignment() const
+{
+   const auto align = fClass->GetClassAlignment();
+   EnsureValidAlignment(align);
+   return align;
+}
+
+std::uint32_t ROOT::RClassField::GetTypeVersion() const
+{
+   return fClass->GetClassVersion();
+}
+
+std::uint32_t ROOT::RClassField::GetTypeChecksum() const
+{
+   return fClass->GetCheckSum();
+}
+
+const std::type_info *ROOT::RClassField::GetPolymorphicTypeInfo() const
+{
+   bool polymorphic = fClass->ClassProperty() & kClassHasVirtual;
+   if (!polymorphic) {
+      return nullptr;
+   }
+   return fClass->GetTypeInfo();
+}
+
+void ROOT::RClassField::AcceptVisitor(ROOT::Detail::RFieldVisitor &visitor) const
+{
+   visitor.VisitClassField(*this);
+}
+
+//------------------------------------------------------------------------------
+
+ROOT::RSoAField::RSoAField(std::string_view fieldName, const RSoAField &source)
+   : ROOT::RRuleField(fieldName, source.GetTypeName(), source.fClass, ROOT::ENTupleStructure::kCollection),
+     fSoAMemberOffsets(source.fSoAMemberOffsets)
+{
+   fTraits = source.GetTraits();
+   Attach(source.fSubfields[0]->Clone(source.fSubfields[0]->GetFieldName()));
+   fRecordMemberFields = fSubfields[0]->GetMutableSubfields();
+   fRecordMemberDeleters.reserve(fRecordMemberFields.size());
+   for (const auto f : fRecordMemberFields)
+      fRecordMemberDeleters.emplace_back(GetDeleterOf(*f));
+   fLockSplitFields = std::make_unique<std::mutex>();
+}
+
+ROOT::RSoAField::RSoAField(std::string_view fieldName, std::string_view className)
+   : RSoAField(fieldName, EnsureValidClass(className))
+{
+}
+
+void ROOT::RSoAField::GraftNestedMemberFields(
+   const RSoAField &nestedSoA, std::size_t offsetInParent,
+   const std::function<RFieldBase *(const std::string &)> &fnRecordFieldFinder)
+{
+   const std::size_t nNestedRecordMemberFields = nestedSoA.fRecordMemberFields.size();
+
+   // The qualified field name of fields in nestedSoA->fRecordMemberFields will have a "<field name>._0."
+   // prefix because these fields are rooted in a collection named after the nested SoA field.
+   //
+   // E.g., in the following example:
+   //
+   // struct SoA_A {                                   struct Record_A {
+   //   SoA_B fB;                                         Record_B fB;
+   // };                                               };
+   //
+   // struct SoA_B {                                   struct Record_B {
+   //   ROOT::RVec<float> fX;                             float fX;
+   // };                                               };
+   //
+   // The on-disk schema of SoA_A is "collection of Record_A", and the on-disk schema of SoA_B is
+   // "collection of Record_B".
+   // The qualified field name of fX in the subfield hiararchy of SoA_A is <field name>._0.fB.fX.
+   // The qualified field name of fX in the subfield hiararchy of SoA_B is <field name>._0.fX.
+   const auto lenPrefix = nestedSoA.GetFieldName().length() + strlen("._0.");
+
+   for (std::size_t i = 0; i < nNestedRecordMemberFields; ++i) {
+      const auto fieldNameForMatching =
+         nestedSoA.GetFieldName() + "." + nestedSoA.fRecordMemberFields[i]->GetQualifiedFieldName().substr(lenPrefix);
+
+      fRecordMemberFields.emplace_back(fnRecordFieldFinder(fieldNameForMatching));
+      fRecordMemberDeleters.emplace_back(GetDeleterOf(*nestedSoA.fRecordMemberFields[i]));
+      fSoAMemberOffsets.emplace_back(offsetInParent + nestedSoA.fSoAMemberOffsets[i]);
+   }
+}
+
+void ROOT::RSoAField::CollectRecordMemberFields()
+{
+   // Build a map of all subfields (nested) of the underlying record type. Map the fully qualified name of the
+   // subfields to their field pointer, so that we can later match the subfields of the SoA class to their corresponding
+   // fields in the underlying record type. Note that the members of the SoA class and the underlying record type
+   // can have different ordering. However, the base classes of the SoA class and the underlying record type must match
+   // in order.
+
+   std::vector<RFieldBase *> realRecordMemberFields; // Contains all subfields of the underlying record type
+   // Qualified field name --> index in realRecordMemberFields
+   std::unordered_map<std::string, std::size_t> recordFieldNameToIdx;
+
+   // Count the top-level subfields of the underlying record type for cross-check with the SoA type
+   unsigned int nDirectRecordSubfields = 0;
+   unsigned int nDirectRecordBases = 0;
+
+   for (auto itr = fSubfields[0]->begin(), iEnd = fSubfields[0]->end(); itr != iEnd; ++itr) {
+      if (itr->GetParent() == fSubfields[0].get()) {
+         if (itr->GetFieldName()[0] == ':') {
+            nDirectRecordBases++;
+         } else {
+            nDirectRecordSubfields++;
+         }
+      }
+
+      // Build the qualified field name for matching. We root the qualified field name at the underlying record type.
+      auto qualifiedName = itr->GetFieldName();
+      auto parent = itr->GetParent();
+      while (parent != fSubfields[0].get()) {
+         qualifiedName = parent->GetFieldName() + "." + qualifiedName;
+         parent = parent->GetParent();
+      }
+      recordFieldNameToIdx[qualifiedName] = realRecordMemberFields.size();
+
+      realRecordMemberFields.emplace_back(&(*itr));
+   }
+
+   // Base classes are treated as unrolled nested SoA classes
+   const auto *soaBases = fClass->GetListOfBases();
+   if (soaBases->GetSize() != static_cast<Int_t>(nDirectRecordBases)) {
+      throw RException(R__FAIL(std::string("number of base classes don't match between SoA class ") + GetFieldName() +
+                               " and its underlying record type"));
+   }
+   unsigned int baseIdx = 0;
+   for (auto base : ROOT::Detail::TRangeStaticCast<TBaseClass>(*fClass->GetListOfBases())) {
+      if (base->GetDelta() < 0) {
+         throw RException(R__FAIL(std::string("virtual inheritance is not supported: ") + GetTypeName() +
+                                  " virtually inherits from " + base->GetName()));
+      }
+      TClass *cl = base->GetClassPointer();
+
+      const auto baseFieldName = std::string(":_") + std::to_string(baseIdx);
+
+      // SoA class `A` is allowed to inherit from a SoA class `B` whose underlying record type is `X` if and only if
+      // the underlying record type of `A` inherits from a type `X`.
+      const auto underlyingBaseTypeName = ROOT::Internal::GetRNTupleSoARecord(cl);
+      auto recordBaseField = realRecordMemberFields[recordFieldNameToIdx[baseFieldName]];
+      if (underlyingBaseTypeName != recordBaseField->GetTypeName()) {
+         throw RException(R__FAIL(std::string("inheritance of SoA class ") + GetFieldName() +
+                                  " does not match its underlying record type"));
+      }
+
+      std::unique_ptr<RSoAField> soaBaseField;
+      try {
+         soaBaseField = std::make_unique<RSoAField>(baseFieldName, cl->GetName());
+      } catch (const RException &e) {
+         throw RException(R__FAIL(std::string("invalid field type in base class: ") + cl->GetName() + " of SoA field " +
+                                  GetFieldName() + " (" + e.what() + ")"));
+      }
+
+      GraftNestedMemberFields(*soaBaseField, base->GetDelta(), [&](const std::string &name) {
+         return realRecordMemberFields[recordFieldNameToIdx[name]];
+      });
+
+      for (const RRule &r : soaBaseField->fRules) {
+         fRules.emplace_back(r);
+         fRules.back().fOffset += base->GetDelta();
+      }
+
+      baseIdx++;
+   }
+
+   unsigned int nMembers = 0;
+   for (auto dataMember : ROOT::Detail::TRangeStaticCast<TDataMember>(*fClass->GetListOfDataMembers())) {
+      // NOTE: ReconstructSplitFields() will also traverse the data members and need to apply the same rules for
+      // skipping members
+
+      if ((dataMember->Property() & kIsStatic) || !dataMember->IsPersistent())
+         continue;
+
+      if (dataMember->Property() & kIsArray) {
+         throw RException(R__FAIL(std::string("unsupported array type in SoA class: ") + dataMember->GetName()));
+      }
+
+      const std::string typeName{dataMember->GetTrueTypeName()};
+      auto dmField = RFieldBase::Create(dataMember->GetName(), typeName).Unwrap();
+
+      auto itr = recordFieldNameToIdx.find(dmField->GetFieldName());
+      if (itr == recordFieldNameToIdx.end()) {
+         throw RException(R__FAIL(std::string("unexpected SoA member: ") + dmField->GetFieldName()));
+      }
+      auto underlyingField = realRecordMemberFields[itr->second];
+      assert(dmField->GetFieldName() == underlyingField->GetFieldName());
+
+      if (auto soaField = dynamic_cast<RSoAField *>(dmField.get())) {
+         if (ROOT::Internal::GetRNTupleSoARecord(soaField->fClass) != underlyingField->GetTypeName()) {
+            throw RException(R__FAIL(std::string("nested SoA field ") + soaField->GetQualifiedFieldName() + " [" +
+                                     soaField->GetTypeName() + "] does not match underlying type " +
+                                     underlyingField->GetTypeName()));
+         }
+
+         GraftNestedMemberFields(*soaField, dataMember->GetOffset(), [&](const std::string &name) {
+            return realRecordMemberFields[recordFieldNameToIdx[name]];
+         });
+
+         for (const RRule &r : soaField->fRules) {
+            fRules.emplace_back(r);
+            fRules.back().fOffset += dataMember->GetOffset();
+         }
+      } else if (auto vecField = dynamic_cast<RRVecField *>(dmField.get())) {
+         if (vecField->begin()->GetTypeName() != underlyingField->GetTypeName() ||
+             vecField->begin()->GetTypeAlias() != underlyingField->GetTypeAlias()) {
+            const std::string leftType =
+               vecField->begin()->GetTypeName() +
+               (vecField->begin()->GetTypeAlias().empty() ? "" : " [" + vecField->begin()->GetTypeAlias() + "]");
+            const std::string rightType =
+               underlyingField->GetTypeName() +
+               (underlyingField->GetTypeAlias().empty() ? "" : " [" + underlyingField->GetTypeAlias() + "]");
+            throw RException(R__FAIL(std::string("SoA member type mismatch: ") + vecField->GetFieldName() + " (" +
+                                     leftType + " vs. " + rightType + ")"));
+         }
+
+         fRecordMemberFields.emplace_back(underlyingField);
+         fRecordMemberDeleters.emplace_back(GetDeleterOf(*underlyingField));
+         fSoAMemberOffsets.emplace_back(dataMember->GetOffset());
+      } else {
+         throw RException(R__FAIL("invalid field type in SoA class: " + dmField->GetTypeName()));
+      }
+
+      nMembers++;
+   }
+   if (nDirectRecordSubfields != nMembers) {
+      throw RException(R__FAIL("missing SoA members"));
+   }
+
+   auto schemaRules = FindRules(nullptr);
+   for (const auto &r : schemaRules)
+      fRules.emplace_back(RRule{r, 0});
+}
+
+ROOT::RSoAField::RSoAField(std::string_view fieldName, TClass *clSoA)
+   : ROOT::RRuleField(fieldName, GetRenormalizedTypeName(clSoA->GetName()), clSoA, ROOT::ENTupleStructure::kCollection)
+{
+   EnsureValidUserClass(fClass, *this, "RSoAField");
+   const auto recordTypeName = ROOT::Internal::GetRNTupleSoARecord(fClass);
+   if (recordTypeName.empty()) {
+      throw ROOT::RException(R__FAIL(std::string("class ") + GetTypeName() +
+                                     " is not marked with the rntupleSoARecord "
+                                     "dictionary option; cannot create corresponding RSoAField."));
+   }
+   try {
+      Attach(std::make_unique<ROOT::RClassField>("_0", recordTypeName));
+   } catch (ROOT::RException &e) {
+      throw RException(R__FAIL("invalid record type of SoA field " + GetTypeName() + " [" + e.what() + "]"));
+   }
+   if (fClass->GetClassVersion() <= 0) {
+      throw RException(R__FAIL(std::string("SoA class ") + GetTypeName() + " is transient or unversioned."));
+   }
+   if (static_cast<std::uint32_t>(fClass->GetClassVersion()) != fSubfields[0]->GetTypeVersion()) {
+      throw RException(R__FAIL(std::string("version mismatch between SoA type and underlying record type: ") +
+                               std::to_string(fClass->GetClassVersion()) + " vs. " +
+                               std::to_string(fSubfields[0]->GetTypeVersion())));
+   }
+
+   CollectRecordMemberFields();
+
+   std::string renormalizedAlias;
+   if (ROOT::Internal::NeedsMetaNameAsAlias(fClass->GetName(), renormalizedAlias))
+      fTypeAlias = renormalizedAlias;
+
+   fTraits |= kTraitSoACollection | kTraitTypeChecksum;
+   fLockSplitFields = std::make_unique<std::mutex>();
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RSoAField::CloneImpl(std::string_view newName) const
+{
+   return std::unique_ptr<RSoAField>(new RSoAField(newName, *this));
+}
+
+const ROOT::RFieldBase::RColumnRepresentations &ROOT::RSoAField::GetColumnRepresentations() const
+{
+   static RColumnRepresentations representations({{ENTupleColumnType::kSplitIndex64},
+                                                  {ENTupleColumnType::kIndex64},
+                                                  {ENTupleColumnType::kSplitIndex32},
+                                                  {ENTupleColumnType::kIndex32}},
+                                                 {});
+   return representations;
+}
+
+void ROOT::RSoAField::GenerateColumns()
+{
+   GenerateColumnsImpl<ROOT::Internal::RColumnIndex>();
+}
+
+void ROOT::RSoAField::GenerateColumns(const ROOT::RNTupleDescriptor &desc)
+{
+   GenerateColumnsImpl<ROOT::Internal::RColumnIndex>(desc);
+}
+
+std::size_t ROOT::RSoAField::AppendImpl(const void *from)
+{
+   const std::size_t nSoAMembers = fSoAMemberOffsets.size();
+
+   std::size_t N = 0; // Set by first SoA member and verified for the rest
+   for (std::size_t i = 0; i < nSoAMembers; ++i) {
+      const void *rvecPtr = static_cast<const unsigned char *>(from) + fSoAMemberOffsets[i];
+      auto [beginPtr, sizePtr, _] = ROOT::Internal::GetRVecDataMembers(rvecPtr);
+      assert(*sizePtr >= 0);
+      if (i == 0) {
+         N = *sizePtr;
+      } else {
+         if (static_cast<std::size_t>(*sizePtr) != N) {
+            const auto f = fRecordMemberFields[i];
+            throw RException(R__FAIL("SoA length mismatch for " + f->GetFieldName() + ": " + std::to_string(*sizePtr) +
+                                     " vs. " + std::to_string(N) + " (expected)"));
+         }
+      }
+   }
+
+   std::size_t nbytes = 0;
+   if (N > 0) {
+      for (std::size_t i = 0; i < nSoAMembers; ++i) {
+         const void *rvecPtr = static_cast<const unsigned char *>(from) + fSoAMemberOffsets[i];
+         auto [beginPtr, _, __] = ROOT::Internal::GetRVecDataMembers(rvecPtr);
+         RFieldBase *memberField = fRecordMemberFields[i];
+         if (memberField->IsSimple()) {
+            GetPrincipalColumnOf(*memberField)->AppendV(*beginPtr, N);
+            nbytes += N * GetPrincipalColumnOf(*memberField)->GetElement()->GetPackedSize();
+         } else {
+            for (std::size_t j = 0; j < N; ++j) {
+               nbytes += CallAppendOn(*memberField, *beginPtr + j * memberField->GetValueSize());
+            }
+         }
+      }
+   }
+
+   fNWritten += N;
+   fPrincipalColumn->Append(&fNWritten);
+   return nbytes + fPrincipalColumn->GetElement()->GetPackedSize();
+}
+
+void ROOT::RSoAField::ReadGlobalImpl(ROOT::NTupleSize_t globalIndex, void *to)
+{
+   // Read collection info for this entry
+   ROOT::NTupleSize_t N;
+   RNTupleLocalIndex collectionStart;
+   fPrincipalColumn->GetCollectionInfo(globalIndex, &collectionStart, &N);
+
+   const auto nSoAMembers = fSoAMemberOffsets.size();
+   for (std::size_t i = 0; i < nSoAMembers; ++i) {
+      RFieldBase *memberField = fRecordMemberFields[i];
+      const auto memberSize = memberField->GetValueSize();
+      void *rvecPtr = static_cast<unsigned char *>(to) + fSoAMemberOffsets[i];
+      auto begin = ROOT::RRVecField::ResizeRVec(rvecPtr, N, memberSize, memberField, fRecordMemberDeleters[i].get());
+
+      if (N == 0)
+         continue;
+
+      if (memberField->IsSimple()) {
+         GetPrincipalColumnOf(*memberField)->ReadV(collectionStart, N, begin);
+      } else {
+         if (memberField->IsArtificial()) {
+            // Other artificial fields simply don't read at all. This does not work here because then
+            // the vector elements of trivial types would be left uninitialized (complex types explicitly call
+            // the constructor on vector resize). Thus we explicitly default-initialize trivial types.
+            // Note that this causes a subtle difference in behavior: if the added member is default-initialized to
+            // a non-zero value, this will be forgotten in the SoA layout.
+            if (memberField->GetTraits() & kTraitTriviallyConstructible) {
+               std::memset(begin, 0, N * memberSize);
+            }
+         } else {
+            for (std::size_t j = 0; j < N; ++j) {
+               CallReadOn(*memberField, collectionStart + j, begin + (j * memberSize));
+            }
+         }
+      }
+   }
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RSoAField::BeforeConnectPageSource(ROOT::Internal::RPageSource & /*pageSource*/)
+{
+   // Most of the heavy lifting is done by the actual subfields that map onto the on-disk AoS schema.
+   // In the SoA field itself, we only need to take care of the in-memory part of the rule processing.
+   // One complication is that for non-rename rules, we manually need to recurse into base (SoA) classes and
+   // nested (SoA) classes because we don't have them in the field tree.
+
+   // For now, allow only rename rules and whole-object rules
+
+   const bool hasSources = std::any_of(fRules.begin(), fRules.end(), [](const auto &r) {
+      return r.fRule->GetSource() && (r.fRule->GetSource()->GetEntries() > 0);
+   });
+   const bool hasTargets =
+      std::any_of(fRules.begin(), fRules.end(), [](const auto &r) { return r.fRule->GetTarget(); });
+
+   if (hasSources) {
+      throw RException(R__FAIL("I/O customization rules with sources are currently unsupported for SoA fields (" +
+                               GetTypeName() + ")"));
+   }
+
+   if (hasTargets) {
+      throw RException(R__FAIL("I/O customization rules with targets are currently unsupported for SoA fields (" +
+                               GetTypeName() + ")"));
+   }
+
+   for (const auto &r : fRules) {
+      AddReadCallbacksFromIORule(r.fRule, r.fOffset);
+   }
+
+   return nullptr;
+}
+
+void ROOT::RSoAField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   EnsureMatchingOnDiskField(desc, kDiffTypeName | kDiffTypeVersion).ThrowOnError();
+}
+
+void ROOT::RSoAField::ConstructValue(void *where) const
+{
+   fClass->New(where);
+}
+
+ROOT::RSoAField::RSoADeleter::RSoADeleter(TClass *cl) : RDeleter(cl->GetClassAlignment()), fSoAClass(cl) {}
+
+void ROOT::RSoAField::RSoADeleter::operator()(void *objPtr, bool dtorOnly)
+{
+   fSoAClass->Destructor(objPtr, true /* dtorOnly */);
+   RDeleter::operator()(objPtr, dtorOnly);
+}
+
+void ROOT::RSoAField::ReconstructSplitFields() const
+{
+   std::lock_guard<std::mutex> lockGuard(*fLockSplitFields);
+   if (fSplitFields)
+      return;
+
+   fSplitFields = std::make_unique<std::vector<std::unique_ptr<ROOT::RFieldBase>>>();
+   fSplitOffsets = std::make_unique<std::vector<std::size_t>>();
+
+   unsigned int baseIdx = 0;
+   for (auto base : ROOT::Detail::TRangeStaticCast<TBaseClass>(*fClass->GetListOfBases())) {
+      TClass *cl = base->GetClassPointer();
+      auto baseField = RFieldBase::Create(std::string(":_" + std::to_string(baseIdx)), cl->GetName()).Unwrap();
+      fSplitFields->emplace_back(std::move(baseField));
+      fSplitOffsets->emplace_back(base->GetDelta());
+      baseIdx++;
+   }
+
+   for (auto dataMember : ROOT::Detail::TRangeStaticCast<TDataMember>(*fClass->GetListOfDataMembers())) {
+      if ((dataMember->Property() & kIsStatic) || !dataMember->IsPersistent())
+         continue;
+
+      const std::string typeName{dataMember->GetTrueTypeName()};
+      auto dmField = RFieldBase::Create(dataMember->GetName(), typeName).Unwrap();
+      fSplitFields->emplace_back(std::move(dmField));
+      fSplitOffsets->emplace_back(dataMember->GetOffset());
+   }
+}
+
+std::vector<ROOT::RFieldBase::RValue> ROOT::RSoAField::SplitValue(const RValue &value) const
+{
+   ReconstructSplitFields();
+   const auto nSplitFields = fSplitFields->size();
+
+   auto valuePtr = value.GetPtr<void>();
+   auto soaPtr = static_cast<unsigned char *>(valuePtr.get());
+   std::vector<RValue> values;
+   values.reserve(nSplitFields);
+   for (std::size_t i = 0; i < nSplitFields; ++i) {
+      values.emplace_back((*fSplitFields)[i]->BindValue(std::shared_ptr<void>(valuePtr, soaPtr + (*fSplitOffsets)[i])));
+   }
+   return values;
+}
+
+std::size_t ROOT::RSoAField::GetValueSize() const
+{
+   return fClass->GetClassSize();
+}
+
+std::uint32_t ROOT::RSoAField::GetTypeVersion() const
+{
+   return fClass->GetClassVersion();
+}
+
+std::uint32_t ROOT::RSoAField::GetTypeChecksum() const
+{
+   return fClass->GetCheckSum();
+}
+
+std::size_t ROOT::RSoAField::GetAlignment() const
+{
+   const auto align = fClass->GetClassAlignment();
+   EnsureValidAlignment(align);
+   return align;
+}
+
+const std::type_info *ROOT::RSoAField::GetPolymorphicTypeInfo() const
+{
+   // TODO(jblomer): factor out
+   bool polymorphic = fClass->ClassProperty() & kClassHasVirtual;
+   if (!polymorphic) {
+      return nullptr;
+   }
+   return fClass->GetTypeInfo();
+}
+
+void ROOT::RSoAField::AcceptVisitor(ROOT::Detail::RFieldVisitor &visitor) const
+{
+   visitor.VisitSoAField(*this);
+}
+
+//------------------------------------------------------------------------------
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::Internal::CreateEmulatedEnumField(std::string_view fieldName,
+                                                                          std::string_view emulatedFromType,
+                                                                          std::string_view underlyingIntType)
+{
+   return std::unique_ptr<RFieldBase>(new REnumField(fieldName, emulatedFromType, underlyingIntType));
+}
+
+ROOT::REnumField::REnumField(std::string_view fieldName, std::string_view enumName)
+   : REnumField(fieldName, EnsureValidEnum(enumName))
+{
+}
+
+ROOT::REnumField::REnumField(std::string_view fieldName, TEnum *enump)
+   : ROOT::RFieldBase(fieldName, GetRenormalizedTypeName(enump->GetQualifiedName()), ROOT::ENTupleStructure::kPlain,
+                      false /* isSimple */)
+{
+   // Avoid accidentally supporting std types through TEnum.
+   if (enump->Property() & kIsDefinedInStd) {
+      throw RException(R__FAIL(GetTypeName() + " is not supported"));
+   }
+
+   switch (enump->GetUnderlyingType()) {
+   case kBool_t: Attach(std::make_unique<RField<Bool_t>>("_0")); break;
+   case kChar_t: Attach(std::make_unique<RField<Char_t>>("_0")); break;
+   case kUChar_t: Attach(std::make_unique<RField<UChar_t>>("_0")); break;
+   case kShort_t: Attach(std::make_unique<RField<Short_t>>("_0")); break;
+   case kUShort_t: Attach(std::make_unique<RField<UShort_t>>("_0")); break;
+   case kInt_t: Attach(std::make_unique<RField<Int_t>>("_0")); break;
+   case kUInt_t: Attach(std::make_unique<RField<UInt_t>>("_0")); break;
+   case kLong_t: Attach(std::make_unique<RField<Long_t>>("_0")); break;
+   case kLong64_t: Attach(std::make_unique<RField<Long64_t>>("_0")); break;
+   case kULong_t: Attach(std::make_unique<RField<ULong_t>>("_0")); break;
+   case kULong64_t: Attach(std::make_unique<RField<ULong64_t>>("_0")); break;
+   default: throw RException(R__FAIL("Unsupported underlying integral type for enum type " + GetTypeName()));
+   }
+
+   fTraits |= kTraitTriviallyConstructible | kTraitTriviallyDestructible;
+}
+
+ROOT::REnumField::REnumField(std::string_view fieldName, std::string_view enumName,
+                             std::unique_ptr<RFieldBase> intField)
+   : ROOT::RFieldBase(fieldName, enumName, ROOT::ENTupleStructure::kPlain, false /* isSimple */)
+{
+   Attach(std::move(intField));
+   fTraits |= kTraitTriviallyConstructible | kTraitTriviallyDestructible;
+}
+
+ROOT::REnumField::REnumField(std::string_view fieldName, std::string_view emulatedFromType,
+                             std::string_view underlyingIntType)
+   : ROOT::RFieldBase(fieldName, emulatedFromType, ROOT::ENTupleStructure::kPlain, false /* isSimple */)
+{
+   auto intField = Create("_0", std::string(underlyingIntType)).Unwrap();
+   Attach(std::move(intField));
+   fTraits |= kTraitTriviallyConstructible | kTraitTriviallyDestructible | kTraitEmulatedField;
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::REnumField::CloneImpl(std::string_view newName) const
+{
+   auto newIntField = fSubfields[0]->Clone(fSubfields[0]->GetFieldName());
+   return std::unique_ptr<REnumField>(new REnumField(newName, GetTypeName(), std::move(newIntField)));
+}
+
+void ROOT::REnumField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   // TODO(jblomer): allow enum to enum conversion only by rename rule
+   EnsureMatchingOnDiskField(desc, kDiffTypeName | kDiffTypeVersion).ThrowOnError();
+}
+
+std::vector<ROOT::RFieldBase::RValue> ROOT::REnumField::SplitValue(const RValue &value) const
+{
+   std::vector<RValue> result;
+   result.emplace_back(fSubfields[0]->BindValue(value.GetPtr<void>()));
+   return result;
+}
+
+void ROOT::REnumField::AcceptVisitor(ROOT::Detail::RFieldVisitor &visitor) const
+{
+   visitor.VisitEnumField(*this);
+}
+
+//------------------------------------------------------------------------------
+
+ROOT::RPairField::RPairField(std::string_view fieldName, std::array<std::unique_ptr<RFieldBase>, 2> itemFields)
+   : ROOT::RRecordField(fieldName, "std::pair<" + GetTypeList(itemFields, false /* useTypeAliases */) + ">")
+{
+   const std::string typeAlias = "std::pair<" + GetTypeList(itemFields, true /* useTypeAliases */) + ">";
+   if (typeAlias != GetTypeName())
+      fTypeAlias = typeAlias;
+
+   AttachItemFields(std::move(itemFields));
+
+   // ISO C++ does not guarantee any specific layout for `std::pair`; query TClass for the member offsets
+   auto *c = TClass::GetClass(GetTypeName().c_str());
+   if (!c) {
+      auto pairInfo = TVirtualStreamerInfo::Factory()->GenerateInfoForPair(
+         fSubfields[0]->GetTypeName(), fSubfields[1]->GetTypeName(), true /* silent */, 0, 0);
+      if (pairInfo)
+         c = pairInfo->GetClass();
+   }
+   if (!c)
+      throw RException(R__FAIL("cannot get type information for " + GetTypeName()));
+   fSize = c->Size();
+
+   auto firstElem = c->GetRealData("first");
+   if (!firstElem)
+      throw RException(R__FAIL("first: no such member"));
+   fOffsets.push_back(firstElem->GetThisOffset());
+
+   auto secondElem = c->GetRealData("second");
+   if (!secondElem)
+      throw RException(R__FAIL("second: no such member"));
+   fOffsets.push_back(secondElem->GetThisOffset());
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RPairField::CloneImpl(std::string_view newName) const
+{
+   std::array<std::unique_ptr<RFieldBase>, 2> itemClones = {fSubfields[0]->Clone(fSubfields[0]->GetFieldName()),
+                                                            fSubfields[1]->Clone(fSubfields[1]->GetFieldName())};
+   return std::unique_ptr<RPairField>(new RPairField(newName, std::move(itemClones)));
+}
+
+void ROOT::RPairField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   static const std::vector<std::string> prefixes = {"std::pair<", "std::tuple<"};
+
+   EnsureMatchingOnDiskField(desc, kDiffTypeName).ThrowOnError();
+   EnsureMatchingTypePrefix(desc, prefixes).ThrowOnError();
+
+   const auto &fieldDesc = desc.GetFieldDescriptor(GetOnDiskId());
+   const auto nOnDiskSubfields = fieldDesc.GetLinkIds().size();
+   if (nOnDiskSubfields != 2) {
+      throw ROOT::RException(R__FAIL("invalid number of on-disk subfields for std::pair " +
+                                     std::to_string(nOnDiskSubfields) + "\n" +
+                                     Internal::GetTypeTraceReport(*this, desc)));
+   }
+}
+
+//------------------------------------------------------------------------------
+
+ROOT::RProxiedCollectionField::RCollectionIterableOnce::RIteratorFuncs
+ROOT::RProxiedCollectionField::RCollectionIterableOnce::GetIteratorFuncs(TVirtualCollectionProxy *proxy,
+                                                                         bool readFromDisk)
+{
+   RIteratorFuncs ifuncs;
+   ifuncs.fCreateIterators = proxy->GetFunctionCreateIterators(readFromDisk);
+   ifuncs.fDeleteTwoIterators = proxy->GetFunctionDeleteTwoIterators(readFromDisk);
+   ifuncs.fNext = proxy->GetFunctionNext(readFromDisk);
+   R__ASSERT((ifuncs.fCreateIterators != nullptr) && (ifuncs.fDeleteTwoIterators != nullptr) &&
+             (ifuncs.fNext != nullptr));
+   return ifuncs;
+}
+
+ROOT::RProxiedCollectionField::RProxiedCollectionField(std::string_view fieldName, TClass *classp)
+   : RFieldBase(fieldName, GetRenormalizedTypeName(classp->GetName()), ROOT::ENTupleStructure::kCollection,
+                false /* isSimple */),
+     fNWritten(0)
+{
+   if (!classp->GetCollectionProxy())
+      throw RException(R__FAIL(std::string(classp->GetName()) + " has no associated collection proxy"));
+   if (classp->Property() & kIsDefinedInStd) {
+      static const std::vector<std::string> supportedStdTypes = {
+         "std::set<", "std::unordered_set<", "std::multiset<", "std::unordered_multiset<",
+         "std::map<", "std::unordered_map<", "std::multimap<", "std::unordered_multimap<"};
+      bool isSupported = false;
+      for (const auto &tn : supportedStdTypes) {
+         if (GetTypeName().rfind(tn, 0) == 0) {
+            isSupported = true;
+            break;
+         }
+      }
+      if (!isSupported)
+         throw RException(R__FAIL(std::string(GetTypeName()) + " is not supported"));
+   }
+
+   std::string renormalizedAlias;
+   if (Internal::NeedsMetaNameAsAlias(classp->GetName(), renormalizedAlias))
+      fTypeAlias = renormalizedAlias;
+
+   fProxy.reset(classp->GetCollectionProxy()->Generate());
+   fProperties = fProxy->GetProperties();
+   fCollectionType = fProxy->GetCollectionType();
+   if (fProxy->HasPointers())
+      throw RException(R__FAIL("collection proxies whose value type is a pointer are not supported"));
+
+   fIFuncsRead = RCollectionIterableOnce::GetIteratorFuncs(fProxy.get(), true /* readFromDisk */);
+   fIFuncsWrite = RCollectionIterableOnce::GetIteratorFuncs(fProxy.get(), false /* readFromDisk */);
+}
+
+ROOT::RProxiedCollectionField::RProxiedCollectionField(std::string_view fieldName, std::string_view typeName)
+   : RProxiedCollectionField(fieldName, EnsureValidClass(typeName))
+{
+   // NOTE (fdegeus): std::map is supported, custom associative might be supported in the future if the need arises.
+   if (fProperties & TVirtualCollectionProxy::kIsAssociative)
+      throw RException(R__FAIL("custom associative collection proxies not supported"));
+
+   std::unique_ptr<ROOT::RFieldBase> itemField;
+
+   if (auto valueClass = fProxy->GetValueClass()) {
+      // Element type is a class
+      itemField = RFieldBase::Create("_0", valueClass->GetName()).Unwrap();
+   } else {
+      switch (fProxy->GetType()) {
+      case EDataType::kChar_t: itemField = std::make_unique<RField<Char_t>>("_0"); break;
+      case EDataType::kUChar_t: itemField = std::make_unique<RField<UChar_t>>("_0"); break;
+      case EDataType::kShort_t: itemField = std::make_unique<RField<Short_t>>("_0"); break;
+      case EDataType::kUShort_t: itemField = std::make_unique<RField<UShort_t>>("_0"); break;
+      case EDataType::kInt_t: itemField = std::make_unique<RField<Int_t>>("_0"); break;
+      case EDataType::kUInt_t: itemField = std::make_unique<RField<UInt_t>>("_0"); break;
+      case EDataType::kLong_t: itemField = std::make_unique<RField<Long_t>>("_0"); break;
+      case EDataType::kLong64_t: itemField = std::make_unique<RField<Long64_t>>("_0"); break;
+      case EDataType::kULong_t: itemField = std::make_unique<RField<ULong_t>>("_0"); break;
+      case EDataType::kULong64_t: itemField = std::make_unique<RField<ULong64_t>>("_0"); break;
+      case EDataType::kFloat_t: itemField = std::make_unique<RField<Float_t>>("_0"); break;
+      case EDataType::kDouble_t: itemField = std::make_unique<RField<Double_t>>("_0"); break;
+      case EDataType::kBool_t: itemField = std::make_unique<RField<Bool_t>>("_0"); break;
+      default: throw RException(R__FAIL("unsupported value type: " + std::to_string(fProxy->GetType())));
+      }
+   }
+
+   fItemSize = itemField->GetValueSize();
+   Attach(std::move(itemField));
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RProxiedCollectionField::CloneImpl(std::string_view newName) const
+{
+   auto clone =
+      std::unique_ptr<RProxiedCollectionField>(new RProxiedCollectionField(newName, fProxy->GetCollectionClass()));
+   clone->fItemSize = fItemSize;
+   clone->Attach(fSubfields[0]->Clone(fSubfields[0]->GetFieldName()));
+   return clone;
+}
+
+std::size_t ROOT::RProxiedCollectionField::AppendImpl(const void *from)
+{
+   std::size_t nbytes = 0;
+   unsigned count = 0;
+   TVirtualCollectionProxy::TPushPop RAII(fProxy.get(), const_cast<void *>(from));
+   for (auto ptr : RCollectionIterableOnce{const_cast<void *>(from), fIFuncsWrite, fProxy.get(),
+                                           (fCollectionType == kSTLvector ? fItemSize : 0U)}) {
+      nbytes += CallAppendOn(*fSubfields[0], ptr);
+      count++;
+   }
+
+   fNWritten += count;
+   fPrincipalColumn->Append(&fNWritten);
+   return nbytes + fPrincipalColumn->GetElement()->GetPackedSize();
+}
+
+void ROOT::RProxiedCollectionField::ReadGlobalImpl(ROOT::NTupleSize_t globalIndex, void *to)
+{
+   ROOT::NTupleSize_t nItems;
+   RNTupleLocalIndex collectionStart;
+   fPrincipalColumn->GetCollectionInfo(globalIndex, &collectionStart, &nItems);
+
+   TVirtualCollectionProxy::TPushPop RAII(fProxy.get(), to);
+   void *obj =
+      fProxy->Allocate(static_cast<std::uint32_t>(nItems), (fProperties & TVirtualCollectionProxy::kNeedDelete));
+
+   unsigned i = 0;
+   for (auto elementPtr : RCollectionIterableOnce{obj, fIFuncsRead, fProxy.get(),
+                                                  (fCollectionType == kSTLvector || obj != to ? fItemSize : 0U)}) {
+      CallReadOn(*fSubfields[0], collectionStart + (i++), elementPtr);
+   }
+   if (obj != to)
+      fProxy->Commit(obj);
+}
+
+const ROOT::RFieldBase::RColumnRepresentations &ROOT::RProxiedCollectionField::GetColumnRepresentations() const
+{
+   static RColumnRepresentations representations({{ENTupleColumnType::kSplitIndex64},
+                                                  {ENTupleColumnType::kIndex64},
+                                                  {ENTupleColumnType::kSplitIndex32},
+                                                  {ENTupleColumnType::kIndex32}},
+                                                 {});
+   return representations;
+}
+
+void ROOT::RProxiedCollectionField::GenerateColumns()
+{
+   GenerateColumnsImpl<ROOT::Internal::RColumnIndex>();
+}
+
+void ROOT::RProxiedCollectionField::GenerateColumns(const ROOT::RNTupleDescriptor &desc)
+{
+   GenerateColumnsImpl<ROOT::Internal::RColumnIndex>(desc);
+}
+
+void ROOT::RProxiedCollectionField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   EnsureMatchingOnDiskCollection(desc).ThrowOnError();
+}
+
+void ROOT::RProxiedCollectionField::ConstructValue(void *where) const
+{
+   fProxy->New(where);
+}
+
+std::unique_ptr<ROOT::RFieldBase::RDeleter> ROOT::RProxiedCollectionField::GetDeleter() const
+{
+   if (fProperties & TVirtualCollectionProxy::kNeedDelete) {
+      std::size_t itemSize = fCollectionType == kSTLvector ? fItemSize : 0U;
+      return std::make_unique<RProxiedCollectionDeleter>(fProxy, GetDeleterOf(*fSubfields[0]), itemSize);
+   }
+   return std::make_unique<RProxiedCollectionDeleter>(fProxy);
+}
+
+ROOT::RProxiedCollectionField::RProxiedCollectionDeleter::RProxiedCollectionDeleter(
+   std::shared_ptr<TVirtualCollectionProxy> proxy)
+   : RDeleter(proxy->GetCollectionClass()->GetClassAlignment()), fProxy(std::move(proxy))
+{
+}
+
+ROOT::RProxiedCollectionField::RProxiedCollectionDeleter::RProxiedCollectionDeleter(
+   std::shared_ptr<TVirtualCollectionProxy> proxy, std::unique_ptr<RDeleter> itemDeleter, size_t itemSize)
+   : RDeleter(proxy->GetCollectionClass()->GetClassAlignment()),
+     fProxy(std::move(proxy)),
+     fItemDeleter(std::move(itemDeleter)),
+     fItemSize(itemSize)
+{
+   fIFuncsWrite = RCollectionIterableOnce::GetIteratorFuncs(fProxy.get(), false /* readFromDisk */);
+}
+
+void ROOT::RProxiedCollectionField::RProxiedCollectionDeleter::operator()(void *objPtr, bool dtorOnly)
+{
+   if (fItemDeleter) {
+      TVirtualCollectionProxy::TPushPop RAII(fProxy.get(), objPtr);
+      for (auto ptr : RCollectionIterableOnce{objPtr, fIFuncsWrite, fProxy.get(), fItemSize}) {
+         fItemDeleter->operator()(ptr, true /* dtorOnly */);
+      }
+   }
+   fProxy->Destructor(objPtr, true /* dtorOnly */);
+   RDeleter::operator()(objPtr, dtorOnly);
+}
+
+std::vector<ROOT::RFieldBase::RValue> ROOT::RProxiedCollectionField::SplitValue(const RValue &value) const
+{
+   std::vector<RValue> result;
+   auto valueRawPtr = value.GetPtr<void>().get();
+   TVirtualCollectionProxy::TPushPop RAII(fProxy.get(), valueRawPtr);
+   for (auto ptr : RCollectionIterableOnce{valueRawPtr, fIFuncsWrite, fProxy.get(),
+                                           (fCollectionType == kSTLvector ? fItemSize : 0U)}) {
+      result.emplace_back(fSubfields[0]->BindValue(std::shared_ptr<void>(value.GetPtr<void>(), ptr)));
+   }
+   return result;
+}
+
+std::size_t ROOT::RProxiedCollectionField::GetValueSize() const
+{
+   return fProxy->Sizeof();
+}
+
+std::size_t ROOT::RProxiedCollectionField::GetAlignment() const
+{
+   const auto align = fProxy->GetCollectionClass()->GetClassAlignment();
+   EnsureValidAlignment(align);
+   return align;
+}
+
+void ROOT::RProxiedCollectionField::AcceptVisitor(ROOT::Detail::RFieldVisitor &visitor) const
+{
+   visitor.VisitProxiedCollectionField(*this);
+}
+
+//------------------------------------------------------------------------------
+
+ROOT::RMapField::RMapField(std::string_view fieldName, EMapType mapType, std::unique_ptr<RFieldBase> itemField)
+   : RProxiedCollectionField(fieldName,
+                             EnsureValidClass(BuildMapTypeName(mapType, itemField.get(), false /* useTypeAliases */))),
+     fMapType(mapType)
+{
+   if (!itemField->GetTypeAlias().empty())
+      fTypeAlias = BuildMapTypeName(mapType, itemField.get(), true /* useTypeAliases */);
+
+   auto *itemClass = fProxy->GetValueClass();
+   fItemSize = itemClass->GetClassSize();
+
+   Attach(std::move(itemField), "_0");
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RMapField::CloneImpl(std::string_view newName) const
+{
+   return std::make_unique<RMapField>(newName, fMapType, fSubfields[0]->Clone(fSubfields[0]->GetFieldName()));
+}
+
+void ROOT::RMapField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   static const std::vector<std::string> prefixesRegular = {"std::map<", "std::unordered_map<"};
+
+   EnsureMatchingOnDiskCollection(desc).ThrowOnError();
+
+   switch (fMapType) {
+   case EMapType::kMap:
+   case EMapType::kUnorderedMap: EnsureMatchingTypePrefix(desc, prefixesRegular).ThrowOnError(); break;
+   default:
+      break;
+      // no restrictions for multimaps
+   }
+}
+
+//------------------------------------------------------------------------------
+
+ROOT::RSetField::RSetField(std::string_view fieldName, ESetType setType, std::unique_ptr<RFieldBase> itemField)
+   : ROOT::RProxiedCollectionField(fieldName,
+                                   EnsureValidClass(BuildSetTypeName(setType, *itemField, false /* useTypeAlias */))),
+     fSetType(setType)
+{
+   if (!itemField->GetTypeAlias().empty())
+      fTypeAlias = BuildSetTypeName(setType, *itemField, true /* useTypeAlias */);
+
+   fItemSize = itemField->GetValueSize();
+
+   Attach(std::move(itemField), "_0");
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RSetField::CloneImpl(std::string_view newName) const
+{
+   return std::make_unique<RSetField>(newName, fSetType, fSubfields[0]->Clone(fSubfields[0]->GetFieldName()));
+}
+
+void ROOT::RSetField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   static const std::vector<std::string> prefixesRegular = {"std::set<", "std::unordered_set<", "std::map<",
+                                                            "std::unordered_map<"};
+
+   EnsureMatchingOnDiskCollection(desc).ThrowOnError();
+
+   switch (fSetType) {
+   case ESetType::kSet:
+   case ESetType::kUnorderedSet: EnsureMatchingTypePrefix(desc, prefixesRegular).ThrowOnError(); break;
+   default:
+      break;
+      // no restrictions for multisets
+   }
+}
+
+//------------------------------------------------------------------------------
+
+namespace {
+
+/// Used in RStreamerField::AppendImpl() in order to record the encountered streamer info records
+class TBufferRecStreamer : public TBufferFile {
+public:
+   using RCallbackStreamerInfo = std::function<void(TVirtualStreamerInfo *)>;
+
+private:
+   RCallbackStreamerInfo fCallbackStreamerInfo;
+
+public:
+   TBufferRecStreamer(TBuffer::EMode mode, Int_t bufsize, RCallbackStreamerInfo callbackStreamerInfo)
+      : TBufferFile(mode, bufsize), fCallbackStreamerInfo(std::move(callbackStreamerInfo))
+   {
+   }
+   void TagStreamerInfo(TVirtualStreamerInfo *info) final { fCallbackStreamerInfo(info); }
+};
+
+} // anonymous namespace
+
+ROOT::RStreamerField::RStreamerField(std::string_view fieldName, std::string_view className)
+   : RStreamerField(fieldName, EnsureValidClass(className))
+{
+}
+
+ROOT::RStreamerField::RStreamerField(std::string_view fieldName, TClass *classp)
+   : ROOT::RFieldBase(fieldName, GetRenormalizedTypeName(classp->GetName()), ROOT::ENTupleStructure::kStreamer,
+                      false /* isSimple */),
+     fClass(classp),
+     fIndex(0)
+{
+   if (fClass->GetState() < TClass::kEmulated)
+      throw RException(R__FAIL("streamer field " + GetFieldName() + " requires at least an emulated class"));
+   if (fClass->GetState() == TClass::kEmulated)
+      fTraits |= kTraitEmulatedField;
+
+   std::string renormalizedAlias;
+   if (Internal::NeedsMetaNameAsAlias(classp->GetName(), renormalizedAlias))
+      fTypeAlias = renormalizedAlias;
+
+   fTraits |= kTraitTypeChecksum;
+   // For RClassField, we only check for explicit constructors and destructors and then recursively combine traits from
+   // all member subfields. For RStreamerField, we treat the class as a black box and additionally need to check for
+   // implicit constructors and destructors.
+   if (!(fClass->ClassProperty() & (kClassHasExplicitCtor | kClassHasImplicitCtor)))
+      fTraits |= kTraitTriviallyConstructible;
+   if (!(fClass->ClassProperty() & (kClassHasExplicitDtor | kClassHasImplicitDtor)))
+      fTraits |= kTraitTriviallyDestructible;
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RStreamerField::CloneImpl(std::string_view newName) const
+{
+   // To get the correct TClass instance in the clone, we clone using the un-normalized type name
+   return std::unique_ptr<RStreamerField>(new RStreamerField(newName, fClass->GetName()));
+}
+
+std::size_t ROOT::RStreamerField::AppendImpl(const void *from)
+{
+   TBufferRecStreamer buffer(TBuffer::kWrite, GetValueSize(),
+                             [this](TVirtualStreamerInfo *info) { fStreamerInfos[info->GetNumber()] = info; });
+   fClass->Streamer(const_cast<void *>(from), buffer);
+
+   auto nbytes = buffer.Length();
+   fAuxiliaryColumn->AppendV(buffer.Buffer(), buffer.Length());
+   fIndex += nbytes;
+   fPrincipalColumn->Append(&fIndex);
+   return nbytes + fPrincipalColumn->GetElement()->GetPackedSize();
+}
+
+void ROOT::RStreamerField::ReadGlobalImpl(ROOT::NTupleSize_t globalIndex, void *to)
+{
+   RNTupleLocalIndex collectionStart;
+   ROOT::NTupleSize_t nbytes;
+   fPrincipalColumn->GetCollectionInfo(globalIndex, &collectionStart, &nbytes);
+
+   TBufferFile buffer(TBuffer::kRead, nbytes);
+   fAuxiliaryColumn->ReadV(collectionStart, nbytes, buffer.Buffer());
+   fClass->Streamer(to, buffer);
+}
+
+const ROOT::RFieldBase::RColumnRepresentations &ROOT::RStreamerField::GetColumnRepresentations() const
+{
+   static RColumnRepresentations representations({{ENTupleColumnType::kSplitIndex64, ENTupleColumnType::kByte},
+                                                  {ENTupleColumnType::kIndex64, ENTupleColumnType::kByte},
+                                                  {ENTupleColumnType::kSplitIndex32, ENTupleColumnType::kByte},
+                                                  {ENTupleColumnType::kIndex32, ENTupleColumnType::kByte}},
+                                                 {});
+   return representations;
+}
+
+void ROOT::RStreamerField::GenerateColumns()
+{
+   GenerateColumnsImpl<ROOT::Internal::RColumnIndex, std::byte>();
+}
+
+void ROOT::RStreamerField::GenerateColumns(const ROOT::RNTupleDescriptor &desc)
+{
+   GenerateColumnsImpl<ROOT::Internal::RColumnIndex, std::byte>(desc);
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RStreamerField::BeforeConnectPageSource(ROOT::Internal::RPageSource &source)
+{
+   source.RegisterStreamerInfos();
+   return nullptr;
+}
+
+void ROOT::RStreamerField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   EnsureMatchingOnDiskField(desc, kDiffTypeName | kDiffTypeVersion).ThrowOnError();
+}
+
+void ROOT::RStreamerField::ConstructValue(void *where) const
+{
+   fClass->New(where);
+}
+
+ROOT::RStreamerField::RStreamerFieldDeleter::RStreamerFieldDeleter(TClass *cl)
+   : RDeleter(cl->GetClassAlignment()), fClass(cl)
+{
+}
+
+void ROOT::RStreamerField::RStreamerFieldDeleter::operator()(void *objPtr, bool dtorOnly)
+{
+   fClass->Destructor(objPtr, true /* dtorOnly */);
+   RDeleter::operator()(objPtr, dtorOnly);
+}
+
+ROOT::RExtraTypeInfoDescriptor ROOT::RStreamerField::GetExtraTypeInfo() const
+{
+   ROOT::Internal::RExtraTypeInfoDescriptorBuilder extraTypeInfoBuilder;
+   extraTypeInfoBuilder.ContentId(ROOT::EExtraTypeInfoIds::kStreamerInfo)
+      .TypeVersion(GetTypeVersion())
+      .TypeName(GetTypeName())
+      .Content(ROOT::Internal::RNTupleSerializer::SerializeStreamerInfos(fStreamerInfos));
+   return extraTypeInfoBuilder.MoveDescriptor().Unwrap();
+}
+
+std::size_t ROOT::RStreamerField::GetAlignment() const
+{
+   const auto align = fClass->GetClassAlignment();
+   EnsureValidAlignment(align);
+   return align;
+}
+
+std::size_t ROOT::RStreamerField::GetValueSize() const
+{
+   return fClass->GetClassSize();
+}
+
+std::uint32_t ROOT::RStreamerField::GetTypeVersion() const
+{
+   return fClass->GetClassVersion();
+}
+
+std::uint32_t ROOT::RStreamerField::GetTypeChecksum() const
+{
+   return fClass->GetCheckSum();
+}
+
+void ROOT::RStreamerField::AcceptVisitor(ROOT::Detail::RFieldVisitor &visitor) const
+{
+   visitor.VisitStreamerField(*this);
+}
+
+//------------------------------------------------------------------------------
+
+std::size_t ROOT::RField<TObject>::GetOffsetOfMember(const char *name)
+{
+   if (auto dataMember = TObject::Class()->GetDataMember(name)) {
+      return dataMember->GetOffset();
+   }
+   throw RException(R__FAIL('\'' + std::string(name) + '\'' + " is an invalid data member"));
+}
+
+ROOT::RField<TObject>::RField(std::string_view fieldName, const RField<TObject> &source)
+   : ROOT::RFieldBase(fieldName, "TObject", ROOT::ENTupleStructure::kRecord, false /* isSimple */)
+{
+   fTraits |= kTraitTypeChecksum;
+   Attach(source.GetConstSubfields()[0]->Clone("fUniqueID"));
+   Attach(source.GetConstSubfields()[1]->Clone("fBits"));
+}
+
+ROOT::RField<TObject>::RField(std::string_view fieldName)
+   : ROOT::RFieldBase(fieldName, "TObject", ROOT::ENTupleStructure::kRecord, false /* isSimple */)
+{
+   assert(TObject::Class()->GetClassVersion() == 1);
+
+   fTraits |= kTraitTypeChecksum;
+   Attach(std::make_unique<RField<UInt_t>>("fUniqueID"));
+   Attach(std::make_unique<RField<UInt_t>>("fBits"));
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RField<TObject>::CloneImpl(std::string_view newName) const
+{
+   return std::unique_ptr<RField<TObject>>(new RField<TObject>(newName, *this));
+}
+
+std::size_t ROOT::RField<TObject>::AppendImpl(const void *from)
+{
+   // Cf. TObject::Streamer()
+
+   auto *obj = static_cast<const TObject *>(from);
+   if (obj->TestBit(TObject::kIsReferenced)) {
+      throw RException(R__FAIL("RNTuple I/O on referenced TObject is unsupported"));
+   }
+
+   std::size_t nbytes = 0;
+   nbytes += CallAppendOn(*fSubfields[0], reinterpret_cast<const unsigned char *>(from) + GetOffsetUniqueID());
+
+   UInt_t bits = *reinterpret_cast<const UInt_t *>(reinterpret_cast<const unsigned char *>(from) + GetOffsetBits());
+   bits &= (~TObject::kIsOnHeap & ~TObject::kNotDeleted);
+   nbytes += CallAppendOn(*fSubfields[1], &bits);
+
+   return nbytes;
+}
+
+void ROOT::RField<TObject>::ReadTObject(void *to, UInt_t uniqueID, UInt_t bits)
+{
+   // Cf. TObject::Streamer()
+
+   auto *obj = static_cast<TObject *>(to);
+   if (obj->TestBit(TObject::kIsReferenced)) {
+      throw RException(R__FAIL("RNTuple I/O on referenced TObject is unsupported"));
+   }
+
+   *reinterpret_cast<UInt_t *>(reinterpret_cast<unsigned char *>(to) + GetOffsetUniqueID()) = uniqueID;
+
+   const UInt_t bitIsOnHeap = obj->TestBit(TObject::kIsOnHeap) ? TObject::kIsOnHeap : 0;
+   bits |= bitIsOnHeap | TObject::kNotDeleted;
+   *reinterpret_cast<UInt_t *>(reinterpret_cast<unsigned char *>(to) + GetOffsetBits()) = bits;
+}
+
+void ROOT::RField<TObject>::ReadGlobalImpl(ROOT::NTupleSize_t globalIndex, void *to)
+{
+   UInt_t uniqueID, bits;
+   CallReadOn(*fSubfields[0], globalIndex, &uniqueID);
+   CallReadOn(*fSubfields[1], globalIndex, &bits);
+   ReadTObject(to, uniqueID, bits);
+}
+
+void ROOT::RField<TObject>::ReadInClusterImpl(RNTupleLocalIndex localIndex, void *to)
+{
+   UInt_t uniqueID, bits;
+   CallReadOn(*fSubfields[0], localIndex, &uniqueID);
+   CallReadOn(*fSubfields[1], localIndex, &bits);
+   ReadTObject(to, uniqueID, bits);
+}
+
+std::uint32_t ROOT::RField<TObject>::GetTypeVersion() const
+{
+   return TObject::Class()->GetClassVersion();
+}
+
+std::uint32_t ROOT::RField<TObject>::GetTypeChecksum() const
+{
+   return TObject::Class()->GetCheckSum();
+}
+
+void ROOT::RField<TObject>::ConstructValue(void *where) const
+{
+   new (where) TObject();
+}
+
+std::vector<ROOT::RFieldBase::RValue> ROOT::RField<TObject>::SplitValue(const RValue &value) const
+{
+   std::vector<RValue> result;
+   // Use GetPtr<TObject> to type-check
+   std::shared_ptr<void> ptr = value.GetPtr<TObject>();
+   auto charPtr = static_cast<unsigned char *>(ptr.get());
+   result.emplace_back(fSubfields[0]->BindValue(std::shared_ptr<void>(ptr, charPtr + GetOffsetUniqueID())));
+   result.emplace_back(fSubfields[1]->BindValue(std::shared_ptr<void>(ptr, charPtr + GetOffsetBits())));
+   return result;
+}
+
+size_t ROOT::RField<TObject>::GetValueSize() const
+{
+   return sizeof(TObject);
+}
+
+size_t ROOT::RField<TObject>::GetAlignment() const
+{
+   return alignof(TObject);
+}
+
+void ROOT::RField<TObject>::AcceptVisitor(ROOT::Detail::RFieldVisitor &visitor) const
+{
+   visitor.VisitTObjectField(*this);
+}
+
+//------------------------------------------------------------------------------
+
+ROOT::RTupleField::RTupleField(std::string_view fieldName, std::vector<std::unique_ptr<RFieldBase>> itemFields)
+   : ROOT::RRecordField(fieldName, "std::tuple<" + GetTypeList(itemFields, false /* useTypeAliases */) + ">")
+{
+   const std::string typeAlias = "std::tuple<" + GetTypeList(itemFields, true /* useTypeAliases */) + ">";
+   if (typeAlias != GetTypeName())
+      fTypeAlias = typeAlias;
+
+   AttachItemFields(std::move(itemFields));
+
+   auto *c = TClass::GetClass(GetTypeName().c_str());
+   if (!c)
+      throw RException(R__FAIL("cannot get type information for " + GetTypeName()));
+   fSize = c->Size();
+
+   // ISO C++ does not guarantee neither specific layout nor member names for `std::tuple`.  However, most
+   // implementations including libstdc++ (gcc), libc++ (llvm), and MSVC name members as `_0`, `_1`, ..., `_N-1`,
+   // following the order of the type list.
+   // Use TClass to get their offsets; in case a particular `std::tuple` implementation does not define such
+   // members, the assertion below will fail.
+   for (unsigned i = 0; i < fSubfields.size(); ++i) {
+      std::string memberName("_" + std::to_string(i));
+      auto member = c->GetRealData(memberName.c_str());
+      if (!member)
+         throw RException(R__FAIL(memberName + ": no such member"));
+      fOffsets.push_back(member->GetThisOffset());
+   }
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RTupleField::CloneImpl(std::string_view newName) const
+{
+   std::vector<std::unique_ptr<RFieldBase>> itemClones;
+   itemClones.reserve(fSubfields.size());
+   for (const auto &f : fSubfields) {
+      itemClones.emplace_back(f->Clone(f->GetFieldName()));
+   }
+   return std::unique_ptr<RTupleField>(new RTupleField(newName, std::move(itemClones)));
+}
+
+void ROOT::RTupleField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   static const std::vector<std::string> prefixes = {"std::pair<", "std::tuple<"};
+
+   EnsureMatchingOnDiskField(desc, kDiffTypeName).ThrowOnError();
+   EnsureMatchingTypePrefix(desc, prefixes).ThrowOnError();
+
+   const auto &fieldDesc = desc.GetFieldDescriptor(GetOnDiskId());
+   const auto nOnDiskSubfields = fieldDesc.GetLinkIds().size();
+   const auto nSubfields = fSubfields.size();
+   if (nOnDiskSubfields != nSubfields) {
+      throw ROOT::RException(R__FAIL("invalid number of on-disk subfields for std::tuple " +
+                                     std::to_string(nOnDiskSubfields) + " vs. " + std::to_string(nSubfields) + "\n" +
+                                     Internal::GetTypeTraceReport(*this, desc)));
+   }
+}
+
+//------------------------------------------------------------------------------
+
+namespace {
+
+// Depending on the compiler, the variant tag is stored either in a trailing char or in a trailing unsigned int
+constexpr std::size_t GetVariantTagSize()
+{
+   // Should be all zeros except for the tag, which is 1
+   std::variant<char> t;
+   constexpr auto sizeOfT = sizeof(t);
+
+   static_assert(sizeOfT == 2 || sizeOfT == 8, "unsupported std::variant layout");
+   return sizeOfT == 2 ? 1 : 4;
+}
+
+template <std::size_t VariantSizeT>
+struct RVariantTag {
+   using ValueType_t = typename std::conditional_t<VariantSizeT == 1, std::uint8_t,
+                                                   typename std::conditional_t<VariantSizeT == 4, std::uint32_t, void>>;
+};
+
+} // anonymous namespace
+
+ROOT::RVariantField::RVariantField(std::string_view name, const RVariantField &source)
+   : ROOT::RFieldBase(name, source.GetTypeName(), ROOT::ENTupleStructure::kVariant, false /* isSimple */),
+     fMaxItemSize(source.fMaxItemSize),
+     fMaxAlignment(source.fMaxAlignment),
+     fTagOffset(source.fTagOffset),
+     fVariantOffset(source.fVariantOffset),
+     fNWritten(source.fNWritten.size(), 0)
+{
+   for (const auto &f : source.GetConstSubfields())
+      Attach(f->Clone(f->GetFieldName()));
+   fTraits = source.fTraits;
+}
+
+ROOT::RVariantField::RVariantField(std::string_view fieldName, std::vector<std::unique_ptr<RFieldBase>> itemFields)
+   : ROOT::RFieldBase(fieldName, "std::variant<" + GetTypeList(itemFields, false /* useTypeAliases */) + ">",
+                      ROOT::ENTupleStructure::kVariant, false /* isSimple */)
+{
+   // The variant needs to initialize its own tag member
+   fTraits |= kTraitTriviallyDestructible & ~kTraitTriviallyConstructible;
+
+   const std::string typeAlias = "std::variant<" + GetTypeList(itemFields, true /* useTypeAliases */) + ">";
+   if (typeAlias != GetTypeName())
+      fTypeAlias = typeAlias;
+
+   auto nFields = itemFields.size();
+   if (nFields == 0 || nFields > kMaxVariants) {
+      throw RException(R__FAIL("invalid number of variant fields (outside [1.." + std::to_string(kMaxVariants) + ")"));
+   }
+   fNWritten.resize(nFields, 0);
+   for (unsigned int i = 0; i < nFields; ++i) {
+      fMaxItemSize = std::max(fMaxItemSize, itemFields[i]->GetValueSize());
+      fMaxAlignment = std::max(fMaxAlignment, itemFields[i]->GetAlignment());
+      fTraits &= itemFields[i]->GetTraits();
+      Attach(std::move(itemFields[i]), "_" + std::to_string(i));
+   }
+
+   // With certain template parameters, the union of members of an std::variant starts at an offset > 0.
+   // For instance, std::variant<std::optional<int>> on macOS.
+   auto cl = TClass::GetClass(GetTypeName().c_str());
+   assert(cl);
+   auto dm = reinterpret_cast<TDataMember *>(cl->GetListOfDataMembers()->First());
+   if (dm)
+      fVariantOffset = dm->GetOffset();
+
+   const auto tagSize = GetVariantTagSize();
+   const auto padding = tagSize - (fMaxItemSize % tagSize);
+   fTagOffset = fVariantOffset + fMaxItemSize + ((padding == tagSize) ? 0 : padding);
+}
+
+std::unique_ptr<ROOT::RFieldBase> ROOT::RVariantField::CloneImpl(std::string_view newName) const
+{
+   return std::unique_ptr<RVariantField>(new RVariantField(newName, *this));
+}
+
+std::uint8_t ROOT::RVariantField::GetTag(const void *variantPtr, std::size_t tagOffset)
+{
+   using TagType_t = RVariantTag<GetVariantTagSize()>::ValueType_t;
+   auto tag = *reinterpret_cast<const TagType_t *>(reinterpret_cast<const unsigned char *>(variantPtr) + tagOffset);
+   return (tag == TagType_t(-1)) ? 0 : tag + 1;
+}
+
+void ROOT::RVariantField::SetTag(void *variantPtr, std::size_t tagOffset, std::uint8_t tag)
+{
+   using TagType_t = RVariantTag<GetVariantTagSize()>::ValueType_t;
+   auto tagPtr = reinterpret_cast<TagType_t *>(reinterpret_cast<unsigned char *>(variantPtr) + tagOffset);
+   *tagPtr = (tag == 0) ? TagType_t(-1) : static_cast<TagType_t>(tag - 1);
+}
+
+std::size_t ROOT::RVariantField::AppendImpl(const void *from)
+{
+   auto tag = GetTag(from, fTagOffset);
+   std::size_t nbytes = 0;
+   auto index = 0;
+   if (tag > 0) {
+      nbytes += CallAppendOn(*fSubfields[tag - 1], reinterpret_cast<const unsigned char *>(from) + fVariantOffset);
+      index = fNWritten[tag - 1]++;
+   }
+   ROOT::Internal::RColumnSwitch varSwitch(index, tag);
+   fPrincipalColumn->Append(&varSwitch);
+   return nbytes + sizeof(ROOT::Internal::RColumnSwitch);
+}
+
+void ROOT::RVariantField::ReadGlobalImpl(ROOT::NTupleSize_t globalIndex, void *to)
+{
+   RNTupleLocalIndex variantIndex;
+   std::uint32_t tag;
+   fPrincipalColumn->GetSwitchInfo(globalIndex, &variantIndex, &tag);
+   R__ASSERT(tag < 256);
+
+   // If `tag` equals 0, the variant is in the invalid state, i.e, it does not hold any of the valid alternatives in
+   // the type list.  This happens, e.g., if the field was late added; in this case, keep the invalid tag, which makes
+   // any `std::holds_alternative<T>` check fail later.
+   if (R__likely(tag > 0)) {
+      void *varPtr = reinterpret_cast<unsigned char *>(to) + fVariantOffset;
+      CallConstructValueOn(*fSubfields[tag - 1], varPtr);
+      CallReadOn(*fSubfields[tag - 1], variantIndex, varPtr);
+   }
+   SetTag(to, fTagOffset, tag);
+}
+
+const ROOT::RFieldBase::RColumnRepresentations &ROOT::RVariantField::GetColumnRepresentations() const
+{
+   static RColumnRepresentations representations({{ENTupleColumnType::kSwitch}}, {});
+   return representations;
+}
+
+void ROOT::RVariantField::GenerateColumns()
+{
+   GenerateColumnsImpl<ROOT::Internal::RColumnSwitch>();
+}
+
+void ROOT::RVariantField::GenerateColumns(const ROOT::RNTupleDescriptor &desc)
+{
+   GenerateColumnsImpl<ROOT::Internal::RColumnSwitch>(desc);
+}
+
+void ROOT::RVariantField::ReconcileOnDiskField(const RNTupleDescriptor &desc)
+{
+   static const std::vector<std::string> prefixes = {"std::variant<"};
+
+   EnsureMatchingOnDiskField(desc, kDiffTypeName).ThrowOnError();
+   EnsureMatchingTypePrefix(desc, prefixes).ThrowOnError();
+
+   const auto &fieldDesc = desc.GetFieldDescriptor(GetOnDiskId());
+   if (fSubfields.size() != fieldDesc.GetLinkIds().size()) {
+      throw RException(R__FAIL("number of variants on-disk do not match for " + GetQualifiedFieldName() + "\n" +
+                               Internal::GetTypeTraceReport(*this, desc)));
+   }
+}
+
+void ROOT::RVariantField::ConstructValue(void *where) const
+{
+   memset(where, 0, GetValueSize());
+   CallConstructValueOn(*fSubfields[0], reinterpret_cast<unsigned char *>(where) + fVariantOffset);
+   SetTag(where, fTagOffset, 1);
+}
+
+void ROOT::RVariantField::RVariantDeleter::operator()(void *objPtr, bool dtorOnly)
+{
+   auto tag = GetTag(objPtr, fTagOffset);
+   if (tag > 0) {
+      fItemDeleters[tag - 1]->operator()(reinterpret_cast<unsigned char *>(objPtr) + fVariantOffset, true /*dtorOnly*/);
+   }
+   RDeleter::operator()(objPtr, dtorOnly);
+}
+
+std::unique_ptr<ROOT::RFieldBase::RDeleter> ROOT::RVariantField::GetDeleter() const
+{
+   std::vector<std::unique_ptr<RDeleter>> itemDeleters;
+   itemDeleters.reserve(fSubfields.size());
+   for (const auto &f : fSubfields) {
+      itemDeleters.emplace_back(GetDeleterOf(*f));
+   }
+   return std::make_unique<RVariantDeleter>(fTagOffset, fVariantOffset, GetAlignment(), std::move(itemDeleters));
+}
+
+size_t ROOT::RVariantField::GetAlignment() const
+{
+   return std::max(fMaxAlignment, alignof(RVariantTag<GetVariantTagSize()>::ValueType_t));
+}
+
+size_t ROOT::RVariantField::GetValueSize() const
+{
+   const auto alignment = GetAlignment();
+   const auto actualSize = fTagOffset + GetVariantTagSize();
+   const auto padding = alignment - (actualSize % alignment);
+   return actualSize + ((padding == alignment) ? 0 : padding);
+}
+
+void ROOT::RVariantField::CommitClusterImpl()
+{
+   std::fill(fNWritten.begin(), fNWritten.end(), 0);
+}

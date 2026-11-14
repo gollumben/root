@@ -27,7 +27,7 @@
 
 #include "TString.h"
 
-class TStringLong : public TString {
+class R__DEPRECATED(7, 00, "Use TString instead") TStringLong : public TString {
 
 public:
    TStringLong();                       // Null string
@@ -44,11 +44,11 @@ public:
    virtual ~TStringLong();
 
    // ROOT I/O interface
-   virtual void     FillBuffer(char *&buffer) const;
-   virtual void     ReadBuffer(char *&buffer);
-   virtual Int_t    Sizeof() const;
+   void     FillBuffer(char *&buffer) const override;
+   void     ReadBuffer(char *&buffer) override;
+   Int_t    Sizeof() const override;
 
-   ClassDef(TStringLong,1)  //Long string class (more than 255 chars)
-} R__ALWAYS_SUGGEST_ALTERNATIVE("TString");
+   ClassDefOverride(TStringLong,1)  //Long string class (more than 255 chars)
+};
 
 #endif

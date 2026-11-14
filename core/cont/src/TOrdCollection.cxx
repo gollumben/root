@@ -24,7 +24,6 @@ collection since no copying needs to be done.
 #include "TError.h"
 
 
-ClassImp(TOrdCollection);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create an ordered collection.
@@ -49,7 +48,7 @@ TOrdCollection::~TOrdCollection()
       Delete();
 
    TStorage::Dealloc(fCont);
-   fCont = 0;
+   fCont = nullptr;
    fSize = 0;
 }
 
@@ -63,7 +62,7 @@ void TOrdCollection::AddAt(TObject *obj, Int_t idx)
    if (idx > fSize) idx = fSize;
 
    if (fGapSize <= 0)
-      SetCapacity(GrowBy(TMath::Max(fCapacity, (int)kMinExpand)));
+      SetCapacity(GrowBy(std::max(fCapacity, (int)kMinExpand)));
 
    if (idx == fGapStart) {
       physIdx = fGapStart;
@@ -146,10 +145,10 @@ void TOrdCollection::AddAfter(const TObject *after, TObject *obj)
 
 TObject *TOrdCollection::After(const TObject *obj) const
 {
-   if (!obj) return 0;
+   if (!obj) return nullptr;
 
    Int_t idx = IndexOf(obj);
-   if (idx == -1 || idx == fSize-1) return 0;
+   if (idx == -1 || idx == fSize-1) return nullptr;
 
    return At(idx+1);
 }
@@ -159,7 +158,7 @@ TObject *TOrdCollection::After(const TObject *obj) const
 
 TObject *TOrdCollection::At(Int_t idx) const
 {
-   if (IllegalIndex("At", idx)) return 0;
+   if (IllegalIndex("At", idx)) return nullptr;
    return fCont[PhysIndex(idx)];
 }
 
@@ -169,10 +168,10 @@ TObject *TOrdCollection::At(Int_t idx) const
 
 TObject *TOrdCollection::Before(const TObject *obj) const
 {
-   if (!obj) return 0;
+   if (!obj) return nullptr;
 
    Int_t idx = IndexOf(obj);
-   if (idx == -1 || idx == 0) return 0;
+   if (idx == -1 || idx == 0) return nullptr;
 
    return At(idx-1);
 }
@@ -187,7 +186,7 @@ void TOrdCollection::Clear(Option_t *)
       Delete();
    else {
       TStorage::Dealloc(fCont);
-      fCont = 0;
+      fCont = nullptr;
       Init(fCapacity);
       fSize = 0;
    }
@@ -204,7 +203,7 @@ void TOrdCollection::Delete(Option_t *)
          TCollection::GarbageCollect(obj);
    }
    TStorage::Dealloc(fCont);
-   fCont = 0;
+   fCont = nullptr;
    Init(fCapacity);
    fSize = 0;
 }
@@ -306,7 +305,7 @@ void TOrdCollection::MoveGapTo(Int_t start)
    }
    fGapStart = start;
    for (i = fGapStart; i < fGapStart + fGapSize; i++)
-      fCont[i] = 0;
+      fCont[i] = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -346,13 +345,13 @@ TObject *TOrdCollection::RemoveAt(Int_t idx)
    }
    R__ASSERT(physIdx >= 0 && physIdx < fCapacity);
    TObject *obj = fCont[physIdx];
-   fCont[physIdx] = 0;
+   fCont[physIdx] = nullptr;
    fGapSize++;
    fSize--;
    Changed();
 
    if (LowWaterMark()) {
-      Int_t newCapacity = TMath::Max(int(fCapacity / kShrinkFactor), 1);
+      Int_t newCapacity = std::max(int(fCapacity / kShrinkFactor), 1);
       if (fCapacity > newCapacity)
          SetCapacity(newCapacity);
    }
@@ -364,10 +363,10 @@ TObject *TOrdCollection::RemoveAt(Int_t idx)
 
 TObject *TOrdCollection::Remove(TObject *obj)
 {
-   if (!obj) return 0;
+   if (!obj) return nullptr;
 
    Int_t idx = IndexOf(obj);
-   if (idx == -1) return 0;
+   if (idx == -1) return nullptr;
 
    return RemoveAt(idx);
 }
@@ -430,7 +429,7 @@ Int_t TOrdCollection::BinarySearch(TObject *obj)
    while (last >= base) {
       Int_t position = (base + last) / 2;
       TObject *obj2 = fCont[position];
-      if ((obj2 == 0) || (result = obj->Compare(obj2)) == 0)
+      if (!obj2 || (result = obj->Compare(obj2)) == 0)
          return LogIndex(position);
       if (result < 0)
          last = position - 1;
@@ -444,7 +443,6 @@ Int_t TOrdCollection::BinarySearch(TObject *obj)
 Iterator of ordered collection.
 */
 
-ClassImp(TOrdCollectionIter);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create collection iterator. By default the iteration direction
@@ -509,7 +507,7 @@ TObject *TOrdCollectionIter::Next()
       if (fCursor >= 0)
          return fCol->At(fCursor--);
    }
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

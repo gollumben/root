@@ -1,14 +1,15 @@
 // Tests for the RooWrapperPdf
 // Author: Stephan Hageboeck, CERN  09/2019
 
-#include "RooWrapperPdf.h"
-#include "RooRealVar.h"
+#include "RooConstVar.h"
+#include "RooDataSet.h"
+#include "RooFitResult.h"
+#include "RooHelpers.h"
+#include "RooPlot.h"
 #include "RooProduct.h"
 #include "RooRealSumFunc.h"
-#include "RooConstVar.h"
-#include "RooPlot.h"
-#include "RooFitResult.h"
-#include "RooDataSet.h"
+#include "RooRealVar.h"
+#include "RooWrapperPdf.h"
 
 #include "TCanvas.h"
 
@@ -16,19 +17,23 @@
 
 TEST(RooWrapperPdf, Basics)
 {
+  RooHelpers::LocalChangeMsgLevel changeMsgLvl(RooFit::WARNING);
+
   RooRealVar x("x", "x", -5., 5.);
 
   // Implement a poor-man's polynomial. Value ranges are chosen to keep it positive.
   RooRealVar a0("a0", "a0", 0.1, 0.1, 10.);
   RooRealVar a1("a1", "a1", -0.01, -2.1, 0.);
   RooRealVar a2("a2", "a2", 0.01, 0.01, 5.);
+  RooProduct xId("xId", "x", RooArgList(x));
   RooProduct xSq("xSq", "x^2", RooArgList(x, x));
   RooConstVar one("one", "one", 1.);
-  RooRealSumFunc pol("pol", "pol", RooArgList(one, x, xSq), RooArgList(a0, a1, a2));
+  RooRealSumFunc pol("pol", "pol", RooArgList(one, xId, xSq), RooArgList(a0, a1, a2));
 
   RooWrapperPdf polPdf("polPdf", "polynomial PDF", pol);
 
-  EXPECT_GT(pol.getVal(x)*1.05, polPdf.getVal(x)) << "Wrapper pdf normalises.";
+  RooArgSet normSet{x};
+  EXPECT_GT(pol.getVal(normSet)*1.05, polPdf.getVal(normSet)) << "Wrapper pdf normalises.";
 
   RooArgSet intSet(x);
   RooArgSet numSet;
@@ -45,25 +50,29 @@ TEST(RooWrapperPdf, Basics)
 }
 
 
-TEST(RooWrapperPdf, GenerateAndFit) {
+TEST(RooWrapperPdf, GenerateAndFit)
+{
+  RooHelpers::LocalChangeMsgLevel changeMsgLvl(RooFit::WARNING);
+
   RooRealVar x("x", "x", -5., 5.);
 
   // Implement a poor-man's polynomial. Value ranges are chosen to keep it positive.
   RooRealVar a0("a0", "a0", 0.1);
   RooRealVar a1("a1", "a1", -0.01);
   RooRealVar a2("a2", "a2", 0.01, 0.001, 5.);
+  RooProduct xId("xId", "x", RooArgList(x));
   RooProduct xSq("xSq", "x^2", RooArgList(x, x));
   RooConstVar one("one", "one", 1.);
-  RooRealSumFunc pol("pol", "pol", RooArgList(one, x, xSq), RooArgList(a0, a1, a2));
+  RooRealSumFunc pol("pol", "pol", RooArgList(one, xId, xSq), RooArgList(a0, a1, a2));
 
   RooWrapperPdf polPdf("polPdf", "polynomial PDF", pol);
 
   auto data = polPdf.generate(x, 50000);
   a2.setVal(0.02);
-  auto result = polPdf.fitTo(*data, RooFit::Save());
+  auto result = polPdf.fitTo(*data, RooFit::Save(), RooFit::PrintLevel(-1));
 
   EXPECT_EQ(result->status(), 0) << "Fit converged.";
-  EXPECT_LT(fabs(a2.getVal()-0.01), a2.getError());
+  EXPECT_LT(std::abs(a2.getVal()-0.01), a2.getError());
 
 //  auto frame = x.frame();
 //  data->plotOn(frame);

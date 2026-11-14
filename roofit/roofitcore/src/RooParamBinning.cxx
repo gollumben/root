@@ -19,7 +19,7 @@
 \class RooParamBinning
 \ingroup Roofitcore
 
-Class RooParamBinning is an implementation of RooAbsBinning that constructs
+Implementation of RooAbsBinning that constructs
 a binning with a range definition that depends on external RooAbsReal objects.
 The external RooAbsReal definitions are explicitly allowed to depend on other
 observables and parameters, and make it possible to define non-rectangular
@@ -27,28 +27,21 @@ range definitions in RooFit. Objects of class RooParamBinning are made
 by the RooRealVar::setRange() that takes RooAbsReal references as arguments
 **/
 
-#include "RooFit.h"
-
 #include "RooParamBinning.h"
 #include "RooMsgService.h"
 
-#include "Riostream.h"
+#include <ostream>
 
+using std::endl, std::ostream;
 
-using namespace std;
-
-ClassImp(RooParamBinning);
-;
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Default constructor
-///   cout << "RooParamBinning(" << this << ") default ctor" << endl ;
 
-RooParamBinning::RooParamBinning(const char* name) : 
-  RooAbsBinning(name), _xlo(0), _xhi(0), _nbins(100), _binw(0), _lp(0), _owner(0)
-{  
-  _array = 0 ;
+RooParamBinning::RooParamBinning(const char* name) :
+  RooAbsBinning(name)
+{
 }
 
 
@@ -58,13 +51,9 @@ RooParamBinning::RooParamBinning(const char* name) :
 
 RooParamBinning::RooParamBinning(RooAbsReal& xloIn, RooAbsReal& xhiIn, Int_t nBins, const char* name) :
   RooAbsBinning(name),
-  _array(0), 
   _xlo(&xloIn),
   _xhi(&xhiIn),
-  _nbins(nBins),
-  _binw(0),
-  _lp(0),
-  _owner(0)
+  _nbins(nBins)
 {
 }
 
@@ -73,7 +62,7 @@ RooParamBinning::RooParamBinning(RooAbsReal& xloIn, RooAbsReal& xhiIn, Int_t nBi
 ////////////////////////////////////////////////////////////////////////////////
 /// Destructor
 
-RooParamBinning::~RooParamBinning() 
+RooParamBinning::~RooParamBinning()
 {
   if (_array) delete[] _array ;
   if (_lp) delete _lp ;
@@ -83,30 +72,23 @@ RooParamBinning::~RooParamBinning()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy constructor
-///   cout << "RooParamBinning::cctor(" << this << ") orig = " << &other << endl ;
 
-RooParamBinning::RooParamBinning(const RooParamBinning& other, const char* name) :
-  RooAbsBinning(name), _binw(0), _owner(0)
+RooParamBinning::RooParamBinning(const RooParamBinning &other, const char *name) : RooAbsBinning(name)
 {
-  _array = 0 ;
 
   if (other._lp) {
-//     cout << "RooParamBinning::cctor(this = " << this << ") taking addresses from orig  ListProxy" << endl ;
-    _xlo = (RooAbsReal*) other._lp->at(0) ;
-    _xhi = (RooAbsReal*) other._lp->at(1) ;
+    _xlo = static_cast<RooAbsReal*>(other._lp->at(0)) ;
+    _xhi = static_cast<RooAbsReal*>(other._lp->at(1)) ;
 
   } else {
-
-//     cout << "RooParamBinning::cctor(this = " << this << ") taking addresses from orig pointers " << other._xlo << " " << other._xhi << endl ;
 
     _xlo   = other._xlo ;
     _xhi   = other._xhi ;
   }
 
   _nbins = other._nbins ;
-  _lp = 0 ;
+  _lp = nullptr ;
 
-  //cout << "RooParamBinning::cctor(this = " << this << " xlo = " << &_xlo << " xhi = " << &_xhi << " _lp = " << _lp << " owner = " << _owner << ")" << endl ;
 }
 
 
@@ -117,26 +99,23 @@ RooParamBinning::RooParamBinning(const RooParamBinning& other, const char* name)
 /// list proxy registered with owner that will track and implement
 /// server directs to external RooAbsReals of this binning
 
-void RooParamBinning::insertHook(RooAbsRealLValue& owner) const  
+void RooParamBinning::insertHook(RooAbsRealLValue& owner) const
 {
   _owner = &owner ;
 
   // If list proxy already exists update pointers from proxy
-//   cout << "RooParamBinning::insertHook(" << this << "," << GetName() << ") _lp at beginning = " << _lp << endl ;
   if (_lp) {
-//     cout << "updating raw pointers from list proxy contents" << endl ;
     _xlo = xlo() ;
     _xhi = xhi() ;
     delete _lp ;
   }
-//   cout << "_xlo = " << _xlo << " _xhi = " << _xhi << endl ;
 
   // If list proxy does not exist, create it now
-  _lp = new RooListProxy(Form("range::%s",GetName()),"lp",&owner,kFALSE,kTRUE) ;
+  _lp = new RooListProxy(Form("range::%s",GetName()),"lp",&owner,false,true) ;
   _lp->add(*_xlo) ;
   _lp->add(*_xhi) ;
-  _xlo = 0 ;
-  _xhi = 0 ;
+  _xlo = nullptr ;
+  _xhi = nullptr ;
 
 
 }
@@ -147,16 +126,16 @@ void RooParamBinning::insertHook(RooAbsRealLValue& owner) const
 /// is removed as binning for into given owner. Delete list
 /// proxy that was inserted in owner
 
-void RooParamBinning::removeHook(RooAbsRealLValue& /*owner*/) const  
+void RooParamBinning::removeHook(RooAbsRealLValue& /*owner*/) const
 {
-  _owner = 0 ;
-  
+  _owner = nullptr ;
+
   // Remove list proxy from owner
   if (_lp) {
     _xlo = xlo() ;
     _xhi = xhi() ;
     delete _lp ;
-    _lp = 0 ;
+    _lp = nullptr ;
   }
 }
 
@@ -166,10 +145,10 @@ void RooParamBinning::removeHook(RooAbsRealLValue& /*owner*/) const
 /// Adjust range by adjusting values of external RooAbsReal values
 /// Only functional when external representations are lvalues
 
-void RooParamBinning::setRange(Double_t newxlo, Double_t newxhi) 
+void RooParamBinning::setRange(double newxlo, double newxhi)
 {
   if (newxlo>newxhi) {
-    coutE(InputArguments) << "RooParamBinning::setRange: ERROR low bound > high bound" << endl ;
+    coutE(InputArguments) << "RooParamBinning::setRange: ERROR low bound > high bound" << std::endl ;
     return ;
   }
 
@@ -177,14 +156,14 @@ void RooParamBinning::setRange(Double_t newxlo, Double_t newxhi)
   if (xlolv) {
     xlolv->setVal(newxlo) ;
   } else {
-    coutW(InputArguments) << "RooParamBinning::setRange: WARNING lower bound not represented by lvalue, cannot set lower bound value through setRange()" << endl ;
+    coutW(InputArguments) << "RooParamBinning::setRange: WARNING lower bound not represented by lvalue, cannot set lower bound value through setRange()" << std::endl ;
   }
 
   RooAbsRealLValue* xhilv = dynamic_cast<RooAbsRealLValue*>(xhi()) ;
   if (xhilv) {
     xhilv->setVal(newxhi) ;
   } else {
-    coutW(InputArguments) << "RooParamBinning::setRange: WARNING upper bound not represented by lvalue, cannot set upper bound value through setRange()" << endl ;
+    coutW(InputArguments) << "RooParamBinning::setRange: WARNING upper bound not represented by lvalue, cannot set upper bound value through setRange()" << std::endl ;
   }
 
 }
@@ -194,12 +173,15 @@ void RooParamBinning::setRange(Double_t newxlo, Double_t newxhi)
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the fit bin index for the current value
 
-Int_t RooParamBinning::binNumber(Double_t x) const  
+void RooParamBinning::binNumbers(double const * x, int * bins, std::size_t n, int coef) const
 {
-  if (x >= xhi()->getVal()) return _nbins-1 ;
-  if (x < xlo()->getVal()) return 0 ;
+  const double xloVal = xlo()->getVal();
+  const double xhiVal = xhi()->getVal();
+  const double oneOverW = 1./averageBinWidth();
 
-  return Int_t((x - xlo()->getVal())/averageBinWidth()) ;
+  for(std::size_t i = 0; i < n; ++i) {
+    bins[i] += coef * (x[i] >= xhiVal ? _nbins - 1 : std::max(0, int((x[i] - xloVal)*oneOverW)));
+  }
 }
 
 
@@ -207,15 +189,15 @@ Int_t RooParamBinning::binNumber(Double_t x) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the central value of the 'i'-th fit bin
 
-Double_t RooParamBinning::binCenter(Int_t i) const 
+double RooParamBinning::binCenter(Int_t i) const
 {
   if (i<0 || i>=_nbins) {
-    coutE(InputArguments) << "RooParamBinning::binCenter ERROR: bin index " << i 
-			  << " is out of range (0," << _nbins-1 << ")" << endl ;
+    coutE(InputArguments) << "RooParamBinning::binCenter ERROR: bin index " << i
+           << " is out of range (0," << _nbins-1 << ")" << std::endl ;
     return 0 ;
   }
 
-  return xlo()->getVal() + (i + 0.5)*averageBinWidth() ;  
+  return xlo()->getVal() + (i + 0.5)*averageBinWidth() ;
 }
 
 
@@ -224,7 +206,7 @@ Double_t RooParamBinning::binCenter(Int_t i) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Return average bin width
 
-Double_t RooParamBinning::binWidth(Int_t /*bin*/) const 
+double RooParamBinning::binWidth(Int_t /*bin*/) const
 {
   return (xhi()->getVal()-xlo()->getVal())/_nbins ;
 }
@@ -234,11 +216,11 @@ Double_t RooParamBinning::binWidth(Int_t /*bin*/) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the low edge of the 'i'-th fit bin
 
-Double_t RooParamBinning::binLow(Int_t i) const 
+double RooParamBinning::binLow(Int_t i) const
 {
   if (i<0 || i>=_nbins) {
-    coutE(InputArguments) << "RooParamBinning::binLow ERROR: bin index " << i 
-			  << " is out of range (0," << _nbins-1 << ")" << endl ;
+    coutE(InputArguments) << "RooParamBinning::binLow ERROR: bin index " << i
+           << " is out of range (0," << _nbins-1 << ")" << std::endl ;
     return 0 ;
   }
 
@@ -250,11 +232,11 @@ Double_t RooParamBinning::binLow(Int_t i) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Return the high edge of the 'i'-th fit bin
 
-Double_t RooParamBinning::binHigh(Int_t i) const 
+double RooParamBinning::binHigh(Int_t i) const
 {
   if (i<0 || i>=_nbins) {
-    coutE(InputArguments) << "RooParamBinning::fitBinHigh ERROR: bin index " << i 
-			  << " is out of range (0," << _nbins-1 << ")" << endl ;
+    coutE(InputArguments) << "RooParamBinning::fitBinHigh ERROR: bin index " << i
+           << " is out of range (0," << _nbins-1 << ")" << std::endl ;
     return 0 ;
   }
 
@@ -266,10 +248,10 @@ Double_t RooParamBinning::binHigh(Int_t i) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Return array of bin boundaries
 
-Double_t* RooParamBinning::array() const 
+double* RooParamBinning::array() const
 {
   if (_array) delete[] _array ;
-  _array = new Double_t[_nbins+1] ;
+  _array = new double[_nbins+1] ;
 
   Int_t i ;
   for (i=0 ; i<=_nbins ; i++) {
@@ -283,14 +265,14 @@ Double_t* RooParamBinning::array() const
 ////////////////////////////////////////////////////////////////////////////////
 /// Print details of binning
 
-void RooParamBinning::printMultiline(ostream &os, Int_t /*content*/, Bool_t /*verbose*/, TString indent) const
+void RooParamBinning::printMultiline(ostream &os, Int_t /*content*/, bool /*verbose*/, TString indent) const
 {
-  os << indent << "_xlo = " << _xlo << endl ;
-  os << indent << "_xhi = " << _xhi << endl ;
+  os << indent << "_xlo = " << _xlo << std::endl ;
+  os << indent << "_xhi = " << _xhi << std::endl ;
   if (_lp) {
-    os << indent << "xlo() = " << xlo() << endl ;
-    os << indent << "xhi() = " << xhi() << endl ;
-  }  
+    os << indent << "xlo() = " << xlo() << std::endl ;
+    os << indent << "xhi() = " << xhi() << std::endl ;
+  }
   if (xlo()) {
     xlo()->Print("t") ;
   }
@@ -298,5 +280,3 @@ void RooParamBinning::printMultiline(ostream &os, Int_t /*content*/, Bool_t /*ve
     xhi()->Print("t") ;
   }
 }
-
-

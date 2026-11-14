@@ -30,65 +30,82 @@ range and values of the arguments.
 #include "RooRealVar.h"
 #include "RooBatchCompute.h"
 
+#include <RooFit/Detail/MathFuncs.h>
 
+#include <algorithm>
 #include <cmath>
 
-using namespace std;
-
-ClassImp(RooExponential);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-RooExponential::RooExponential(const char *name, const char *title,
-                RooAbsReal& _x, RooAbsReal& _c) :
-  RooAbsPdf(name, title),
-  x("x","Dependent",this,_x),
-  c("c","Exponent",this,_c)
+RooExponential::RooExponential(const char *name, const char *title, RooAbsReal &variable, RooAbsReal &coefficient,
+                               bool negateCoefficient)
+   : RooAbsPdf{name, title},
+     x{"x", "Dependent", this, variable},
+     c{"c", "Exponent", this, coefficient},
+     _negateCoefficient{negateCoefficient}
 {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-RooExponential::RooExponential(const RooExponential& other, const char* name) :
-  RooAbsPdf(other, name), x("x",this,other.x), c("c",this,other.c)
+RooExponential::RooExponential(const RooExponential &other, const char *name)
+   : RooAbsPdf{other, name}, x{"x", this, other.x}, c{"c", this, other.c}, _negateCoefficient{other._negateCoefficient}
 {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Double_t RooExponential::evaluate() const{
-  return exp(c*x);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-Int_t RooExponential::getAnalyticalIntegral(RooArgSet& allVars, RooArgSet& analVars, const char* /*rangeName*/) const
+double RooExponential::evaluate() const
 {
-  if (matchArgs(allVars,analVars,x)) return 1;
-  if (matchArgs(allVars,analVars,c)) return 2;
-  return 0 ;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-Double_t RooExponential::analyticalIntegral(Int_t code, const char* rangeName) const
-{
-  assert(code == 1 || code ==2);
-
-  auto& constant  = code == 1 ? c : x;
-  auto& integrand = code == 1 ? x : c;
-
-  if (constant == 0.0) {
-    return integrand.max(rangeName) - integrand.min(rangeName);
-  }
-
-  return (exp(constant*integrand.max(rangeName)) - exp(constant*integrand.min(rangeName)))
-      / constant;
+   double coef = c;
+   if (_negateCoefficient) {
+      coef = -coef;
+   }
+   return std::exp(coef * x);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Compute multiple values of Exponential distribution.
-RooSpan<double> RooExponential::evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const {
-  return RooBatchCompute::dispatch->computeExponential(this, evalData, x->getValues(evalData, normSet), c->getValues(evalData, normSet));
+void RooExponential::doEval(RooFit::EvalContext &ctx) const
+{
+   auto computer = _negateCoefficient ? RooBatchCompute::ExponentialNeg : RooBatchCompute::Exponential;
+   RooBatchCompute::compute(ctx.config(this), computer, ctx.output(), {ctx.at(x), ctx.at(c)});
 }
 
+Int_t RooExponential::getAnalyticalIntegral(RooArgSet &allVars, RooArgSet &analVars, const char * /*rangeName*/) const
+{
+   if (matchArgs(allVars, analVars, x))
+      return 1;
+   if (matchArgs(allVars, analVars, c))
+      return 2;
+   return 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+double RooExponential::analyticalIntegral(Int_t code, const char *rangeName) const
+{
+   assert(code == 1 || code == 2);
+
+   bool isOverX = code == 1;
+
+   double coef = c;
+   if (_negateCoefficient) {
+      coef = -coef;
+   }
+
+   double constant = isOverX ? coef : x;
+   auto &integrand = isOverX ? x : c;
+
+   double min = integrand.min(rangeName);
+   double max = integrand.max(rangeName);
+
+   if (!isOverX && _negateCoefficient) {
+      std::swap(min, max);
+      min = -min;
+      max = -max;
+   }
+
+   return RooFit::Detail::MathFuncs::exponentialIntegral(min, max, constant);
+}

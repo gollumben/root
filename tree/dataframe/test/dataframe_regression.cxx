@@ -4,10 +4,15 @@
 #include "TROOT.h"
 #include "TVector3.h"
 #include "TSystem.h"
+#include "Math/Vector4D.h"
+#include "ROOT/TestSupport.hxx"
 
 #include <algorithm>
 
 #include "gtest/gtest.h"
+#include <gmock/gmock.h>
+
+#include <TFile.h>
 
 // Fixture for all tests in this file. If parameter is true, run with implicit MT, else run sequentially
 class RDFRegressionTests : public ::testing::TestWithParam<bool> {
@@ -17,7 +22,7 @@ protected:
       if (GetParam())
          ROOT::EnableImplicitMT(NSLOTS);
    }
-   ~RDFRegressionTests()
+   ~RDFRegressionTests() override
    {
       if (GetParam())
          ROOT::DisableImplicitMT();
@@ -40,13 +45,42 @@ void FillTree(const char *filename, const char *treeName, int nevents = 0)
    f.Close();
 }
 
+// https://github.com/root-project/root/issues/11207
+TEST(RDFRegressionTests, AliasAndSubBranches)
+{
+   TTree t("t", "t");
+   // In order to reproduce the problem at #11207, we need to create a TTree with branch
+   // "topbranch.something" where `something` must _not_ be a data member of the type
+   // of "topbranch" (otherwise things "happen" to work due to the order in which we do substitutions in RDF, see
+   // below).
+   std::vector<ROOT::Math::XYZTVector> objs{{}, {}};
+
+   t.Branch("topbranch", &objs);
+   t.Fill();
+   t.Fill();
+   t.Fill();
+
+#ifndef NDEBUG
+   ROOT::TestSupport::CheckDiagsRAII diagRAII{kWarning, "RTreeColumnReader::Get",
+                                              "Branch topbranch.fCoordinates.fX hangs from a non-split branch. A copy "
+                                              "is being performed in order to properly read the content."};
+#endif
+   auto df = ROOT::RDataFrame(t).Alias("alias", "topbranch");
+   // Here, before the fix for #11207 we transformed `"alias.fCoordinates.fX.size() == 2"` into
+   // `[](std::vector<XYZTVector> &var0) { return var0.fCoordinates.fX.size() == 2; }`, which is not valid C++
+   // (std::vector does not have a fCoordinates data member). Now the string expression is correctly expanded to
+   // `[](RVec<typeof(XYZTVector{}.fCoordinates.fX)> &var0) { return var0.size() == 2; }`
+   auto entryCount = df.Filter("alias.fCoordinates.fX.size() == 2").Count();
+   EXPECT_EQ(*entryCount, 3);
+}
+
 TEST_P(RDFRegressionTests, MultipleTriggerRun)
 {
    const auto fileName = std::string("dataframe_regression_0") + std::to_string(GetParam()) + ".root";
    const auto treeName = "t";
    {
       ROOT::RDataFrame tdf(1);
-      tdf.Define("b1", []() { return 1U; }).Snapshot<unsigned int>(treeName, fileName, {"b1"});
+      tdf.Define("b1", []() { return 1U; }).Snapshot(treeName, fileName, {"b1"});
    }
 
    ROOT::RDataFrame d(treeName, fileName, {"b1"});
@@ -110,7 +144,7 @@ TEST_P(RDFRegressionTests, UniqueEntryNumbers)
 {
    const auto treename = "t";
    const auto fname = "df_uniqueentrynumbers.root";
-   ROOT::RDataFrame(10).Snapshot<unsigned int>(treename, fname, {"rdfslot_"}); // does not matter what column we write
+   ROOT::RDataFrame(10).Snapshot(treename, fname, {"rdfslot_"}); // does not matter what column we write
 
    ROOT::RDataFrame df(treename, {fname, fname});
    auto entries = *df.Take<ULong64_t>("rdfentry_");
@@ -150,7 +184,7 @@ TEST_P(RDFRegressionTests, ReadWriteVector3)
    EXPECT_EQ(ha->GetMean(), 4.5);
    EXPECT_EQ(ha->GetMean(), hb->GetMean());
 
-   auto out_df = rdf.Snapshot<TVector3, TVector3>("t", snap_fname, {"a", "b"});
+   auto out_df = rdf.Snapshot("t", snap_fname, {"a", "b"});
 
    auto ha_snap = out_df->Define("aval", "a.X()").Histo1D("aval");
    auto hb_snap = out_df->Define("bval", "b.X()").Histo1D("bval");
@@ -207,7 +241,7 @@ TEST_P(RDFRegressionTests, PolymorphicTBranchObject)
    ASSERT_EQ(rdf.Count().GetValue(), 4ull);
    rdf.Foreach(checkEntries, {"o", "rdfentry_"});
 
-   auto out_df = rdf.Snapshot<TObject>("t", snap_fname, {"o"});
+   auto out_df = rdf.Snapshot("t", snap_fname, {"o"});
    out_df->Foreach(checkEntries, {"o", "rdfentry_"});
 
    TFile f(snap_fname.c_str());
@@ -216,6 +250,111 @@ TEST_P(RDFRegressionTests, PolymorphicTBranchObject)
 
    gSystem->Unlink(snap_fname.c_str());
    gSystem->Unlink(filename.c_str());
+}
+
+// #11222
+TEST_P(RDFRegressionTests, UseAfterDeleteOfSampleCallbacks)
+{
+   struct MyHelper : ROOT::Detail::RDF::RActionImpl<MyHelper> {
+      using Result_t = int;
+      std::shared_ptr<int> fResult;
+      bool fThisWasDeleted = false;
+
+      MyHelper() : fResult(std::make_shared<int>()) {}
+      ~MyHelper() override { fThisWasDeleted = true; }
+      void Initialize() {}
+      void InitTask(TTreeReader *, unsigned int) {}
+      void Exec(unsigned int) {}
+      void Finalize() {}
+      std::shared_ptr<Result_t> GetResultPtr() const { return fResult; }
+      std::string GetActionName() const { return "MyHelper"; }
+      ROOT::RDF::SampleCallback_t GetSampleCallback() final
+      {
+         // in a well-behaved program, this won't ever even be called as the RResultPtr returned
+         // by the Book call below goes immediately out of scope, removing the action from the computation graph
+         return [this](unsigned int, const ROOT::RDF::RSampleInfo &) { EXPECT_FALSE(fThisWasDeleted); };
+      }
+   };
+
+   ROOT::RDataFrame df(10);
+   // Book custom action and immediately deregister it (because the RResultPtr goes out of scope)
+   df.Book<>(MyHelper{}, {});
+   // trigger an event loop that will invoke registered sample callbacks (in a well-behaved program, none should run)
+   df.Count().GetValue();
+}
+
+// #16475
+struct DatasetGuard {
+   DatasetGuard(std::string_view treeName, std::string_view fileName) : fTreeName(treeName), fFileName(fileName)
+   {
+      TFile f{fFileName.c_str(), "recreate"};
+      TTree t{fTreeName.c_str(), fTreeName.c_str()};
+      int x{};
+      t.Branch("x", &x, "x/I");
+      for (auto i = 0; i < 10; i++) {
+         x = i;
+         t.Fill();
+      }
+      TNamed o("tnamed","tnamed");
+      o.Write();
+      f.Write();
+   }
+   DatasetGuard(const DatasetGuard &) = delete;
+   DatasetGuard &operator=(const DatasetGuard &) = delete;
+   DatasetGuard(DatasetGuard &&) = delete;
+   DatasetGuard &operator=(DatasetGuard &&) = delete;
+   ~DatasetGuard() { std::remove(fFileName.c_str()); }
+   std::string fTreeName;
+   std::string fFileName;
+};
+
+TEST_P(RDFRegressionTests, FileNameQuery)
+{
+   DatasetGuard dataset{"events", "dataframe_regression_filenamequery.root"};
+   constexpr auto fileNameWithQuery{"dataframe_regression_filenamequery.root?myq=xyz"};
+   ROOT::RDataFrame df{dataset.fTreeName, fileNameWithQuery};
+   EXPECT_EQ(df.Count().GetValue(), 10);
+}
+
+TEST_P(RDFRegressionTests, FileNameWildcardQuery)
+{
+   DatasetGuard dataset{"events", "dataframe_regression_filenamewildcardquery.root"};
+   constexpr auto fileNameWithQuery{"dataframe_regress?on_filenamewildcardquery.root?myq=xyz"};
+   ROOT::RDataFrame df{dataset.fTreeName, fileNameWithQuery};
+   EXPECT_EQ(df.Count().GetValue(), 10);
+}
+
+TEST_P(RDFRegressionTests, FileNameQueryNoExt)
+{
+   DatasetGuard dataset{"events", "dataframe_regression_filenamequerynoext"};
+   constexpr auto fileNameWithQuery{"dataframe_regression_filenamequerynoext?myq=xyz"};
+   ROOT::RDataFrame df{dataset.fTreeName, fileNameWithQuery};
+   EXPECT_EQ(df.Count().GetValue(), 10);
+}
+
+TEST_P(RDFRegressionTests, EmptyFileList)
+{
+   try {
+      ROOT::RDataFrame df{"", {}};
+   } catch (const std::invalid_argument &e) {
+      const std::string expected{"RDataFrame: empty list of input files."};
+      EXPECT_EQ(e.what(), expected);
+   }
+}
+
+TEST_P(RDFRegressionTests, NonExistingDataset)
+{
+   using ::testing::HasSubstr;
+   using ::testing::ThrowsMessage;
+   DatasetGuard dataset{"events", "NonExistingDataset.root"};
+
+   EXPECT_THAT([&dataset]() { ROOT::RDataFrame df("nonExisting", dataset.fFileName.c_str()); },
+               ThrowsMessage<std::invalid_argument>(
+                  HasSubstr("cannot find dataset \"nonExisting\" in file \"NonExistingDataset.root\"")));
+
+   EXPECT_THAT([&dataset]() { ROOT::RDataFrame df("tnamed", dataset.fFileName.c_str()); },
+               ThrowsMessage<std::invalid_argument>(HasSubstr(
+                  "unsupported data format for dataset \"tnamed\" in file \"NonExistingDataset.root\"")));
 }
 
 // run single-thread tests

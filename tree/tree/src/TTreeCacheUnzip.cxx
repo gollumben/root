@@ -18,6 +18,7 @@ A TTreeCache which exploits parallelized decompression of its own content.
 
 */
 
+#include "RZip.h"
 #include "TTreeCacheUnzip.h"
 #include "TBranch.h"
 #include "TChain.h"
@@ -35,9 +36,6 @@ A TTreeCache which exploits parallelized decompression of its own content.
 
 #include <memory>
 
-extern "C" void R__unzip(Int_t *nin, UChar_t *bufin, Int_t *lout, char *bufout, Int_t *nout);
-extern "C" int R__unzip_header(Int_t *nin, UChar_t *bufin, Int_t *lout);
-
 TTreeCacheUnzip::EParUnzipMode TTreeCacheUnzip::fgParallel = TTreeCacheUnzip::kDisable;
 
 // The unzip cache does not consume memory by itself, it just allocates in advance
@@ -45,7 +43,6 @@ TTreeCacheUnzip::EParUnzipMode TTreeCacheUnzip::fgParallel = TTreeCacheUnzip::kD
 // Hence there is no good reason to limit it too much
 Double_t TTreeCacheUnzip::fgRelBuffSize = .5;
 
-ClassImp(TTreeCacheUnzip);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Clear all baskets' state arrays.
@@ -62,19 +59,19 @@ void TTreeCacheUnzip::UnzipState::Clear(Int_t size) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Bool_t TTreeCacheUnzip::UnzipState::IsUntouched(Int_t index) const {
+bool TTreeCacheUnzip::UnzipState::IsUntouched(Int_t index) const {
    return fUnzipStatus[index].load() == kUntouched;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Bool_t TTreeCacheUnzip::UnzipState::IsProgress(Int_t index) const {
+bool TTreeCacheUnzip::UnzipState::IsProgress(Int_t index) const {
    return fUnzipStatus[index].load() == kProgress;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Bool_t TTreeCacheUnzip::UnzipState::IsFinished(Int_t index) const {
+bool TTreeCacheUnzip::UnzipState::IsFinished(Int_t index) const {
    return fUnzipStatus[index].load() == kFinished;
 }
 
@@ -82,7 +79,7 @@ Bool_t TTreeCacheUnzip::UnzipState::IsFinished(Int_t index) const {
 /// Check if the basket is unzipped already. We must make sure the length in
 /// fUnzipLen is larger than 0.
 
-Bool_t TTreeCacheUnzip::UnzipState::IsUnzipped(Int_t index) const {
+bool TTreeCacheUnzip::UnzipState::IsUnzipped(Int_t index) const {
    return (fUnzipStatus[index].load() == kFinished) && (fUnzipChunks[index].get()) && (fUnzipLen[index] > 0);
 }
 
@@ -148,7 +145,7 @@ void TTreeCacheUnzip::UnzipState::SetUnzipped(Int_t index, char* buf, Int_t len)
 ////////////////////////////////////////////////////////////////////////////////
 /// Start unzipping the basket if it is untouched yet.
 
-Bool_t TTreeCacheUnzip::UnzipState::TryUnzipping(Int_t index) {
+bool TTreeCacheUnzip::UnzipState::TryUnzipping(Int_t index) {
    Byte_t oldValue = kUntouched;
    Byte_t newValue = kProgress;
    return fUnzipStatus[index].compare_exchange_weak(oldValue, newValue, std::memory_order_release, std::memory_order_relaxed);
@@ -157,8 +154,8 @@ Bool_t TTreeCacheUnzip::UnzipState::TryUnzipping(Int_t index) {
 ////////////////////////////////////////////////////////////////////////////////
 
 TTreeCacheUnzip::TTreeCacheUnzip() : TTreeCache(),
-   fAsyncReading(kFALSE),
-   fEmpty(kTRUE),
+   fAsyncReading(false),
+   fEmpty(true),
    fCycle(0),
    fNseekMax(0),
    fUnzipGroupSize(0),
@@ -175,9 +172,9 @@ TTreeCacheUnzip::TTreeCacheUnzip() : TTreeCache(),
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
-TTreeCacheUnzip::TTreeCacheUnzip(TTree *tree, Int_t buffersize) : TTreeCache(tree,buffersize),
-   fAsyncReading(kFALSE),
-   fEmpty(kTRUE),
+TTreeCacheUnzip::TTreeCacheUnzip(TTree *tree, Int_t bufsize) : TTreeCache(tree,bufsize),
+   fAsyncReading(false),
+   fEmpty(true),
    fCycle(0),
    fNseekMax(0),
    fUnzipGroupSize(0),
@@ -198,7 +195,7 @@ void TTreeCacheUnzip::Init()
 #ifdef R__USE_IMT
    fUnzipTaskGroup.reset();
 #endif
-   fIOMutex = std::make_unique<TMutex>(kTRUE);
+   fIOMutex = std::make_unique<TMutex>(true);
 
    fCompBuffer = new char[16384];
    fCompBufferSize = 16384;
@@ -206,7 +203,7 @@ void TTreeCacheUnzip::Init()
    fUnzipGroupSize = 102400; // Each task unzips at least 100 KB
 
    if (fgParallel == kDisable) {
-      fParallel = kFALSE;
+      fParallel = false;
    }
    else if(fgParallel == kEnable || fgParallel == kForce) {
       fUnzipBufferSize = Long64_t(fgRelBuffSize * GetBufferSize());
@@ -214,7 +211,7 @@ void TTreeCacheUnzip::Init()
       if(gDebug > 0)
          Info("TTreeCacheUnzip", "Enabling Parallel Unzipping");
 
-      fParallel = kTRUE;
+      fParallel = true;
 
    }
    else {
@@ -224,7 +221,7 @@ void TTreeCacheUnzip::Init()
    // Check if asynchronous reading is supported by this TFile specialization
    if (gEnv->GetValue("TFile.AsyncReading", 1)) {
       if (fFile && !(fFile->ReadBufferAsync(0, 0)))
-         fAsyncReading = kTRUE;
+         fAsyncReading = true;
    }
 
 }
@@ -245,7 +242,7 @@ TTreeCacheUnzip::~TTreeCacheUnzip()
 ///  - 0 branch added or already included
 ///  - -1 on error
 
-Int_t TTreeCacheUnzip::AddBranch(TBranch *b, Bool_t subbranches /*= kFALSE*/)
+Int_t TTreeCacheUnzip::AddBranch(TBranch *b, bool subbranches /*= false*/)
 {
    return TTreeCache::AddBranch(b, subbranches);
 }
@@ -257,20 +254,20 @@ Int_t TTreeCacheUnzip::AddBranch(TBranch *b, Bool_t subbranches /*= kFALSE*/)
 ///  - 0 branch added or already included
 ///  - -1 on error
 
-Int_t TTreeCacheUnzip::AddBranch(const char *branch, Bool_t subbranches /*= kFALSE*/)
+Int_t TTreeCacheUnzip::AddBranch(const char *branch, bool subbranches /*= false*/)
 {
    return TTreeCache::AddBranch(branch, subbranches);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-Bool_t TTreeCacheUnzip::FillBuffer()
+bool TTreeCacheUnzip::FillBuffer()
 {
 
-   if (fNbranches <= 0) return kFALSE;
+   if (fNbranches <= 0) return false;
 
    // Fill the cache buffer with the branches in the cache.
-   fIsTransferred = kFALSE;
+   fIsTransferred = false;
 
    TTree *tree = ((TBranch*)fBranches->UncheckedAt(0))->GetTree();
    Long64_t entry = tree->GetReadEntry();
@@ -279,7 +276,7 @@ Bool_t TTreeCacheUnzip::FillBuffer()
    // no point in retrying.   Note that this will also return false
    // during the training phase (fEntryNext is then set intentional to
    // the end of the training phase).
-   if (fEntryCurrent <= entry  && entry < fEntryNext) return kFALSE;
+   if (fEntryCurrent <= entry  && entry < fEntryNext) return false;
 
    // Triggered by the user, not the learning phase
    if (entry == -1)  entry = 0;
@@ -311,7 +308,7 @@ Bool_t TTreeCacheUnzip::FillBuffer()
    //store baskets
    for (Int_t i = 0; i < fNbranches; i++) {
       TBranch *b = (TBranch*)fBranches->UncheckedAt(i);
-      if (b->GetDirectory() == 0) continue;
+      if (b->GetDirectory() == nullptr) continue;
       if (b->GetDirectory()->GetFile() != fFile) continue;
       Int_t nb = b->GetMaxBaskets();
       Int_t *lbaskets   = b->GetBasketBytes();
@@ -344,19 +341,20 @@ Bool_t TTreeCacheUnzip::FillBuffer()
 
    // Now fix the size of the status arrays
    ResetCache();
-   fIsLearning = kFALSE;
+   fIsLearning = false;
 
-   return kTRUE;
+   return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Change the underlying buffer size of the cache.
+/// The buffersize might be clamped, see TFileCacheRead::SetBufferSize
 /// Returns:
 ///  - 0 if the buffer content is still available
 ///  - 1 if some or all of the buffer content has been made unavailable
 ///  - -1 on error
 
-Int_t TTreeCacheUnzip::SetBufferSize(Int_t buffersize)
+Int_t TTreeCacheUnzip::SetBufferSize(Long64_t buffersize)
 {
    Int_t res = TTreeCache::SetBufferSize(buffersize);
    if (res < 0) {
@@ -412,12 +410,12 @@ TTreeCacheUnzip::EParUnzipMode TTreeCacheUnzip::GetParallelUnzip()
 ////////////////////////////////////////////////////////////////////////////////
 /// Static function that tells wether the multithreading unzipping is activated
 
-Bool_t TTreeCacheUnzip::IsParallelUnzip()
+bool TTreeCacheUnzip::IsParallelUnzip()
 {
    if (fgParallel == kEnable || fgParallel == kForce)
-      return kTRUE;
+      return true;
 
-   return kFALSE;
+   return false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -511,7 +509,7 @@ void TTreeCacheUnzip::ResetCache()
       fUnzipState.Reset(fNseekMax, fNseek);
       fNseekMax = fNseek;
    }
-   fEmpty = kTRUE;
+   fEmpty = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -550,7 +548,7 @@ Int_t TTreeCacheUnzip::UnzipCache(Int_t index)
    }
 
    // Prepare a memory buffer of adequate size
-   char* locbuff = 0;
+   char* locbuff = nullptr;
    if (rdlen > 16384) {
       locbuff = new char[rdlen];
    } else if (rdlen * 3 < 16384) {
@@ -648,7 +646,7 @@ Int_t TTreeCacheUnzip::CreateTasks()
       pool.Foreach(unzipFunction, basketIndices);
    };
 
-   fUnzipTaskGroup.reset(new ROOT::Experimental::TTaskGroup());
+   fUnzipTaskGroup = std::make_unique<ROOT::Experimental::TTaskGroup>();
    fUnzipTaskGroup->Run(mapFunction);
 
    return 0;
@@ -665,7 +663,7 @@ Int_t TTreeCacheUnzip::CreateTasks()
 /// responsibility of the caller to free it... it is useful for example
 /// to pass it to the creator of TBuffer
 
-Int_t TTreeCacheUnzip::GetUnzipBuffer(char **buf, Long64_t pos, Int_t len, Bool_t *free)
+Int_t TTreeCacheUnzip::GetUnzipBuffer(char **buf, Long64_t pos, Int_t len, bool *free)
 {
    Int_t res = 0;
    Int_t loc = -1;
@@ -707,11 +705,11 @@ Int_t TTreeCacheUnzip::GetUnzipBuffer(char **buf, Long64_t pos, Int_t len, Bool_
                if(!(*buf)) {
                   *buf = fUnzipState.fUnzipChunks[seekidx].get();
                   fUnzipState.fUnzipChunks[seekidx].release();
-                  *free = kTRUE;
+                  *free = true;
                } else {
                   memcpy(*buf, fUnzipState.fUnzipChunks[seekidx].get(), fUnzipState.fUnzipLen[seekidx]);
                   fUnzipState.fUnzipChunks[seekidx].reset();
-                  *free = kFALSE;
+                  *free = false;
                }
 
                fNFound++;
@@ -733,7 +731,7 @@ Int_t TTreeCacheUnzip::GetUnzipBuffer(char **buf, Long64_t pos, Int_t len, Bool_
                      }
                   }
                   if (reqi < 0) {
-                     fEmpty = kFALSE;
+                     fEmpty = false;
                   } else {
                      UnzipCache(reqi);
                   }
@@ -756,11 +754,11 @@ Int_t TTreeCacheUnzip::GetUnzipBuffer(char **buf, Long64_t pos, Int_t len, Bool_
             if(!(*buf)) {
               *buf = fUnzipState.fUnzipChunks[seekidx].get();
                fUnzipState.fUnzipChunks[seekidx].release();
-               *free = kTRUE;
+               *free = true;
             } else {
                memcpy(*buf, fUnzipState.fUnzipChunks[seekidx].get(), fUnzipState.fUnzipLen[seekidx]);
                fUnzipState.fUnzipChunks[seekidx].reset();
-               *free = kFALSE;
+               *free = false;
             }
 
             fNStalls++;
@@ -772,7 +770,7 @@ Int_t TTreeCacheUnzip::GetUnzipBuffer(char **buf, Long64_t pos, Int_t len, Bool_
          }
       } else {
          loc = -1;
-         fIsTransferred = kFALSE;
+         fIsTransferred = false;
       }
    }
 
@@ -814,7 +812,7 @@ Int_t TTreeCacheUnzip::GetUnzipBuffer(char **buf, Long64_t pos, Int_t len, Bool_
 
    if (!res) {
       res = UnzipBuffer(buf, fCompBuffer);
-      *free = kTRUE;
+      *free = true;
    }
 
    if (!fIsLearning) {
@@ -853,25 +851,30 @@ void TTreeCacheUnzip::SetUnzipBufferSize(Long64_t bufferSize)
 Int_t TTreeCacheUnzip::UnzipBuffer(char **dest, char *src)
 {
    Int_t  uzlen = 0;
-   Bool_t alloc = kFALSE;
+   bool alloc = false;
 
    // Here we read the header of the buffer
    const Int_t hlen = 128;
    Int_t nbytes = 0, objlen = 0, keylen = 0;
    GetRecordHeader(src, hlen, nbytes, objlen, keylen);
 
+   Int_t nbytesRemain = nbytes - keylen;
+   Int_t objlenRemain = objlen;
+
    if (!(*dest)) {
       /* early consistency check */
       UChar_t *bufcur = (UChar_t *) (src + keylen);
-      Int_t nin, nbuf;
-      if(objlen > nbytes - keylen && R__unzip_header(&nin, bufcur, &nbuf) != 0) {
+      Int_t nin = 0;
+      Int_t nbuf = 0;
+      if ((objlen > nbytes - keylen) &&
+          ((nbytesRemain < ROOT::Internal::kZipHeaderSize) || (R__unzip_header(&nin, bufcur, &nbuf) != 0))) {
          Error("UnzipBuffer", "Inconsistency found in header (nin=%d, nbuf=%d)", nin, nbuf);
          uzlen = -1;
          return uzlen;
       }
       Int_t l = keylen + objlen;
       *dest = new char[l];
-      alloc = kTRUE;
+      alloc = true;
    }
    // Must unzip the buffer
    // fSeekPos[ind]; adress of zipped buffer
@@ -879,7 +882,7 @@ Int_t TTreeCacheUnzip::UnzipBuffer(char **dest, char *src)
    // &fBuffer[fSeekPos[ind]]; memory address
 
    // This is similar to TBasket::ReadBasketBuffers
-   Bool_t oldCase = objlen == nbytes - keylen
+   bool oldCase = objlen == nbytes - keylen
       && ((TBranch*)fBranches->UncheckedAt(0))->GetCompressionLevel() != 0
       && fFile->GetVersion() <= 30401;
 
@@ -891,13 +894,15 @@ Int_t TTreeCacheUnzip::UnzipBuffer(char **dest, char *src)
 
       char *objbuf = *dest + keylen;
       UChar_t *bufcur = (UChar_t *) (src + keylen);
-      Int_t nin, nbuf;
+      Int_t nin = 0;
+      Int_t nbuf = 0;
       Int_t nout = 0;
       Int_t noutot = 0;
 
-      while (1) {
+      while (nbytesRemain >= ROOT::Internal::kZipHeaderSize) {
          Int_t hc = R__unzip_header(&nin, bufcur, &nbuf);
-         if (hc != 0) break;
+         if ((hc != 0) || (nin > nbytesRemain) || (nbuf > objlenRemain))
+            break;
          if (gDebug > 2)
             Info("UnzipBuffer", " nin:%d, nbuf:%d, bufcur[3] :%d, bufcur[4] :%d, bufcur[5] :%d ",
                  nin, nbuf, bufcur[3], bufcur[4], bufcur[5]);
@@ -911,7 +916,7 @@ Int_t TTreeCacheUnzip::UnzipBuffer(char **dest, char *src)
             return uzlen;
          }
 
-         R__unzip(&nin, bufcur, &nbuf, objbuf, &nout);
+         R__unzip(&nin, bufcur, &nbuf, reinterpret_cast<unsigned char *>(objbuf), &nout);
 
          if (gDebug > 2)
             Info("UnzipBuffer", "R__unzip nin:%d, bufcur:%p, nbuf:%d, objbuf:%p, nout:%d",
@@ -922,6 +927,8 @@ Int_t TTreeCacheUnzip::UnzipBuffer(char **dest, char *src)
          if (noutot >= objlen) break;
          bufcur += nin;
          objbuf += nout;
+         nbytesRemain -= nin;
+         objlenRemain -= nout;
       }
 
       if (noutot != objlen) {
@@ -929,7 +936,7 @@ Int_t TTreeCacheUnzip::UnzipBuffer(char **dest, char *src)
                nbytes,keylen,objlen, noutot,nout,nin,nbuf);
          uzlen = -1;
          if(alloc) delete [] *dest;
-         *dest = 0;
+         *dest = nullptr;
          return uzlen;
       }
       uzlen += objlen;

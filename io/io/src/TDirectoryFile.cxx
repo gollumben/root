@@ -11,7 +11,7 @@
 
 /**
  \class TDirectoryFile
- \ingroup IO
+ \ingroup io_files
 
  A ROOT file is structured in Directories (like a file system).
  Each Directory has a list of Keys (see TKeys) and a list of objects
@@ -23,8 +23,6 @@ End_Macro
  The structure of a file is shown in TFile::TFile
 */
 
-#include <iostream>
-#include "Strlen.h"
 #include "strlcpy.h"
 #include "TDirectoryFile.h"
 #include "TFile.h"
@@ -49,10 +47,12 @@ End_Macro
 #include "TVirtualMutex.h"
 #include "TEmulatedCollectionProxy.h"
 
+#include <iostream>
+#include <cstring>
+
 const UInt_t kIsBigFile = BIT(16);
 const Int_t  kMaxLen = 2048;
 
-ClassImp(TDirectoryFile);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -153,7 +153,7 @@ void TDirectoryFile::InitDirectoryFile(TClass *cl)
          cl = IsA(); // NOLINT: silence clang-tidy warnings
       }
       TDirectory* motherdir = GetMotherDir();
-      fSeekParent  = f->GetSeekDir();
+      fSeekParent  = motherdir->GetSeekDir();
       Int_t nbytes = TDirectoryFile::Sizeof();
       TKey *key    = new TKey(fName,fTitle,cl,nbytes,motherdir);
       fNbytesName  = key->GetKeylen();
@@ -329,7 +329,19 @@ void TDirectoryFile::BuildDirectoryFile(TFile* motherFile, TDirectory* motherDir
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Change current directory to "this" directory.
-/// Using path one can
+///
+/// Returns kTRUE in case of success.
+
+Bool_t TDirectoryFile::cd()
+{
+   Bool_t ok = TDirectory::cd();
+   if (ok)
+      TFile::CurrentFile() = fFile;
+   return ok;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Change current directory the directory described by the path if given one.
 /// change the current directory to "path". The absolute path syntax is:
 ///
 ///     file.root:/dir1/dir2
@@ -341,7 +353,8 @@ void TDirectoryFile::BuildDirectoryFile(TFile* motherFile, TDirectory* motherDir
 Bool_t TDirectoryFile::cd(const char *path)
 {
    Bool_t ok = TDirectory::cd(path);
-   if (ok) TFile::CurrentFile() = fFile;
+   if (ok)
+      TFile::CurrentFile() = fFile;
    return ok;
 }
 
@@ -583,15 +596,16 @@ void TDirectoryFile::Close(Option_t *option)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Delete Objects or/and keys in a directory
-///
-/// Properties of the namecycle string:
-///   - namecycle has the format name;cycle
-///   - namecycle = "" is same as namecycle ="T*"
-///   - name  = * means all
-///   - cycle = * means all cycles (memory and keys)
-///   - cycle = "" or cycle = 9999 ==> apply to a memory object
-/// When name=* use T* to delete subdirectories also
+/// Delete Objects or/and keys in the current directory.
+/// 
+/// \param[in] namecycle Encodes the name and cycle of the objects to delete in
+/// the current directory (e.g. the top directory of a TFile)
+///   - <em>namecycle</em> has the format <em>name;cycle</em>.
+///   - <em>namecycle</em>="" is same as <em>namecycle</em>="T*"
+///   - <em>name</em>="*" means all objects, use "T*" to also delete subdirectories
+///   - <em>cycle</em>="*" means all cycles (memory and keys)
+///   - <em>cycle</em>="" or <em>cycle</em>="9999" ==> apply to a memory object
+///   - When <em>name</em>="*"" use "T*" to delete subdirectories also
 ///
 /// To delete one directory, you must specify the directory cycle,
 /// eg.  file.Delete("dir1;1");
@@ -607,8 +621,20 @@ void TDirectoryFile::Close(Option_t *option)
 /// |   *;*   | delete all objects from memory and file |
 /// |   T*;*  | delete all objects from memory and file and all subdirectories |
 ///
+/// \note For some objects, this method, which is used e.g. by rootrm,
+/// properly deletes the specified cycles of the object, but does not free any ‘dependent’
+/// data records (unless it is a TDirectoryFile). In other words, in these cases, Delete
+/// does not free all subdata records, but rather orphans them, ie. the file size is not
+/// reduced, and there is later no option to shrink it nor recover the disappeared ‘dependent’
+/// items. For example, deleting a TTree does not free up space from the directory since the
+/// underlying basket records are not recursively deleted. If this is wanted, one can call
+/// TTree::Delete("all") before calling TDirectoryFile::Delete(); file size won't
+/// shrink either, but more space will be left open for overwriting with other objects.
+/// See also Purge() documentation. A workaround to reduce filesize is to clone all
+/// objects (excluding those to be deleted) into a new TFile.
+///
 /// ## WARNING
-/// If the key to be deleted contains special characters ("+","^","?", etc
+/// If the key to be deleted contains special characters ("+","^","?", etc)
 /// that have a special meaning for the regular expression parser (see TRegexp)
 /// then you must specify 2 backslash characters to escape the regular expression.
 /// For example, if the key to be deleted is namecycle = "C++", you must call
@@ -762,7 +788,9 @@ void TDirectoryFile::FillBuffer(char *&buffer)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Find key with name keyname in the current directory
+/// Find key with name `keyname` in the current directory.
+/// `keyname` may be of the form name;cycle.
+/// See GetKey() for details on the semantics of this form.
 
 TKey *TDirectoryFile::FindKey(const char *keyname) const
 {
@@ -774,8 +802,10 @@ TKey *TDirectoryFile::FindKey(const char *keyname) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Find key with name keyname in the current directory or
+/// Find key with name `keyname` in the current directory or
 /// its subdirectories.
+/// `keyname` may be of the form name;cycle.
+/// See GetKey() for details on the semantics of this form.
 ///
 /// NOTE: that If a key is found, the directory containing the key becomes
 /// the current directory
@@ -1117,7 +1147,8 @@ Int_t TDirectoryFile::GetBufferSize() const
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Return pointer to key with name,cycle
+/// Return pointer to key with name,cycle. If no key exists with the specified
+/// cycle, returns the key with the highest cycle that is lower than the requested cycle.
 ///
 ///  if cycle = 9999 returns highest cycle
 
@@ -1149,11 +1180,11 @@ TKey *TDirectoryFile::GetKey(const char *name, Short_t cycle) const
 /// Indentation is used to identify the directory tree
 /// Subdirectories are listed first, then objects in memory, then objects on the file
 ///
-/// The option can has the following format: <b>[-d |-m][<regexp>]</b>
+/// The option can has the following format: <b>`[-d |-m][<regexp>]`</b>
 /// Options:
 ///   - -d: only list objects in the file
 ///   - -m: only list objects in memory
-///  The <regexp> will be used to match the name of the objects.
+///  The `<regexp>` will be used to match the name of the objects.
 ///  By default memory and disk objects are listed.
 
 void TDirectoryFile::ls(Option_t *option) const
@@ -1166,17 +1197,20 @@ void TDirectoryFile::ls(Option_t *option) const
    TString opt  = opta.Strip(TString::kBoth);
    Bool_t memobj  = kTRUE;
    Bool_t diskobj = kTRUE;
-   TString reg = "*";
+   TString reg;
    if (opt.BeginsWith("-m")) {
       diskobj = kFALSE;
-      if (opt.Length() > 2)
+      if (opt.Length() > 2) {
          reg = opt(2,opt.Length());
+      }
    } else if (opt.BeginsWith("-d")) {
       memobj  = kFALSE;
-      if (opt.Length() > 2)
+      if (opt.Length() > 2) {
          reg = opt(2,opt.Length());
-   } else if (!opt.IsNull())
+      }
+   } else if (!opt.IsNull()) {
       reg = opt;
+   }
 
    TRegexp re(reg, kTRUE);
 
@@ -1185,18 +1219,19 @@ void TDirectoryFile::ls(Option_t *option) const
       TIter nextobj(fList);
       while ((obj = (TObject *) nextobj())) {
          TString s = obj->GetName();
-         if (s.Index(re) == kNPOS) continue;
+         if (!reg.IsNull() && s.Index(re) == kNPOS)
+            continue;
          obj->ls(option);            //*-* Loop on all the objects in memory
       }
    }
 
    if (diskobj && fKeys) {
       //*-* Loop on all the keys
-      TObjLink *lnk = fKeys->FirstLink();
-      while (lnk) {
+      for (TObjLink *lnk = fKeys->FirstLink(); lnk != nullptr; lnk = lnk->Next()) {
          TKey *key = (TKey*)lnk->GetObject();
          TString s = key->GetName();
-         if (s.Index(re) == kNPOS) continue;
+         if (!reg.IsNull() && s.Index(re) == kNPOS)
+            continue;
          bool first = (lnk->Prev() == nullptr) || (s != lnk->Prev()->GetObject()->GetName());
          bool hasbackup = (lnk->Next() != nullptr) && (s == lnk->Next()->GetObject()->GetName());
          if (first)
@@ -1206,7 +1241,6 @@ void TDirectoryFile::ls(Option_t *option) const
                key->ls();
          else
             key->ls(false);
-         lnk = lnk->Next();
       }
    }
    TROOT::DecreaseDirLevel();
@@ -1224,12 +1258,17 @@ TFile *TDirectoryFile::OpenFile(const char *name, Option_t *option,const char *f
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a sub-directory "a" or a hierarchy of sub-directories "a/b/c/...".
 ///
-/// Returns 0 in case of error or if a sub-directory (hierarchy) with the requested
-/// name already exists.
-/// returnExistingDirectory returns a pointer to an already existing sub-directory instead of 0.
-/// Returns a pointer to the created sub-directory or to the top sub-directory of
-/// the hierarchy (in the above example, the returned TDirectory * always points
-/// to "a").
+/// @param name the name or hierarchy of the subdirectory ("a" or "a/b/c")
+/// @param title the title of the directory. For hierarchies, this is only applied
+/// to the innermost directory (so if `name == "a/b/c"` and `title == "my dir"`,
+/// only `c` will have the title `"my dir"`).
+/// @param returnExistingDirectory if key-name is already existing, the returned
+/// value points to preexisting sub-directory if true and to `nullptr` if false.
+/// @return a pointer to the created sub-directory, not to the top sub-directory
+/// of the hierarchy (in the above example, the returned TDirectory * points
+/// to "c"). In case of an error, it returns `nullptr`. In case of a preexisting
+/// sub-directory (hierarchy) with the requested name, the return value depends
+/// on the parameter returnExistingDirectory.
 
 TDirectory *TDirectoryFile::mkdir(const char *name, const char *title, Bool_t returnExistingDirectory)
 {
@@ -1243,25 +1282,21 @@ TDirectory *TDirectoryFile::mkdir(const char *name, const char *title, Bool_t re
         return nullptr;
       }
    }
-   TDirectoryFile *newdir = nullptr;
    if (const char *slash = strchr(name,'/')) {
       TString workname(name, Long_t(slash-name));
       TDirectoryFile *tmpdir = nullptr;
       GetObject(workname.Data(), tmpdir);
       if (!tmpdir) {
-         tmpdir = (TDirectoryFile*)mkdir(workname.Data(),title);
+         // We give all intermediate directories a default title, as `title` is only given to the innermost dir.
+         tmpdir = (TDirectoryFile *)mkdir(workname.Data(), "");
          if (!tmpdir) return nullptr;
       }
-      if (!newdir) newdir = tmpdir;
-      tmpdir->mkdir(slash+1);
-      return newdir;
+      return tmpdir->mkdir(slash + 1, title, returnExistingDirectory);
    }
 
    TDirectory::TContext ctxt(this);
 
-   newdir = new TDirectoryFile(name, title, "", this);
-
-   return newdir;
+   return new TDirectoryFile(name, title, "", this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1545,8 +1580,7 @@ void TDirectoryFile::Save()
       auto lnk = fList->FirstLink()->shared_from_this();
       while (lnk) {
          TObject *idcur = lnk->GetObject();
-         if (idcur && idcur->InheritsFrom(TDirectoryFile::Class())) {
-            TDirectoryFile *dir = (TDirectoryFile *)idcur;
+         if (TDirectoryFile *dir = dynamic_cast<TDirectoryFile *>(idcur)) {
             dir->Save();
          }
          lnk = lnk->NextSP();
@@ -1557,39 +1591,42 @@ void TDirectoryFile::Save()
 ////////////////////////////////////////////////////////////////////////////////
 /// Save object in filename.
 ///
-/// If filename is 0 or "", a file with "objectname.root" is created.
+/// If filename is `nullptr` or "", a file with "<objectname>.root" is created.
 /// The name of the key is the object name.
+/// By default new file will be created. Using option "a", one can append object
+/// to the existing ROOT file.
 /// If the operation is successful, it returns the number of bytes written to the file
 /// otherwise it returns 0.
 /// By default a message is printed. Use option "q" to not print the message.
 /// If filename contains ".json" extension, JSON representation of the object
 /// will be created and saved in the text file. Such file can be used in
-/// JavaScript ROOT (https://root.cern.ch/js/) to display object in web browser
+/// JavaScript ROOT (https://root.cern/js/) to display object in web browser
 /// When creating JSON file, option string may contain compression level from 0 to 3 (default 0)
 
 Int_t TDirectoryFile::SaveObjectAs(const TObject *obj, const char *filename, Option_t *option) const
 {
+   // option can contain single letter args: "a" for append, "q" for quiet in any combinations
+
    if (!obj) return 0;
-   TDirectory *dirsav = gDirectory;
-   TString fname = filename;
-   if (!filename || !filename[0]) {
-      fname.Form("%s.root",obj->GetName());
-   }
+   TString fname, opt = option;
+   if (filename && *filename)
+      fname = filename;
+   else
+      fname.Form("%s.root", obj->GetName());
+   opt.ToLower();
+
    Int_t nbytes = 0;
    if (fname.Index(".json") > 0) {
       nbytes = TBufferJSON::ExportToFile(fname, obj, option);
    } else {
-      TFile *local = TFile::Open(fname.Data(),"recreate");
+      TContext ctxt; // The TFile::Open will change the current directory.
+      auto *local = TFile::Open(fname.Data(), opt.Contains("a") ? "update" : "recreate");
       if (!local) return 0;
       nbytes = obj->Write();
       delete local;
-      if (dirsav) dirsav->cd();
    }
-   TString opt = option;
-   opt.ToLower();
-   if (!opt.Contains("q")) {
-      if (!gSystem->AccessPathName(fname.Data())) obj->Info("SaveAs", "ROOT file %s has been created", fname.Data());
-   }
+   if (!opt.Contains("q") && !gSystem->AccessPathName(fname.Data()))
+      obj->Info("SaveAs", "ROOT file %s has been created", fname.Data());
    return nbytes;
 }
 
@@ -1927,6 +1964,8 @@ Int_t TDirectoryFile::WriteTObject(const TObject *obj, const char *name, Option_
    Int_t nch = strlen(oname);
    char *newName = nullptr;
    if (nch && oname[nch-1] == ' ') {
+      Warning("WriteTObject", "The key name '%s' will be stored in file without the trailing blanks.", obj->GetName());
+      // See https://github.com/root-project/root/issues/17003
       newName = new char[nch+1];
       strlcpy(newName,oname,nch+1);
       for (Int_t i=0;i<nch;i++) {
@@ -1972,64 +2011,12 @@ Int_t TDirectoryFile::WriteTObject(const TObject *obj, const char *name, Option_
    return nbytes;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-/// Write object from pointer of class classname in this directory.
-///
-/// obj may not derive from TObject. See TDirectoryFile::WriteTObject for comments
-///
-/// ## Very important note
-/// The value passed as 'obj' needs to be from a pointer to the type described by classname.
-/// For example:
-/// ~~~{.cpp}
-/// TopClass *top;
-/// BottomClass *bottom;
-/// top = bottom;
-/// ~~~
-/// you can do:
-/// ~~~{.cpp}
-/// directory->WriteObjectAny(top,"top","name of object");
-/// directory->WriteObjectAny(bottom,"bottom","name of object");
-/// ~~~
-/// <b>BUT YOU CAN NOT DO</b> the following since it will fail with multiple inheritance:
-/// ~~~{.cpp}
-/// directory->WriteObjectAny(top,"bottom","name of object");
-/// ~~~
-/// We <b>STRONGLY</b> recommend to use
-/// ~~~{.cpp}
-/// TopClass *top = ....;
-/// directory->WriteObject(top,"name of object")
-/// ~~~
-/// See also remarks in TDirectoryFile::WriteTObject
-
-Int_t TDirectoryFile::WriteObjectAny(const void *obj, const char *classname, const char *name, Option_t *option, Int_t bufsize)
+Int_t TDirectoryFile::WriteObjectAny(const void *obj, const TClass *cl,
+                                     std::pair<const char *, const char *> nameAndTitle, Option_t *option,
+                                     Int_t bufsize)
 {
-   TClass *cl = TClass::GetClass(classname);
-   if (!cl) {
-      TObject *info_obj = *(TObject**)obj;
-      TVirtualStreamerInfo *info = dynamic_cast<TVirtualStreamerInfo*>(info_obj);
-      if (!info) {
-         Error("WriteObjectAny","Unknown class: %s",classname);
-         return 0;
-      } else {
-         cl = info->GetClass();
-      }
-   }
-   return WriteObjectAny(obj,cl,name,option,bufsize);
-}
+   const auto [name, title] = nameAndTitle;
 
-////////////////////////////////////////////////////////////////////////////////
-/// Write object of class with dictionary cl in this directory.
-///
-/// obj may not derive from TObject
-/// To get the TClass* cl pointer, one can use
-///
-///     TClass *cl = TClass::GetClass("classname");
-///
-/// An alternative is to call the function WriteObjectAny above.
-/// see TDirectoryFile::WriteTObject for comments
-
-Int_t TDirectoryFile::WriteObjectAny(const void *obj, const TClass *cl, const char *name, Option_t *option, Int_t bufsize)
-{
    TDirectory::TContext ctxt(this);
 
    if (!fFile) return 0;
@@ -2098,6 +2085,7 @@ Int_t TDirectoryFile::WriteObjectAny(const void *obj, const TClass *cl, const ch
       oldkey = GetKey(oname);
    }
    key = fFile->CreateKey(this, obj, cl, oname, bsize);
+   key->SetTitle(title);
    if (newName) delete [] newName;
 
    if (!key->GetSeekKey()) {
@@ -2115,6 +2103,67 @@ Int_t TDirectoryFile::WriteObjectAny(const void *obj, const TClass *cl, const ch
    }
 
    return nbytes;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Write object from pointer of class classname in this directory.
+///
+/// obj may not derive from TObject. See TDirectoryFile::WriteTObject for comments
+///
+/// ## Very important note
+/// The value passed as 'obj' needs to be from a pointer to the type described by classname.
+/// For example:
+/// ~~~{.cpp}
+/// TopClass *top;
+/// BottomClass *bottom;
+/// top = bottom;
+/// ~~~
+/// you can do:
+/// ~~~{.cpp}
+/// directory->WriteObjectAny(top,"top","name of object");
+/// directory->WriteObjectAny(bottom,"bottom","name of object");
+/// ~~~
+/// <b>BUT YOU CAN NOT DO</b> the following since it will fail with multiple inheritance:
+/// ~~~{.cpp}
+/// directory->WriteObjectAny(top,"bottom","name of object");
+/// ~~~
+/// We <b>STRONGLY</b> recommend to use
+/// ~~~{.cpp}
+/// TopClass *top = ....;
+/// directory->WriteObject(top,"name of object")
+/// ~~~
+/// See also remarks in TDirectoryFile::WriteTObject
+
+Int_t TDirectoryFile::WriteObjectAny(const void *obj, const char *classname, const char *name, Option_t *option, Int_t bufsize)
+{
+   TClass *cl = TClass::GetClass(classname);
+   if (!cl) {
+      TObject *info_obj = *(TObject**)obj;
+      TVirtualStreamerInfo *info = dynamic_cast<TVirtualStreamerInfo*>(info_obj);
+      if (!info) {
+         Error("WriteObjectAny","Unknown class: %s",classname);
+         return 0;
+      } else {
+         cl = info->GetClass();
+      }
+   }
+   return WriteObjectAny(obj,cl,name,option,bufsize);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Write object of class with dictionary cl in this directory.
+///
+/// obj may not derive from TObject
+/// To get the TClass* cl pointer, one can use
+///
+///     TClass *cl = TClass::GetClass("classname");
+///
+/// An alternative is to call the function WriteObjectAny above.
+/// see TDirectoryFile::WriteTObject for comments
+
+Int_t TDirectoryFile::WriteObjectAny(const void *obj, const TClass *cl, const char *name, Option_t *option, Int_t bufsize)
+{
+   return WriteObjectAny(obj, cl, {name, ""}, option, bufsize);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

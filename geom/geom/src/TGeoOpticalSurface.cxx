@@ -9,7 +9,6 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-
 /** \class TGeoOpticalSurface
 \ingroup Geometry_classes
 
@@ -25,13 +24,10 @@ This is a wrapper class to G4OpticalSurface
 #include "TGeoNode.h"
 #include "TGDMLMatrix.h"
 
-ClassImp(TGeoOpticalSurface)
-ClassImp(TGeoSkinSurface)
-ClassImp(TGeoBorderSurface)
 
 //_____________________________________________________________________________
-TGeoOpticalSurface::TGeoOpticalSurface(const char *name, ESurfaceModel model, ESurfaceFinish finish,
-                                       ESurfaceType type, Double_t value)
+TGeoOpticalSurface::TGeoOpticalSurface(const char *name, ESurfaceModel model, ESurfaceFinish finish, ESurfaceType type,
+                                       Double_t value)
    : TNamed(name, ""), fType(type), fModel(model), fFinish(finish), fValue(value)
 {
    // Constructor
@@ -255,8 +251,9 @@ const char *TGeoOpticalSurface::GetPropertyRef(const char *property)
 TGDMLMatrix *TGeoOpticalSurface::GetProperty(const char *property) const
 {
    // Find reference for a given property
-   TNamed *prop = (TNamed*)fProperties.FindObject(property);
-   if ( !prop ) return nullptr;
+   TNamed *prop = (TNamed *)fProperties.FindObject(property);
+   if (!prop)
+      return nullptr;
    return gGeoManager->GetGDMLMatrix(prop->GetTitle());
 }
 
@@ -264,9 +261,44 @@ TGDMLMatrix *TGeoOpticalSurface::GetProperty(const char *property) const
 TGDMLMatrix *TGeoOpticalSurface::GetProperty(Int_t i) const
 {
    // Find reference for a given property
-   TNamed *prop = (TNamed*)fProperties.At(i);
-   if ( !prop ) return nullptr;
+   TNamed *prop = (TNamed *)fProperties.At(i);
+   if (!prop)
+      return nullptr;
    return gGeoManager->GetGDMLMatrix(prop->GetTitle());
+}
+
+//_____________________________________________________________________________
+const char *TGeoOpticalSurface::GetConstPropertyRef(const char *property) const
+{
+   // Find reference for a given constant property
+   TNamed *prop = (TNamed *)fConstProperties.FindObject(property);
+   return (prop) ? prop->GetTitle() : nullptr;
+}
+
+//_____________________________________________________________________________
+Double_t TGeoOpticalSurface::GetConstProperty(const char *property, Bool_t *err) const
+{
+   // Find reference for a given constant property
+   TNamed *prop = (TNamed *)fConstProperties.FindObject(property);
+   if (!prop) {
+      if (err)
+         *err = kTRUE;
+      return 0.;
+   }
+   return gGeoManager->GetProperty(prop->GetTitle(), err);
+}
+
+//_____________________________________________________________________________
+Double_t TGeoOpticalSurface::GetConstProperty(Int_t i, Bool_t *err) const
+{
+   // Find reference for a given constant property
+   TNamed *prop = (TNamed *)fConstProperties.At(i);
+   if (!prop) {
+      if (err)
+         *err = kTRUE;
+      return 0.;
+   }
+   return gGeoManager->GetProperty(prop->GetTitle(), err);
 }
 
 //_____________________________________________________________________________
@@ -278,6 +310,18 @@ bool TGeoOpticalSurface::AddProperty(const char *property, const char *ref)
       return false;
    }
    fProperties.Add(new TNamed(property, ref));
+   return true;
+}
+
+//_____________________________________________________________________________
+bool TGeoOpticalSurface::AddConstProperty(const char *property, const char *ref)
+{
+   fConstProperties.SetOwner();
+   if (GetConstPropertyRef(property)) {
+      Error("AddConstProperty", "Constant property %s already added to material %s", property, GetName());
+      return false;
+   }
+   fConstProperties.Add(new TNamed(property, ref));
    return true;
 }
 
@@ -294,7 +338,18 @@ void TGeoOpticalSurface::Print(Option_t *) const
       while ((property = (TNamed *)next()))
          printf("   property: %s ref: %s\n", property->GetName(), property->GetTitle());
    }
+   if (fConstProperties.GetSize()) {
+      TIter next(&fConstProperties);
+      TNamed *property;
+      Bool_t err;
+      while ((property = (TNamed *)next()))   {
+         Double_t value = this->GetConstProperty(property->GetName(), &err);
+         printf("   constant: %s ref: %s value: %g\n",
+                property->GetName(), property->GetTitle(), value);
+      }
+   }
 }
+
 
 //_____________________________________________________________________________
 void TGeoSkinSurface::Print(Option_t *) const
@@ -306,6 +361,7 @@ void TGeoSkinSurface::Print(Option_t *) const
    }
    printf("*** skinsurface: %s   surfaceproperty: %s   volumeref: %s \n", GetName(), GetTitle(), fVolume->GetName());
 }
+
 
 //_____________________________________________________________________________
 void TGeoBorderSurface::Print(Option_t *) const

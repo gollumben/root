@@ -12,6 +12,7 @@
 #include "TGLayout.h"
 #include "TString.h"
 #include "TImage.h"
+#include "TASUtils.h"
 #include "TGShapedFrame.h"
 #include "TVirtualX.h"
 
@@ -23,14 +24,13 @@ A Shaped window
 */
 
 
-ClassImp(TGShapedFrame);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Shaped window default constructor
 
 TGShapedFrame::TGShapedFrame(const char *pname, const TGWindow *p, UInt_t w,
                              UInt_t h, UInt_t options) :
-      TGCompositeFrame(p, w, h, options), fBgnd(0), fImage(0)
+      TGCompositeFrame(p, w, h, options), fBgnd(nullptr), fImage(nullptr)
 {
    TString picName;
    // set a few attributes
@@ -51,8 +51,7 @@ TGShapedFrame::TGShapedFrame(const char *pname, const TGWindow *p, UInt_t w,
       Error("TGShapedFrame", "%s not found", picName.Data());
       return;
    }
-   fBgnd = fClient->GetPicturePool()->GetPicture(picName.Data(),
-           fImage->GetPixmap(), fImage->GetMask());
+   fBgnd = fClient->GetPicturePool()->GetPicture(picName.Data(), TASUtils::GetPixmap(fImage), TASUtils::GetMask(fImage));
    // shape the window with the picture mask
    gVirtualX->ShapeCombineMask(fId, 0, 0, fBgnd->GetMask());
    // and finally set the background picture
@@ -77,40 +76,25 @@ TGShapedFrame::~TGShapedFrame()
 
 void TGShapedFrame::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   // save options and custom color if not default
+   auto extra_args = SaveCtorArgs(out);
 
-   out << std::endl << "   // shaped frame" << std::endl;
-   out << "   TGShapedFrame *";
-   out << GetName() << " = new TGShapedFrame(" << fImage->GetName()
-       << "," << fParent->GetName() << "," << GetWidth() << ","
-       << GetHeight();
+   out << "\n   // shaped frame\n";
+   out << "   TGShapedFrame *" << GetName() << " = new TGShapedFrame(" << fImage->GetName() << "," << fParent->GetName()
+       << "," << GetWidth() << "," << GetHeight() << extra_args << ");\n";
 
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (!GetOptions()) {
-         out << ");" << std::endl;
-      } else {
-         out << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
 
    // setting layout manager if it differs from the main frame type
    // coverity[returned_null]
    // coverity[dereference]
-   TGLayoutManager * lm = GetLayoutManager();
-   if ((GetOptions() & kHorizontalFrame) &&
-       (lm->InheritsFrom(TGHorizontalLayout::Class()))) {
-      ;
-   } else if ((GetOptions() & kVerticalFrame) &&
-              (lm->InheritsFrom(TGVerticalLayout::Class()))) {
-      ;
-   } else {
-      out << "   " << GetName() <<"->SetLayoutManager(";
+   TGLayoutManager *lm = GetLayoutManager();
+   if (!((GetOptions() & kHorizontalFrame) && lm->InheritsFrom(TGHorizontalLayout::Class())) &&
+       !((GetOptions() & kVerticalFrame) && lm->InheritsFrom(TGVerticalLayout::Class()))) {
+      out << "   " << GetName() << "->SetLayoutManager(";
       lm->SavePrimitive(out, option);
-      out << ");"<< std::endl;
+      out << ");\n";
    }
 
    SavePrimitiveSubframes(out, option);

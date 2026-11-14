@@ -28,7 +28,6 @@ Implements GUI for editing fill attributes.
 #include "TCanvas.h"
 #include "TROOT.h"
 
-ClassImp(TAttFillEditor);
 
 enum EFillWid {
    kCOLOR,
@@ -132,7 +131,7 @@ void TAttFillEditor::SetModel(TObject* obj)
 ////////////////////////////////////////////////////////////////////////////////
 /// Slot connected to the fill area color with alpha.
 
-void TAttFillEditor::DoFillAlphaColor(ULong_t p)
+void TAttFillEditor::DoFillAlphaColor(ULongptr_t p)
 {
    TColor *color = (TColor *)p;
 

@@ -35,9 +35,9 @@ private:
       kObjIsPersistent = BIT(2)
    };
 
-   DataMemberInfo_t   *fInfo;         //!pointer to CINT data member info
-   TClass             *fClass;        //!pointer to the class
-   TDataType          *fDataType;     //!pointer to data basic type descriptor
+   DataMemberInfo_t   *fInfo;         ///<!pointer to CINT data member info
+   TClass             *fClass;        ///<!pointer to the class
+   TDataType          *fDataType;     ///<!pointer to data basic type descriptor
 
    Longptr_t           fOffset;       //offset
    Int_t               fSTLCont;      //STL type
@@ -53,8 +53,8 @@ private:
    // The following fields allows to access all (even private) datamembers and
    // provide a possibility of having options with names and strings.
    // These options are defined in a comment to a field!
-   TMethodCall        *fValueGetter;  //!method that returns a value;
-   TMethodCall        *fValueSetter;  //!method which sets value;
+   TMethodCall        *fValueGetter;  ///<!method that returns a value;
+   TMethodCall        *fValueSetter;  ///<!method which sets value;
    TList              *fOptions;      //list of possible values 0=no restrictions
 
    void Init(bool afterReading);
@@ -67,7 +67,7 @@ protected:
 
 public:
 
-   TDataMember(DataMemberInfo_t *info = 0, TClass *cl = 0);
+   TDataMember(DataMemberInfo_t *info = nullptr, TClass *cl = nullptr);
    virtual       ~TDataMember();
    Int_t          GetArrayDim() const;
    DeclId_t       GetDeclId() const;
@@ -83,7 +83,7 @@ public:
    Int_t          GetUnitSize() const;
    TList         *GetOptions();
    TMethodCall   *SetterMethod(TClass *cl);
-   TMethodCall   *GetterMethod(TClass *cl = 0);
+   TMethodCall   *GetterMethod(TClass *cl = nullptr);
 
    Bool_t         IsBasic() const;
    Bool_t         IsEnum() const;
@@ -91,11 +91,11 @@ public:
    Bool_t         IsPersistent() const { return TestBit(kObjIsPersistent); }
    Int_t          IsSTLContainer();
    Bool_t         IsValid();
-   Long_t         Property() const;
+   Long_t         Property() const override;
    void           SetClass(TClass* cl) { fClass = cl; }
    virtual bool   Update(DataMemberInfo_t *info);
 
-   ClassDef(TDataMember,2)  //Dictionary for a class data member
+   ClassDefOverride(TDataMember,2)  //Dictionary for a class data member
 };
 
 
@@ -105,19 +105,19 @@ public:
 class TOptionListItem : public TObject {
 
 public:
-   TDataMember     *fDataMember;     //!Data member to which this option belongs
+   TDataMember     *fDataMember;     ///<!Data member to which this option belongs
    Long_t           fValue;          //Numerical value assigned to option
    Long_t           fValueMaskBit;   //Not used yet: bitmask used when option is a toggle group
    Long_t           fToggleMaskBit;  //Not used yet: bitmask used when toggling value
    TString          fOptName;        //Text assigned to option which appears in option menu
    TString          fOptLabel;       //Text (or enum) value assigned to option.
    TOptionListItem():
-      fDataMember(0), fValue(0), fValueMaskBit(0), fToggleMaskBit(0)
+      fDataMember(nullptr), fValue(0), fValueMaskBit(0), fToggleMaskBit(0)
    {}
    TOptionListItem(TDataMember *m,Long_t val, Long_t valmask, Long_t tglmask,
                    const char *name, const char *label);
 
-   ClassDef(TOptionListItem,2); //Element in the list of options.
+   ClassDefOverride(TOptionListItem,2); //Element in the list of options.
 };
 
 #endif

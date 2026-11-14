@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MisClassificationError                                                *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation of the MisClassificationError as separation                *
@@ -24,7 +24,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MisClassificationError
@@ -57,10 +57,10 @@ namespace TMVA {
       virtual ~MisClassificationError() {}
 
       // Return the separation index: 1-max(p,1-p)
-      virtual Double_t  GetSeparationIndex( const Double_t s, const Double_t b );
+      Double_t  GetSeparationIndex( const Double_t s, const Double_t b ) override;
    protected:
 
-      ClassDef(MisClassificationError,0); // Implementation of the MisClassificationError as separation criterion
+      ClassDefOverride(MisClassificationError,0); // Implementation of the MisClassificationError as separation criterion
    };
 
 } // namespace TMVA

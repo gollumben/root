@@ -26,7 +26,6 @@ Both key and value must inherit from TObject.
 #include "TBrowser.h"
 #include "TRegexp.h"
 
-ClassImp(TMap);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TMap ctor. See THashTable for a description of the arguments.
@@ -225,7 +224,7 @@ TObject *TMap::FindObject(const char *keyname) const
 
 TObject *TMap::FindObject(const TObject *key) const
 {
-   if (IsArgNull("FindObject", key)) return 0;
+   if (IsArgNull("FindObject", key)) return nullptr;
 
    return fTable->FindObject(key);
 }
@@ -237,7 +236,7 @@ TObject *TMap::GetValue(const char *keyname) const
 {
    TPair *a = (TPair *)fTable->FindObject(keyname);
    if (a) return a->Value();
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -245,11 +244,11 @@ TObject *TMap::GetValue(const char *keyname) const
 
 TObject *TMap::GetValue(const TObject *key) const
 {
-   if (IsArgNull("GetValue", key)) return 0;
+   if (IsArgNull("GetValue", key)) return nullptr;
 
    TPair *a = (TPair *)fTable->FindObject(key);
    if (a) return a->Value();
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -295,7 +294,7 @@ void TMap::Rehash(Int_t newCapacity, Bool_t checkObjValidity)
 
 TObject *TMap::Remove(TObject *key)
 {
-   if (!key) return 0;
+   if (!key) return nullptr;
 
    TPair *a;
    if ((a = (TPair *)fTable->FindObject(key))) {
@@ -308,7 +307,7 @@ TObject *TMap::Remove(TObject *key)
          return kobj;
       }
    }
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -319,7 +318,7 @@ TObject *TMap::Remove(TObject *key)
 
 TPair *TMap::RemoveEntry(TObject *key)
 {
-   if (!key) return 0;
+   if (!key) return nullptr;
 
    TPair *a;
    if ((a = (TPair *)fTable->FindObject(key))) {
@@ -328,7 +327,7 @@ TPair *TMap::RemoveEntry(TObject *key)
          return a;
       }
    }
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -360,12 +359,12 @@ void TMap::SetOwnerKeyValue(Bool_t ownkeys, Bool_t ownvals)
 
 void TMap::Streamer(TBuffer &b)
 {
-   TObject *obj=0;
+   TObject *obj = nullptr;
    UInt_t R__s, R__c;
 
    if (b.IsReading()) {
       Int_t    nobjects;
-      TObject *value=0;
+      TObject *value = nullptr;
 
       Version_t v = b.ReadVersion(&R__s, &R__c);
       if (v > 2)
@@ -402,10 +401,10 @@ void TMap::Streamer(TBuffer &b)
 /// objects using a single key specify a name and set option to
 /// TObject::kSingleKey (i.e. 1).
 
-Int_t TMap::Write(const char *name, Int_t option, Int_t bsize) const
+Int_t TMap::Write(const char *name, Int_t option, Int_t bufsize) const
 {
    if ((option & kSingleKey)) {
-      return TObject::Write(name, option, bsize);
+      return TObject::Write(name, option, bufsize);
    } else {
       option &= ~kSingleKey;
       Int_t nbytes = 0;
@@ -413,9 +412,9 @@ Int_t TMap::Write(const char *name, Int_t option, Int_t bsize) const
       TPair *a;
       while ((a = (TPair*) next())) {
          if (a->Key())
-            nbytes += a->Key()->Write(name, option, bsize);
+            nbytes += a->Key()->Write(name, option, bufsize);
          if (a->Value())
-            nbytes += a->Value()->Write(name, option, bsize);
+            nbytes += a->Value()->Write(name, option, bufsize);
       }
       return nbytes;
    }
@@ -429,9 +428,9 @@ Int_t TMap::Write(const char *name, Int_t option, Int_t bsize) const
 /// objects using a single key specify a name and set option to
 /// TObject::kSingleKey (i.e. 1).
 
-Int_t TMap::Write(const char *name, Int_t option, Int_t bsize)
+Int_t TMap::Write(const char *name, Int_t option, Int_t bufsize)
 {
-   return ((const TMap*)this)->Write(name,option,bsize);
+   return ((const TMap*)this)->Write(name,option,bufsize);
 }
 
 /** \class TPair
@@ -465,7 +464,6 @@ void TPair::Browse(TBrowser *b)
 Iterator of map.
 */
 
-ClassImp(TMapIter);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a map iterator. Use dir to specify the desired iteration direction.
@@ -474,7 +472,7 @@ TMapIter::TMapIter(const TMap *m, Bool_t dir)
 {
    fMap        = m;
    fDirection  = dir;
-   fCursor     = 0;
+   fCursor     = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -484,7 +482,7 @@ TMapIter::TMapIter(const TMapIter &iter) : TIterator(iter)
 {
    fMap       = iter.fMap;
    fDirection = iter.fDirection;
-   fCursor    = 0;
+   fCursor    = nullptr;
    if (iter.fCursor) {
       fCursor = (THashTableIter *)iter.fCursor->GetCollection()->MakeIterator();
       if (fCursor)
@@ -546,7 +544,7 @@ TObject *TMapIter::Next()
 
    TPair *a = (TPair *)fCursor->Next();
    if (a) return a->Key();
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -6,13 +6,13 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifdef __CINT__
+#ifdef __CLING__
 
 #pragma link off all globals;
 #pragma link off all classes;
 #pragma link off all functions;
 
-#pragma link C++ class TGeoVGConverter+;
-#pragma link C++ class TGeoVGShape+;
+#pragma link C++ class TGeoVGConverter + ;
+#pragma link C++ class TGeoVGShape - ;
 
 #endif

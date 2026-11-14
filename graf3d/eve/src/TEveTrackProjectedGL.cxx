@@ -22,12 +22,11 @@
 GL-renderer for TEveTrackProjected class.
 */
 
-ClassImp(TEveTrackProjectedGL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
-TEveTrackProjectedGL::TEveTrackProjectedGL() : TEveTrackGL(), fM(0)
+TEveTrackProjectedGL::TEveTrackProjectedGL() : TEveTrackGL(), fM(nullptr)
 {
    // fDLCache = kFALSE; // Disable display list.
 }

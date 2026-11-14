@@ -37,10 +37,10 @@ but the type metadata comes from the Clang C++ compiler, not CINT.
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/Frontend/CompilerInstance.h"
 
+#include <CppInterOp/CppInterOp.h>
+
 #include <cstdio>
 #include <string>
-
-using namespace std;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -108,6 +108,8 @@ const char *TClingTypeInfo::Name() const
    TTHREAD_TLS_DECL( std::string, buf);
    buf.clear();
 
+   // TODO: This needs to be locked, but the lock cannot be placed in TClingUtils.cxx as it cannot depend from
+   // TInterpreter.h for the declaration of gInterpreterMutex. Or can it?
    R__LOCKGUARD(gInterpreterMutex);
    ROOT::TMetaUtils::GetFullyQualifiedTypeName(buf,fQualType,*fInterp);
    return buf.c_str();  // NOLINT
@@ -128,10 +130,35 @@ long TClingTypeInfo::Property() const
    property = TClingDeclInfo::Property(property, QT);
    const clang::TagType *tagQT = llvm::dyn_cast<clang::TagType>(QT.getTypePtr());
    if (tagQT) {
+      // getDecl and isAbstract can trigger deserialization
+      cling::Interpreter::PushTransactionRAII RAII(fInterp);
       // Note: Now we have class, enum, struct, union only.
       const clang::TagDecl *TD = llvm::dyn_cast<clang::TagDecl>(tagQT->getDecl());
       if (!TD)
          return property;
+      switch (TD->getAccess()) {
+         case clang::AS_public:
+            property |= kIsPublic;
+            break;
+         case clang::AS_protected:
+            property |= kIsProtected | kIsNotReacheable;
+            break;
+         case clang::AS_private:
+            property |= kIsPrivate | kIsNotReacheable;
+            break;
+         case clang::AS_none:
+            if (TD->getDeclContext()->isNamespace())
+               property |= kIsPublic;
+            break;
+         default:
+            // IMPOSSIBLE
+            assert(false && "Unexpected value for the access property value in Clang");
+            break;
+      }
+      if (!(property & kIsNotReacheable)) {
+         if (! ROOT::TMetaUtils::IsDeclReacheable(*TD))
+            property |= kIsNotReacheable;
+      }
       if (TD->isEnum()) {
          property |= kIsEnum;
       } else {
@@ -149,8 +176,6 @@ long TClingTypeInfo::Property() const
          else if (CRD->isUnion()) {
             property |= kIsUnion;
          }
-         // isAbstract can trigger deserialization
-         cling::Interpreter::PushTransactionRAII RAII(fInterp);
          if (CRD->isThisDeclarationADefinition() && CRD->isAbstract()) {
             property |= kIsAbstract;
          }
@@ -212,21 +237,7 @@ int TClingTypeInfo::Size() const
    if (!IsValid()) {
       return 1;
    }
-   if (fQualType->isDependentType()) {
-      // Dependent on a template parameter, we do not know what it is yet.
-      return 0;
-   }
-   if (const clang::RecordType *RT = fQualType->getAs<clang::RecordType>()) {
-      if (!RT->getDecl()->getDefinition()) {
-         // This is a forward-declared class.
-         return 0;
-      }
-   }
-   clang::ASTContext &Context = fInterp->getCI()->getASTContext();
-   // Note: This is an int64_t.
-   clang::CharUnits::QuantityType Quantity =
-      Context.getTypeSizeInChars(fQualType).getQuantity();
-   return static_cast<int>(Quantity);
+   return Cpp::GetSizeOfType(QualTypePtr());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -236,12 +247,15 @@ int TClingTypeInfo::Size() const
 const char *TClingTypeInfo::TrueName(const ROOT::TMetaUtils::TNormalizedCtxt &normCtxt) const
 {
    if (!IsValid()) {
-      return 0;
+      return nullptr;
    }
    // Note: This *must* be static because we are returning a pointer inside it.
    TTHREAD_TLS_DECL( std::string, buf);
    buf.clear();
 
+   // TODO: This needs to be locked, but the lock cannot be placed in TClingUtils.cxx as it cannot depend from
+   // TInterpreter.h for the declaration of gInterpreterMutex. Or can it?
+   R__LOCKGUARD(gInterpreterMutex);
    ROOT::TMetaUtils::GetNormalizedName(buf,fQualType, *fInterp, normCtxt);
 
    return buf.c_str(); // NOLINT
@@ -257,9 +271,22 @@ std::string TClingTypeInfo::NormalizedName(const ROOT::TMetaUtils::TNormalizedCt
       return "";
    }
    std::string buf;
+
+   // TODO: This needs to be locked, but the lock cannot be placed in TClingUtils.cxx as it cannot depend from
+   // TInterpreter.h for the declaration of gInterpreterMutex. Or can it?
+   R__LOCKGUARD(gInterpreterMutex);
    ROOT::TMetaUtils::GetNormalizedName(buf,fQualType, *fInterp, normCtxt);
 
    // in C++11 this will be efficient thanks to the move constructor.
    return buf;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+/// Return the QualType as a void pointer
+
+void *TClingTypeInfo::QualTypePtr() const
+{
+   return fQualType.getAsOpaquePtr();
+}
+
 

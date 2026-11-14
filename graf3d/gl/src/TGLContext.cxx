@@ -9,6 +9,7 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
+#include <memory>
 #include <stdexcept>
 #include <algorithm>
 #include <memory>
@@ -37,7 +38,6 @@ This class encapsulates window-system specific information about a
 GL-context and alows their proper management in ROOT.
 */
 
-ClassImp(TGLContext);
 
 Bool_t TGLContext::fgGlewInitDone = kFALSE;
 
@@ -53,7 +53,7 @@ TGLContext::TGLContext(TGLWidget *wid, Bool_t shareDefault,
    : fDevice(wid),
      fFromCtor(kTRUE),
      fValid(kFALSE),
-     fIdentity(0)
+     fIdentity(nullptr)
 {
    if (shareDefault)
       shareList = TGLContextIdentity::GetDefaultContextAny();
@@ -86,11 +86,11 @@ void TGLContext::GlewInit()
 {
    if (!fgGlewInitDone)
    {
-      GLenum status = glewInit();
-      if (status != GLEW_OK)
-         Warning("TGLContext::GlewInit", "GLEW initalization failed.");
+      int version = gladLoaderLoadGL();
+      if (version == 0)
+         Warning("TGLContext::GlewInit", "GL initalization failed.");
       else if (gDebug > 0)
-         Info("TGLContext::GlewInit", "GLEW initalization successful.");
+         Info("TGLContext::GlewInit", "GL initalization successful.");
       fgGlewInitDone = kTRUE;
    }
 }
@@ -333,7 +333,7 @@ void TGLContext::SetContext(TGLWidget *widget, const TGLContext *shareList)
       return;
    }
 
-   fPimpl.reset(new TGLContextPrivate);
+   fPimpl = std::make_unique<TGLContextPrivate>();
    Display *dpy = static_cast<Display *>(widget->GetInnerData().first);
    XVisualInfo *visInfo = static_cast<XVisualInfo *>(widget->GetInnerData().second);
 
@@ -385,7 +385,7 @@ Bool_t TGLContext::MakeCurrent()
 
 Bool_t TGLContext::ClearCurrent()
 {
-   return glXMakeCurrent(fPimpl->fDpy, None, 0);
+   return glXMakeCurrent(fPimpl->fDpy, None, nullptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -461,7 +461,6 @@ Objects shared among GL-contexts include:
 display-list definitions, texture objects and shader programs.
 */
 
-ClassImp(TGLContextIdentity);
 
 TGLContextIdentity* TGLContextIdentity::fgDefaultIdentity = new TGLContextIdentity;
 
@@ -469,7 +468,7 @@ TGLContextIdentity* TGLContextIdentity::fgDefaultIdentity = new TGLContextIdenti
 /// Constructor.
 
 TGLContextIdentity::TGLContextIdentity():
-fFontManager(0), fCnt(0), fClientCnt(0)
+fFontManager(nullptr), fCnt(0), fClientCnt(0)
 {
 }
 
@@ -538,7 +537,7 @@ void TGLContextIdentity::DeleteGLResources()
 TGLContextIdentity* TGLContextIdentity::GetCurrent()
 {
    TGLContext* ctx = TGLContext::GetCurrent();
-   return ctx ? ctx->GetIdentity() : 0;
+   return ctx ? ctx->GetIdentity() : nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -546,7 +545,7 @@ TGLContextIdentity* TGLContextIdentity::GetCurrent()
 
 TGLContextIdentity* TGLContextIdentity::GetDefaultIdentity()
 {
-   if (fgDefaultIdentity == 0)
+   if (fgDefaultIdentity == nullptr)
       fgDefaultIdentity = new TGLContextIdentity;
    return fgDefaultIdentity;
 }
@@ -557,8 +556,8 @@ TGLContextIdentity* TGLContextIdentity::GetDefaultIdentity()
 
 TGLContext* TGLContextIdentity::GetDefaultContextAny()
 {
-   if (fgDefaultIdentity == 0 || fgDefaultIdentity->fCtxs.empty())
-      return 0;
+   if (fgDefaultIdentity == nullptr || fgDefaultIdentity->fCtxs.empty())
+      return nullptr;
    return fgDefaultIdentity->fCtxs.front();
 }
 
@@ -579,7 +578,7 @@ void TGLContextIdentity::CheckDestroy()
    if (fCnt <= 0 && fClientCnt <= 0)
    {
       if (this == fgDefaultIdentity)
-         fgDefaultIdentity = 0;
+         fgDefaultIdentity = nullptr;
       delete this;
    }
 }

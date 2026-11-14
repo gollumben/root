@@ -28,7 +28,7 @@
 
 /**
 \class TGenVectorProxy
-\ingroup IO
+\ingroup io_other
 Local optimization class.
 
 Collection proxies get copied. On copy we switch the type of the
@@ -43,12 +43,12 @@ public:
    {
    }
    // Standard Destructor
-   virtual ~TGenVectorProxy()
-{
+   ~TGenVectorProxy() override
+   {
    }
    // Return the address of the value at index 'idx'
-   virtual void* At(UInt_t idx)
-{
+   void* At(UInt_t idx)  override
+   {
       if ( fEnv && fEnv->fObject ) {
          fEnv->fIdx = idx;
          switch( idx ) {
@@ -56,14 +56,14 @@ public:
             return fEnv->fStart = fFirst.invoke(fEnv);
          default:
             if (! fEnv->fStart ) fEnv->fStart = fFirst.invoke(fEnv);
-            return ((char*)fEnv->fStart) + fValDiff*idx;
+            return ((char *)fEnv->fStart) + ElementOffset(idx);
          }
       }
       Fatal("TGenVectorProxy","At> Logic error - no proxy object set.");
-      return 0;
+      return nullptr;
    }
    // Call to delete/destruct individual item
-   virtual void DeleteItem(Bool_t force, void* ptr) const
+   void DeleteItem(Bool_t force, void* ptr) const override
    {
       if ( force && ptr ) {
          if ( fVal->fProperties&kNeedDelete) {
@@ -78,7 +78,7 @@ public:
 
 /**
 \class TGenVectorBoolProxy
-\ingroup IO
+\ingroup io_other
 Local optimization class.
 
 Collection proxies get copied. On copy we switch the type of the
@@ -93,11 +93,11 @@ public:
    {
       // Standard Constructor.
    }
-   virtual ~TGenVectorBoolProxy()
+   ~TGenVectorBoolProxy() override
    {
       // Standard Destructor.
    }
-   virtual void* At(UInt_t idx)
+   void* At(UInt_t idx) override
    {
       // Return the address of the value at index 'idx'
 
@@ -109,10 +109,10 @@ public:
          return &fLastValue;
       }
       Fatal("TGenVectorProxy","At> Logic error - no proxy object set.");
-      return 0;
+      return nullptr;
    }
 
-   virtual void DeleteItem(Bool_t force, void* ptr) const
+   void DeleteItem(Bool_t force, void* ptr) const override
    {
       // Call to delete/destruct individual item
       if ( force && ptr ) {
@@ -139,11 +139,11 @@ public:
    {
       // Standard Constructor.
    }
-   virtual ~TGenBitsetProxy()
+   ~TGenBitsetProxy() override
    {
       // Standard Destructor.
    }
-   virtual void* At(UInt_t idx)
+   void* At(UInt_t idx) override
    {
       // Return the address of the value at index 'idx'
 
@@ -168,7 +168,7 @@ public:
       return 0;
    }
 
-   virtual void DeleteItem(Bool_t force, void* ptr) const
+   void DeleteItem(Bool_t force, void* ptr) const override
    {
       // Call to delete/destruct individual item
       if ( force && ptr ) {
@@ -179,7 +179,7 @@ public:
 
 /*
 \class TGenListProxy
-\ingroup IO
+\ingroup io_other
 Local optimization class.
 
 Collection proxies get copied. On copy we switch the type of the
@@ -191,15 +191,15 @@ class TGenListProxy : public TGenVectorProxy {
 public:
    // Standard Destructor
    TGenListProxy(const TGenCollectionProxy& c) : TGenVectorProxy(c)
-{
+   {
    }
    // Standard Destructor
-   virtual ~TGenListProxy()
-{
+   ~TGenListProxy() override
+   {
    }
    // Return the address of the value at index 'idx'
-   void* At(UInt_t idx)
-{
+   void* At(UInt_t idx) override
+   {
       if ( fEnv && fEnv->fObject ) {
          switch( idx ) {
          case 0:
@@ -215,13 +215,13 @@ public:
          }
       }
       Fatal("TGenListProxy","At> Logic error - no proxy object set.");
-      return 0;
+      return nullptr;
    }
 };
 
 /**
 \class TGenSetProxy
-\ingroup IO
+\ingroup io_other
 Localoptimization class.
 
 Collection proxies get copied. On copy we switch the type of the
@@ -233,18 +233,18 @@ class TGenSetProxy : public TGenVectorProxy {
 public:
    // Standard Destructor
    TGenSetProxy(const TGenCollectionProxy& c) : TGenVectorProxy(c)
-{
+   {
    }
    // Standard Destructor
-   virtual ~TGenSetProxy()
-{
+   ~TGenSetProxy() override
+   {
    }
    // Return the address of the value at index 'idx'
-   void* At(UInt_t idx)
-{
+   void* At(UInt_t idx) override
+   {
       if ( fEnv && fEnv->fObject ) {
          if ( fEnv->fUseTemp ) {
-            return (((char*)fEnv->fTemp)+idx*fValDiff);
+            return (((char *)fEnv->fTemp) + ElementOffset(idx));
          }
          switch( idx ) {
          case 0:
@@ -260,13 +260,13 @@ public:
          }
       }
       Fatal("TGenSetProxy","At> Logic error - no proxy object set.");
-      return 0;
+      return nullptr;
    }
 };
 
 /**
 \class TGenMapProxy
-\ingroup IO
+\ingroup io_other
 Localoptimization class.
 
 Collection proxies get copied. On copy we switch the type of the
@@ -278,14 +278,14 @@ class TGenMapProxy : public TGenSetProxy {
 public:
    // Standard Destructor
    TGenMapProxy(const TGenCollectionProxy& c) : TGenSetProxy(c)
-{
+   {
    }
    // Standard Destructor
-   virtual ~TGenMapProxy()
-{
+   ~TGenMapProxy() override
+   {
    }
    // Call to delete/destruct individual item
-   virtual void DeleteItem(Bool_t force, void* ptr) const
+   void DeleteItem(Bool_t force, void* ptr) const override
    {
       if (force) {
          if ( fKey->fProperties&kNeedDelete) {
@@ -313,7 +313,7 @@ public:
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
 
-TGenCollectionProxy::Value::Value(const std::string& inside_type, Bool_t silent)
+TGenCollectionProxy::Value::Value(const std::string& inside_type, Bool_t silent, size_t hint_pair_offset, size_t hint_pair_size)
 {
    std::string inside = (inside_type.find("const ")==0) ? inside_type.substr(6) : inside_type;
    fCase = 0;
@@ -325,16 +325,15 @@ TGenCollectionProxy::Value::Value(const std::string& inside_type, Bool_t silent)
    fKind = kNoType_t;
 
    // Let's treat the unique_ptr case
-   bool nameChanged = false;
-   std::string intype = TClassEdit::GetNameForIO(inside.c_str(), TClassEdit::EModType::kNone, &nameChanged);
+   std::string intype = TClassEdit::GetNameForIO(inside, TClassEdit::EModType::kNone);
 
-   bool isPointer = nameChanged; // unique_ptr is considered a pointer
+   bool isPointer = false;
    // The incoming name is normalized (it comes from splitting the name of a TClass),
    // so all we need to do is drop the last trailing star (if any) and record that information.
-   if (!nameChanged && intype[intype.length()-1] == '*') {
+   if (intype.back() == '*') {
       isPointer = true;
       intype.pop_back();
-      if (intype[intype.length()-1] == '*') {
+      if (intype.back() == '*') {
          // The value is a pointer to a pointer
          if (!silent)
             Warning("TGenCollectionProxy::Value::Value", "I/O not supported for collection of pointer to pointer: %s", inside_type.c_str());
@@ -361,10 +360,10 @@ TGenCollectionProxy::Value::Value(const std::string& inside_type, Bool_t silent)
       // In the case where we have an emulated class,
       // if the class is nested (in a class or a namespace),
       // calling G__TypeInfo ti(inside.c_str());
-      // might fail because CINT does not known the nesting
+      // might fail because Cling does not know the nesting
       // scope, so let's first look for an emulated class:
 
-      fType = TClass::GetClass(intype.c_str(),kTRUE,silent);
+      fType = TClass::GetClass(intype.c_str(),kTRUE,silent, hint_pair_offset, hint_pair_size);
 
       if (fType) {
          if (isPointer) {
@@ -398,11 +397,12 @@ TGenCollectionProxy::Value::Value(const std::string& inside_type, Bool_t silent)
             } else {
                fSize = fundType->Size();
             }
-         } else if (TEnum::GetEnum( intype.c_str(), TEnum::kNone) ) {
+         } else if (auto e = TEnum::GetEnum(intype.c_str(), TEnum::kNone)) {
+            R__ASSERT(e->IsValid());
             // This is a known enum.
             fCase = kIsEnum;
-            fSize = sizeof(Int_t);
-            fKind = kInt_t;
+            fSize = TDataType::GetDataType(e->GetUnderlyingType())->Size();
+            fKind = e->GetUnderlyingType();
             if (isPointer) {
                fCase |= kIsPointer;
                fSize = sizeof(void*);
@@ -535,7 +535,7 @@ void TGenCollectionProxy::Value::DeleteItem(void* ptr)
 
 /**
  \class TGenCollectionProxy TGenCollectionProxy.cxx
- \ingroup IO
+ \ingroup io_other
 
  Proxy around an arbitrary container, which implements basic
  functionality and iteration.
@@ -579,6 +579,7 @@ TGenCollectionProxy::TGenCollectionProxy(const TGenCollectionProxy& copy)
    fKey            = copy.fKey   ? new Value(*copy.fKey)   : 0;
    fOnFileClass    = copy.fOnFileClass;
    fReadMemberWise = new TObjArray(TCollection::kInitCapacity,-1);
+   fReadMemberWise->SetOwner(true);
    fConversionReadMemberWise = 0;
    fWriteMemberWise = 0;
    fProperties     = copy.fProperties;
@@ -625,6 +626,7 @@ TGenCollectionProxy::TGenCollectionProxy(Info_t info, size_t iter_size)
             (Long_t)sizeof(e.fIterator));
    }
    fReadMemberWise = new TObjArray(TCollection::kInitCapacity,-1);
+   fReadMemberWise->SetOwner(true);
    fConversionReadMemberWise   = 0;
    fWriteMemberWise            = 0;
    fFunctionCreateIterators    = 0;
@@ -637,7 +639,7 @@ TGenCollectionProxy::TGenCollectionProxy(Info_t info, size_t iter_size)
 ////////////////////////////////////////////////////////////////////////////////
 /// Build a proxy for a collection whose type is described by 'collectionClass'.
 
-TGenCollectionProxy::TGenCollectionProxy(const ROOT::TCollectionProxyInfo &info, TClass *cl)
+TGenCollectionProxy::TGenCollectionProxy(const ROOT::Detail::TCollectionProxyInfo &info, TClass *cl)
    : TVirtualCollectionProxy(cl),
      fTypeinfo(info.fInfo), fOnFileClass(0)
 {
@@ -676,6 +678,7 @@ TGenCollectionProxy::TGenCollectionProxy(const ROOT::TCollectionProxyInfo &info,
             (Long_t)sizeof(e.fIterator));
    }
    fReadMemberWise = new TObjArray(TCollection::kInitCapacity,-1);
+   fReadMemberWise->SetOwner(true);
    fConversionReadMemberWise   = 0;
    fWriteMemberWise            = 0;
    fFunctionCreateIterators    = info.fCreateIterators;
@@ -776,6 +779,19 @@ TGenCollectionProxy *TGenCollectionProxy::Initialize(Bool_t silent) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Reset the info gathered from StreamerInfos and value's TClass.
+Bool_t TGenCollectionProxy::Reset()
+{
+   if (fReadMemberWise)
+      fReadMemberWise->Clear();
+   delete fWriteMemberWise;
+   fWriteMemberWise = nullptr;
+   if (fConversionReadMemberWise)
+      fConversionReadMemberWise->clear();
+   return kTRUE;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Check existence of function pointers
 
 void TGenCollectionProxy::CheckFunctions() const
@@ -815,9 +831,10 @@ void TGenCollectionProxy::CheckFunctions() const
 ////////////////////////////////////////////////////////////////////////////////
 /// Utility routine to issue a Fatal error is the Value object is not valid
 
-static TGenCollectionProxy::Value *R__CreateValue(const std::string &name, Bool_t silent)
+static TGenCollectionProxy::Value *R__CreateValue(const std::string &name, Bool_t silent,
+                                                  size_t hint_pair_offset = 0, size_t hint_pair_size = 0)
 {
-   TGenCollectionProxy::Value *val = new TGenCollectionProxy::Value( name, silent );
+   TGenCollectionProxy::Value *val = new TGenCollectionProxy::Value( name, silent, hint_pair_offset, hint_pair_size );
    if ( !val->IsValid() ) {
       Fatal("TGenCollectionProxy","Could not find %s!",name.c_str());
    }
@@ -881,12 +898,17 @@ TGenCollectionProxy *TGenCollectionProxy::InitializeEx(Bool_t silent)
 
                {
                   TInterpreter::SuspendAutoParsing autoParseRaii(gCling);
-                  if (0==TClass::GetClass(nam.c_str(), true, false, fValOffset, fValDiff)) {
+                  TClass *paircl = TClass::GetClass(nam.c_str(), true, false, fValOffset, fValDiff);
+                  if (paircl == nullptr) {
                      // We need to emulate the pair
-                     TVirtualStreamerInfo::Factory()->GenerateInfoForPair(inside[1], inside[2], silent, fValOffset, fValDiff);
+                     auto info = TVirtualStreamerInfo::Factory()->GenerateInfoForPair(inside[1], inside[2], silent, fValOffset, fValDiff);
+                     if (!info) {
+                        Fatal("InitializeEx",
+                              "Could not load nor generate the dictionary for \"%s\", some element might be missing their dictionary (eg. enums)",
+                              nam.c_str());
+                     }
                   } else {
-                     TClass *paircl = TClass::GetClass(nam.c_str());
-                     if (paircl->GetClassSize() != fValDiff) {
+                     if ((!paircl->IsSyntheticPair() && paircl->GetState() < TClass::kInterpreted) || paircl->GetClassSize() != fValDiff) {
                         if (paircl->GetState() >= TClass::kInterpreted)
                            Fatal("InitializeEx",
                                  "The %s for %s reports a class size that is inconsistent with the one registered "
@@ -896,17 +918,16 @@ TGenCollectionProxy *TGenCollectionProxy::InitializeEx(Bool_t silent)
                         else {
                            gROOT->GetListOfClasses()->Remove(paircl);
                            TClass *newpaircl = TClass::GetClass(nam.c_str(), true, false, fValOffset, fValDiff);
-                           if (newpaircl == paircl || newpaircl->GetClassSize() != fValDiff)
+                           if (!newpaircl || newpaircl == paircl || newpaircl->GetClassSize() != fValDiff)
                               Fatal("InitializeEx",
                                     "The TClass creation for %s did not get the right size: %d instead of%d\n",
                                     nam.c_str(), (int)paircl->GetClassSize(), (int)fValDiff);
-                           paircl->ReplaceWith(newpaircl);
-                           delete paircl;
+                           newpaircl->ForceReload(paircl);
                         }
                      }
                   }
                }
-               newfValue = R__CreateValue(nam, silent);
+               newfValue = R__CreateValue(nam, silent, fValOffset, fValDiff);
 
                fPointers = (0 != (fKey->fCase&kIsPointer));
                if (fPointers || (0 != (fKey->fProperties&kNeedDelete))) {
@@ -939,6 +960,12 @@ TGenCollectionProxy *TGenCollectionProxy::InitializeEx(Bool_t silent)
                   }
                }
                break;
+         }
+         if (!(fProperties & kIsEmulated) && newfValue->fType && !newfValue->fType->IsSyntheticPair()) {
+            if (!newfValue->fType->IsLoaded() && !newfValue->fType->HasInterpreterInfo())
+               Error("TGenCollectionProxy::InitializeEx",
+                     "The TClass for %s used as the value type of the compiled collection proxy %s is not loaded.",
+                     newfValue->fType->GetName(), cl->GetName());
          }
 
          fPointers = fPointers || (0 != (fVal->fCase&kIsPointer));
@@ -1057,7 +1084,7 @@ void* TGenCollectionProxy::At(UInt_t idx)
             return fEnv->fStart = fFirst.invoke(fEnv);
          default:
             if (! fEnv->fStart ) fEnv->fStart = fFirst.invoke(fEnv);
-            return ((char*)fEnv->fStart) + fValDiff*idx;
+            return ((char *)fEnv->fStart) + ElementOffset(idx);
          }
       case ROOT::kSTLbitset: {
          switch (idx) {
@@ -1085,7 +1112,7 @@ void* TGenCollectionProxy::At(UInt_t idx)
       case ROOT::kSTLmultimap:
       case ROOT::kSTLunorderedmultimap:
          if ( fEnv->fUseTemp ) {
-            return (((char*)fEnv->fTemp)+idx*fValDiff);
+            return (((char *)fEnv->fTemp) + ElementOffset(idx));
          }
          // Intentional fall through.
       default:
@@ -1491,14 +1518,8 @@ void TGenCollectionProxy__VectorCreateIterators(void *obj, void **begin_arena, v
       *end_arena = 0;
       return;
    }
-   *begin_arena = &(*vec->begin());
-#ifdef R__VISUAL_CPLUSPLUS
-   *end_arena = &(*(vec->end()-1)) + 1; // On windows we can not dererence the end iterator at all.
-#else
-   // coverity[past_the_end] Safe on other platforms
-   *end_arena = &(*vec->end());
-#endif
-
+   *begin_arena = vec->data();
+   *end_arena   = vec->data() + vec->size();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1602,7 +1623,9 @@ TVirtualCollectionProxy::CreateIterators_t TGenCollectionProxy::GetFunctionCreat
 //      fprintf(stderr,"a generic iterator\n");
 
    // TODO could we do better than SlowCreateIterators for RVec?
-   if (fSTL_type==ROOT::kSTLvector || (fProperties & kIsEmulated))
+   if (fProperties & kIsEmulated)
+      return fFunctionCreateIterators = TGenCollectionProxy__VectorCreateIterators;
+   else if (fSTL_type == ROOT::kSTLvector)
       return fFunctionCreateIterators = TGenCollectionProxy__VectorCreateIterators;
    else if ( (fProperties & kIsAssociative) && read)
       return TGenCollectionProxy__StagingCreateIterators;

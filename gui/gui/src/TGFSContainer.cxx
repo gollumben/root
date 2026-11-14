@@ -54,14 +54,13 @@ Utility class used by the file selection dialog (TGFSDialog).
 #include "TRemoteObject.h"
 #include "TBufferFile.h"
 #include "TImage.h"
-#include "snprintf.h"
+#include "TASUtils.h"
 
+#include <cstdio>
 #include <ctime>
 #include <cstdlib>
 #include <iostream>
 
-ClassImp(TGFileItem);
-ClassImp(TGFileContainer);
 
 class TViewUpdateTimer : public TTimer {
 
@@ -70,7 +69,7 @@ private:
 
 public:
    TViewUpdateTimer(TGFileContainer *t, Long_t ms) : TTimer(ms, kTRUE) { fContainer = t; }
-   Bool_t Notify();
+   Bool_t Notify() override;
 };
 
 
@@ -80,7 +79,7 @@ class TGFileIcon : public TGIcon {
 protected:
    const TGPicture *fLpic;   // icon picture
 
-   virtual void DoRedraw();
+   void DoRedraw() override;
 
 public:
    TGFileIcon(const TGWindow *p, const TGPicture *pic, const TGPicture *lpic,
@@ -96,8 +95,8 @@ class TGFSFrameElement : public TGFrameElement {
 public:
    TGFileContainer  *fContainer;   // file container
 
-   Bool_t IsSortable() const { return kTRUE; }
-   Int_t  Compare(const TObject *obj) const;
+   Bool_t IsSortable() const override { return kTRUE; }
+   Int_t  Compare(const TObject *obj) const override;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -266,7 +265,7 @@ TGFileItem::TGFileItem(const TGWindow *p,
                        const TGPicture *spic, const TGPicture *slpic,
                        TGString *name, Int_t type, Long64_t size, Int_t uid,
                        Int_t gid, Long_t modtime, EListViewMode viewMode,
-                       UInt_t options, ULong_t back) :
+                       UInt_t options, Pixel_t back) :
    TGLVEntry(p, bpic, spic, name, 0, viewMode, options, back)
 {
    FileStat_t buf;
@@ -288,7 +287,7 @@ TGFileItem::TGFileItem(const TGWindow *p,
                        const TGPicture *bpic, const TGPicture *blpic,
                        const TGPicture *spic, const TGPicture *slpic,
                        TGString *name, FileStat_t &stat, EListViewMode viewMode,
-                       UInt_t options, ULong_t back) :
+                       UInt_t options, Pixel_t back) :
    TGLVEntry(p, bpic, spic, name, 0, viewMode, options, back)
 {
    Init(blpic, slpic, stat, viewMode);
@@ -465,7 +464,7 @@ void TGFileItem::SetDNDData(TDNDData *data)
 {
    if (fDNDData.fDataLength > 0)
       free(fDNDData.fData);
-   fDNDData.fData = calloc(sizeof(unsigned char), data->fDataLength);
+   fDNDData.fData = calloc(data->fDataLength, sizeof(unsigned char));
    if (fDNDData.fData)
       memcpy(fDNDData.fData, data->fData, data->fDataLength);
    fDNDData.fDataLength = data->fDataLength;
@@ -492,7 +491,7 @@ void TGFileItem::SetDNDObject(TObject *obj)
 /// the current directory.
 
 TGFileContainer::TGFileContainer(const TGWindow *p, UInt_t w, UInt_t h,
-                                 UInt_t options, ULong_t back) :
+                                 UInt_t options, Pixel_t back) :
    TGLVContainer(p, w, h, options, back)
 {
    fSortType  = kSortByName;
@@ -527,7 +526,7 @@ TGFileContainer::TGFileContainer(const TGWindow *p, UInt_t w, UInt_t h,
 /// Create a list view container which will hold the contents of
 /// the current directory.
 
-TGFileContainer::TGFileContainer(TGCanvas *p, UInt_t options, ULong_t back) :
+TGFileContainer::TGFileContainer(TGCanvas *p, UInt_t options, Pixel_t back) :
    TGLVContainer(p,options, back)
 {
    fSortType  = kSortByName;
@@ -631,8 +630,12 @@ void TGFileContainer::Sort(EFSSortMode sortType)
 
    fList->Sort();
 
-   TGCanvas *canvas = (TGCanvas *) this->GetParent()->GetParent();
-   canvas->Layout();
+   const TGWindow *parent = this->GetParent();
+   if (parent) {
+      TGCanvas *canvas = (TGCanvas *)parent->GetParent();
+      if (canvas)
+         canvas->Layout();
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -690,36 +693,28 @@ void TGFileContainer::GetFilePictures(const TGPicture **pic,
       }
    }
    if (is_link) {
-      TImage *img1, *img2;
       if (*pic && *lpic) {
-         TString lnk_name;
-         img1 = TImage::Create();
+         auto img1 = TASUtils::FromPixmap((*pic)->GetPicture(), (*pic)->GetMask());
          if (img1) {
-            img1->SetImage(((const TGPicture *)*pic)->GetPicture(),
-                           ((const TGPicture *)*pic)->GetMask());
-            img2 = TImage::Open("slink_t.xpm");
-            if (img2) img1->Merge(img2);
-            lnk_name = ((const TGPicture *)*pic)->GetName();
+            std::unique_ptr<TImage> img2(TImage::Open("slink_t.xpm"));
+            if (img2)
+               img1->Merge(img2.get());
+            TString lnk_name = (*pic)->GetName();
             lnk_name.Prepend("lnk_");
             *pic = fClient->GetPicturePool()->GetPicture(lnk_name.Data(),
-                                 img1->GetPixmap(), img1->GetMask());
+                                 TASUtils::GetPixmap(img1.get()), TASUtils::GetMask(img1.get()));
             fCleanups->Add(((TObject *)*pic));
-            if (img2) delete img2;
-            delete img1;
          }
-         img1 = TImage::Create();
+         img1 = TASUtils::FromPixmap((*lpic)->GetPicture(), (*lpic)->GetMask());
          if (img1) {
-            img1->SetImage(((const TGPicture *)*lpic)->GetPicture(),
-                           ((const TGPicture *)*lpic)->GetMask());
-            img2 = TImage::Open("slink_s.xpm");
-            if (img2) img1->Merge(img2);
-            lnk_name = ((const TGPicture *)*lpic)->GetName();
+            std::unique_ptr<TImage> img2(TImage::Open("slink_s.xpm"));
+            if (img2)
+               img1->Merge(img2.get());
+            TString lnk_name = (*lpic)->GetName();
             lnk_name.Prepend("lnk_");
             *lpic = fClient->GetPicturePool()->GetPicture(lnk_name.Data(),
-                                 img1->GetPixmap(), img1->GetMask());
+                                 TASUtils::GetPixmap(img1.get()), TASUtils::GetMask(img1.get()));
             fCleanups->Add(((TObject *)*lpic));
-            if (img2) delete img2;
-            delete img1;
          }
       }
       else {
@@ -813,7 +808,7 @@ TGFileItem *TGFileContainer::AddFile(const char *name,  const TGPicture *ipic,
    if (gSystem->GetPathInfo(name, sbuf)) {
       if (sbuf.fIsLink) {
          Info("AddFile", "Broken symlink of %s.", name);
-      } else {
+      } else if (errno != ENOENT) {
          TString msg;
          msg.Form("Can't read file attributes of \"%s\": %s.",
                   name, gSystem->GetError());
@@ -907,33 +902,23 @@ void TGFileContainer::StartRefreshTimer(ULong_t msec)
 
 void TGFileContainer::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   if (fBackground != GetDefaultFrameBackground()) SaveUserColor(out, option);
+   // save options and color if necessary
+   auto extra_args = SaveCtorArgs(out, kSunkenFrame);
 
-   char quote = '"';
-   out << std::endl << "   // container frame" << std::endl;
-   out << "   TGFileContainer *";
+   out << "\n   // container frame\n";
+   out << "   TGFileContainer *" << GetName() << " = new TGFileContainer(";
 
-   if ((fParent->GetParent())->InheritsFrom(TGCanvas::Class())) {
-      out << GetName() << " = new TGFileContainer(" << GetCanvas()->GetName();
-   } else {
-      out << GetName() << " = new TGFileContainer(" << fParent->GetName();
-      out << "," << GetWidth() << "," << GetHeight();
-   }
+   if ((fParent->GetParent())->InheritsFrom(TGCanvas::Class()))
+      out << GetCanvas()->GetName();
+   else
+      out << fParent->GetName() << "," << GetWidth() << "," << GetHeight();
 
-   if (fBackground == GetDefaultFrameBackground()) {
-      if (GetOptions() == kSunkenFrame) {
-         out <<");" << std::endl;
-      } else {
-         out << "," << GetOptionString() <<");" << std::endl;
-      }
-   } else {
-      out << "," << GetOptionString() << ",ucolor);" << std::endl;
-   }
+   out << extra_args << ");\n";
+
    if (option && strstr(option, "keep_names"))
-      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");" << std::endl;
-   out << "   " << GetCanvas()->GetName() << "->SetContainer("
-                << GetName() << ");" << std::endl;
-   out << "   " << GetName() << "->DisplayDirectory();" << std::endl;
-   out << "   " << GetName() << "->AddFile("<< quote << ".." << quote << ");" << std::endl;
-   out << "   " << GetName() << "->StopRefreshTimer();" << std::endl;
+      out << "   " << GetName() << "->SetName(\"" << GetName() << "\");\n";
+   out << "   " << GetCanvas()->GetName() << "->SetContainer(" << GetName() << ");\n";
+   out << "   " << GetName() << "->DisplayDirectory();\n";
+   out << "   " << GetName() << "->AddFile(\"..\");\n";
+   out << "   " << GetName() << "->StopRefreshTimer();\n";
 }

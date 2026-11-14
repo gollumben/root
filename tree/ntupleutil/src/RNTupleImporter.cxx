@@ -1,0 +1,511 @@
+/// \file RNTupleImporter.cxx
+/// \author Jakob Blomer <jblomer@cern.ch>
+/// \date 2022-11-22
+/// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback
+/// is welcome!
+
+/*************************************************************************
+ * Copyright (C) 1995-2022, Rene Brun and Fons Rademakers.               *
+ * All rights reserved.                                                  *
+ *                                                                       *
+ * For the licensing terms see $ROOTSYS/LICENSE.                         *
+ * For the list of contributors see $ROOTSYS/README/CREDITS.             *
+ *************************************************************************/
+
+#include <ROOT/RError.hxx>
+#include <ROOT/RField.hxx>
+#include <ROOT/RNTupleImporter.hxx>
+#include <ROOT/RNTupleTypes.hxx>
+#include <ROOT/RNTupleWriteOptions.hxx>
+#include <ROOT/RNTupleWriter.hxx>
+#include <ROOT/RPageSinkBuf.hxx>
+#include <ROOT/RPageStorage.hxx>
+#include <ROOT/RPageStorageFile.hxx>
+#include <string_view>
+
+#include <TBranch.h>
+#include <TChain.h>
+#include <TClass.h>
+#include <TDataType.h>
+#include <TLeaf.h>
+#include <TLeafC.h>
+#include <TLeafElement.h>
+#include <TLeafObject.h>
+
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <utility>
+
+namespace {
+
+std::string FormatBinarySize(std::uint64_t nbytes)
+{
+   const char *suffix = "B";
+   double v = static_cast<double>(nbytes);
+   if (v >= 1024.0 * 1024.0 * 1024.0) {
+      v /= 1024.0 * 1024.0 * 1024.0;
+      suffix = "GiB";
+   } else if (v >= 1024.0 * 1024.0) {
+      v /= 1024.0 * 1024.0;
+      suffix = "MiB";
+   } else if (v >= 1024.0) {
+      v /= 1024.0;
+      suffix = "KiB";
+   }
+   std::ostringstream os;
+   os.setf(std::ios::fixed);
+   os.precision(v >= 100.0 ? 0 : (v >= 10.0 ? 1 : 2));
+   os << v << ' ' << suffix;
+   return os.str();
+}
+
+class RDefaultProgressCallback : public ROOT::Experimental::RNTupleImporter::RProgressCallback {
+private:
+   static constexpr std::uint64_t gUpdateFrequencyBytes = 100 * 1000 * 1000; // report every 100 MB payload
+   std::uint64_t fNbytesNext = gUpdateFrequencyBytes;
+
+public:
+   ~RDefaultProgressCallback() override {}
+   void Call(std::uint64_t nbytesWritten, std::uint64_t neventsWritten) final
+   {
+      // Report if more than 100 MB of compressed page payload were written since the last status update.
+      if (nbytesWritten < fNbytesNext)
+         return;
+      std::cout << "Wrote " << nbytesWritten / 1000 / 1000 << "MB payload, " << neventsWritten << " entries\n";
+      fNbytesNext += gUpdateFrequencyBytes;
+      if (nbytesWritten > fNbytesNext) {
+         // If we already passed the next threshold, increase by a sensible amount.
+         fNbytesNext = nbytesWritten + gUpdateFrequencyBytes;
+      }
+   }
+
+   void Finish(const ROOT::Experimental::RNTupleImporter::RImportReport &report) final
+   {
+      std::cout << "Done: " << report.fEntries << " entries\n";
+      std::cout << "  compressed page payload: " << FormatBinarySize(report.fCompressedPayloadBytes) << '\n';
+      std::cout << "  on disk:                 " << FormatBinarySize(report.fFileBytesOnDisk) << '\n';
+      if (report.fFileBytesOnDisk > report.fCompressedPayloadBytes) {
+         const auto overhead = report.fFileBytesOnDisk - report.fCompressedPayloadBytes;
+         std::cout << "  file overhead (approx):  " << FormatBinarySize(overhead)
+                   << "  (page lists, footer, streamer info, ROOT keys)\n";
+      }
+      if (report.fUncompressedPageBytes > 0 && report.fCompressedPayloadBytes > 0) {
+         const double ratio =
+            static_cast<double>(report.fCompressedPayloadBytes) / static_cast<double>(report.fUncompressedPageBytes);
+         std::cout << "  page compression ratio:  " << std::fixed << std::setprecision(3) << ratio
+                   << " (payload / uncompressed pages)\n";
+      }
+   }
+};
+
+} // anonymous namespace
+
+ROOT::RResult<void>
+ROOT::Experimental::RNTupleImporter::RCStringTransformation::Transform(const RImportBranch &branch, RImportField &field)
+{
+   *reinterpret_cast<std::string *>(field.fFieldBuffer) = reinterpret_cast<const char *>(branch.fBranchBuffer.get());
+   return RResult<void>::Success();
+}
+
+std::unique_ptr<ROOT::Experimental::RNTupleImporter>
+ROOT::Experimental::RNTupleImporter::Create(std::string_view sourceFileName, std::string_view treeName,
+                                            std::string_view destFileName)
+{
+   auto importer = std::unique_ptr<RNTupleImporter>(new RNTupleImporter());
+   importer->fNTupleName = treeName;
+   importer->fSourceFile = std::unique_ptr<TFile>(TFile::Open(std::string(sourceFileName).c_str()));
+   if (!importer->fSourceFile || importer->fSourceFile->IsZombie()) {
+      throw RException(R__FAIL("cannot open source file " + std::string(sourceFileName)));
+   }
+
+   importer->fSourceTree = importer->fSourceFile->Get<TTree>(std::string(treeName).c_str());
+   if (!importer->fSourceTree) {
+      throw RException(R__FAIL("cannot read TTree " + std::string(treeName) + " from " + std::string(sourceFileName)));
+   }
+
+   // If we have IMT enabled, its best use is for parallel page compression
+   importer->fSourceTree->SetImplicitMT(false);
+   auto result = importer->InitDestination(destFileName);
+
+   if (!result)
+      throw RException(R__FORWARD_ERROR(result));
+
+   return importer;
+}
+
+std::unique_ptr<ROOT::Experimental::RNTupleImporter>
+ROOT::Experimental::RNTupleImporter::Create(TTree *sourceTree, std::string_view destFileName)
+{
+   auto importer = std::unique_ptr<RNTupleImporter>(new RNTupleImporter());
+
+   if (sourceTree->IsA() == TChain::Class() && std::strcmp(sourceTree->GetName(), "") == 0) {
+      if (sourceTree->LoadTree(0) != 0)
+         throw RException(R__FAIL("failure retrieving first tree from provided chain"));
+      importer->fNTupleName = sourceTree->GetTree()->GetName();
+   } else {
+      importer->fNTupleName = sourceTree->GetName();
+   }
+
+   importer->fSourceTree = sourceTree;
+
+   // If we have IMT enabled, its best use is for parallel page compression
+   importer->fSourceTree->SetImplicitMT(false);
+   auto result = importer->InitDestination(destFileName);
+
+   if (!result)
+      throw RException(R__FORWARD_ERROR(result));
+
+   return importer;
+}
+
+ROOT::RResult<void> ROOT::Experimental::RNTupleImporter::InitDestination(std::string_view destFileName)
+{
+   fDestFileName = destFileName;
+   fDestFile = std::unique_ptr<TFile>(TFile::Open(fDestFileName.c_str(), "UPDATE"));
+   if (!fDestFile || fDestFile->IsZombie()) {
+      return R__FAIL("cannot open dest file " + std::string(fDestFileName));
+   }
+
+   return RResult<void>::Success();
+}
+
+void ROOT::Experimental::RNTupleImporter::ReportSchema()
+{
+   for (const auto &f : fImportFields) {
+      std::cout << "Importing '" << f.fField->GetFieldName() << "' [" << f.fField->GetTypeName() << "]\n";
+   }
+   for (const auto &f : ROOT::Internal::GetProjectedFieldsOfModel(*fModel).GetFieldZero().GetConstSubfields()) {
+      std::cout << "Importing (projected) '" << f->GetFieldName() << "' [" << f->GetTypeName() << "]\n";
+   }
+}
+
+void ROOT::Experimental::RNTupleImporter::ResetSchema()
+{
+   fImportBranches.clear();
+   fImportFields.clear();
+   fLeafCountCollections.clear();
+   fImportTransformations.clear();
+   fModel = ROOT::RNTupleModel::CreateBare();
+   fEntry = nullptr;
+}
+
+ROOT::RResult<void> ROOT::Experimental::RNTupleImporter::PrepareSchema()
+{
+   ResetSchema();
+
+   // Browse through all branches and their leaves, create corresponding fields and prepare the memory buffers for
+   // reading and writing. Usually, reading and writing share the same memory buffer, i.e. the object is read from TTree
+   // and written as-is to the RNTuple. There are exceptions, e.g. for leaf count arrays and C strings.
+   for (auto b : TRangeDynCast<TBranch>(*fSourceTree->GetListOfBranches())) {
+      assert(b);
+      const auto firstLeaf = static_cast<TLeaf *>(b->GetListOfLeaves()->First());
+      assert(firstLeaf);
+
+      const bool isLeafList = b->GetNleaves() > 1;
+      const bool isCountLeaf = firstLeaf->IsRange(); // A leaf storing the number of elements of a leaf count array
+      const bool isClass = (firstLeaf->IsA() == TLeafElement::Class()); // STL or user-defined class
+      if (isLeafList && isClass)
+         return R__FAIL("unsupported: classes in leaf list, branch " + std::string(b->GetName()));
+      if (isLeafList && isCountLeaf)
+         return R__FAIL("unsupported: count leaf arrays in leaf list, branch " + std::string(b->GetName()));
+
+      // Only plain leafs with type identifies 'C' are C strings. Otherwise, they are char arrays.
+      // We use GetLeafCounter instead of GetLeafCount and GetLenStatic because the latter don't distinguish between
+      // char arrays and C strings.
+      Int_t firstLeafCountval;
+      const bool isCString = !isLeafList && (firstLeaf->IsA() == TLeafC::Class()) &&
+                             (!firstLeaf->GetLeafCounter(firstLeafCountval)) && (firstLeafCountval == 1);
+
+      if (isCountLeaf) {
+         // This is a count leaf.  We expect that this is not part of a leaf list. We also expect that the
+         // leaf count comes before any array leaves that use it.
+         // Count leaf branches do not end up as (physical) fields but they trigger the creation of an untyped
+         // collection, together the collection mode.
+         RImportLeafCountCollection c;
+         c.fMaxLength = firstLeaf->GetMaximum();
+         c.fCountVal = std::make_unique<Int_t>(); // count leafs are integers
+         // Casting to void * makes it work for both Int_t and UInt_t
+         fSourceTree->SetBranchAddress(b->GetName(), static_cast<void *>(c.fCountVal.get()));
+         fLeafCountCollections.emplace(firstLeaf->GetName(), std::move(c));
+         continue;
+      }
+
+      std::size_t branchBufferSize = 0; // Size of the memory location into which TTree reads the events' branch data
+      // For leaf lists, every leaf translates into a sub field of an untyped RNTuple record
+      std::vector<std::unique_ptr<ROOT::RFieldBase>> recordItems;
+      // For leaf count arrays, we expect to find a single leaf; we don't add a field right away but only
+      // later through a projection
+      bool isLeafCountArray = false;
+      for (auto l : TRangeDynCast<TLeaf>(b->GetListOfLeaves())) {
+         if (l->IsA() == TLeafObject::Class()) {
+            return R__FAIL("unsupported: TObject branches, branch: " + std::string(b->GetName()));
+         }
+
+         // We don't use GetLeafCounter() because it relies on the correct format of the leaf title.
+         // There are files in the public where the title is broken (empty).
+         Int_t countval = l->GetLenStatic();
+         auto *countleaf = l->GetLeafCount();
+         const bool isFixedSizeArray = !isCString && (countleaf == nullptr) && (countval > 1);
+         isLeafCountArray = (countleaf != nullptr);
+
+         // The base case for branches with fundamental, single numerical types.
+         // For other types of branches, different field names or types are necessary,
+         // which is determined below.
+         std::string fieldName = b->GetName();
+         std::string fieldType = l->GetTypeName();
+
+         if (isLeafList)
+            fieldName = l->GetName();
+
+         if (isCString)
+            fieldType = "std::string";
+
+         if (isClass)
+            fieldType = b->GetClassName();
+
+         if (isFixedSizeArray)
+            fieldType = "std::array<" + fieldType + "," + std::to_string(countval) + ">";
+
+         if (fConvertDotsInBranchNames) {
+            // Replace any occurrence of a dot ('.') with an underscore.
+            std::replace(fieldName.begin(), fieldName.end(), '.', '_');
+         }
+
+         RImportField f;
+         auto fieldOrError = ROOT::RFieldBase::Create(fieldName, fieldType);
+         if (!fieldOrError)
+            return R__FORWARD_ERROR(fieldOrError);
+         auto field = fieldOrError.Unwrap();
+         if (isCString) {
+            branchBufferSize = l->GetMaximum();
+            f.fValue = std::make_unique<ROOT::RFieldBase::RValue>(field->CreateValue());
+            f.fFieldBuffer = f.fValue->GetPtr<void>().get();
+            fImportTransformations.emplace_back(
+               std::make_unique<RCStringTransformation>(fImportBranches.size(), fImportFields.size()));
+         } else {
+            if (isClass) {
+               // For classes, the branch buffer contains a pointer to object, which gets instantiated by TTree upon
+               // calling SetBranchAddress()
+               branchBufferSize = sizeof(void *) * countval;
+            } else if (isLeafCountArray) {
+               branchBufferSize = fLeafCountCollections[countleaf->GetName()].fMaxLength * field->GetValueSize();
+            } else {
+               branchBufferSize = l->GetOffset() + field->GetValueSize();
+            }
+         }
+         f.fField = field.get();
+
+         if (isLeafList) {
+            recordItems.emplace_back(std::move(field));
+         } else if (isLeafCountArray) {
+            const std::string countleafName = countleaf->GetName();
+            fLeafCountCollections[countleafName].fLeafFields.emplace_back(std::move(field));
+            fLeafCountCollections[countleafName].fLeafBranchIndexes.emplace_back(fImportBranches.size());
+            R__ASSERT(b->GetListOfLeaves()->GetEntries() == 1);
+            break;
+         } else {
+            fModel->AddField(std::move(field));
+            fImportFields.emplace_back(std::move(f));
+         }
+      }
+      if (!recordItems.empty()) {
+         auto recordField = std::make_unique<ROOT::RRecordField>(b->GetName(), std::move(recordItems));
+         RImportField f;
+         f.fField = recordField.get();
+         fImportFields.emplace_back(std::move(f));
+         fModel->AddField(std::move(recordField));
+      }
+
+      RImportBranch ib;
+      ib.fBranchName = b->GetName();
+      ib.fBranchBuffer = std::make_unique<unsigned char[]>(branchBufferSize);
+      if (isClass) {
+         auto klass = TClass::GetClass(b->GetClassName());
+         if (!klass) {
+            return R__FAIL("unable to load class " + std::string(b->GetClassName()) + " for branch " +
+                           std::string(b->GetName()));
+         }
+         auto ptrBuf = reinterpret_cast<void **>(ib.fBranchBuffer.get());
+         fSourceTree->SetBranchAddress(b->GetName(), ptrBuf, klass, EDataType::kOther_t, true /* isptr*/);
+      } else {
+         fSourceTree->SetBranchAddress(b->GetName(), reinterpret_cast<void *>(ib.fBranchBuffer.get()));
+      }
+
+      // If the TTree branch type and the RNTuple field type match, use the branch read buffer as RNTuple write buffer
+      if (!isLeafCountArray && !fImportFields.back().fFieldBuffer) {
+         fImportFields.back().fFieldBuffer =
+            isClass ? *reinterpret_cast<void **>(ib.fBranchBuffer.get()) : ib.fBranchBuffer.get();
+      }
+
+      fImportBranches.emplace_back(std::move(ib));
+   }
+
+   int iLeafCountCollection = 0;
+   for (auto &p : fLeafCountCollections) {
+      // We want to capture this variable, which is not possible with a
+      // structured binding in C++17. Explicitly defining a variable works.
+      auto countLeafName = p.first;
+      auto &c = p.second;
+
+      c.fFieldName = "_collection" + std::to_string(iLeafCountCollection);
+      auto recordField = std::make_unique<ROOT::RRecordField>("_0", std::move(c.fLeafFields));
+      auto collectionField = ROOT::RVectorField::CreateUntyped(c.fFieldName, std::move(recordField));
+      c.fRecordField = static_cast<RRecordField *>(collectionField->GetMutableSubfields()[0]);
+      fModel->AddField(std::move(collectionField));
+
+      // Add projected fields for all leaf count arrays
+      for (const auto leaf : c.fRecordField->GetConstSubfields()) {
+         const auto name = leaf->GetFieldName();
+         auto projectedField =
+            ROOT::RFieldBase::Create(name, "ROOT::VecOps::RVec<" + leaf->GetTypeName() + ">").Unwrap();
+         fModel->AddProjectedField(std::move(projectedField), [&name, &c](const std::string &fieldName) {
+            if (fieldName == name)
+               return c.fFieldName;
+            else
+               return c.fFieldName + "._0." + name;
+         });
+      }
+
+      if (fConvertDotsInBranchNames) {
+         // Replace any occurrenceof a dot ('.') in the count leaf name with an underscore.
+         std::replace(countLeafName.begin(), countLeafName.end(), '.', '_');
+      }
+
+      // Add projected fields for count leaf
+      auto projectedField = ROOT::RFieldBase::Create(countLeafName, "ROOT::RNTupleCardinality<std::uint32_t>").Unwrap();
+      fModel->AddProjectedField(std::move(projectedField), [&c](const std::string &) { return c.fFieldName; });
+
+      iLeafCountCollection++;
+   }
+
+   if (fFieldModifier) {
+      for (auto &field : fModel->GetMutableFieldZero()) {
+         fFieldModifier(field);
+      }
+   }
+
+   fModel->Freeze();
+
+   fEntry = fModel->CreateBareEntry();
+   for (const auto &f : fImportFields) {
+      fEntry->BindRawPtr(f.fField->GetFieldName(), f.fFieldBuffer);
+   }
+   for (auto &[_, c] : fLeafCountCollections) {
+      fEntry->BindRawPtr<void>(c.fFieldName, &c.fFieldBuffer);
+      c.fSizeOfRecord = c.fRecordField->GetValueSize();
+      const auto subfields = c.fRecordField->GetConstSubfields();
+      const auto &offsets = c.fRecordField->GetOffsets();
+      R__ASSERT(subfields.size() == c.fLeafBranchIndexes.size());
+      assert(c.fPackedLeaves.empty());
+      c.fPackedLeaves.reserve(subfields.size());
+      for (std::size_t l = 0; l < subfields.size(); ++l) {
+         RImportLeafCountCollection::RPackedLeaf packed;
+         packed.fOffset = offsets[l];
+         packed.fValueSize = subfields[l]->GetValueSize();
+         packed.fImportBranchIdx = c.fLeafBranchIndexes[l];
+         c.fPackedLeaves.push_back(packed);
+      }
+      c.fFieldBuffer.reserve(static_cast<std::size_t>(c.fMaxLength) * c.fSizeOfRecord);
+   }
+
+   if (!fIsQuiet)
+      ReportSchema();
+
+   return RResult<void>::Success();
+}
+
+void ROOT::Experimental::RNTupleImporter::Import()
+{
+   TDirectory *targetDir = fDestFile.get();
+   // Extract the ntuple name and directory name
+   auto lastSlash = fNTupleName.find_last_of('/');
+   std::string ntupleName = fNTupleName;
+   if (lastSlash != std::string::npos) {
+      // Create the directory in the output file if it does not exist
+      auto dirName = fNTupleName.substr(0, lastSlash);
+      ntupleName = fNTupleName.substr(lastSlash + 1);
+      targetDir = fDestFile->mkdir(dirName.c_str(), "", true);
+      if (!targetDir) {
+         throw RException(R__FAIL("Failed to create directory " + dirName + " in file " + fDestFileName));
+      }
+   }
+
+   if (targetDir->FindKey(ntupleName.c_str()) != nullptr) {
+      throw RException(R__FAIL("Key '" + fNTupleName + "' already exists in file " + fDestFileName));
+   }
+
+   PrepareSchema();
+
+   std::unique_ptr<ROOT::Internal::RPageSink> sink =
+      std::make_unique<ROOT::Internal::RPageSinkFile>(ntupleName, *targetDir, fWriteOptions);
+   sink->GetMetrics().Enable();
+   auto ctrZippedBytes = sink->GetMetrics().GetCounter("RPageSinkFile.szWritePayload");
+   auto ctrUnzipBytes = sink->GetMetrics().GetCounter("RPageSinkFile.szZip");
+
+   if (fWriteOptions.GetUseBufferedWrite()) {
+      sink = std::make_unique<ROOT::Internal::RPageSinkBuf>(std::move(sink));
+   }
+
+   fProgressCallback = fIsQuiet ? nullptr : std::make_unique<RDefaultProgressCallback>();
+
+   auto nEntries = fSourceTree->GetEntries();
+
+   if (fMaxEntries >= 0 && fMaxEntries < nEntries) {
+      nEntries = fMaxEntries;
+   }
+
+   std::uint64_t payloadBytes = 0;
+   std::uint64_t unzipBytes = 0;
+   {
+      auto ntplWriter = ROOT::Internal::CreateRNTupleWriter(std::move(fModel), std::move(sink));
+      // The guard needs to be destructed before the writer goes out of scope
+      RImportGuard importGuard(*this);
+
+      for (decltype(nEntries) i = 0; i < nEntries; ++i) {
+         fSourceTree->GetEntry(i);
+
+         for (auto &[_, c] : fLeafCountCollections) {
+            const auto nItems = static_cast<std::size_t>(*c.fCountVal);
+            const auto sizeOfRecord = c.fSizeOfRecord;
+            c.fFieldBuffer.resize(sizeOfRecord * nItems);
+
+            for (const auto &leaf : c.fPackedLeaves) {
+               const auto *src = fImportBranches[leaf.fImportBranchIdx].fBranchBuffer.get();
+               auto *dst = c.fFieldBuffer.data() + leaf.fOffset;
+               for (std::size_t j = 0; j < nItems; ++j) {
+                  memcpy(dst + j * sizeOfRecord, src + j * leaf.fValueSize, leaf.fValueSize);
+               }
+            }
+         }
+
+         for (auto &t : fImportTransformations) {
+            auto result = t->Transform(fImportBranches[t->fImportBranchIdx], fImportFields[t->fImportFieldIdx]);
+            if (!result)
+               throw RException(R__FORWARD_ERROR(result));
+         }
+
+         ntplWriter->Fill(*fEntry);
+
+         if (fProgressCallback)
+            fProgressCallback->Call(ctrZippedBytes->GetValueAsInt(), i);
+      }
+
+      payloadBytes = ctrZippedBytes->GetValueAsInt();
+      if (ctrUnzipBytes)
+         unzipBytes = ctrUnzipBytes->GetValueAsInt();
+   } // ntplWriter commits footer / streamer info / last cluster here
+
+   fDestFile->Flush();
+   RImportReport report;
+   report.fCompressedPayloadBytes = payloadBytes;
+   report.fUncompressedPageBytes = unzipBytes;
+   report.fEntries = nEntries;
+   report.fFileBytesOnDisk = static_cast<std::uint64_t>(fDestFile->GetSize());
+   fLastImportReport = report;
+   if (fProgressCallback)
+      fProgressCallback->Finish(report);
+}

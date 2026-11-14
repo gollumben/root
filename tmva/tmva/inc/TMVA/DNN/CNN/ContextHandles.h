@@ -49,9 +49,9 @@ namespace CNN {
 
 template <typename Layer_t>
 struct TCNNDescriptors : public TMVA::DNN::TDescriptors {
-   using LayerDescriptor_t = typename Layer_t::LayerDescriptor_t; // Main layer operation
-   using HelperDescriptor_t = typename Layer_t::HelperDescriptor_t; // Used to define possible helpers for the layers (e.g. activations)
-   using WeightsDescriptor_t = typename Layer_t::WeightsDescriptor_t; // The weights that are modified (e.g filters)
+   using LayerDescriptor_t = typename Layer_t::LayerDescriptor_t;     ///< Main layer operation
+   using HelperDescriptor_t = typename Layer_t::HelperDescriptor_t;   ///< Used to define possible helpers for the layers (e.g. activations)
+   using WeightsDescriptor_t = typename Layer_t::WeightsDescriptor_t; ///< The weights that are modified (e.g filters)
 
    LayerDescriptor_t LayerDescriptor;
    HelperDescriptor_t HelperDescriptor;
@@ -60,9 +60,9 @@ struct TCNNDescriptors : public TMVA::DNN::TDescriptors {
 
 template <typename Layer_t>
 struct TCNNWorkspace : public TMVA::DNN::TWorkspace {
-   using AlgorithmForward_t = typename Layer_t::AlgorithmForward_t;   // Forward layer operation
-   using AlgorithmBackward_t = typename Layer_t::AlgorithmBackward_t; // Backward layer operation
-   using AlgorithmHelper_t = typename Layer_t::AlgorithmHelper_t;     // Used for weight grad backward pass
+   using AlgorithmForward_t = typename Layer_t::AlgorithmForward_t;   ///< Forward layer operation
+   using AlgorithmBackward_t = typename Layer_t::AlgorithmBackward_t; ///< Backward layer operation
+   using AlgorithmHelper_t = typename Layer_t::AlgorithmHelper_t;     ///< Used for weight grad backward pass
 
    using ReduceTensorDescriptor_t = typename Layer_t::ReduceTensorDescriptor_t;
 
@@ -94,15 +94,28 @@ namespace RNN {
 template <typename Architecture_t>
 struct TRNNDescriptors : public TMVA::DNN::TDescriptors {
 
-   using LayerDescriptor_t = typename Architecture_t::RecurrentDescriptor_t; // Main layer operation
-   using WeightsDescriptor_t = typename Architecture_t::FilterDescriptor_t; // The weights that are modified (e.g filters)
-   using TensorDescriptor_t = typename Architecture_t::TensorDescriptor_t; // the vector of tensor descriptors
-   using HelperDescriptor_t = typename Architecture_t::DropoutDescriptor_t;  // use for dropout
+   using LayerDescriptor_t = typename Architecture_t::RecurrentDescriptor_t; ///< Main layer operation
+   using TensorDescriptor_t = typename Architecture_t::TensorDescriptor_t;   ///< the vector of tensor descriptors
+   using HelperDescriptor_t = typename Architecture_t::DropoutDescriptor_t;  ///< use for dropout
 
    LayerDescriptor_t LayerDescriptor;
+   HelperDescriptor_t HelperDescriptor;
+
+#if (CUDNN_VERSION >= 8000)
+   //using WeightsDescriptor_t = typename Architecture_t::TensorDescriptor_t;
+   using DataDescriptor_t = typename Architecture_t::RNNDataDescriptor_t;   ///< the vector of tensor descriptors
+
+   DataDescriptor_t xDataDesc;   // input data descriptor
+   DataDescriptor_t yDataDesc;   // output data descriptor
+
+#else
+   using WeightsDescriptor_t = typename Architecture_t::FilterDescriptor_t;  ///< The weights that are modified (e.g filters)
+   using DataDescriptor_t = typename Architecture_t::TensorDescriptor_t;   ///< the vector of tensor descriptors
+
+
    WeightsDescriptor_t WeightsDescriptor;
    WeightsDescriptor_t WeightsGradDescriptor;
-   HelperDescriptor_t HelperDescriptor;
+
 
    // for RNN need 4 vectors of tensor descriptors
 
@@ -110,17 +123,22 @@ struct TRNNDescriptors : public TMVA::DNN::TDescriptors {
    std::vector<TensorDescriptor_t> yDesc;
    std::vector<TensorDescriptor_t> dxDesc;
    std::vector<TensorDescriptor_t> dyDesc;
+
+#endif
+
 };
 
 template <typename Layer_t>
 struct TRNNWorkspace : public TMVA::DNN::TWorkspace {
 
    void *ForwardWorkspace = nullptr;
+   void *InferenceWorkspace = nullptr;
    void *HelperWorkspace = nullptr;
 
 
-   size_t ForwardWorkspaceSize;
-   size_t HelperWorkspaceSize;
+   size_t ForwardWorkspaceSize = 0;
+   size_t InferenceWorkspaceSize = 0;
+   size_t HelperWorkspaceSize = 0;
 };
 
 }  // end namespace RNN

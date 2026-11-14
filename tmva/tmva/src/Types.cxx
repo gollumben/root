@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : Types                                                                 *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Implementation                                                            *
@@ -65,7 +65,7 @@ TMVA::Types::~Types()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// the the single instance of "Types" if existing already, or create it  (Singleton)
+/// The single instance of "Types" if existing already, or create it  (Singleton)
 
 TMVA::Types& TMVA::Types::Instance()
 {

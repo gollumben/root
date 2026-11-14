@@ -1,9 +1,8 @@
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2017-06-29
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
- * Copyright (C) 1995-2017, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2023, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -48,15 +47,11 @@ int x11_errhandler( Display *dpy, XErrorEvent *err )
   return 0;
 }
 
-bool GuiHandler::PlatformInit()
+void GuiHandler::PlatformInit()
 {
    // install custom X11 error handler to avoid application exit in case of X11 failure
    XSetErrorHandler( x11_errhandler );
-
-   return false; // do not use view framework
 }
-
-
 
 void GuiHandler::PlatformTitleChange(CefRefPtr<CefBrowser> browser, const CefString &title)
 {
@@ -88,16 +83,44 @@ void GuiHandler::PlatformTitleChange(CefRefPtr<CefBrowser> browser, const CefStr
    XStoreName(display, browser->GetHost()->GetWindowHandle(), titleStr.c_str());
 }
 
+bool GuiHandler::PlatformResize(CefRefPtr<CefBrowser> browser, int width, int height)
+{
+   ::Display *display = cef_get_xdisplay();
+   if (!display) return false;
+
+   // Retrieve the X11 window handle for the browser.
+   ::Window window = browser->GetHost()->GetWindowHandle();
+   if (window == kNullWindowHandle)
+      return false;
+
+   int result = XResizeWindow(display, window, width, height);
+   if (result == BadWindow) {
+      printf("   bad window in XResizeWindow\n");
+      return false;
+   }
+
+   if (result == BadValue) {
+      printf("   bad values in XResizeWindow %d %d\n", width, height);
+      return false;
+   }
+   XFlush(display);
+   return true;
+}
+
 #else
 
-bool GuiHandler::PlatformInit()
+void GuiHandler::PlatformInit()
 {
-   return true; // use view framework
 }
 
 void GuiHandler::PlatformTitleChange(CefRefPtr<CefBrowser>, const CefString &)
 {
    // do nothing
+}
+
+bool GuiHandler::PlatformResize(CefRefPtr<CefBrowser>, int, int)
+{
+   return false;
 }
 
 

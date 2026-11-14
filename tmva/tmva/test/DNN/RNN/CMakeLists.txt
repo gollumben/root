@@ -12,8 +12,8 @@
 
 set(Libraries TMVA)
 
-if (CUDA_FOUND AND  tmva-gpu)
-include_directories(${CUDA_INCLUDE_DIRS})
+if (tmva-gpu)
+  list(APPEND Libraries CUDA::cuda_driver CUDA::cudart)
 endif()
 
 #---Reference test
@@ -35,30 +35,30 @@ ROOT_ADD_TEST(TMVA-DNN-RNN-FullRNN COMMAND testFullRNN)
 endif()
 
 #--- CUDA tests. ---------------------------
-if (CUDA_FOUND AND tmva-gpu)
+if (tmva-gpu)
 
-set(DNN_CUDA_LIBRARIES ${CUDA_CUBLAS_LIBRARIES} ${CUDNN_LIBRARIES} )
+set(DNN_CUDA_LIBRARIES ${CUDA_CUBLAS_LIBRARIES})
 
-CUDA_ADD_EXECUTABLE(testRecurrentBackpropagationCuda TestRecurrentBackpropagationCuda.cxx)
+add_executable(testRecurrentBackpropagationCuda TestRecurrentBackpropagationCuda.cxx)
 target_link_libraries(testRecurrentBackpropagationCuda ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-RNN-BackpropagationCuda COMMAND testRecurrentBackpropagationCuda)
+ROOT_ADD_TEST(TMVA-DNN-RNN-BackpropagationCuda COMMAND testRecurrentBackpropagationCuda RESOURCE_LOCK GPU)
 #mark the native Cuda test failing since RNN are supported only with Cudnn
 set_tests_properties(TMVA-DNN-RNN-BackpropagationCuda PROPERTIES WILL_FAIL true)
 
 if (tmva-cudnn)
 
-CUDA_ADD_EXECUTABLE(testRecurrentForwardPassCudnn TestRecurrentForwardPassCudnn.cxx)
+add_executable(testRecurrentForwardPassCudnn TestRecurrentForwardPassCudnn.cxx)
 target_link_libraries(testRecurrentForwardPassCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-RNN-Forwaed-Cudnn COMMAND testRecurrentForwardPassCudnn)
+ROOT_ADD_TEST(TMVA-DNN-RNN-Forwaed-Cudnn COMMAND testRecurrentForwardPassCudnn RESOURCE_LOCK GPU)
 
-CUDA_ADD_EXECUTABLE(testRecurrentBackpropagationCudnn TestRecurrentBackpropagationCudnn.cxx)
+add_executable(testRecurrentBackpropagationCudnn TestRecurrentBackpropagationCudnn.cxx)
 target_link_libraries(testRecurrentBackpropagationCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-RNN-BackpropagationCudnn COMMAND testRecurrentBackpropagationCudnn)
+ROOT_ADD_TEST(TMVA-DNN-RNN-BackpropagationCudnn COMMAND testRecurrentBackpropagationCudnn RESOURCE_LOCK GPU)
 
 # Full Test GPU
-CUDA_ADD_EXECUTABLE(testFullRNNCudnn TestFullRNNCudnn.cxx)
+add_executable(testFullRNNCudnn TestFullRNNCudnn.cxx)
 target_link_libraries(testFullRNNCudnn ${Libraries} ${DNN_CUDA_LIBRARIES})
-ROOT_ADD_TEST(TMVA-DNN-RNN-Full-Cudnn COMMAND testFullRNNCudnn)
+ROOT_ADD_TEST(TMVA-DNN-RNN-Full-Cudnn COMMAND testFullRNNCudnn RESOURCE_LOCK GPU)
 
 endif()
 

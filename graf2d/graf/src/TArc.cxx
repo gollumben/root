@@ -9,12 +9,11 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include "TROOT.h"
 #include "TArc.h"
+#include "TString.h"
 
 #include <iostream>
 
-ClassImp(TArc);
 
 /** \class TArc
 \ingroup BasicGraphics
@@ -55,7 +54,7 @@ TArc::TArc(Double_t x1, Double_t y1,Double_t r1,Double_t phimin,Double_t phimax)
 
 TArc::TArc(const TArc &arc) : TEllipse(arc)
 {
-   ((TArc&)arc).Copy(*this);
+   arc.TArc::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -76,33 +75,29 @@ void TArc::Copy(TObject &arc) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Draw this arc with new coordinates.
 
-void TArc::DrawArc(Double_t x1, Double_t y1,Double_t r1,Double_t phimin,Double_t phimax,Option_t *option)
+TArc *TArc::DrawArc(Double_t x1, Double_t y1,Double_t r1,Double_t phimin,Double_t phimax,Option_t *option)
 {
    TArc *newarc = new TArc(x1, y1, r1, phimin, phimax);
    TAttLine::Copy(*newarc);
    TAttFill::Copy(*newarc);
    newarc->SetBit(kCanDelete);
    newarc->AppendPad(option);
+   return newarc;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out
 
-void TArc::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
+void TArc::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   out<<"   "<<std::endl;
-   if (gROOT->ClassSaved(TArc::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TArc *";
-   }
-   out<<"arc = new TArc("<<fX1<<","<<fY1<<","<<fR1
-      <<","<<fPhimin<<","<<fPhimax<<");"<<std::endl;
+   SavePrimitiveConstructor(out, Class(), "arc",
+                            TString::Format("%g, %g, %g, %g, %g", fX1, fY1, fR1, fPhimin, fPhimax));
 
-   SaveFillAttributes(out,"arc",0,1001);
-   SaveLineAttributes(out,"arc",1,1,1);
+   SaveFillAttributes(out, "arc", 0, 1001);
+   SaveLineAttributes(out, "arc", 1, 1, 1);
 
-   if (GetNoEdges()) out<<"   arc->SetNoEdges();"<<std::endl;
+   if (GetNoEdges())
+      out << "   arc->SetNoEdges();\n";
 
-   out<<"   arc->Draw();"<<std::endl;
+   SavePrimitiveDraw(out, "arc", option);
 }

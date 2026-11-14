@@ -14,8 +14,7 @@
 #include "TFile.h"
 #include "TMemFile.h"
 
-#include "gtest/gtest.h"
-
+#include "gtest_wrapper.h"
 
 TEST(RooCategory, CategoryDefineMultiState) {
   RooCategory myCat("myCat", "A category", { {"0Lep", 0}, {"1Lep", 1}, {"2Lep", 2}, {"3Lep", 3} });
@@ -82,30 +81,25 @@ public:
     TFile file(GetParam(), "READ");
     ASSERT_TRUE(file.IsOpen());
 
-    file.GetObject("catOrig", cat);
+    cat = std::unique_ptr<RooCategory>{file.Get<RooCategory>("catOrig")};
     ASSERT_NE(cat, nullptr);
 
-    file.GetObject("data", data);
+    data = std::unique_ptr<RooDataSet>{file.Get<RooDataSet>("data")};
     ASSERT_NE(data, nullptr);
 
     catFromDataset = dynamic_cast<RooCategory*>(data->get(0)->find("cat"));
     ASSERT_NE(catFromDataset, nullptr);
   }
 
-  void TearDown() override {
-    delete cat;
-    delete data;
-  }
-
 protected:
   enum State_t {one = 0, two = 1, three = 2, four = 3};
-  RooCategory* cat{nullptr};
-  RooDataSet* data{nullptr};
+  std::unique_ptr<RooCategory> cat;
+  std::unique_ptr<RooDataSet> data;
   RooCategory* catFromDataset{nullptr};
 };
 
 TEST_P(RooCategoryIO, ReadWithRanges) {
-  for (RooCategory* theCat : {cat, catFromDataset}) {
+  for (RooCategory* theCat : {cat.get(), catFromDataset}) {
     ASSERT_TRUE(theCat->hasRange("odds"));
     ASSERT_TRUE(theCat->hasRange("evens"));
 
@@ -171,7 +165,7 @@ struct DummyClass : public RooAbsPdf {
       }
     }
 
-    double evaluate() const {
+    double evaluate() const override {
       return 1.;
     }
 
@@ -179,7 +173,7 @@ struct DummyClass : public RooAbsPdf {
       clearValueAndShapeDirty();
     }
 
-    TObject* clone(const char*) const {
+    TObject* clone(const char*) const override {
       return new TObject();
     }
 
@@ -208,7 +202,7 @@ TEST(RooTemplateProxy, CategoryProxy) {
   EXPECT_TRUE(dummy.cat == 2);
   EXPECT_STREQ(dummy.cat.label(), "B");
 
-  dummy.cat = longStr.c_str();
+  dummy.cat = longStr;
   EXPECT_TRUE(dummy.isValueDirty());
   dummy.clear();
   EXPECT_TRUE(dummy.cat == 500);

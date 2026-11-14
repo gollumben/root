@@ -91,15 +91,14 @@ A Graphical cut may be saved to a file via TCutG::Write.
 #include "TH2.h"
 #include "strlcpy.h"
 
-ClassImp(TCutG);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TCutG default constructor.
 
 TCutG::TCutG() : TGraph()
 {
-   fObjectX  = 0;
-   fObjectY  = 0;
+   fObjectX  = nullptr;
+   fObjectY  = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -120,10 +119,15 @@ TCutG::TCutG(const TCutG &cutg)
 TCutG::TCutG(const char *name, Int_t n)
       :TGraph(n)
 {
-   fObjectX  = 0;
-   fObjectY  = 0;
+   fObjectX  = nullptr;
+   fObjectY  = nullptr;
    SetName(name);
-   delete gROOT->GetListOfSpecials()->FindObject(name);
+   auto obj = gROOT->GetListOfSpecials()->FindObject(name);
+   if (obj) {
+      Warning("TCutG","Replacing existing %s: %s (Potential memory leak).",
+                 obj->IsA()->GetName(),obj->GetName());
+      delete obj;
+   }
    gROOT->GetListOfSpecials()->Add(this);
 
    // Take name of cut variables from pad title if title contains ":"
@@ -161,10 +165,15 @@ TCutG::TCutG(const char *name, Int_t n)
 TCutG::TCutG(const char *name, Int_t n, const Float_t *x, const Float_t *y)
       :TGraph(n,x,y)
 {
-   fObjectX  = 0;
-   fObjectY  = 0;
+   fObjectX  = nullptr;
+   fObjectY  = nullptr;
    SetName(name);
-   delete gROOT->GetListOfSpecials()->FindObject(name);
+   auto obj = gROOT->GetListOfSpecials()->FindObject(name);
+   if (obj) {
+      Warning("TCutG","Replacing existing %s: %s (Potential memory leak).",
+                 obj->IsA()->GetName(),obj->GetName());
+      delete obj;
+   }
    gROOT->GetListOfSpecials()->Add(this);
 
    // Take name of cut variables from pad title if title contains ":"
@@ -202,10 +211,15 @@ TCutG::TCutG(const char *name, Int_t n, const Float_t *x, const Float_t *y)
 TCutG::TCutG(const char *name, Int_t n, const Double_t *x, const Double_t *y)
       :TGraph(n,x,y)
 {
-   fObjectX  = 0;
-   fObjectY  = 0;
+   fObjectX  = nullptr;
+   fObjectY  = nullptr;
    SetName(name);
-   delete gROOT->GetListOfSpecials()->FindObject(name);
+   auto obj = gROOT->GetListOfSpecials()->FindObject(name);
+   if (obj) {
+      Warning("TCutG","Replacing existing %s: %s (Potential memory leak).",
+                 obj->IsA()->GetName(),obj->GetName());
+      delete obj;
+   }
    gROOT->GetListOfSpecials()->Add(this);
 
    // Take name of cut variables from pad title if title contains ":"
@@ -353,29 +367,22 @@ Double_t TCutG::IntegralHist(TH2 *h, Option_t *option) const
 ////////////////////////////////////////////////////////////////////////////////
 /// Save primitive as a C++ statement(s) on output stream out.
 
-void TCutG::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
+void TCutG::SavePrimitive(std::ostream &out, Option_t *option)
 {
-   char quote = '"';
-   out<<"   "<<std::endl;
-   if (gROOT->ClassSaved(TCutG::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TCutG *";
-   }
-   out<<"cutg = new TCutG("<<quote<<GetName()<<quote<<","<<fNpoints<<");"<<std::endl;
-   out<<"   cutg->SetVarX("<<quote<<GetVarX()<<quote<<");"<<std::endl;
-   out<<"   cutg->SetVarY("<<quote<<GetVarY()<<quote<<");"<<std::endl;
-   out<<"   cutg->SetTitle("<<quote<<GetTitle()<<quote<<");"<<std::endl;
+   TString arrx = SavePrimitiveVector(out, "cutg", fNpoints, fX, kTRUE);
+   TString arry = SavePrimitiveVector(out, "cutg", fNpoints, fY);
+   SavePrimitiveConstructor(
+      out, Class(), "cutg",
+      TString::Format("\"%s\", %d, %s.data(), %s.data()", GetName(), fNpoints, arrx.Data(), arry.Data()), kFALSE);
+   out << "   cutg->SetVarX(\"" << GetVarX() << "\");\n";
+   out << "   cutg->SetVarY(\"" << GetVarY() << "\");\n";
+   out << "   cutg->SetTitle(\"" << TString(GetTitle()).ReplaceSpecialCppChars() << "\");\n";
 
-   SaveFillAttributes(out,"cutg",0,1001);
-   SaveLineAttributes(out,"cutg",1,1,1);
-   SaveMarkerAttributes(out,"cutg",1,1,1);
+   SaveFillAttributes(out, "cutg", 0, 1000);
+   SaveLineAttributes(out, "cutg", 1, 1, 1);
+   SaveMarkerAttributes(out, "cutg", 1, 1, 1);
 
-   for (Int_t i=0;i<fNpoints;i++) {
-      out<<"   cutg->SetPoint("<<i<<","<<fX[i]<<","<<fY[i]<<");"<<std::endl;
-   }
-   out<<"   cutg->Draw("
-      <<quote<<option<<quote<<");"<<std::endl;
+   SavePrimitiveDraw(out, "cutg", option);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -403,7 +410,7 @@ void TCutG::SetVarX(const char *varx)
 {
    fVarX = varx;
    delete fObjectX;
-   fObjectX = 0;
+   fObjectX = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -413,7 +420,7 @@ void TCutG::SetVarY(const char *vary)
 {
    fVarY = vary;
    delete fObjectY;
-   fObjectY = 0;
+   fObjectY = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -6,30 +6,32 @@
 
 include(ExternalProject)
 
-find_package(OpenSSL REQUIRED)
+set(ROOT_XROOTD_VERSION "6.2.0")
+set(ROOT_XROOTD_HASH "cf41ba9f56b3baceb4860dfafad50e2f4724062650e125a59b9dbc5ebd6861e0")
 
-set(XROOTD_VERSION "5.3.1")
-set(XROOTD_VERSIONNUM 500030001 CACHE INTERNAL "" FORCE)
-set(XROOTD_SRC_URI https://github.com/xrootd/xrootd/archive/v${XROOTD_VERSION}.tar.gz)
-set(XROOTD_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/XROOTD-prefix)
-message(STATUS "Downloading and building XROOTD version ${XROOTD_VERSION}")
+set(XROOTD_PREFIX ${CMAKE_BINARY_DIR}/XROOTD-prefix)
 
-# Guess under which directory XRootD will install its libraires
-set(XROOTD_LIBDIR "lib")
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND ${CMAKE_SIZEOF_VOID_P} EQUAL 8
-AND NOT CMAKE_CROSSCOMPILING AND NOT EXISTS "/etc/debian_version")
-  set(XROOTD_LIBDIR "lib64")
+message(STATUS "Downloading and building XROOTD version ${ROOT_XROOTD_VERSION}")
+
+set(XROOTD_INCLUDE_DIRS ${XROOTD_PREFIX}/include/xrootd)
+set(XRDCL_NAME ${CMAKE_SHARED_LIBRARY_PREFIX}XrdCl${CMAKE_SHARED_LIBRARY_SUFFIX})
+set(XRDUTILS_NAME ${CMAKE_SHARED_LIBRARY_PREFIX}XrdUtils${CMAKE_SHARED_LIBRARY_SUFFIX})
+set(XROOTD_CLIENT_LIBRARIES ${XROOTD_PREFIX}/lib/${XRDCL_NAME})
+set(XROOTD_UTILS_LIBRARIES ${XROOTD_PREFIX}/lib/${XRDUTILS_NAME})
+set(XROOTD_LIBRARIES ${XROOTD_PREFIX}/lib/${XRDCL_NAME})
+
+if(APPLE)
+  set(rpath_origin "@loader_path")
+else()
+  set(rpath_origin "$ORIGIN")
 endif()
 
-foreach(lib XrdUtils XrdCl)
-  set(libname ${CMAKE_SHARED_LIBRARY_PREFIX}${lib}${CMAKE_SHARED_LIBRARY_SUFFIX})
-  list(APPEND XROOTD_LIBRARIES ${XROOTD_PREFIX}/${XROOTD_LIBDIR}/${libname})
-endforeach()
-
 ExternalProject_Add(
-    XROOTD
-    URL ${XROOTD_SRC_URI}
-    URL_HASH SHA256=0800b4c6444591a6514c5b81b2c4c79439875136ab2267ce4bed99cb94ead6e6
+    BUILTIN_XROOTD
+    DOWNLOAD_DIR ${ROOT_DOWNLOAD_DIR}
+    URL ${lcgpackages}/xrootd-${ROOT_XROOTD_VERSION}.tar.gz
+        https://github.com/xrootd/xrootd/releases/download/v${ROOT_XROOTD_VERSION}/xrootd-${ROOT_XROOTD_VERSION}.tar.gz
+    URL_HASH SHA256=${ROOT_XROOTD_HASH}
     INSTALL_DIR ${XROOTD_PREFIX}
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
                -DCMAKE_PREFIX_PATH:STRING=${OPENSSL_PREFIX}
@@ -40,54 +42,34 @@ ExternalProject_Add(
                -DCMAKE_CXX_FLAGS=${ROOT_EXTERNAL_CXX_FLAGS}
                -DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}
                -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}
+               -DCMAKE_INSTALL_LIBDIR=<INSTALL_DIR>/lib
                -DENABLE_PYTHON=OFF
                -DENABLE_CEPH=OFF
-               -DCMAKE_INSTALL_RPATH:STRING=${XROOTD_PREFIX}/${XROOTD_LIBDIR}
+               -DXRDCL_LIB_ONLY=ON
+               # The INSTALL_RPATH has to be relative, so we can relocate the
+               # XRootD install to the ROOT install directory:
+               -DCMAKE_INSTALL_RPATH:STRING=${rpath_origin}
+               -DOpenSSL_ROOT=${OPENSSL_ROOT} #For CMake <3.27
+               -DOPENSSL_ROOT=${OPENSSL_ROOT}
     INSTALL_COMMAND ${CMAKE_COMMAND} --build . --target install
-            COMMAND ${CMAKE_COMMAND} -E copy_directory <INSTALL_DIR>/include/xrootd <INSTALL_DIR>/include
-    LOG_DOWNLOAD 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1
-    BUILD_BYPRODUCTS ${XROOTD_LIBRARIES}
+    LOG_DOWNLOAD 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1 LOG_OUTPUT_ON_FAILURE 1
+    BUILD_BYPRODUCTS ${XROOTD_UTILS_LIBRARIES} ${XROOTD_CLIENT_LIBRARIES}
     TIMEOUT 600
 )
 
+# CMake checks for existence when a target is linked to XRootD
+file(MAKE_DIRECTORY ${XROOTD_PREFIX}/include/xrootd)
+
 if(builtin_openssl)
-  add_dependencies(XROOTD OPENSSL)
+  add_dependencies(BUILTIN_XROOTD BUILTIN_OPENSSL)
 endif()
 
-list(APPEND XROOTD_LIBRARIES OpenSSL::SSL)
+install(DIRECTORY ${XROOTD_PREFIX}/lib/ DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries FILES_MATCHING PATTERN "libXrd*")
+set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_RPATH} ${XROOTD_PREFIX}/lib PARENT_SCOPE)
 
-unset(XROOTD_FOUND CACHE)
-unset(XROOTD_FOUND PARENT_SCOPE)
-set(XROOTD_FOUND TRUE CACHE BOOL "" FORCE)
+set_property(GLOBAL APPEND PROPERTY ROOT_BUILTIN_TARGETS BUILTIN_XROOTD)
 
-set(XROOTD_INCLUDE_DIRS ${XROOTD_PREFIX}/include/xrootd ${XROOTD_DESTDIR}/include/xrootd/private)
-set(XROOTD_NOMAIN TRUE)
-set(XROOTD_CFLAGS "-DROOTXRDVERS=${XROOTD_VERSIONNUM}")
-
-set(XROOTD_INCLUDE_DIR ${XROOTD_PREFIX}/include/xrootd ${XROOTD_PREFIX}/include/xrootd/private CACHE INTERNAL "" FORCE)
-set(XROOTD_INCLUDE_DIRS ${XROOTD_PREFIX}/include/xrootd ${XROOTD_PREFIX}/include/xrootd/private CACHE INTERNAL "" FORCE)
-set(XROOTD_LIBRARY ${XROOTD_PREFIX}/${XROOTD_LIBDIR}/${XROOTD_LIBNAME} CACHE INTERNAL "" FORCE)
-set(XROOTD_LIBRARIES ${XROOTD_LIBRARIES} CACHE INTERNAL "" FORCE)
-
-add_library(xrootd INTERFACE)
-target_include_directories(xrootd INTERFACE $<BUILD_INTERFACE:${XROOTD_INCLUDE_DIR}>)
-target_link_libraries(xrootd INTERFACE $<BUILD_INTERFACE:${XROOTD_LIBRARIES}>)
-set_property(TARGET xrootd PROPERTY INTERFACE_BUILD_RPATH ${XROOTD_PREFIX}/${XROOTD_LIBDIR})
-add_dependencies(xrootd XROOTD)
-
-add_library(Xrootd::Xrootd ALIAS xrootd)
-
-set_property(GLOBAL APPEND PROPERTY ROOT_BUILTIN_TARGETS XROOTD)
-
-install(DIRECTORY ${XROOTD_PREFIX}/${XROOTD_LIBDIR}/ DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries FILES_MATCHING PATTERN "libXrd*")
-install(DIRECTORY ${XROOTD_PREFIX}/include/xrootd/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} COMPONENT headers)
-if(APPLE)
-  # XRootD libraries on mac need the LC_RPATH variable set. The build process already takes care of setting
-  #   * BUILD_RPATH = build/XROOTD-prefix/../src
-  #   * INSTALL_RPATH = build/lib
-  # Since the install directory for the builtin_xrootd target corresponds to the build directory of the main project.
-  # Use a post install script to change the LC_RPATH variable of the libraries in the ROOT install folder.
-  install(SCRIPT ${CMAKE_CURRENT_LIST_DIR}/XROOTDApplePostInstall.cmake
-          CODE "xrootd_libs_change_rpath(${XROOTD_PREFIX}/${XROOTD_LIBDIR} ${CMAKE_INSTALL_FULL_LIBDIR})"
-  )
-endif()
+set(XROOTD_INCLUDE_DIRS ${XROOTD_INCLUDE_DIRS} PARENT_SCOPE)
+set(XROOTD_CLIENT_LIBRARIES ${XROOTD_CLIENT_LIBRARIES} PARENT_SCOPE)
+set(XROOTD_UTILS_LIBRARIES ${XROOTD_UTILS_LIBRARIES} PARENT_SCOPE)
+set(XROOTD_LIBRARIES ${XROOTD_LIBRARIES} PARENT_SCOPE)

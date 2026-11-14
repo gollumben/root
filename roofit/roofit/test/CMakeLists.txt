@@ -6,13 +6,52 @@
 
 # @author Stephan Hageboeck, CERN, 2019
 
-ROOT_ADD_GTEST(testRooGaussian testRooGaussian.cxx LIBRARIES RooFitCore RooFit)
-ROOT_ADD_GTEST(testRooPoisson testRooPoisson.cxx LIBRARIES RooFitCore RooFit)
-ROOT_ADD_GTEST(testRooBernstein testRooBernstein.cxx LIBRARIES RooFitCore RooFit)
-ROOT_ADD_GTEST(testRooCrystalBall testRooCrystalBall.cxx LIBRARIES Gpad RooFitCore RooFit)
-ROOT_ADD_GTEST(testRooJohnson testRooJohnson.cxx LIBRARIES Gpad RooFitCore RooFit)
-ROOT_ADD_GTEST(testRooParamHistFunc testRooParamHistFunc.cxx LIBRARIES Gpad RooFitCore RooFit)
-ROOT_ADD_GTEST(testRooExponential testRooExponential.cxx
-  COPY_TO_BUILDDIR ${CMAKE_CURRENT_SOURCE_DIR}/exponentialPdf.root
-  LIBRARIES Core RooFitCore RooFit)
-ROOT_ADD_GTEST(testSumW2Error testSumW2Error.cxx LIBRARIES Gpad RooFitCore RooFit)
+ROOT_ADD_GTEST(testRooFit
+    stabilityTests.cxx
+    testRooBernstein.cxx
+    testRooBifurGauss.cxx
+    testRooCrystalBall.cxx
+    testRooExponential.cxx
+    testRooGaussian.cxx
+    testRooIntegralMorph.cxx
+    testRooJohnson.cxx
+    testRooKeysPdf.cxx
+    testRooLandau.cxx
+    testRooMomentMorphFuncND.cxx
+    testRooParamHistFunc.cxx
+    testRooPoisson.cxx
+    testRooStepFunc.cxx
+  LIBRARIES
+    Gpad
+    RooFit
+  COPY_TO_BUILDDIR
+    # For testRooExponential.cxx
+    ${CMAKE_CURRENT_SOURCE_DIR}/exponentialPdf.root
+)
+
+if(mathmore)
+  ROOT_EXECUTABLE(testRooFitExe testRooFit.cxx LIBRARIES RooFit MathMore)
+  ROOT_ADD_TEST(test-fit-testRooFit COMMAND testRooFitExe)
+  ROOT_EXECUTABLE(testFitPerf testFitPerf.cxx LIBRARIES RooFit MathMore)
+  ROOT_ADD_TEST(test-fit-testFitPerf COMMAND testFitPerf)
+else()
+  ROOT_EXECUTABLE(testRooFitExe testRooFit.cxx LIBRARIES RooFit)
+  ROOT_ADD_TEST(test-fit-testRooFit COMMAND testRooFitExe)
+endif()
+
+add_subdirectory(vectorisedPDFs)
+
+if(tmva)
+  ROOT_FIND_PYTHON_MODULE(torch)
+  ROOT_FIND_PYTHON_MODULE(onnx)
+
+  if (ROOT_TORCH_FOUND AND ROOT_ONNX_FOUND)
+    ROOT_ADD_TEST(roofit-create-onnx-model COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/create_onnx_model.py
+       FIXTURES_SETUP roofit-onnx-model
+    )
+    ROOT_ADD_GTEST(testRooONNXFunc testRooONNXFunc.cxx LIBRARIES RooFit
+       FIXTURES_REQUIRED roofit-onnx-model
+    )
+  endif()
+
+endif()

@@ -24,9 +24,9 @@
 #include "TBuffer.h"
 #include "TROOT.h"
 #include "strlcpy.h"
-#include "snprintf.h"
 
-ClassImp(TLinearFitter);
+#include <string>
+
 
 
 std::map<TString,TFormula*> TLinearFitter::fgFormulaMap;
@@ -36,6 +36,8 @@ std::map<TString,TFormula*> TLinearFitter::fgFormulaMap;
 /**
 
 \class TLinearFitter
+
+\note An alternative to this class is to use ROOT::Fit::Fitter, calling the LinearFit() method.
 
 \ingroup MinuitOld
 
@@ -93,7 +95,7 @@ fitters and doesn't require to set the initial values of parameters.
 ### 2.Setting the formula
 
 #### 2.1 The linear formula syntax:
-     -Additive parts are separated by 2 plus signes "++"
+     -Additive parts are separated by 2 plus signs "++"
       --for example "1 ++ x" - for fitting a straight line
      -All standard functions, undrestood by TFormula, can be used
       as additive parts
@@ -224,22 +226,6 @@ fitters and doesn't require to set the initial values of parameters.
 ///run the function StoreData(kFALSE) after constructor
 
 TLinearFitter::TLinearFitter() :
-TVirtualFitter(),
-   fParams(),
-   fParCovar(),
-   fTValues(),
-   fDesign(),
-   fDesignTemp(),
-   fDesignTemp2(),
-   fDesignTemp3(),
-   fAtb(),
-   fAtbTemp(),
-   fAtbTemp2(),
-   fAtbTemp3(),
-   fFunctions(),
-   fY(),
-   fX(),
-   fE(),
    fVal()
 {
    fChisquare =0;
@@ -249,10 +235,10 @@ TVirtualFitter(),
    fY2Temp    =0;
    fNfixed    =0;
    fIsSet     =kFALSE;
-   fFormula   =0;
-   fFixedParams=0;
+   fFormula   =nullptr;
+   fFixedParams=nullptr;
    fSpecial   =0;
-   fInputFunction=0;
+   fInputFunction=nullptr;
    fStoreData =kTRUE;
    fRobust    =kFALSE;
    fNfunctions = 0;
@@ -273,12 +259,12 @@ TLinearFitter::TLinearFitter(Int_t ndim) :
    fY2      =0;
    fY2Temp  =0;
    fNfixed  =0;
-   fFixedParams=0;
-   fFormula =0;
+   fFixedParams=nullptr;
+   fFormula =nullptr;
    fIsSet   =kFALSE;
    fChisquare=0;
    fSpecial  =0;
-   fInputFunction=0;
+   fInputFunction=nullptr;
    fStoreData=kTRUE;
    fRobust = kFALSE;
    fNfunctions = 0;
@@ -301,10 +287,10 @@ TLinearFitter::TLinearFitter(Int_t ndim, const char *formula, Option_t *opt)
    fChisquare=0;
    fY2=0;
    fNfixed=0;
-   fFixedParams=0;
+   fFixedParams=nullptr;
    fSpecial=0;
-   fInputFunction=0;
-   fFormula = 0;
+   fInputFunction=nullptr;
+   fFormula = nullptr;
    TString option=opt;
    option.ToUpper();
    if (option.Contains("D"))
@@ -341,9 +327,9 @@ TLinearFitter::TLinearFitter(TFormula *function, Option_t *opt)
    fChisquare=0;
    fY2=0;
    fNfixed=0;
-   fFixedParams=0;
+   fFixedParams=nullptr;
    fSpecial=0;
-   fFormula = 0;
+   fFormula = nullptr;
    TString option=opt;
    option.ToUpper();
    if (option.Contains("D"))
@@ -352,64 +338,9 @@ TLinearFitter::TLinearFitter(TFormula *function, Option_t *opt)
       fStoreData=kFALSE;
    fIsSet=kTRUE;
    fRobust=kFALSE;
-   fInputFunction=0;
+   fInputFunction=nullptr;
 
    SetFormula(function);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Copy ctor
-
-TLinearFitter::TLinearFitter(const TLinearFitter& tlf) :
-   TVirtualFitter(tlf),
-   fParams(tlf.fParams),
-   fParCovar(tlf.fParCovar),
-   fTValues(tlf.fTValues),
-   fParSign(tlf.fParSign),
-   fDesign(tlf.fDesign),
-   fDesignTemp(tlf.fDesignTemp),
-   fDesignTemp2(tlf.fDesignTemp2),
-   fDesignTemp3(tlf.fDesignTemp3),
-   fAtb(tlf.fAtb),
-   fAtbTemp(tlf.fAtbTemp),
-   fAtbTemp2(tlf.fAtbTemp2),
-   fAtbTemp3(tlf.fAtbTemp3),
-   fFunctions( * (TObjArray *)tlf.fFunctions.Clone()),
-   fY(tlf.fY),
-   fY2(tlf.fY2),
-   fY2Temp(tlf.fY2Temp),
-   fX(tlf.fX),
-   fE(tlf.fE),
-   fInputFunction(tlf.fInputFunction),
-   fVal(),
-   fNpoints(tlf.fNpoints),
-   fNfunctions(tlf.fNfunctions),
-   fFormulaSize(tlf.fFormulaSize),
-   fNdim(tlf.fNdim),
-   fNfixed(tlf.fNfixed),
-   fSpecial(tlf.fSpecial),
-   fFormula(0),
-   fIsSet(tlf.fIsSet),
-   fStoreData(tlf.fStoreData),
-   fChisquare(tlf.fChisquare),
-   fH(tlf.fH),
-   fRobust(tlf.fRobust),
-   fFitsample(tlf.fFitsample),
-   fFixedParams(0)
-{
-   // make a deep  copy of managed objects
-   // fFormula, fFixedParams and fFunctions
-
-   if ( tlf.fFixedParams && fNfixed > 0 ) {
-      fFixedParams=new Bool_t[fNfixed];
-      for(Int_t i=0; i<fNfixed; ++i)
-         fFixedParams[i]=tlf.fFixedParams[i];
-   }
-   if (tlf.fFormula) {
-      fFormula = new char[fFormulaSize+1];
-      strlcpy(fFormula,tlf.fFormula,fFormulaSize+1);
-   }
-
 }
 
 
@@ -420,13 +351,13 @@ TLinearFitter::~TLinearFitter()
 {
    if (fFormula) {
       delete [] fFormula;
-      fFormula = 0;
+      fFormula = nullptr;
    }
    if (fFixedParams) {
       delete [] fFixedParams;
-      fFixedParams = 0;
+      fFixedParams = nullptr;
    }
-   fInputFunction = 0;
+   fInputFunction = nullptr;
 
    //fFunctions.Delete();
    fFunctions.Clear();
@@ -434,77 +365,8 @@ TLinearFitter::~TLinearFitter()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Assignment operator
-
-TLinearFitter& TLinearFitter::operator=(const TLinearFitter& tlf)
-{
-   if(this!=&tlf) {
-
-      TVirtualFitter::operator=(tlf);
-      fParams.ResizeTo(tlf.fParams);      fParams=tlf.fParams;
-      fParCovar.ResizeTo(tlf.fParCovar);  fParCovar=tlf.fParCovar;
-      fTValues.ResizeTo(tlf.fTValues);    fTValues=tlf.fTValues;
-      fParSign.ResizeTo(tlf.fParSign);    fParSign=tlf.fParSign;
-      fDesign.ResizeTo(tlf.fDesign);                fDesign=tlf.fDesign;
-      fDesignTemp.ResizeTo(tlf.fDesignTemp);        fDesignTemp=tlf.fDesignTemp;
-      fDesignTemp2.ResizeTo(tlf.fDesignTemp2);      fDesignTemp2=tlf.fDesignTemp2;
-      fDesignTemp3.ResizeTo(tlf.fDesignTemp3);      fDesignTemp3=tlf.fDesignTemp3;
-
-      fAtb.ResizeTo(tlf.fAtb);            fAtb=tlf.fAtb;
-      fAtbTemp.ResizeTo(tlf.fAtbTemp);    fAtbTemp=tlf.fAtbTemp;
-      fAtbTemp2.ResizeTo(tlf.fAtbTemp2);    fAtbTemp2=tlf.fAtbTemp2;
-      fAtbTemp3.ResizeTo(tlf.fAtbTemp3);    fAtbTemp3=tlf.fAtbTemp3;
-
-      // use clear instead of delete
-      fFunctions.Clear();
-      fFunctions= *(TObjArray*) tlf.fFunctions.Clone();
-
-      fY.ResizeTo(tlf.fY);    fY = tlf.fY;
-      fX.ResizeTo(tlf.fX);    fX = tlf.fX;
-      fE.ResizeTo(tlf.fE);    fE = tlf.fE;
-
-      fY2 = tlf.fY2;
-      fY2Temp = tlf.fY2Temp;
-      for(Int_t i = 0; i < 1000; i++) fVal[i] = tlf.fVal[i];
-
-      if(fInputFunction) { delete fInputFunction; fInputFunction = 0; }
-      if(tlf.fInputFunction) fInputFunction = new TFormula(*tlf.fInputFunction);
-
-      fNpoints=tlf.fNpoints;
-      fNfunctions=tlf.fNfunctions;
-      fFormulaSize=tlf.fFormulaSize;
-      fNdim=tlf.fNdim;
-      fNfixed=tlf.fNfixed;
-      fSpecial=tlf.fSpecial;
-
-      if(fFormula) { delete [] fFormula; fFormula = 0; }
-      if (tlf.fFormula) {
-         fFormula = new char[fFormulaSize+1];
-         strlcpy(fFormula,tlf.fFormula,fFormulaSize+1);
-      }
-
-      fIsSet=tlf.fIsSet;
-      fStoreData=tlf.fStoreData;
-      fChisquare=tlf.fChisquare;
-
-      fH=tlf.fH;
-      fRobust=tlf.fRobust;
-      fFitsample=tlf.fFitsample;
-
-      if(fFixedParams) { delete [] fFixedParams; fFixedParams = 0; }
-      if ( tlf.fFixedParams && fNfixed > 0 ) {
-         fFixedParams=new Bool_t[fNfixed];
-         for(Int_t i=0; i< fNfixed; ++i)
-            fFixedParams[i]=tlf.fFixedParams[i];
-      }
-
-   }
-   return *this;
-}
-
-////////////////////////////////////////////////////////////////////////////////
 ///Add another linear fitter to this linear fitter. Points and Design matrices
-///are added, but the previos fitting results (if any) are deleted.
+///are added, but the previous fitting results (if any) are deleted.
 ///Fitters must have same formulas (this is not checked). Fixed parameters are not changed
 
 void TLinearFitter::Add(TLinearFitter *tlf)
@@ -547,7 +409,7 @@ void TLinearFitter::Add(TLinearFitter *tlf)
 
    fChisquare=0;
    fH=0;
-   fRobust=0;
+   fRobust=false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -757,7 +619,7 @@ void TLinearFitter::Clear(Option_t * /*option*/)
    fAtbTemp2.Clear();
    fAtbTemp3.Clear();
    fFunctions.Clear();
-   fInputFunction=0;
+   fInputFunction=nullptr;
    fY.Clear();
    fX.Clear();
    fE.Clear();
@@ -767,10 +629,10 @@ void TLinearFitter::Clear(Option_t * /*option*/)
    fFormulaSize=0;
    fNdim=0;
    if (fFormula) delete [] fFormula;
-   fFormula=0;
-   fIsSet=0;
+   fFormula=nullptr;
+   fIsSet=false;
    if (fFixedParams) delete [] fFixedParams;
-   fFixedParams=0;
+   fFixedParams=nullptr;
 
    fChisquare=0;
    fY2=0;
@@ -799,7 +661,7 @@ void TLinearFitter::ClearPoints()
    fParSign.Zero();
 
    for (Int_t i=0; i<fNfunctions; i++)
-      fFixedParams[i]=0;
+      fFixedParams[i]=false;
    fChisquare=0;
    fNpoints=0;
 
@@ -1010,7 +872,7 @@ Int_t TLinearFitter::Eval()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-///Fixes paramter #ipar at its current value.
+///Fixes paramter `#ipar` at its current value.
 
 void TLinearFitter::FixParameter(Int_t ipar)
 {
@@ -1028,12 +890,12 @@ void TLinearFitter::FixParameter(Int_t ipar)
    }
    if (!fFixedParams)
       fFixedParams = new Bool_t[fNfunctions];
-   fFixedParams[ipar] = 1;
+   fFixedParams[ipar] = true;
    fNfixed++;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-///Fixes parameter #ipar at value parvalue.
+///Fixes parameter `#ipar` at value `parvalue`.
 
 void TLinearFitter::FixParameter(Int_t ipar, Double_t parvalue)
 {
@@ -1047,7 +909,7 @@ void TLinearFitter::FixParameter(Int_t ipar, Double_t parvalue)
    }
    if(!fFixedParams)
       fFixedParams = new Bool_t[fNfunctions];
-   fFixedParams[ipar] = 1;
+   fFixedParams[ipar] = true;
    if (fParams.GetNoElements()<fNfunctions)
       fParams.ResizeTo(fNfunctions);
    fParams(ipar) = parvalue;
@@ -1055,7 +917,7 @@ void TLinearFitter::FixParameter(Int_t ipar, Double_t parvalue)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-///Releases parameter #ipar.
+///Releases parameter `#ipar`.
 
 void TLinearFitter::ReleaseParameter(Int_t ipar)
 {
@@ -1067,7 +929,7 @@ void TLinearFitter::ReleaseParameter(Int_t ipar)
       Warning("ReleaseParameter","This parameter is not fixed\n");
       return;
    } else {
-      fFixedParams[ipar] = 0;
+      fFixedParams[ipar] = false;
       fNfixed--;
    }
 }
@@ -1361,7 +1223,7 @@ void TLinearFitter::GetParameters(TVectorD &vpar)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-///Returns the value and the name of the parameter #ipar
+///Returns the value and the name of the parameter `#ipar`
 ///NB: In the calling function the argument name must be set large enough
 
 Int_t TLinearFitter::GetParameter(Int_t ipar,char* name,Double_t& value,Double_t& /*verr*/,Double_t& /*vlow*/, Double_t& /*vhigh*/) const
@@ -1374,13 +1236,13 @@ Int_t TLinearFitter::GetParameter(Int_t ipar,char* name,Double_t& value,Double_t
    if (fInputFunction)
       strcpy(name, fInputFunction->GetParName(ipar));
    else
-      name = 0;
+      name = nullptr;
    return 1;
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
-///Returns the error of parameter #ipar
+///Returns the error of parameter `#ipar`
 
 Double_t TLinearFitter::GetParError(Int_t ipar) const
 {
@@ -1394,13 +1256,13 @@ Double_t TLinearFitter::GetParError(Int_t ipar) const
 
 
 ////////////////////////////////////////////////////////////////////////////////
-///Returns name of parameter #ipar
+///Returns name of parameter `#ipar`
 
 const char *TLinearFitter::GetParName(Int_t ipar) const
 {
    if (ipar<0 || ipar>fNfunctions) {
       Error("GetParError", "illegal value of parameter");
-      return 0;
+      return nullptr;
    }
    if (fInputFunction)
       return fInputFunction->GetParName(ipar);
@@ -1408,7 +1270,7 @@ const char *TLinearFitter::GetParName(Int_t ipar) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-///Returns the t-value for parameter #ipar
+///Returns the t-value for parameter `#ipar`
 
 Double_t TLinearFitter::GetParTValue(Int_t ipar)
 {
@@ -1422,7 +1284,7 @@ Double_t TLinearFitter::GetParTValue(Int_t ipar)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-///Returns the significance of parameter #ipar
+///Returns the significance of parameter `#ipar`
 
 Double_t TLinearFitter::GetParSignificance(Int_t ipar)
 {
@@ -1456,7 +1318,7 @@ Int_t TLinearFitter::Merge(TCollection *list)
 {
    if (!list) return -1;
    TIter next(list);
-   TLinearFitter *lfit = 0;
+   TLinearFitter *lfit = nullptr;
    while ((lfit = (TLinearFitter*)next())) {
       if (!lfit->InheritsFrom(TLinearFitter::Class())) {
          Error("Add","Attempt to add object of class: %s to a %s",lfit->ClassName(),this->ClassName());
@@ -1501,7 +1363,7 @@ void TLinearFitter::SetBasisFunctions(TObjArray * functions)
    fY2Temp=0;
    fY2=0;
    for (int i=0; i<size; i++)
-      fFixedParams[i]=0;
+      fFixedParams[i]=false;
    fIsSet=kFALSE;
    fChisquare=0;
 
@@ -1548,7 +1410,7 @@ void TLinearFitter::SetFormula(const char *formula)
    //in case of a hyperplane:
    char *fstring;
    fstring = (char *)strstr(fFormula, "hyp");
-   if (fstring!=0){
+   if (fstring!=nullptr){
       // isHyper = kTRUE;
       fstring+=3;
       sscanf(fstring, "%d", &size);
@@ -1578,12 +1440,10 @@ void TLinearFitter::SetFormula(const char *formula)
       fFunctions.Expand(fNfunctions);
 
       //check if the old notation of xi is used somewhere instead of x[i]
-      char pattern[12];
-      char replacement[14];
       for (i=0; i<fNdim; i++){
-         snprintf(pattern,sizeof(pattern), "x%d", i);
-         snprintf(replacement,sizeof(replacement), "x[%d]", i);
-         sstring = sstring.ReplaceAll(pattern, Int_t(i/10)+2, replacement, Int_t(i/10)+4);
+         std::string pattern = "x" + std::to_string(i);
+         std::string replacement = "x[" + std::to_string(i) + "]";
+         sstring = sstring.ReplaceAll(pattern.c_str(), replacement.c_str());
       }
 
       //fill the array of functions
@@ -1644,7 +1504,7 @@ void TLinearFitter::SetFormula(const char *formula)
    fY2Temp=0;
    fY2=0;
    for (i=0; i<size; i++)
-      fFixedParams[i]=0;
+      fFixedParams[i]=false;
    fIsSet=kFALSE;
    fChisquare=0;
 
@@ -1699,7 +1559,7 @@ void TLinearFitter::SetFormula(TFormula *function)
    fY2Temp=0;
    fY2=0;
    for (Int_t i=0; i<size; i++)
-      fFixedParams[i]=0;
+      fFixedParams[i]=false;
    //check if any parameters are fixed (not for pure TFormula)
 
    if (function->InheritsFrom(TF1::Class())){
@@ -1726,9 +1586,9 @@ Bool_t TLinearFitter::UpdateMatrix()
       for (Int_t i=0; i<fNpoints; i++) {
          AddToDesign(TMatrixDRow(fX, i).GetPtr(), fY(i), fE(i));
       }
-      return 1;
+      return true;
    } else
-      return 0;
+      return false;
 
 }
 

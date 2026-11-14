@@ -45,6 +45,8 @@ public:
    TGuiFactory(const char *name = "Batch", const char *title = "Batch GUI Factory");
    virtual ~TGuiFactory() { }
 
+   virtual Bool_t UseVirtualX() const { return kTRUE; }
+
    virtual TApplicationImp *CreateApplicationImp(const char *classname, int *argc, char **argv);
 
    virtual TCanvasImp *CreateCanvasImp(TCanvas *c, const char *title, UInt_t width, UInt_t height);
@@ -60,7 +62,7 @@ public:
 
    virtual TInspectorImp *CreateInspectorImp(const TObject *obj, UInt_t width, UInt_t height);
 
-   ClassDef(TGuiFactory,0)  //Abstract factory for GUI components
+   ClassDefOverride(TGuiFactory,0)  //Abstract factory for GUI components
 };
 
 R__EXTERN TGuiFactory *gGuiFactory;

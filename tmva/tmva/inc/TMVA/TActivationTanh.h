@@ -1,11 +1,11 @@
 // @(#)root/tmva $Id$
-// Author: Matt Jachowski 
+// Author: Matt Jachowski
 
 /**********************************************************************************
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : TMVA::TActivationTanh                                                 *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Tanh activation function for TNeuron                                      *
@@ -18,8 +18,8 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
- **********************************************************************************/ 
+ * (see tmva/doc/LICENSE)                                          *
+ **********************************************************************************/
 
 #ifndef ROOT_TMVA_TActivationTanh
 #define ROOT_TMVA_TActivationTanh
@@ -37,31 +37,31 @@
 #include "TMVA/TActivation.h"
 
 namespace TMVA {
-  
+
    class TActivationTanh : public TActivation {
-    
+
    public:
 
       TActivationTanh() {}
       ~TActivationTanh() {}
 
       // evaluate the activation function
-      Double_t Eval(Double_t arg);
+      Double_t Eval(Double_t arg) override;
 
       // evaluate the derivative of the activation function
-      Double_t EvalDerivative(Double_t arg);
+      Double_t EvalDerivative(Double_t arg) override;
 
       // minimum of the range of the activation function
-      Double_t GetMin() { return -1; }
+      Double_t GetMin() override { return -1; }
 
       // maximum of the range of the activation function
-      Double_t GetMax() { return 1; }
+      Double_t GetMax() override { return 1; }
 
       // expression for the activation function
-      TString GetExpression();
+      TString GetExpression() override;
 
       // writer of function code
-      virtual void MakeFunction(std::ostream& fout, const TString& fncName);
+      void MakeFunction(std::ostream& fout, const TString& fncName) override;
 
       void SetSlow(){fFAST=kFALSE;} // to ensure old training files will be process with old tanh code
    private:
@@ -69,7 +69,7 @@ namespace TMVA {
       Double_t fast_tanh(Double_t arg);
       Bool_t   fFAST;
 
-      ClassDef(TActivationTanh,0); // Tanh sigmoid activation function for TNeuron
+      ClassDefOverride(TActivationTanh,0); // Tanh sigmoid activation function for TNeuron
    };
 
 } // namespace TMVA

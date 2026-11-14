@@ -12,6 +12,7 @@ ROOT_LINKER_LIBRARY(ROOTBrowserWidgets
      src/RBrowserWidget.cxx
   DEPENDENCIES
      ROOTBrowsable
+     ROOTWebDisplay
 )
 
 ROOT_LINKER_LIBRARY(ROOTBrowserTCanvasWidget
@@ -22,38 +23,66 @@ ROOT_LINKER_LIBRARY(ROOTBrowserTCanvasWidget
      WebGui6
 )
 
-ROOT_LINKER_LIBRARY(ROOTBrowserRCanvasWidget
-     src/RBrowserRCanvasWidget.cxx
+if(root7)
+  ROOT_LINKER_LIBRARY(ROOTBrowserRCanvasWidget
+       src/RBrowserRCanvasWidget.cxx
+    DEPENDENCIES
+       ROOTBrowserWidgets
+       ROOTGpadv7
+)
+endif()
+
+if(geom)
+  ROOT_LINKER_LIBRARY(ROOTBrowserGeomWidget
+       src/RBrowserGeomWidget.cxx
+    DEPENDENCIES
+       ROOTBrowserWidgets
+       ROOTGeomViewer
+  )
+endif()
+
+ROOT_LINKER_LIBRARY(ROOTBrowserTreeWidget
+     src/RBrowserTreeWidget.cxx
   DEPENDENCIES
      ROOTBrowserWidgets
-     ROOTGpadv7
+     ROOTBrowserv7
+     ROOTTreeViewer
 )
 
-ROOT_LINKER_LIBRARY(ROOTBrowserGeomWidget
-     src/RBrowserGeomWidget.cxx
-  DEPENDENCIES
-     ROOTBrowserWidgets
-     ROOTEve
+set(BROWSERV7_HEADERS
+  ROOT/RBrowser.hxx
+  ROOT/RBrowserData.hxx
+  ROOT/RBrowserReply.hxx
+  ROOT/RBrowserRequest.hxx
+  ROOT/RFileDialog.hxx
+  ROOT/RWebBrowserImp.hxx
 )
 
 ROOT_STANDARD_LIBRARY_PACKAGE(ROOTBrowserv7
   HEADERS
-    ROOT/RBrowser.hxx
-    ROOT/RBrowserData.hxx
-    ROOT/RBrowserReply.hxx
-    ROOT/RBrowserRequest.hxx
-    ROOT/RFileDialog.hxx
-    ROOT/RWebBrowserImp.hxx
+    ${BROWSERV7_HEADERS}
   SOURCES
     src/RBrowser.cxx
     src/RBrowserData.cxx
     src/RFileDialog.cxx
-    src//RWebBrowserImp.cxx
+    src/RWebBrowserImp.cxx
   LIBRARIES
     ROOTBrowserWidgets
   DEPENDENCIES
     ROOTBrowsable
     ROOTWebDisplay
+    RIO
 )
 
+set(RELATIVE_INC_HEADERS ${BROWSERV7_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+target_sources(ROOTBrowsable
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/
+  FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef.h
+)
 

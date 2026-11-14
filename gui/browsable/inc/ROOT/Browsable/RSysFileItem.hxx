@@ -12,8 +12,10 @@
 #include <ROOT/Browsable/RItem.hxx>
 
 namespace ROOT {
-namespace Experimental {
 namespace Browsable {
+
+
+class RSysDirLevelIter;
 
 /** \class RSysFileItem
 \ingroup rbrowser
@@ -21,7 +23,10 @@ namespace Browsable {
 */
 
 class RSysFileItem : public RItem {
-public:
+
+friend class RSysDirLevelIter;
+
+private:
    // internal data, used for generate directory list
    int type{0};             ///<! file type
    int uid{0};              ///<! file uid
@@ -31,11 +36,13 @@ public:
    long modtime{0};         ///<! modification time
    int64_t size{0};         ///<! file size
 
+protected:
    // this is part for browser, visible for I/O
-   std::string mtime;    ///< modification time
    std::string ftype;    ///< file attributes
    std::string fuid;     ///< user id
    std::string fgid;     ///< group id
+
+public:
 
    /** Default constructor */
    RSysFileItem() = default;
@@ -44,6 +51,15 @@ public:
 
    // should be here, one needs virtual table for correct streaming of RRootBrowserReply
    virtual ~RSysFileItem() = default;
+
+   void SetType(const std::string &_type) { ftype  = _type; }
+   void SetUid(const std::string &_uid) { fuid  = _uid; }
+   void SetGid(const std::string &_gid) { fgid  = _gid; }
+
+   const std::string &GetType() const { return ftype; }
+   const std::string &GetUid() const { return fuid; }
+   const std::string &GetGid() const { return fgid; }
+
 
    // only subdir is folder for files items
    bool IsFolder() const override { return isdir; }
@@ -64,7 +80,7 @@ public:
       if (method == "size") {
          auto fb = dynamic_cast<const RSysFileItem *> (b);
          if (fb)
-            return size < fb->size;
+            return size > fb->size;
       }
 
       return GetName() < b->GetName();
@@ -72,7 +88,6 @@ public:
 };
 
 } // namespace Browsable
-} // namespace Experimental
 } // namespace ROOT
 
 

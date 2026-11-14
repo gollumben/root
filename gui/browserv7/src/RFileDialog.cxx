@@ -1,6 +1,5 @@
 // Author: Sergey Linev <S.Linev@gsi.de>
 // Date: 2019-10-31
-// Warning: This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 
 /*************************************************************************
  * Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.               *
@@ -27,13 +26,14 @@
 #include <thread>
 #include <fstream>
 
-using namespace ROOT::Experimental;
+using namespace ROOT;
 using namespace std::string_literals;
 
-/** \class ROOT::Experimental::RFileDialog
+/** \class ROOT::RFileDialog
 \ingroup rbrowser
+\ingroup webwidgets
 
-web-based FileDialog.
+\brief Web-based FileDialog.
 */
 
 //////////////////////////////////////////////////////////////////////////////////////////////
@@ -336,7 +336,7 @@ void RFileDialog::ProcessMsg(unsigned connid, const std::string &arg)
 
 void RFileDialog::SetWorkingPath(const std::string &path)
 {
-   auto p = Browsable::RElement::ParsePath(path);
+   auto p = Browsable::RSysFile::GetWorkingPath(path);
    auto elem = fBrowsable.GetSubElement(p);
    if (elem) {
       fBrowsable.SetWorkingPath(p);
@@ -417,16 +417,26 @@ std::string RFileDialog::NewFile(const std::string &title, const std::string &fn
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
+/// Check if this could be the message send by client to start new file dialog
+/// If returns true, one can call RFileDialog::Embedded() to really create file dialog
+/// instance inside existing widget
+
+bool RFileDialog::IsMessageToStartDialog(const std::string &msg)
+{
+   return msg.compare(0, 11, "FILEDIALOG:") == 0;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////
 /// Create dialog instance to use as embedded dialog inside other widget
 /// Embedded dialog started on the client side where FileDialogController.SaveAs() method called
 /// Such method immediately send message with "FILEDIALOG:" prefix
-/// On the server side widget should detect such message and call RFileDialog::Embedded()
+/// On the server side widget should detect such message and call RFileDialog::Embed()
 /// providing received string as second argument.
 /// Returned instance of shared_ptr<RFileDialog> may be used to assign callback when file is selected
 
-std::shared_ptr<RFileDialog> RFileDialog::Embedded(const std::shared_ptr<RWebWindow> &window, const std::string &args)
+std::shared_ptr<RFileDialog> RFileDialog::Embed(const std::shared_ptr<RWebWindow> &window, unsigned connid, const std::string &args)
 {
-   if (args.compare(0, 11, "FILEDIALOG:") != 0)
+   if (!IsMessageToStartDialog(args))
       return nullptr;
 
    auto arr = TBufferJSON::FromJSON<std::vector<std::string>>(args.substr(11));
@@ -466,10 +476,41 @@ std::shared_ptr<RFileDialog> RFileDialog::Embedded(const std::shared_ptr<RWebWin
       dialog->SetNameFilters(*arr);
    }
 
-   dialog->Show({window, chid});
+   dialog->Show({window, connid, chid});
 
    // use callback to release pointer, actually not needed but just to avoid compiler warning
    dialog->SetCallback([dialog](const std::string &) mutable { dialog.reset(); });
 
    return dialog;
 }
+
+/////////////////////////////////////////////////////////////////////////////////////
+/// Set start dialog function for RWebWindow
+
+void RFileDialog::SetStartFunc(bool on)
+{
+   if (on)
+      RWebWindow::SetStartDialogFunc([](const std::shared_ptr<RWebWindow> &window, unsigned connid, const std::string &args) -> bool {
+         auto res = RFileDialog::Embed(window, connid, args);
+         return res ? true : false;
+      });
+   else
+      RWebWindow::SetStartDialogFunc(nullptr);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////
+
+namespace ROOT {
+namespace Details {
+
+class RWebWindowPlugin {
+public:
+   RWebWindowPlugin() { RFileDialog::SetStartFunc(true); }
+
+   ~RWebWindowPlugin() { RFileDialog::SetStartFunc(false); }
+} sRWebWindowPlugin;
+
+}
+}
+

@@ -25,7 +25,10 @@ bool showGraphics = false;
 
 void TestBuild(const Int_t npoints = 1000000, const Int_t bsize = 100);
 void TestConstr(const Int_t npoints = 1000000, const Int_t bsize = 100);
-void TestSpeed(Int_t npower2 = 20, Int_t bsize = 10);
+void TestSpeed(Int_t npower2 = 14, Int_t bsize = 10);
+void TestMembers();
+void TestNeighbors();
+void TestRange();
 
 //void TestkdtreeIF(Int_t npoints=1000, Int_t bsize=9, Int_t nloop=1000, Int_t mode = 2);
 //void TestSizeIF(Int_t nsec=36, Int_t nrows=159, Int_t npoints=1000,  Int_t bsize=10, Int_t mode=1);
@@ -51,6 +54,12 @@ void kDTreeTest()
   TestBuild();
   printf("\n\tTesting kDTree speed ...\n");
   TestSpeed();
+  printf("\n\tTesting kDTree members ...\n");
+  TestMembers();
+  printf("\n\tTesting kDTree neighbors ...\n");
+  TestNeighbors();
+  printf("\n\tTesting kDTree range ...\n");
+  TestRange();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -89,7 +98,7 @@ void TestBuild(const Int_t npoints, const Int_t bsize){
 void TestMembers()
 {
 
-   TKDTreeIF *kdtree = 0x0;
+   TKDTreeIF *kdtree = nullptr;
    Int_t npoints = 33;
    Int_t bsize = 10;
    Float_t *data0 = new Float_t[200]; //not to reallocate each time
@@ -244,7 +253,7 @@ void TestSpeed(Int_t npower2, Int_t bsize)
   g->SetMarkerStyle(7);
   TStopwatch timer;
   Int_t tpoints;
-  TKDTreeIF *kdtree = 0x0;
+  TKDTreeIF *kdtree = nullptr;
   for(int i=10; i<npower2; i++){
     tpoints = Int_t(pow(2., i))*bsize;
     timer.Start(kTRUE);
@@ -287,7 +296,7 @@ void TestSizeIF(Int_t nsec, Int_t nrows, Int_t npoints,  Int_t bsize, Int_t mode
 ////////////////////////////////////////////////////////////////////////////////
 ///
 /// Test speed and functionality of 2D kdtree.
-/// Input parametrs:
+/// Input parameters:
 /// npoints - number of data points
 /// bsize   - bucket size
 /// nloop   - number of loops
@@ -575,7 +584,7 @@ int main(int argc, char **argv) {
      }
    }
 
-   TApplication* theApp = 0;
+   TApplication* theApp = nullptr;
    if ( showGraphics )
       theApp = new TApplication("App",&argc,argv);
 
@@ -585,7 +594,7 @@ int main(int argc, char **argv) {
    {
       theApp->Run();
       delete theApp;
-      theApp = 0;
+      theApp = nullptr;
    }
 
    return 0;

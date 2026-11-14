@@ -31,8 +31,8 @@ class TDirectory;
 class TTreeCloner {
    TString    fWarningMsg;       ///< Text of the error message lead to an 'invalid' state
 
-   Bool_t     fIsValid;
-   Bool_t     fNeedConversion;   ///< True if the fast merge is not possible but a slow merge might possible.
+   bool       fIsValid;
+   bool       fNeedConversion;   ///< True if the fast merge is not possible but a slow merge might possible.
    UInt_t     fOptions;
    TTree     *fFromTree;
    TTree     *fToTree;
@@ -55,12 +55,20 @@ class TTreeCloner {
    UInt_t     fCloneMethod;      ///< Indicates which cloning method was selected.
    Long64_t   fToStartEntries;   ///< Number of entries in the target tree before any addition.
 
-   Int_t           fCacheSize;   ///< Requested size of the file cache
+   Long64_t        fCacheSize;   ///< Requested size of the file cache
    TFileCacheRead *fFileCache;   ///< File Cache used to reduce the number of individual reads
    TFileCacheRead *fPrevCache;   ///< Cache that set before the TTreeCloner ctor for the 'from' TTree if any.
 
    enum ECloneMethod {
+// clang++ <v20 (-Wshadow) complains about shadowing TSystem.h global enum ESendRecvOptions. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
       kDefault             = 0,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
       kSortBasketsByBranch = 1,
       kSortBasketsByOffset = 2,
       kSortBasketsByEntry  = 3
@@ -70,14 +78,14 @@ class TTreeCloner {
       TTreeCloner *fObject;
    public:
       CompareSeek(TTreeCloner *obj) : fObject(obj) {}
-      Bool_t operator()(UInt_t i1, UInt_t i2);
+      bool operator()(UInt_t i1, UInt_t i2);
    };
 
    class CompareEntry {
       TTreeCloner *fObject;
    public:
       CompareEntry(TTreeCloner *obj) : fObject(obj) {}
-      Bool_t operator()(UInt_t i1, UInt_t i2);
+      bool operator()(UInt_t i1, UInt_t i2);
    };
 
    friend class CompareSeek;
@@ -88,6 +96,22 @@ class TTreeCloner {
    UInt_t FillCache(UInt_t from);
    void RestoreCache();
 
+public:
+   enum EClonerOptions {
+// clang++ <v20 (-Wshadow) complains about shadowing GuiTypes.h global variable kNone. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kNone       = 0,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
+      kNoWarnings = BIT(1),
+      kIgnoreMissingTopLevel = BIT(2),
+      kNoFileCache = BIT(3)
+   };
+
 private:
    TTreeCloner(const TTreeCloner&) = delete;
    TTreeCloner &operator=(const TTreeCloner&) = delete;
@@ -95,12 +119,6 @@ private:
    TTreeCloner(TTree *from, TTree *to, TDirectory *newdirectory, Option_t *method, UInt_t options = kNone);
 
 public:
-   enum EClonerOptions {
-      kNone       = 0,
-      kNoWarnings = BIT(1),
-      kIgnoreMissingTopLevel = BIT(2),
-      kNoFileCache = BIT(3)
-   };
 
    TTreeCloner(TTree *from, TTree *to, Option_t *method, UInt_t options = kNone);
    TTreeCloner(TTree *from, TDirectory *newdirectory, Option_t *method, UInt_t options = kNone);
@@ -115,11 +133,11 @@ public:
    void   CopyStreamerInfos();
    void   CopyProcessIds();
    const char *GetWarning() const { return fWarningMsg; }
-   Bool_t IsInPlace() const { return fFromTree == fToTree; }
-   Bool_t Exec();
-   Bool_t IsValid() { return fIsValid; }
-   Bool_t NeedConversion() { return fNeedConversion; }
-   void   SetCacheSize(Int_t size);
+   bool   IsInPlace() const { return fFromTree == fToTree; }
+   bool   Exec();
+   bool   IsValid() { return fIsValid; }
+   bool   NeedConversion() { return fNeedConversion; }
+   void   SetCacheSize(Long64_t size);
    void   SortBaskets();
    void   WriteBaskets();
 

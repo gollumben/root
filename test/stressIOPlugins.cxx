@@ -30,7 +30,7 @@
 // ****************************************************************************
 // *  Starting stressIOPlugins test for protocol http
 // *  Test files will be read from:
-// *  http://root.cern.ch/files/StressIOPluginsTestFiles/
+// *  http://root.cern/files/StressIOPluginsTestFiles/
 // ****************************************************************************
 // Test  1 : Check size & compression factor of a Root file........ using stress_2.root
 //         : opened file with plugin class......................... TDavixFile
@@ -53,10 +53,8 @@
 //         : filename with a url query in Add...................... OK
 // ****************************************************************************
 //_____________________________batch only_____________________
-#ifndef __CINT__
+#ifndef __CLING__
 
-#include <cstdlib>
-#include <snprintf.h>
 #include <TROOT.h>
 #include <TSystem.h>
 #include <TH1.h>
@@ -76,6 +74,9 @@
 #include <Compression.h>
 #include "Event.h"
 
+#include <cstdlib>
+#include <cstdio>
+
 R__LOAD_LIBRARY( libEvent )
 
 void stressIOPlugins();
@@ -89,9 +90,6 @@ void cleanup();
 
 int main(int argc, char **argv)
 {
-   std::string inclRootSys = ("-I" + TROOT::GetRootSys() + "/test").Data();
-   TROOT::AddExtraInterpreterArgs({inclRootSys});
-
    gROOT->SetBatch();
    TApplication theApp("App", &argc, argv);
    const char *proto = 0;
@@ -161,7 +159,7 @@ int setPath(const char *proto)
       return 0;
    }
    if (p == "http" || p == "https") {
-      gPfx = p + "://root.cern.ch/files/StressIOPluginsTestFiles/";
+      gPfx = p + "://root.cern/files/StressIOPluginsTestFiles/";
       return 0;
    }
    return -1;

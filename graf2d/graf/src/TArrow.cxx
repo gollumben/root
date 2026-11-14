@@ -10,18 +10,14 @@
  *************************************************************************/
 
 #include <iostream>
-#include "TROOT.h"
 #include "TMath.h"
 #include "TArrow.h"
 #include "TVirtualPad.h"
-#include "TVirtualPS.h"
-#include "TVirtualX.h"
 
 Float_t TArrow::fgDefaultAngle      = 60;
 Float_t TArrow::fgDefaultArrowSize  = 0.05;
 TString TArrow::fgDefaultOption     = ">";
 
-ClassImp(TArrow);
 
 /** \class TArrow
 \ingroup BasicGraphics
@@ -37,7 +33,7 @@ Once an arrow is drawn on the screen:
 - One can click on any other arrow part to move the entire arrow.
 
 Begin_Macro(source)
-../../../tutorials/graphics/arrows.C
+../../../tutorials/visualisation/graphics/arrows.C
 End_Macro
 */
 
@@ -99,7 +95,7 @@ TArrow::TArrow(const TArrow &arrow) : TLine(), TAttFill()
 {
    fAngle     = fgDefaultAngle;
    fArrowSize = 0.;
-   arrow.Copy(*this);
+   arrow.TArrow::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -119,9 +115,7 @@ void TArrow::Copy(TObject &obj) const
 
 void TArrow::Draw(Option_t *option)
 {
-   Option_t *opt;
-   if (option && strlen(option)) opt = option;
-   else                          opt = (char*)GetOption();
+   Option_t *opt = option && *option ? option : GetOption();
 
    AppendPad(opt);
 }
@@ -132,22 +126,23 @@ void TArrow::Draw(Option_t *option)
 ///  - if `arrowsize` is <= 0, `arrowsize` will be the current arrow size
 ///  - if `option=""`, `option` will be the current arrow option
 
-void TArrow::DrawArrow(Double_t x1, Double_t y1,Double_t x2, Double_t  y2,
-                     Float_t arrowsize ,Option_t *option)
+TArrow *TArrow::DrawArrow(Double_t x1, Double_t y1,Double_t x2, Double_t  y2,
+                          Float_t arrowsize, Option_t *option)
 {
 
    Float_t size = arrowsize;
    if (size <= 0) size = fArrowSize;
    if (size <= 0) size = 0.05;
-   const char* opt = option;
-   if (!opt || !opt[0]) opt = fOption.Data();
-   if (!opt || !opt[0]) opt = "|>";
+   Option_t* opt = option;
+   if (!opt || !*opt) opt = GetOption();
+   if (!opt || !*opt) opt = "|>";
    TArrow *newarrow = new TArrow(x1,y1,x2,y2,size,opt);
    newarrow->SetAngle(fAngle);
    TAttLine::Copy(*newarrow);
    TAttFill::Copy(*newarrow);
    newarrow->SetBit(kCanDelete);
    newarrow->AppendPad(opt);
+   return newarrow;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -155,43 +150,39 @@ void TArrow::DrawArrow(Double_t x1, Double_t y1,Double_t x2, Double_t  y2,
 
 void TArrow::Paint(Option_t *option)
 {
-   if (!gPad) return; 
-   Option_t *opt;
-   if (option && strlen(option)) opt = option;
-   else                          opt = (char*)GetOption();
+   if (!gPad) return;
+   Option_t *opt = option && *option ? option : GetOption();
    if (TestBit(kLineNDC))
-      PaintArrow(gPad->GetX1() + fX1 * (gPad->GetX2() - gPad->GetX1()),
-                 gPad->GetY1() + fY1 * (gPad->GetY2() - gPad->GetY1()),
-                 gPad->GetX1() + fX2 * (gPad->GetX2() - gPad->GetX1()),
-                 gPad->GetY1() + fY2 * (gPad->GetY2() - gPad->GetY1()), fArrowSize, opt);
+      PaintArrowNDC(fX1, fY1, fX2, fY2, fArrowSize, opt);
    else
       PaintArrow(gPad->XtoPad(fX1), gPad->YtoPad(fY1), gPad->XtoPad(fX2), gPad->YtoPad(fY2), fArrowSize, opt);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Draw this arrow
+/// Draw this arrow with new coordinates.
 
 void TArrow::PaintArrow(Double_t x1, Double_t y1, Double_t x2, Double_t y2,
                         Float_t arrowsize, Option_t *option)
 {
-   if (!gPad) return; 
+   if (!gPad) return;
+   auto &parent = *gPad;
    // Compute the gPad coordinates in TRUE normalized space (NDC)
-   Int_t iw = gPad->GetWw();
-   Int_t ih = gPad->GetWh();
+   Int_t iw = parent.GetWw();
+   Int_t ih = parent.GetWh();
    Double_t x1p,y1p,x2p,y2p;
-   gPad->GetPadPar(x1p,y1p,x2p,y2p);
+   parent.GetPadPar(x1p,y1p,x2p,y2p);
    Int_t ix1 = (Int_t)(iw*x1p);
    Int_t iy1 = (Int_t)(ih*y1p);
    Int_t ix2 = (Int_t)(iw*x2p);
    Int_t iy2 = (Int_t)(ih*y2p);
-   if (ix1==ix2||iy1==iy2) return; 
-   
+   if (ix1==ix2||iy1==iy2) return;
+
    // Option and attributes
    TString opt = option;
    opt.ToLower();
-   TAttLine::Modify();
-   TAttFill::Modify();
-
+   TAttLine::ModifyOn(parent);
+   TAttFill::ModifyOn(parent);
+   TAttLine attarrow(GetLineColor(), 1, GetLineWidth());
 
    Double_t wndc  = TMath::Min(1.,(Double_t)iw/(Double_t)ih);
    Double_t hndc  = TMath::Min(1.,(Double_t)ih/(Double_t)iw);
@@ -204,7 +195,7 @@ void TArrow::PaintArrow(Double_t x1, Double_t y1, Double_t x2, Double_t y2,
 
    // Ratios to convert user space in TRUE normalized space (NDC)
    Double_t rx1,ry1,rx2,ry2;
-   gPad->GetRange(rx1,ry1,rx2,ry2);
+   parent.GetRange(rx1,ry1,rx2,ry2);
    Double_t rx = (x2ndc-x1ndc)/(rx2-rx1);
    Double_t ry = (y2ndc-y1ndc)/(ry2-ry1);
 
@@ -223,33 +214,24 @@ void TArrow::PaintArrow(Double_t x1, Double_t y1, Double_t x2, Double_t y2,
    Double_t cosT   = (length > 0) ? (x2n-x1n)/length : 1.;
    Double_t sinT   = (length > 0) ? (y2n-y1n)/length : 0.;
 
+   Double_t xarr[6], yarr[6];
+   Int_t cnt = 0;
+
    // Draw the start and end bars if needed
    if (opt.BeginsWith("|-")) {
-      Double_t x1ar[2], y1ar[2];
-      x1ar[0] = x1n-sinT*dSize;
-      y1ar[0] = y1n+cosT*dSize;
-      x1ar[1] = x1n+sinT*dSize;
-      y1ar[1] = y1n-cosT*dSize;
-      // NDC to user coordinates
-      for (Int_t i=0; i<2; i++) {
-         x1ar[i] = (1/rx)*(x1ar[i]-x1ndc)+rx1;
-         y1ar[i] = (1/ry)*(y1ar[i]-y1ndc)+ry1;
-      }
-      gPad->PaintLine(x1ar[0],y1ar[0],x1ar[1],y1ar[1]);
+      xarr[0] = x1n-sinT*dSize;
+      yarr[0] = y1n+cosT*dSize;
+      xarr[1] = x1n+sinT*dSize;
+      yarr[1] = y1n-cosT*dSize;
+      cnt += 2;
       opt(0) = ' ';
    }
    if (opt.EndsWith("-|")) {
-      Double_t x2ar[2], y2ar[2];
-      x2ar[0] = x2n-sinT*dSize;
-      y2ar[0] = y2n+cosT*dSize;
-      x2ar[1] = x2n+sinT*dSize;
-      y2ar[1] = y2n-cosT*dSize;
-      // NDC to user coordinates
-      for (Int_t i=0; i<2; i++) {
-         x2ar[i] = (1/rx)*(x2ar[i]-x1ndc)+rx1;
-         y2ar[i] = (1/ry)*(y2ar[i]-y1ndc)+ry1;
-      }
-      gPad->PaintLine(x2ar[0],y2ar[0],x2ar[1],y2ar[1]);
+      xarr[cnt] = x2n-sinT*dSize;
+      yarr[cnt] = y2n+cosT*dSize;
+      xarr[cnt+1] = x2n+sinT*dSize;
+      yarr[cnt+1] = y2n-cosT*dSize;
+      cnt += 2;
       opt(opt.Length()-1) = ' ';
    }
 
@@ -276,11 +258,16 @@ void TArrow::PaintArrow(Double_t x1, Double_t y1, Double_t x2, Double_t y2,
       x1n += cosT*rSize;
       y1n += sinT*rSize;
    }
-   x1n = (1/rx)*(x1n-x1ndc)+rx1;
-   y1n = (1/ry)*(y1n-y1ndc)+ry1;
-   x2n = (1/rx)*(x2n-x1ndc)+rx1;
-   y2n = (1/ry)*(y2n-y1ndc)+ry1;
-   gPad->PaintLine(x1n,y1n,x2n,y2n);
+   xarr[cnt] = x1n; xarr[cnt+1] = x2n;
+   yarr[cnt] = y1n; yarr[cnt+1] = y2n;
+   cnt += 2;
+   // NDC to user coordinates
+   for (Int_t i=0; i<cnt; i++) {
+      xarr[i] = (1/rx)*(xarr[i]-x1ndc)+rx1;
+      yarr[i] = (1/ry)*(yarr[i]-y1ndc)+ry1;
+   }
+   // paint arrow main line with start/stop segment together
+   parent.PaintSegments(cnt/2, xarr, yarr);
 
    // Draw the arrow's head(s)
    if (opt.Contains(">")) {
@@ -301,16 +288,15 @@ void TArrow::PaintArrow(Double_t x1, Double_t y1, Double_t x2, Double_t y2,
          y2ar[i] = (1/ry)*(y2ar[i]-y1ndc)+ry1;
       }
       if (opt.Contains("|>")) {
-         if (gVirtualX) gVirtualX->SetLineStyle(1);
-         if (gVirtualPS) gVirtualPS->SetLineStyle(1);
+         attarrow.ModifyOn(parent);
          if (GetFillColor()) {
-            gPad->PaintFillArea(3,x2ar,y2ar);
-            gPad->PaintPolyLine(4,x2ar,y2ar);
+            parent.PaintFillArea(3,x2ar,y2ar);
+            parent.PaintPolyLine(4,x2ar,y2ar);
          } else {
-            gPad->PaintPolyLine(4,x2ar,y2ar);
+            parent.PaintPolyLine(4,x2ar,y2ar);
          }
       } else {
-         gPad->PaintPolyLine(3,x2ar,y2ar);
+         parent.PaintPolyLine(3,x2ar,y2ar);
       }
    }
 
@@ -331,47 +317,52 @@ void TArrow::PaintArrow(Double_t x1, Double_t y1, Double_t x2, Double_t y2,
          y1ar[i] = (1/ry)*(y1ar[i]-y1ndc)+ry1;
       }
       if (opt.Contains("<|")) {
-         if (gVirtualX) gVirtualX->SetLineStyle(1);
-         if (gVirtualPS) gVirtualPS->SetLineStyle(1);
+         attarrow.ModifyOn(parent);
          if (GetFillColor()) {
-            gPad->PaintFillArea(3,x1ar,y1ar);
-            gPad->PaintPolyLine(4,x1ar,y1ar);
+            parent.PaintFillArea(3,x1ar,y1ar);
+            parent.PaintPolyLine(4,x1ar,y1ar);
          } else {
-            gPad->PaintPolyLine(4,x1ar,y1ar);
+            parent.PaintPolyLine(4,x1ar,y1ar);
          }
       } else {
-         gPad->PaintPolyLine(3,x1ar,y1ar);
+         parent.PaintPolyLine(3,x1ar,y1ar);
       }
    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Save primitive as a C++ statement(s) on output stream out
+/// Draw this arrow with new coordinates in NDC.
 
-void TArrow::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
+void TArrow::PaintArrowNDC(Double_t u1, Double_t v1,Double_t u2 ,Double_t v2,
+                           Float_t arrowsize, Option_t *option)
 {
-
-   char quote = '"';
-   if (gROOT->ClassSaved(TArrow::Class())) {
-      out<<"   ";
-   } else {
-      out<<"   TArrow *";
-   }
-   out<<"arrow = new TArrow("<<fX1<<","<<fY1<<","<<fX2<<","<<fY2
-      <<","<<fArrowSize<<","<<quote<<GetDrawOption()<<quote<<");"<<std::endl;
-
-   SaveFillAttributes(out,"arrow",0,1);
-   SaveLineAttributes(out,"arrow",1,1,1);
-
-   if (TestBit(kLineNDC))
-      out<<"   arrow->SetNDC();"<<std::endl;
-
-   if (fAngle!=60)
-      out << "   arrow->SetAngle(" << GetAngle() << ");" << std::endl;
-
-   out<<"   arrow->Draw();"<<std::endl;
+   if (!gPad) return;
+   PaintArrow(gPad->GetX1() + u1 * (gPad->GetX2() - gPad->GetX1()),
+              gPad->GetY1() + v1 * (gPad->GetY2() - gPad->GetY1()),
+              gPad->GetX1() + u2 * (gPad->GetX2() - gPad->GetX1()),
+              gPad->GetY1() + v2 * (gPad->GetY2() - gPad->GetY1()), arrowsize, option);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// Save primitive as a C++ statement(s) on output stream out
+
+void TArrow::SavePrimitive(std::ostream &out, Option_t *option)
+{
+   SavePrimitiveConstructor(out, Class(), "arrow",
+                            TString::Format("%g, %g, %g, %g, %g, \"%s\"", fX1, fY1, fX2, fY2, fArrowSize,
+                                            TString(GetOption()).ReplaceSpecialCppChars().Data()));
+
+   SaveFillAttributes(out, "arrow", 0, 1001);
+   SaveLineAttributes(out, "arrow", 1, 1, 1);
+
+   if (TestBit(kLineNDC))
+      out << "   arrow->SetNDC();\n";
+
+   if (GetAngle() != 60)
+      out << "   arrow->SetAngle(" << GetAngle() << ");\n";
+
+   SavePrimitiveDraw(out, "arrow", option);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set default angle.
@@ -383,7 +374,7 @@ void TArrow::SetDefaultAngle(Float_t Angle)
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set default arrow sive.
+/// Set default arrow size.
 
 void TArrow::SetDefaultArrowSize (Float_t ArrowSize)
 {
@@ -396,7 +387,6 @@ void TArrow::SetDefaultArrowSize (Float_t ArrowSize)
 
 void TArrow::SetDefaultOption(Option_t *Option)
 {
-
    fgDefaultOption = Option;
 }
 
@@ -406,7 +396,6 @@ void TArrow::SetDefaultOption(Option_t *Option)
 
 Float_t TArrow::GetDefaultAngle()
 {
-
    return fgDefaultAngle;
 }
 
@@ -416,7 +405,6 @@ Float_t TArrow::GetDefaultAngle()
 
 Float_t TArrow::GetDefaultArrowSize()
 {
-
    return fgDefaultArrowSize;
 }
 
@@ -426,6 +414,5 @@ Float_t TArrow::GetDefaultArrowSize()
 
 Option_t *TArrow::GetDefaultOption()
 {
-
    return fgDefaultOption.Data();
 }

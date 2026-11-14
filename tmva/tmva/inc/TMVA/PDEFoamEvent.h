@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Classes: PDEFoamEvent                                                          *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Concrete PDEFoam sub-class.  This foam stores the number of               *
@@ -24,7 +24,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_PDEFoamEvent
@@ -49,10 +49,10 @@ namespace TMVA
       virtual ~PDEFoamEvent() {}       // Default destructor
 
       // function to fill created cell with given value
-      virtual void FillFoamCells(const Event* ev, Float_t wt);
+      void FillFoamCells(const Event* ev, Float_t wt) override;
 
       // ---------- ROOT class definition
-      ClassDef(PDEFoamEvent, 1) // Tree of PDEFoamCells
+      ClassDefOverride(PDEFoamEvent, 1) // Tree of PDEFoamCells
          }; // end of PDEFoamEvent
 
 }  // namespace TMVA

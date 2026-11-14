@@ -16,43 +16,50 @@
 #ifndef ROO_POLYNOMIAL
 #define ROO_POLYNOMIAL
 
+#include <RooAbsPdf.h>
+#include <RooRealProxy.h>
+#include <RooListProxy.h>
+
 #include <vector>
-
-#include "RooAbsPdf.h"
-#include "RooRealProxy.h"
-#include "RooListProxy.h"
-
-class RooRealVar;
-class RooArgList ;
 
 class RooPolynomial : public RooAbsPdf {
 public:
+   RooPolynomial() {}
+   RooPolynomial(const char *name, const char *title, RooAbsReal &x);
+   RooPolynomial(const char *name, const char *title, RooAbsReal &_x, const RooArgList &_coefList,
+                 Int_t lowestOrder = 1);
 
-  RooPolynomial() ;
-  RooPolynomial(const char* name, const char* title, RooAbsReal& x) ;
-  RooPolynomial(const char *name, const char *title,
-      RooAbsReal& _x, const RooArgList& _coefList, Int_t lowestOrder=1) ;
+   RooPolynomial(const RooPolynomial &other, const char *name = nullptr);
+   TObject *clone(const char *newname) const override { return new RooPolynomial(*this, newname); }
 
-  RooPolynomial(const RooPolynomial& other, const char* name = 0);
-  virtual TObject* clone(const char* newname) const { return new RooPolynomial(*this, newname); }
-  virtual ~RooPolynomial() ;
+   Int_t getAnalyticalIntegral(RooArgSet &allVars, RooArgSet &analVars, const char *rangeName = nullptr) const override;
+   double analyticalIntegral(Int_t code, const char *rangeName = nullptr) const override;
 
-  Int_t getAnalyticalIntegral(RooArgSet& allVars, RooArgSet& analVars, const char* rangeName=0) const ;
-  Double_t analyticalIntegral(Int_t code, const char* rangeName=0) const ;
+   /// Get the x variable.
+   RooAbsReal const &x() const { return _x.arg(); }
+
+   /// Get the coefficient list.
+   RooArgList const &coefList() const { return _coefList; }
+
+   /// Return the order for the first coefficient in the list.
+   int lowestOrder() const { return _lowestOrder; }
 
 protected:
+   RooRealProxy _x;
+   RooListProxy _coefList;
+   Int_t _lowestOrder = 1;
 
-  RooRealProxy _x;
-  RooListProxy _coefList ;
-  Int_t _lowestOrder ;
+   mutable std::vector<double> _wksp; ///<! do not persist
 
-  mutable std::vector<Double_t> _wksp; //! do not persist
+   /// Evaluation
+   double evaluate() const override;
+   void doEval(RooFit::EvalContext &) const override;
 
-  /// Evaluation
-  Double_t evaluate() const;
-  RooSpan<double> evaluateSpan(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const;
+   // It doesn't make sense to use the GPU if the polynomial has no terms.
+   inline bool canComputeBatchWithCuda() const override { return !_coefList.empty(); }
 
-  ClassDef(RooPolynomial,1) // Polynomial PDF
+private:
+   ClassDefOverride(RooPolynomial, 1); // Polynomial PDF
 };
 
 #endif

@@ -1,4 +1,4 @@
-\defgroup Core Core ROOT classes
+\defgroup Core Core classes
 \brief The Core classes of ROOT.
 \defgroup Base Base ROOT classes
 \ingroup Core
@@ -10,4 +10,6 @@ interfaces (TVirtualXXXXX classes), to a wide range of basic utility
 classes providing basic services like strings, regular expression,
 timers, date/time, md5 checksumming, signal/slots event handling,
 plugin handler, run-config resource processor, etc. etc.
+
+\brief Extension classes within libCore to backport or complement missing std:: features
 

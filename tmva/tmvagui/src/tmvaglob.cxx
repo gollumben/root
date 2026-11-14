@@ -252,11 +252,11 @@ void TMVA::TMVAGlob::imgconv( TCanvas* c, const TString & fname )
 TImage * TMVA::TMVAGlob::findImage(const char * imageName)
 {
    // looks for the image in tutorialpath
-   //TString tutorialPath = "$ROOTSYS/tutorials/tmva"; // look for the image in here
-   TString tutorialPath = getenv ("ROOTSYS");
-   tutorialPath+="/tutorials/tmva";
-   TImage *img(0);
-   TString fullName = Form("%s/%s", tutorialPath.Data(), imageName);
+   //TString tutorialPath = "$ROOTSYS/tutorials/machine_learning"; // look for the image in here
+   TString tutorialPath = std::getenv ("ROOTSYS");
+   tutorialPath+="/tutorials/machine_learning";
+   TImage *img = nullptr;
+   TString fullName = TString::Format("%s/%s", tutorialPath.Data(), imageName);
    Bool_t fileFound = ! gSystem->AccessPathName(fullName);
 
    if(fileFound) {

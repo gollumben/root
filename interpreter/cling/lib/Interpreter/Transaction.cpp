@@ -73,7 +73,7 @@ namespace cling {
     for (auto I = decls_begin(), E = decls_end(); I != E; ++I) {
       for (auto DI : I->m_DGR) {
         if (NamedDecl* ND = dyn_cast<NamedDecl>(DI)) {
-          if (name.equals(ND->getNameAsString()))
+          if (name == ND->getNameAsString())
             return ND;
         }
       }
@@ -84,7 +84,7 @@ namespace cling {
         if (LinkageSpecDecl* LSD = dyn_cast<LinkageSpecDecl>(DI)) {
           for (Decl* DI : LSD->decls()) {
             if (NamedDecl* ND = dyn_cast<NamedDecl>(DI)) {
-              if (name.equals(ND->getNameAsString()))
+              if (name == ND->getNameAsString())
                 return ND;
             }
           }
@@ -168,9 +168,18 @@ namespace cling {
       // declaration, because each time Sema believes a vtable is used it emits
       // that callback.
       // For reference (clang::CodeGen::CodeGenModule::EmitVTable).
-      if (oldDCI.m_Call != kCCIHandleVTable
-          && oldDCI.m_Call != kCCIHandleCXXImplicitFunctionInstantiation)
+      if (oldDCI.m_Call != kCCIHandleVTable &&
+          oldDCI.m_Call != kCCIHandleCXXImplicitFunctionInstantiation) {
+        // Allow duplicates for inline/constexpr functions
+        if (oldDCI == DCI && DCI.m_DGR.isSingleDecl()) {
+          if (const FunctionDecl* FD =
+                  dyn_cast_or_null<FunctionDecl>(DCI.m_DGR.getSingleDecl())) {
+            if (FD->isInlined())
+              continue;
+          }
+        }
         assert(oldDCI != DCI && "Duplicates?!");
+      }
     }
     // We want to assert there is only one wrapper per transaction.
     checkForWrapper = true;

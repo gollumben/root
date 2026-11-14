@@ -21,41 +21,57 @@ class TPoint;
 
 class TImageDump : public TVirtualPS {
 protected:
-   TImage           *fImage;     ///< Image
-   Int_t             fType;      ///< PostScript workstation type
+   TImage           *fImage{nullptr};     ///< Image
+   Int_t             fType{0};            ///< PostScript workstation type
+   Int_t             fX0{0}, fY0{0};      ///< offset of selected pad to canvas
+
+   std::vector<UInt_t> fCellArrayColors;
+   Int_t               fCellArrayW{0};
+   Int_t               fCellArrayH{0};
+   Int_t               fCellArrayX1{0};
+   Int_t               fCellArrayX2{0};
+   Int_t               fCellArrayY1{0};
+   Int_t               fCellArrayY2{0};
+   UInt_t              fCellArrayIdx{0};
 
    Int_t  XtoPixel(Double_t x);
    Int_t  YtoPixel(Double_t y);
    void   DrawDashPolyLine(Int_t npoints, TPoint *pt, UInt_t nDash,
                            const char* pDash, const char* col, UInt_t thick);
 
+   template<typename T>
+   void  DrawPolyMarkerShape(Int_t n, T *x, T *y);
+
 public:
    TImageDump();
    TImageDump(const char *filename, Int_t type = -111);
-   virtual ~TImageDump();
+   ~TImageDump() override;
 
-   void  CellArrayBegin(Int_t W, Int_t H, Double_t x1, Double_t x2, Double_t y1, Double_t y2);
-   void  CellArrayFill(Int_t r, Int_t g, Int_t b);
-   void  CellArrayEnd();
-   void  Close(Option_t *opt = "");
-   void  DrawBox(Double_t x1, Double_t y1,Double_t x2, Double_t  y2);
+   void  CellArrayBegin(Int_t W, Int_t H, Double_t x1, Double_t x2, Double_t y1, Double_t y2) override;
+   void  CellArrayFill(Int_t r, Int_t g, Int_t b) override;
+   void  CellArrayEnd() override;
+   void  DrawImage(TImage *img, Int_t x, Int_t y , Int_t flags = 0) override;
+
+   void  Close(Option_t *opt = "") override;
+   void  DrawBox(Double_t x1, Double_t y1,Double_t x2, Double_t  y2) override;
    void  DrawFrame(Double_t xl, Double_t yl, Double_t xt, Double_t  yt,
-                   Int_t mode, Int_t border, Int_t dark, Int_t light);
-   void  DrawPolyMarker(Int_t n, Float_t *x, Float_t *y);
-   void  DrawPolyMarker(Int_t n, Double_t *x, Double_t *y);
-   void  DrawPS(Int_t n, Float_t *xw, Float_t *yw);
-   void  DrawPS(Int_t n, Double_t *xw, Double_t *yw);
-   void  NewPage();
-   void  Open(const char *filename, Int_t type = -111);
-   void  Text(Double_t x, Double_t y, const char *string);
-   void  Text(Double_t x, Double_t y, const wchar_t *string);
-   void  SetColor(Float_t r, Float_t g, Float_t b);
-   void *GetStream() const {  return (void*)fImage; }
-   void  SetType(Int_t type = -111) { fType = type; }
-   Int_t GetType() const { return fType; }
+                   Int_t mode, Int_t border, Int_t dark, Int_t light) override;
+   void  DrawPolyMarker(Int_t n, Float_t *x, Float_t *y) override;
+   void  DrawPolyMarker(Int_t n, Double_t *x, Double_t *y) override;
+   void  DrawPS(Int_t n, Float_t *xw, Float_t *yw) override;
+   void  DrawPS(Int_t n, Double_t *xw, Double_t *yw) override;
+   void  NewPage() override;
+   void  Open(const char *filename, Int_t type = -111) override;
+   void  Text(Double_t x, Double_t y, const char *string) override;
+   void  Text(Double_t x, Double_t y, const wchar_t *string) override;
+   void  TextUrl(Double_t x, Double_t y, const char *string, const char *url) override;
+   void  SetColor(Float_t r, Float_t g, Float_t b) override;
+   void *GetStream() const override { return (void*)fImage; }
+   void  SetType(Int_t type = -111) override { fType = type; }
+   Int_t GetType() const override { return fType; }
    TImage *GetImage() const { return fImage; }
 
-   ClassDef(TImageDump,0)  // create image in batch mode
+   ClassDefOverride(TImageDump,0)  // create image in batch mode
 };
 
 #endif

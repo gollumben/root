@@ -1,7 +1,8 @@
 /// \file
 /// \ingroup tutorial_math
 /// \notebook -nodraw
-/// Performance test of all the ROOT random generator (TRandom, TRandom1, TRandom2 and TRandom3)
+/// Performance test of all the ROOT random generator (TRandom, TRandom1, TRandom2 and TRandom3).
+///
 /// Tests the generator TRandom3 against some ref values
 /// and creates a timing table against TRandom, TRandom1 and TRandom2.
 ///
@@ -48,8 +49,10 @@
 #include <TRandomGen.h>
 #include <TStopwatch.h>
 #include <TF1.h>
+#if __has_include("TUnuran.h") // handy check
 #include <TUnuran.h>
 #include <TUnuranContDist.h>
+#endif
 #include <TFile.h>
 
 
@@ -535,6 +538,7 @@ void testAll() {
   printf(" %8.3f\n",sw.CpuTime()*cpn);
 
   // test using Unuran
+#if __has_include("TUnuran.h")
   TUnuran unr0(r0);
   TUnuran unr1(r1);
   TUnuran unr2(r2);
@@ -569,7 +573,7 @@ void testAll() {
   }
   printf(" %8.3f\n",sw.CpuTime()*cpn);
 
-  // Poisson (nned to initialize before with Poisson mu value)
+  // Poisson (need to initialize before with Poisson mu value)
 
   unr0.InitPoisson(10);
   unr1.InitPoisson(10);
@@ -622,15 +626,23 @@ void testAll() {
      x = unr3.SampleDiscr();
   }
   printf(" %8.3f\n",sw.CpuTime()*cpn);
-
+#endif
 
   delete r0;
   delete r1;
   delete r2;
   delete r3;
+  delete r4;
+  delete r5;
+  delete r6;
+  delete r7;
+  delete r8;
+  delete r9;
+  delete r10;
   gRandom = rsave;
 
 #ifdef LATER
+#if __has_include("TUnuran.h")
   // Binomial
   unr0.InitBinomial(15,0.5);
   unr1.InitBinomial(15,0.5);
@@ -657,6 +669,7 @@ void testAll() {
      x = unr3.SampleDiscr();
   }
   printf(" %8.3f\n",sw.CpuTime()*cpn);
+#endif
 #endif
 
 }

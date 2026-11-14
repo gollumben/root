@@ -1,21 +1,20 @@
-// Author: Patrick Bos, Netherlands eScience Center / NIKHEF 2021
+/*
+ * Project: RooFit
+ * Authors:
+ *   PB, Patrick Bos, Netherlands eScience Center, p.bos@esciencecenter.nl
+ *
+ * Copyright (c) 2021, CERN
+ *
+ * Redistribution and use in source and binary forms,
+ * with or without modification, are permitted according to the terms
+ * listed in LICENSE (http://roofit.sourceforge.net/license.txt)
+ */
 
-/*****************************************************************************
- * RooFit
- * Authors:                                                                  *
- *   WV, Wouter Verkerke, UC Santa Barbara, verkerke@slac.stanford.edu       *
- *   DK, David Kirkby,    UC Irvine,         dkirkby@uci.edu                 *
- *                                                                           *
- * Copyright (c) 2000-2021, Regents of the University of California          *
- *                          and Stanford University. All rights reserved.    *
- *                                                                           *
- * Redistribution and use in source and binary forms,                        *
- * with or without modification, are permitted according to the terms        *
- * listed in LICENSE (http://roofit.sourceforge.net/license.txt)             *
- *****************************************************************************/
+#include <RooFit/TestStatistics/RooRealL.h>
+#include <RooFit/TestStatistics/RooAbsL.h>
+#include <RooRealVar.h>
 
-#include <TestStatistics/RooRealL.h>
-#include <TestStatistics/RooAbsL.h>
+#include "TMath.h" // IsNaN
 
 namespace RooFit {
 namespace TestStatistics {
@@ -31,28 +30,46 @@ namespace TestStatistics {
  **/
 
 RooRealL::RooRealL(const char *name, const char *title, std::shared_ptr<RooAbsL> likelihood)
-   : RooAbsReal(name, title), likelihood_(std::move(likelihood)),
+   : RooAbsReal(name, title),
+     likelihood_(std::move(likelihood)),
      vars_proxy_("varsProxy", "proxy set of parameters", this)
 {
-   vars_proxy_.add(*likelihood_->getParameters());
+   std::unique_ptr<RooArgSet> params{likelihood_->getParameters()};
+   vars_obs_.add(*params);
+   vars_proxy_.add(*params);
 }
 
 RooRealL::RooRealL(const RooRealL &other, const char *name)
-   : RooAbsReal(other, name), likelihood_(other.likelihood_), vars_proxy_("varsProxy", "proxy set of parameters", this)
+   : RooAbsReal(other, name), likelihood_(other.likelihood_), vars_proxy_("varsProxy", this, other.vars_proxy_)
 {
-   vars_proxy_.add(*likelihood_->getParameters());
+   vars_obs_.add(other.vars_obs_);
 }
 
-Double_t RooRealL::evaluate() const
+double RooRealL::evaluate() const
 {
+   // Transfer values from proxy variables to internal variables of likelihood
+   if (!vars_proxy_.empty()) {
+      for (auto i = 0u; i < vars_obs_.size(); ++i) {
+         auto harg = vars_obs_[i];
+         const auto parg = vars_proxy_[i];
+
+         if (harg != parg) {
+            (static_cast<RooAbsRealLValue *>(harg))->setVal((static_cast<RooAbsReal *>(parg))->getVal());
+         }
+      }
+   }
    // Evaluate as straight FUNC
    std::size_t last_component = likelihood_->getNComponents();
 
    auto ret_kahan = likelihood_->evaluatePartition({0, 1}, 0, last_component);
 
-   const Double_t norm = globalNormalization();
+   const double norm = globalNormalization();
    double ret = ret_kahan.Sum() / norm;
    eval_carry = ret_kahan.Carry() / norm;
+
+   if (TMath::IsNaN(ret)) {
+      RooAbsReal::logEvalError("function value is NAN");
+   }
 
    return ret;
 }

@@ -58,18 +58,18 @@ private:
    // Fields
 
    // Debuging visual aids
-   TGLBoundingBox   fPreviousInterestBox;  //! previous interest box (DEBUG)
-   TGLBoundingBox   fInterestFrustum;      //! frustum basis of current interest box - NOT a true BB! (DEBUG)
-   TGLBoundingBox   fInterestFrustumAsBox; //! frustum basis (as box) of current interest box (DEBUG)
+   TGLBoundingBox   fPreviousInterestBox;  ///<! previous interest box (DEBUG)
+   TGLBoundingBox   fInterestFrustum;      ///<! frustum basis of current interest box - NOT a true BB! (DEBUG)
+   TGLBoundingBox   fInterestFrustumAsBox; ///<! frustum basis (as box) of current interest box (DEBUG)
 
-   static const Double_t fgInterestBoxExpansion; //! expansion c.f. aligned current frustum box
+   static const Double_t fgInterestBoxExpansion; ///<! expansion c.f. aligned current frustum box
 
    // Methods
    TGLBoundingBox Frustum(Bool_t asBox = kTRUE) const; // current frustum
 
    // Non-copyable class
-   TGLCamera(const TGLCamera &);
-   TGLCamera & operator=(const TGLCamera &);
+   TGLCamera(const TGLCamera &) = delete;
+   TGLCamera & operator=(const TGLCamera &) = delete;
 
 protected:
     // Fields
@@ -81,10 +81,10 @@ protected:
     TGLVector3  fExtCenter;       //  external camera center
     TGLVector3  fDefCenter;       //  default camera center
     TGLVector3  fFDCenter;        //  fixed default camera center
-    TGLVector3 *fCenter;          //! current camera center
+    TGLVector3 *fCenter;          ///<! current camera center
 
-    mutable Double_t fNearClip;   //! last applied near-clip
-    mutable Double_t fFarClip;    //! last applied far-clip
+    mutable Double_t fNearClip;   ///<! last applied near-clip
+    mutable Double_t fFarClip;    ///<! last applied far-clip
 
     // Set in Setup()
     Double_t    fDollyDefault;    // default distnce from viewing centre
@@ -92,19 +92,19 @@ protected:
     Float_t     fVAxisMinAngle;   // minimal allowed angle between up and fCamTrans Z vector
 
    // Internal cached matrices and frustum planes
-   mutable Bool_t    fCacheDirty;                      //! cached items dirty?
-   mutable UInt_t    fTimeStamp;                       //! timestamp
-   mutable TGLMatrix fLastNoPickProjM;                 //! no-pick projection matrix (cached)
-   mutable TGLMatrix fProjM;                           //! projection matrix        (cached)
-   mutable TGLMatrix fModVM;                           //! modelView matrix         (cached)
-   mutable TGLMatrix fClipM;                           //! object space clip matrix (cached)
-   mutable TGLPlane fFrustumPlanes[kPlanesPerFrustum]; //! frustum planes           (cached)
+   mutable Bool_t    fCacheDirty;                      ///<! cached items dirty?
+   mutable UInt_t    fTimeStamp;                       ///<! timestamp
+   mutable TGLMatrix fLastNoPickProjM;                 ///<! no-pick projection matrix (cached)
+   mutable TGLMatrix fProjM;                           ///<! projection matrix        (cached)
+   mutable TGLMatrix fModVM;                           ///<! modelView matrix         (cached)
+   mutable TGLMatrix fClipM;                           ///<! object space clip matrix (cached)
+   mutable TGLPlane fFrustumPlanes[kPlanesPerFrustum]; ///<! frustum planes           (cached)
 
-   TGLRect   fViewport;    //! viewport (GL coords - origin bottom left)
+   TGLRect   fViewport;    ///<! viewport (GL coords - origin bottom left)
 
-   TGLBoundingBox   fInterestBox;          //! the interest box - created in UpdateInterest()
-   mutable Double_t fLargestSeen;          //! largest box diagonal seen in OfInterest() - used when
-                                           //! bootstrapping interest box
+   TGLBoundingBox   fInterestBox;          ///<! the interest box - created in UpdateInterest()
+   mutable Double_t fLargestSeen;          ///<! largest box diagonal seen in OfInterest() - used when
+                                           ///<! bootstrapping interest box
 
    // Internal cache update - const as the actual camera configuration is unaffected
    void       UpdateCache() const;
@@ -113,7 +113,7 @@ protected:
 public:
    TGLCamera();
    TGLCamera(const TGLVector3 & hAxis, const TGLVector3 & vAxis);
-   virtual ~TGLCamera();
+   ~TGLCamera() override;
 
    virtual Bool_t IsOrthographic() const {  return kFALSE; }
    virtual Bool_t IsPerspective() const { return kFALSE; }
@@ -141,7 +141,7 @@ public:
    virtual Bool_t RotateArcBall(Int_t xDelta, Int_t yDelta, Bool_t mod1, Bool_t mod2);
    virtual Bool_t RotateArcBallRad(Double_t hRotate, Double_t vRotate);
 
-   virtual void   Apply(const TGLBoundingBox & sceneBox, const TGLRect * pickRect = 0) const = 0;
+   virtual void   Apply(const TGLBoundingBox & sceneBox, const TGLRect * pickRect = nullptr) const = 0;
 
    Bool_t     AdjustAndClampVal(Double_t & val, Double_t min, Double_t max,
                                 Int_t screenShift, Int_t screenShiftRange,
@@ -184,13 +184,13 @@ public:
    Rgl::EOverlap FrustumOverlap (const TGLBoundingBox & box) const; // box/frustum overlap test
    Rgl::EOverlap ViewportOverlap(const TGLBoundingBox & box) const; // box/viewport overlap test
    TGLRect    ViewportRect   (const TGLBoundingBox & box, TGLBoundingBox::EFace face) const;
-   TGLRect    ViewportRect   (const TGLBoundingBox & box, const TGLBoundingBox::EFace * face = 0) const;
-   TGLVertex3 WorldToViewport(const TGLVertex3 & worldVertex, TGLMatrix* modviewMat=0) const;
+   TGLRect    ViewportRect   (const TGLBoundingBox & box, const TGLBoundingBox::EFace * face = nullptr) const;
+   TGLVertex3 WorldToViewport(const TGLVertex3 & worldVertex, TGLMatrix* modviewMat = nullptr) const;
    TGLVector3 WorldDeltaToViewport(const TGLVertex3 & worldRef, const TGLVector3 & worldDelta) const;
-   TGLVertex3 ViewportToWorld(const TGLVertex3 & viewportVertex, TGLMatrix* modviewMat=0) const;
+   TGLVertex3 ViewportToWorld(const TGLVertex3 & viewportVertex, TGLMatrix* modviewMat = nullptr) const;
    TGLLine3   ViewportToWorld(Double_t viewportX, Double_t viewportY) const;
    TGLLine3   ViewportToWorld(const TPoint & viewport) const;
-   TGLVector3 ViewportDeltaToWorld(const TGLVertex3 & worldRef, Double_t viewportXDelta, Double_t viewportYDelta, TGLMatrix* modviewMat=0) const;
+   TGLVector3 ViewportDeltaToWorld(const TGLVertex3 & worldRef, Double_t viewportXDelta, Double_t viewportYDelta, TGLMatrix* modviewMat = nullptr) const;
    std::pair<Bool_t, TGLVertex3> ViewportPlaneIntersection(Double_t viewportX, Double_t viewportY, const TGLPlane & worldPlane) const;
    std::pair<Bool_t, TGLVertex3> ViewportPlaneIntersection(const TPoint & viewport, const TGLPlane & worldPlane) const;
 
@@ -213,7 +213,7 @@ public:
    // Debuging - draw frustum and interest boxes
    void  DrawDebugAids() const;
 
-   ClassDef(TGLCamera,1); // Camera abstract base class.
+   ClassDefOverride(TGLCamera,1); // Camera abstract base class.
 };
 
 inline const TGLPlane & TGLCamera::FrustumPlane(EFrustumPlane plane) const

@@ -11,7 +11,7 @@
 
 /**
 \class TBufferText
-\ingroup IO
+\ingroup io_other
 
 Base class for text-based streamers like TBufferJSON or TBufferXML
 Special actions list will use methods, introduced in this class.
@@ -30,9 +30,11 @@ actions list for both are the same.
 #include "TInterpreter.h"
 #include "TExMap.h"
 #include "TError.h"
-#include "snprintf.h"
 
-ClassImp(TBufferText);
+#include <cstdio>
+
+#include <cmath>
+
 
 const char *TBufferText::fgFloatFmt = "%e";
 const char *TBufferText::fgDoubleFmt = "%.14e";
@@ -139,7 +141,7 @@ Int_t TBufferText::ApplySequence(const TStreamerInfoActions::TActionSequence &se
    TVirtualStreamerInfo *info = sequence.fStreamerInfo;
    IncrementLevel(info);
 
-   TStreamerInfoActions::TLoopConfiguration *loopconfig = sequence.fLoopConfig;
+   TStreamerInfoActions::TLoopConfiguration *loopconfig = sequence.fLoopConfig.get();
    if (gDebug) {
 
       // Get the address of the first item for the PrintDebug.
@@ -223,13 +225,16 @@ Int_t TBufferText::WriteClassBuffer(const TClass *cl, void *pointer)
 /// Deserialize information from a buffer into an object.
 ///
 /// Note: This function is called by the xxx::Streamer() functions in
-/// rootcint-generated dictionaries.
+/// rootcling-generated dictionaries.
 /// This function assumes that the class version and the byte count
 /// information have been read.
 ///
+/// \param[in] cl pointer to the local TClass
+/// \param[out] pointer void pointer to object
 /// \param[in] version The version number of the class
 /// \param[in] start   The starting position in the buffer b
 /// \param[in] count   The number of bytes for this object in the buffer
+/// \param[in] onFileClass pointer to TClass object on file
 ///
 
 Int_t TBufferText::ReadClassBuffer(const TClass *cl, void *pointer, Int_t version, UInt_t start, UInt_t count,
@@ -317,7 +322,7 @@ Int_t TBufferText::ReadClassBuffer(const TClass *cl, void *pointer, Int_t versio
 /// Deserialize information from a buffer into an object.
 ///
 /// Note: This function is called by the xxx::Streamer()
-/// functions in rootcint-generated dictionaries.
+/// functions in rootcling-generated dictionaries.
 ///
 
 Int_t TBufferText::ReadClassBuffer(const TClass *cl, void *pointer, const TClass *onFileClass)
@@ -656,7 +661,7 @@ void TBufferText::WriteArrayDouble32(const Double_t *d, Int_t n, TStreamerElemen
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Float16_t to buffer
 
-void TBufferText::WriteFastArrayFloat16(const Float_t *f, Int_t n, TStreamerElement * /*ele*/)
+void TBufferText::WriteFastArrayFloat16(const Float_t *f, Long64_t n, TStreamerElement * /*ele*/)
 {
    WriteFastArray(f, n);
 }
@@ -664,7 +669,7 @@ void TBufferText::WriteFastArrayFloat16(const Float_t *f, Int_t n, TStreamerElem
 ////////////////////////////////////////////////////////////////////////////////
 /// Write array of Double32_t to buffer
 
-void TBufferText::WriteFastArrayDouble32(const Double_t *d, Int_t n, TStreamerElement * /*ele*/)
+void TBufferText::WriteFastArrayDouble32(const Double_t *d, Long64_t n, TStreamerElement * /*ele*/)
 {
    WriteFastArray(d, n);
 }

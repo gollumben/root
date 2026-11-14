@@ -31,7 +31,6 @@ Paints TH3 histograms by rendering variable-sized boxes matching the
 bin contents.
 */
 
-ClassImp(TGLBoxPainter);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Normal constructor.
@@ -42,7 +41,7 @@ TGLBoxPainter::TGLBoxPainter(TH1 *hist, TGLPlotCamera *cam, TGLPlotCoordinates *
                     fYOZSlice("YOZ", (TH3 *)hist, coord, &fBackBox, TGLTH3Slice::kYOZ),
                     fXOYSlice("XOY", (TH3 *)hist, coord, &fBackBox, TGLTH3Slice::kXOY),
                     fType(kBox),
-                    fPolymarker(0)
+                    fPolymarker(nullptr)
 {
 }
 
@@ -204,7 +203,7 @@ void TGLBoxPainter::Pan(Int_t px, Int_t py)
 
 void TGLBoxPainter::AddOption(const TString &option)
 {
-   using namespace std;//isdigit must be in std. But ...
+   using std::isdigit;
 
    const Ssiz_t boxPos = option.Index("box");//"box" _already_ _exists_ in a string.
    if (boxPos + 3 < option.Length() && isdigit(option[boxPos + 3]))
@@ -604,7 +603,7 @@ void TGLBoxPainter::DrawPalette()const
       return;
    }
 
-   const TGLLevelPalette * palette = 0;
+   const TGLLevelPalette * palette = nullptr;
    const TGLVertex3 *frame = fBackBox.Get3DBox();
 
    if (fXOZSectionPos > frame[0].Y())

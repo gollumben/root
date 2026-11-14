@@ -23,7 +23,6 @@
 GL-renderer for TEvePolygonSetProjected class.
 */
 
-ClassImp(TEvePolygonSetProjectedGL);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor
@@ -68,7 +67,7 @@ void TEvePolygonSetProjectedGL::Draw(TGLRnrCtx& rnrCtx) const
 
 void TEvePolygonSetProjectedGL::DrawOutline() const
 {
-   if (fM->fPols.size() == 0) return;
+   if (fM->fPols.empty()) return;
 
    Bool_t done_p = kFALSE;
 
@@ -119,7 +118,7 @@ void TEvePolygonSetProjectedGL::DrawOutline() const
 
 void TEvePolygonSetProjectedGL::DirectDraw(TGLRnrCtx& /*rnrCtx*/) const
 {
-   if (fM->fPols.size() == 0) return;
+   if (fM->fPols.empty()) return;
 
    glPushAttrib(GL_ENABLE_BIT | GL_LINE_BIT | GL_POLYGON_BIT);
 

@@ -21,7 +21,6 @@
 Base class for composite GUI elements for setting of numeric values.
 */
 
-ClassImp(TEveGValuatorBase);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -37,7 +36,7 @@ TEveGValuatorBase::TEveGValuatorBase(const TGWindow *p, const char* name,
    fNELength (5),
    fNEHeight (20),
 
-   fLabel (0)
+   fLabel (nullptr)
 {
    SetName(name);
 }
@@ -48,7 +47,6 @@ Composite GUI element for single value selection (supports label,
 number-entry and slider).
 */
 
-ClassImp(TEveGValuator);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -63,8 +61,8 @@ TEveGValuator::TEveGValuator(const TGWindow *p, const char* title,
 
    fSliderNewLine (kFALSE),
    fSliderDivs    (-1),
-   fEntry  (0),
-   fSlider (0)
+   fEntry  (nullptr),
+   fSlider (nullptr)
 {
 }
 
@@ -243,7 +241,6 @@ Composite GUI element for selection of range (label, two
 number-entries and double-slider).
 */
 
-ClassImp(TEveGDoubleValuator);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.
@@ -252,9 +249,9 @@ TEveGDoubleValuator::TEveGDoubleValuator(const TGWindow *p, const char* title,
                                          UInt_t w, UInt_t h, Int_t widgetId) :
    TEveGValuatorBase(p, title, w, h, widgetId),
 
-   fMinEntry(0),
-   fMaxEntry(0),
-   fSlider(0)
+   fMinEntry(nullptr),
+   fMaxEntry(nullptr),
+   fSlider(nullptr)
 {
 }
 
@@ -415,7 +412,6 @@ three number-entries). All three values have the same number-format
 and value-range.
 */
 
-ClassImp(TEveGTriVecValuator);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor.

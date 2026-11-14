@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : TReshapeLayer                                                         *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Reshape Deep Neural Network Layer                                         *
@@ -21,7 +21,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef TMVA_DNN_RESHAPELAYER
@@ -45,7 +45,7 @@ public:
    using Scalar_t = typename Architecture_t::Scalar_t;
 
 private:
-   bool fFlattening; ///< Whather the layer is doing flattening
+   bool fFlattening; ///< Whether the layer is doing flattening
 
 public:
    /*! Constructor */
@@ -65,19 +65,19 @@ public:
    /*! The input must be in 3D tensor form with the different matrices
     *  corresponding to different events in the batch. It transforms the
     *  input matrices. */
-   void Forward(Tensor_t &input, bool applyDropout = false);
+   void Forward(Tensor_t &input, bool applyDropout = false) override;
 
-   void Backward(Tensor_t &gradients_backward, const Tensor_t &activations_backward); 
+   void Backward(Tensor_t &gradients_backward, const Tensor_t &activations_backward) override;
    //              Tensor_t &inp1, Tensor_t &inp2);
 
    /*! Prints the info about the layer. */
-   void Print() const;
+   void Print() const override;
 
    /*! Writes the information and the weights about the layer in an XML node. */
-   virtual void AddWeightsXMLTo(void *parent);
+   void AddWeightsXMLTo(void *parent) override;
 
    /*! Read the information and the weights about the layer from XML node. */
-   virtual void ReadWeightsFromXML(void *parent);
+   void ReadWeightsFromXML(void *parent) override;
 
 
    /*! TODO Add documentation
@@ -134,19 +134,19 @@ template <typename Architecture_t>
 auto TReshapeLayer<Architecture_t>::Forward(Tensor_t &input, bool /*applyDropout*/) -> void
 {
    if (fFlattening) {
-    
+
       Architecture_t::Flatten(this->GetOutput(), input);
-      
+
       return;
    } else {
-     
+
          Architecture_t::Deflatten(this->GetOutput(), input); //, out_size, nRows, nCols);
          return;
       }
 }
 //_________________________________________________________________________________________________
 template <typename Architecture_t>
-auto TReshapeLayer<Architecture_t>::Backward(Tensor_t &gradients_backward, const Tensor_t & 
+auto TReshapeLayer<Architecture_t>::Backward(Tensor_t &gradients_backward, const Tensor_t &
                                              /*activations_backward*/) -> void
 //                                             Tensor_t & /*inp1*/, Tensor_t &
 //                                             /*inp2*/) -> void
@@ -179,13 +179,13 @@ auto TReshapeLayer<Architecture_t>::Print() const -> void
 template <typename Architecture_t>
 auto TReshapeLayer<Architecture_t>::AddWeightsXMLTo(void *parent) -> void
 {
-   auto layerxml = gTools().xmlengine().NewChild(parent, 0, "ReshapeLayer");
+   auto layerxml = gTools().xmlengine().NewChild(parent, nullptr, "ReshapeLayer");
 
    // write info for reshapelayer
-   gTools().xmlengine().NewAttr(layerxml, 0, "Depth", gTools().StringFromInt(this->GetDepth()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "Height", gTools().StringFromInt(this->GetHeight()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "Width", gTools().StringFromInt(this->GetWidth()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "Flattening", gTools().StringFromInt(this->isFlattening()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "Depth", gTools().StringFromInt(this->GetDepth()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "Height", gTools().StringFromInt(this->GetHeight()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "Width", gTools().StringFromInt(this->GetWidth()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "Flattening", gTools().StringFromInt(this->isFlattening()));
 
 
 }

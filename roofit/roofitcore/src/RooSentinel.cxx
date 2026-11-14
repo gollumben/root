@@ -1,3 +1,5 @@
+/// \cond ROOFIT_INTERNAL
+
 /*****************************************************************************
  * Project: RooFit                                                           *
  * Package: RooFitCore                                                       *
@@ -28,8 +30,6 @@ but are not automatically destroyed at the end of the session. This class
 installs an atexit() function that takes care of this
 **/
 
-#include "RooFit.h"
-
 #include "RooSentinel.h"
 #include "RooArgSet.h"
 #include "RooRealConstant.h"
@@ -37,13 +37,14 @@ installs an atexit() function that takes care of this
 #include "RooExpensiveObjectCache.h"
 #include "RooDataSet.h"
 
-Bool_t RooSentinel::_active = kFALSE ;
+bool RooSentinel::_active = false ;
 
 static void CleanUpRooFitAtExit()
 {
   // Clean up function called at program termination before global objects go out of scope.
   RooArgSet::cleanup() ;
   RooDataSet::cleanup();
+  RooRealVar::cleanup();
 }
 
 
@@ -55,10 +56,9 @@ static void CleanUpRooFitAtExit()
 void RooSentinel::activate()
 {
   if (!_active) {
-    _active = kTRUE ;
+    _active = true ;
     atexit(CleanUpRooFitAtExit) ;
   }
 }
 
-
- 
+/// \endcond

@@ -9,7 +9,6 @@
 #include <ROOT/RDF/Utils.hxx>
 #include <ROOT/TSeq.hxx>
 #include <ROOT/RTrivialDS.hxx>
-#include <TError.h>
 
 #include <limits>
 #include <memory>
@@ -18,18 +17,9 @@ namespace ROOT {
 
 namespace RDF {
 
-std::vector<void *> RTrivialDS::GetColumnReadersImpl(std::string_view, const std::type_info &ti)
+std::vector<void *> RTrivialDS::GetColumnReadersImpl(std::string_view, const std::type_info &)
 {
-   // We know we have only one column and that it's holding ULong64_t's
-   if (ti != typeid(ULong64_t)) {
-      throw std::runtime_error("The type specified for the column \"col0\" is not ULong64_t.");
-   }
-   std::vector<void *> ret;
-   for (auto i : ROOT::TSeqU(fNSlots)) {
-      fCounterAddr[i] = &fCounter[i];
-      ret.emplace_back((void *)(&fCounterAddr[i]));
-   }
-   return ret;
+   return {};
 }
 
 RTrivialDS::RTrivialDS(ULong64_t size, bool skipEvenEntries) : fSize(size), fSkipEvenEntries(skipEvenEntries)
@@ -37,10 +27,6 @@ RTrivialDS::RTrivialDS(ULong64_t size, bool skipEvenEntries) : fSize(size), fSki
 }
 
 RTrivialDS::RTrivialDS() : fSize(std::numeric_limits<ULong64_t>::max()), fSkipEvenEntries(false)
-{
-}
-
-RTrivialDS::~RTrivialDS()
 {
 }
 
@@ -88,14 +74,14 @@ bool RTrivialDS::SetEntry(unsigned int slot, ULong64_t entry)
 
 void RTrivialDS::SetNSlots(unsigned int nSlots)
 {
-   R__ASSERT(0U == fNSlots && "Setting the number of slots even if the number of slots is different from zero.");
+   assert(0U == fNSlots && "Setting the number of slots even if the number of slots is different from zero.");
 
    fNSlots = nSlots;
    fCounter.resize(fNSlots);
    fCounterAddr.resize(fNSlots);
 }
 
-void RTrivialDS::Initialise()
+void RTrivialDS::Initialize()
 {
    if (fSize == std::numeric_limits<ULong64_t>::max()) {
       // infinite source, nothing to do here
@@ -137,3 +123,16 @@ RInterface<RDFDetail::RLoopManager> MakeTrivialDataFrame()
 } // ns RDF
 
 } // ns ROOT
+
+std::unique_ptr<ROOT::Detail::RDF::RColumnReaderBase>
+ROOT::RDF::RTrivialDS::GetColumnReaders(unsigned int slot, std::string_view /*colName*/, const std::type_info &tid)
+{
+   // We know we have only one column and that it's holding ULong64_t's
+   if (tid != typeid(ULong64_t)) {
+      throw std::runtime_error("The type specified for the column \"col0\" is not ULong64_t.");
+   }
+
+   fCounterAddr[slot] = &fCounter[slot];
+
+   return std::make_unique<ROOT::Internal::RDF::RTrivialDSColumnReader>(fCounterAddr[slot]);
+}

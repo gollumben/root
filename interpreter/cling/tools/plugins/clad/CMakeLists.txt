@@ -12,24 +12,47 @@ set(clad_install_dir ${CMAKE_BINARY_DIR}/etc/cling/)
 # Specify include dirs for clad
 set(CLAD_INCLUDE_DIRS ${clad_install_dir})
 # Clad Libraries
-set(_CLAD_LIBRARY_PATH ${clad_install_dir}/plugins/lib)
+set(CLAD_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+# Build clad in the configuration ROOT is being built in, whatever that is.
+# A fixed one is wrong against ROOT's own LLVM, because that is a build tree:
+# a build tree exports an IMPORTED_LOCATION for every entry of
+# CMAKE_CONFIGURATION_TYPES whether or not it compiled them, so cmake's
+# fallback to an available configuration never fires. It finds the location
+# for the configuration being built and hands the linker a path to a file that
+# was never produced.
+#
+# Nothing in the clad sub-build linked an LLVM library until clad 2.5 added
+# clad-tblgen, so a RelWithDebInfo ROOT asking for a Release clad went
+# unnoticed. It now fails as
+#   LNK1181: cannot open input file '...\llvm\Release\lib\LLVMTableGen.lib'
+#
+# winrtdebug needs no case of its own. It selects the debug runtime through
+# CMAKE_CXX_FLAGS, which is forwarded below, and is used with a Debug ROOT --
+# which is what $<CONFIG> then reports anyway.
+set(_clad_build_type ${CMAKE_CFG_INTDIR})
+if(NOT _clad_build_type STREQUAL "" AND NOT _clad_build_type STREQUAL ".")
+  # $<CONFIG> rather than ${_clad_build_type}: LOG_BUILD runs the build step
+  # from a script through `cmake -P`, which never expands MSBuild's
+  # $(Configuration). The library path below is read by MSBuild itself, where
+  # it is expanded.
+  set(EXTRA_BUILD_ARGS --config $<CONFIG>)
+endif()
+
+if(NOT MSVC AND CMAKE_VERSION VERSION_LESS 3.31.1)
+  # Workaround for https://gitlab.kitware.com/cmake/cmake/-/issues/26398
+  # The problem got eventually fixed upstream in CMake.
+  list(APPEND EXTRA_BUILD_ARGS "-j 1")
+endif()
+
+set(_CLAD_LIBRARY_PATH ${CMAKE_CURRENT_BINARY_DIR}/clad-prefix/src/clad-build/${_clad_build_type}/lib${LLVM_LIBDIR_SUFFIX})
 
 # build byproducts only needed by Ninja
-if("${CMAKE_GENERATOR}" STREQUAL "Ninja")
+if(CMAKE_GENERATOR MATCHES Ninja)
   set(CLAD_BYPRODUCTS
-     ${_CLAD_LIBRARY_PATH}/${CMAKE_STATIC_LIBRARY_PREFIX}cladPlugin${CMAKE_STATIC_LIBRARY_SUFFIX}
+    ${_CLAD_LIBRARY_PATH}/${CMAKE_STATIC_LIBRARY_PREFIX}cladPlugin${CMAKE_STATIC_LIBRARY_SUFFIX}
     ${_CLAD_LIBRARY_PATH}/${CMAKE_STATIC_LIBRARY_PREFIX}cladDifferentiator${CMAKE_STATIC_LIBRARY_SUFFIX}
   )
 endif()
-
-set(_clad_build_type ${CMAKE_CFG_INTDIR})
-if(MSVC)
-  if (winrtdebug)
-    set(_clad_build_type Debug)
-  else()
-    set(_clad_build_type Release)
-  endif()
-endif(MSVC)
 
 if(APPLE)
   set(_clad_extra_cmake_args -DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT})
@@ -39,49 +62,92 @@ if (CMAKE_CXX_STANDARD)
   list(APPEND _clad_extra_cmake_args -DCMAKE_CXX_STANDARD=${CMAKE_CXX_STANDARD})
 endif(CMAKE_CXX_STANDARD)
 
-if (Clang_DIR)
-  list(APPEND _clad_extra_cmake_args -DClang_DIR=${Clang_DIR} -DClang_CONFIG_EXTRA_PATH_HINTS=${Clang_Config_ExtraPathHints})
-endif(Clang_DIR)
+if (LLVM_FORCE_USE_OLD_TOOLCHAIN)
+  list(APPEND _clad_extra_cmake_args -DLLVM_FORCE_USE_OLD_TOOLCHAIN=${LLVM_FORCE_USE_OLD_TOOLCHAIN})
+endif(LLVM_FORCE_USE_OLD_TOOLCHAIN)
 
-if (LLVM_TEMPORARILY_ALLOW_OLD_TOOLCHAIN)
-  list(APPEND _clad_extra_cmake_args -DLLVM_TEMPORARILY_ALLOW_OLD_TOOLCHAIN=${LLVM_TEMPORARILY_ALLOW_OLD_TOOLCHAIN})
-endif(LLVM_TEMPORARILY_ALLOW_OLD_TOOLCHAIN)
-
-if (CLING_INCLUDE_TESTS)
-  list(APPEND _clad_extra_cmake_args -DLLVM_EXTERNAL_LIT=${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py)
-else()
-  list(APPEND _clad_extra_cmake_args -DCLAD_BUILD_STATIC_ONLY=ON)
+# LLVMConfig.cmake re-finds zstd for LLVMSupport with a bare find_package(zstd),
+# unlike zlib (set(ZLIB_ROOT @ZLIB_ROOT@) in llvm/cmake/modules/LLVMConfig.cmake.in).
+# clad's cmake has none of ROOT's search paths, so pass the zstd LLVM found.
+if(zstd_INCLUDE_DIR AND zstd_LIBRARY)
+  list(APPEND _clad_extra_cmake_args
+       -Dzstd_INCLUDE_DIR:PATH=${zstd_INCLUDE_DIR}
+       -Dzstd_LIBRARY:FILEPATH=${zstd_LIBRARY})
 endif()
 
+list(APPEND _clad_extra_cmake_args -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=${CMAKE_INSTALL_RPATH_USE_LINK_PATH})
+
+list(APPEND _clad_extra_cmake_args -DCLAD_BUILD_STATIC_ONLY=ON)
+
 # Wrap download, configure and build steps in a script to log output
-set(_clad_cmake_logging_settings
+set(_clad_extra_settings
   LOG_DOWNLOAD ON
   LOG_CONFIGURE ON
   LOG_BUILD ON
   LOG_INSTALL ON
+  LOG_OUTPUT_ON_FAILURE ON
 )
 
-list(APPEND _clad_cmake_logging_settings LOG_OUTPUT_ON_FAILURE ON)
+set(ROOT_CLAD_VERSION 2.5)
+set(ROOT_CLAD_HASH "f548a0e4ea6985a87fc7b878f38791f34f96ef1dc06a41ff35d7058d75af1417")
+
+# Sometimes it can be useful to try out a specific git tag, branch, or commit:
+# set(CLAD_REPOSITORY https://github.com/vgvassilev/clad.git)
+# set(CLAD_GIT_TAG v${ROOT_CLAD_VERSION})
+
+# If the CLAD_SOURCE_DIR variable is defined in the CMake configuration, we're
+# skipping the download of the sources and use the passed directory.
+if (DEFINED CLAD_SOURCE_DIR)
+  list(APPEND _clad_extra_settings SOURCE_DIR ${CLAD_SOURCE_DIR})
+elseif(CLAD_GIT_TAG)
+  list(APPEND _clad_extra_settings
+       GIT_REPOSITORY ${CLAD_REPOSITORY}
+       GIT_TAG ${CLAD_GIT_TAG}
+       UPDATE_COMMAND "")
+  set(_clad_restore_cmd COMMAND git checkout -q <SOURCE_DIR>)
+else()
+  # The CERN mirror of the GitHub release archive, then GitHub itself, as for
+  # the other builtins.
+  list(APPEND _clad_extra_settings
+       DOWNLOAD_DIR ${ROOT_DOWNLOAD_DIR}
+       URL ${lcgpackages}/clad-${ROOT_CLAD_VERSION}.tar.gz
+           https://github.com/vgvassilev/clad/archive/refs/tags/v${ROOT_CLAD_VERSION}.tar.gz
+       URL_HASH SHA256=${ROOT_CLAD_HASH})
+  set(_clad_restore_cmd COMMAND git init -q)
+endif()
+
+# list(APPEND _clad_patches_list "patch1.patch" "patch2.patch")
+#list(APPEND _clad_patches_list "nullptr_dereference_fix.patch" "windows_build_fix.patch")
+list(APPEND _clad_patches_list "lld_lookup_no_default_path.patch")
+# An external clad source directory is used as is: it is expected to be
+# already patched if necessary.
+if (_clad_patches_list AND NOT DEFINED CLAD_SOURCE_DIR)
+  set(_clad_patch_command
+      ${CMAKE_COMMAND} -E copy_directory
+      ${CMAKE_SOURCE_DIR}/interpreter/cling/tools/plugins/clad/patches <SOURCE_DIR>
+      ${_clad_restore_cmd}
+      COMMAND git apply --ignore-space-change --ignore-whitespace ${_clad_patches_list}
+      )
+endif(_clad_patches_list AND NOT DEFINED CLAD_SOURCE_DIR)
 
 ExternalProject_Add(
   clad
-  GIT_REPOSITORY https://github.com/vgvassilev/clad.git
-  GIT_TAG v0.9
-  UPDATE_COMMAND ""
+  PATCH_COMMAND ${_clad_patch_command}
   CMAKE_ARGS -G ${CMAKE_GENERATOR}
              -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
              -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
              -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
              -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-             -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+             -DCMAKE_CXX_FLAGS=${CLAD_CXX_FLAGS}
+             -DCMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}
              -DCMAKE_INSTALL_PREFIX=${clad_install_dir}/plugins
-             -DLLVM_DIR=${LLVM_BINARY_DIR}
-             -DCLANG_INCLUDE_DIRS=${CLANG_INCLUDE_DIRS}
+             -DLLVM_DIR=${LLVM_DIR}
+             -DClang_DIR=${CLANG_CMAKE_DIR}
              ${_clad_extra_cmake_args}
-  BUILD_COMMAND ${CMAKE_COMMAND} --build . --config ${_clad_build_type}
-  INSTALL_COMMAND ${CMAKE_COMMAND} --build . --config ${_clad_build_type} --target install
+  BUILD_COMMAND ${CMAKE_COMMAND} --build . ${EXTRA_BUILD_ARGS}
+  INSTALL_COMMAND ${CMAKE_COMMAND} --build . ${EXTRA_BUILD_ARGS} --target install
   BUILD_BYPRODUCTS ${CLAD_BYPRODUCTS}
-  ${_clad_cmake_logging_settings}
+  ${_clad_extra_settings}
   # We need the target clangBasic to be built before building clad. However, we
   # support building prebuilt clang and adding clangBasic breaks this case.
   # Delegate the dependency resolution to the clingInterpreter target (which

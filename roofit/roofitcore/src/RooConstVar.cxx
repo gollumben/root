@@ -19,55 +19,38 @@
 \class RooConstVar
 \ingroup Roofitcore
 
-RooConstVar represent a constant real-valued object
+Represents a constant real-valued object.
 **/
 
 #include "RooConstVar.h"
-#include "RunContext.h"
-
-using namespace std;
-
-ClassImp(RooConstVar);
+#include "RooNumber.h"
 
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Constructor with value
-RooConstVar::RooConstVar(const char *name, const char *title, Double_t value) : 
+RooConstVar::RooConstVar(const char *name, const char *title, double value) :
   RooAbsReal(name,title)
 {
   _fast = true;
   _value = value;
-  setAttribute("Constant",kTRUE) ;
+  setAttribute("Constant",true) ;
 }
 
 
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy constructor
-RooConstVar::RooConstVar(const RooConstVar& other, const char* name) : 
+RooConstVar::RooConstVar(const RooConstVar& other, const char* name) :
   RooAbsReal(other, name)
 {
   _fast = true;
 }
 
-
-////////////////////////////////////////////////////////////////////////////////
-/// Return batch with 1 constant element.
-RooSpan<const double> RooConstVar::getValues(RooBatchCompute::RunContext& evalData, const RooArgSet*) const {
-  auto item = evalData.spans.find(this);
-  if (item == evalData.spans.end()) {
-    return evalData.spans[this] = {&_value, 1};
-  }
-
-  return evalData.spans[this];
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Write object contents to stream
 
-void RooConstVar::writeToStream(ostream& os, Bool_t /*compact*/) const
+void RooConstVar::writeToStream(std::ostream& os, bool /*compact*/) const
 {
   os << _value ;
 }
-

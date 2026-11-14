@@ -22,13 +22,11 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef __CINT__
 #include <cstdio>
 #include <cctype>
 #include <fcntl.h>
 #ifndef _WIN32
 #include <unistd.h>
-#endif
 #endif
 
 #include "TNamed.h"
@@ -39,6 +37,16 @@
 class TSeqCollection;
 class TFdSet;
 class TVirtualMutex;
+
+/*! \enum ESocketBindOption
+    \brief Options for binging the sockets created
+
+    These values can be used to configure the binding of the opened sockets.
+*/
+enum ESocketBindOption {
+   kInaddrAny = 0,      ///< Any address for socket binding
+   kInaddrLoopback = 1, ///< Refers to the local host via the loopback device
+};
 
 enum EAccessMode {
    kFileExists        = 0,
@@ -180,13 +188,19 @@ struct MemInfo_t {
    Int_t     fMemTotal;    // total RAM in MB
    Int_t     fMemUsed;     // used RAM in MB
    Int_t     fMemFree;     // free RAM in MB
+   Int_t     fMemAvailable; // available RAM in MB
+   Int_t     fMemCached; // cached RAM in MB
+   Int_t     fMemBuffer; // buffer RAM in MB
+   Int_t     fMemShared; // shared RAM in MB
    Int_t     fSwapTotal;   // total swap in MB
    Int_t     fSwapUsed;    // used swap in MB
    Int_t     fSwapFree;    // free swap in MB
-   MemInfo_t() : fMemTotal(0), fMemUsed(0), fMemFree(0),
-                 fSwapTotal(0), fSwapUsed(0), fSwapFree(0) { }
+   Int_t     fSwapCached; // cached swap in MB
+   Int_t     fSReclaimable; // slab that might be reclaimed
+   MemInfo_t() : fMemTotal(0), fMemUsed(0), fMemFree(0), fMemAvailable(0), fMemCached(0), fMemBuffer(0), fMemShared(0),
+                 fSwapTotal(0), fSwapUsed(0), fSwapFree(0), fSwapCached(0), fSReclaimable(0){ }
    virtual ~MemInfo_t() { }
-   ClassDef(MemInfo_t, 1); // Memory utilization information.
+   ClassDef(MemInfo_t, 2); // Memory utilization information.
 };
 
 struct ProcInfo_t {
@@ -232,11 +246,7 @@ enum ESendRecvOptions {
    kDontBlock          // send/recv as much data as possible without blocking
 };
 
-#ifdef __CINT__
-typedef void *Func_t;
-#else
 typedef void (*Func_t)();
-#endif
 
 R__EXTERN const char  *gRootDir;
 R__EXTERN const char  *gProgName;
@@ -257,26 +267,36 @@ R__EXTERN TVirtualMutex *gSystemMutex;
 class TProcessEventTimer : public TTimer {
 public:
    TProcessEventTimer(Long_t delay);
-   Bool_t Notify() { return kTRUE; }
+   Bool_t Notify() override { return kTRUE; }
    Bool_t ProcessEvents();
-   ClassDef(TProcessEventTimer,0)  // Process pending events at fixed time intervals
+   ClassDefOverride(TProcessEventTimer,0)  // Process pending events at fixed time intervals
 };
 
 
 class TSystem : public TNamed {
 
 public:
-   enum EAclicMode { kDefault, kDebug, kOpt };
+   enum EAclicMode {
+// clang++ <v20 (-Wshadow) complains about shadowing TSystem.h global enum ESendRecvOptions. Let's silence warning:
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow"
+#endif
+      kDefault,
+#if defined(__clang__) && __clang_major__ < 20
+#pragma clang diagnostic pop
+#endif
+      kDebug, kOpt };
    enum EAclicProperties {
       kFlatBuildDir = BIT(0)           // If set and a BuildDir is selected, then do not created sub-directories
    };
 
 protected:
-   TFdSet          *fReadmask{nullptr};         //!Files that should be checked for read events
-   TFdSet          *fWritemask{nullptr};        //!Files that should be checked for write events
-   TFdSet          *fReadready{nullptr};        //!Files with reads waiting
-   TFdSet          *fWriteready{nullptr};       //!Files with writes waiting
-   TFdSet          *fSignals{nullptr};          //!Signals that were trapped
+   TFdSet          *fReadmask{nullptr};         ///<!Files that should be checked for read events
+   TFdSet          *fWritemask{nullptr};        ///<!Files that should be checked for write events
+   TFdSet          *fReadready{nullptr};        ///<!Files with reads waiting
+   TFdSet          *fWriteready{nullptr};       ///<!Files with writes waiting
+   TFdSet          *fSignals{nullptr};          ///<!Signals that were trapped
    Int_t            fNfd{0};                    //Number of fd's in masks
    Int_t            fMaxrfd{-1};                //Largest fd in read mask
    Int_t            fMaxwfd{-1};                //Largest fd in write mask
@@ -349,6 +369,7 @@ public:
    void                    SetErrorStr(const char *errstr);
    const char             *GetErrorStr() const { return GetLastErrorString(); }
    virtual const char     *GetError();
+   static Int_t            GetCryptoRandom(void *buf, Int_t len);
    void                    RemoveOnExit(TObject *obj);
    virtual const char     *HostName();
    virtual void            NotifyApplicationCreated();
@@ -400,11 +421,12 @@ public:
    virtual Int_t           Exec(const char *shellcmd);
    virtual FILE           *OpenPipe(const char *command, const char *mode);
    virtual int             ClosePipe(FILE *pipe);
-   virtual TString         GetFromPipe(const char *command);
-   virtual void            Exit(int code, Bool_t mode = kTRUE);
-   virtual void            Abort(int code = 0);
+   virtual TString         GetFromPipe(const char *command, Int_t *ret = nullptr, Bool_t redirectStderr = kFALSE);
    virtual int             GetPid();
    virtual void            StackTrace();
+
+   [[ noreturn ]] virtual void Exit(int code, Bool_t mode = kTRUE);
+   [[ noreturn ]] virtual void Abort(int code = 0);
 
    //---- Directories
    virtual int             MakeDirectory(const char *name);
@@ -421,7 +443,7 @@ public:
    Bool_t                  cd(const char *path) { return ChangeDirectory(path); }
    const char             *pwd() { return WorkingDirectory(); }
    virtual const char     *TempDirectory() const;
-   virtual FILE           *TempFileName(TString &base, const char *dir = nullptr);
+   virtual FILE           *TempFileName(TString &base, const char *dir = nullptr, const char *suffix = nullptr);
 
    //---- Paths & Files
    virtual const char     *BaseName(const char *pathname);
@@ -450,7 +472,7 @@ public:
    virtual const char     *UnixPathName(const char *unixpathname);
    virtual const char     *FindFile(const char *search, TString& file, EAccessMode mode = kFileExists);
    virtual char           *Which(const char *search, const char *file, EAccessMode mode = kFileExists);
-   virtual TList          *GetVolumes(Option_t *) const { return 0; }
+   virtual TList          *GetVolumes(Option_t *) const { return nullptr; }
 
    //---- Users & Groups
    virtual Int_t           GetUid(const char *user = nullptr);
@@ -499,8 +521,9 @@ public:
    virtual int             GetServiceByName(const char *service);
    virtual char           *GetServiceByPort(int port);
    virtual int             OpenConnection(const char *server, int port, int tcpwindowsize = -1, const char *protocol = "tcp");
-   virtual int             AnnounceTcpService(int port, Bool_t reuse, int backlog, int tcpwindowsize = -1);
-   virtual int             AnnounceUdpService(int port, int backlog);
+   virtual int AnnounceTcpService(int port, Bool_t reuse, int backlog, int tcpwindowsize = -1,
+                                  ESocketBindOption socketBindOption = ESocketBindOption::kInaddrAny);
+   virtual int AnnounceUdpService(int port, int backlog, ESocketBindOption socketBindOption = ESocketBindOption::kInaddrAny);
    virtual int             AnnounceUnixService(int port, int backlog);
    virtual int             AnnounceUnixService(const char *sockpath, int backlog);
    virtual int             AcceptConnection(int sock);
@@ -553,7 +576,7 @@ public:
    virtual TString         SplitAclicMode(const char *filename, TString &mode, TString &args, TString &io) const;
    virtual void            CleanCompiledMacros();
 
-   ClassDef(TSystem,0)  //ABC defining a generic interface to the OS
+   ClassDefOverride(TSystem,0)  //ABC defining a generic interface to the OS
 };
 
 R__EXTERN TSystem *gSystem;

@@ -14,7 +14,9 @@
 This class registers for all classes their name, id and dictionary
 function in a hash table. Classes are automatically added by the
 ctor of a special init class when a global of this init class is
-initialized when the program starts (see the ClassImp macro).
+initialized when the program starts (see the ClassDef macro).
+
+All functions in TClassTable are thread-safe.
 */
 
 #include "TClassTable.h"
@@ -38,21 +40,65 @@ initialized when the program starts (see the ClassImp macro).
 #include <typeinfo>
 #include <cstdlib>
 #include <string>
+#include <mutex>
+#include <unordered_map>
 
 using namespace ROOT;
 
 TClassTable *gClassTable;
 
-TClassAlt  **TClassTable::fgAlternate;
-TClassRec  **TClassTable::fgTable;
-TClassRec  **TClassTable::fgSortedTable;
-UInt_t       TClassTable::fgSize;
-UInt_t       TClassTable::fgTally;
-Bool_t       TClassTable::fgSorted;
-UInt_t       TClassTable::fgCursor;
+TClassAlt           **TClassTable::fgAlternate;
+TClassRec           **TClassTable::fgTable;
+TClassRec           **TClassTable::fgSortedTable;
+UInt_t                TClassTable::fgSize;
+std::atomic<UInt_t>   TClassTable::fgTally;
+Bool_t                TClassTable::fgSorted;
+UInt_t                TClassTable::fgCursor;
 TClassTable::IdMap_t *TClassTable::fgIdMap;
 
-ClassImp(TClassTable);
+
+static std::mutex &GetClassTableMutex()
+{
+   static std::mutex sMutex;
+   return sMutex;
+}
+
+// RAII to first normalize the input classname (operation that
+// both requires the ROOT global lock and might call `TClassTable`
+// resursively) and then acquire a lock on `TClassTable` local
+// mutex.
+class TClassTable::NormalizeThenLock {
+   std::string fNormalizedName;
+
+public:
+   NormalizeThenLock() = delete;
+   NormalizeThenLock(const NormalizeThenLock&) = delete;
+   NormalizeThenLock(NormalizeThenLock&&) = delete;
+   NormalizeThenLock& operator=(const NormalizeThenLock&) = delete;
+   NormalizeThenLock& operator=(NormalizeThenLock&&) = delete;
+
+   NormalizeThenLock(const char *cname)
+   {
+      if (!TClassTable::CheckClassTableInit())
+         return;
+
+      // The recorded name is normalized, let's make sure we convert the
+      // input accordingly.  This operation will take the ROOT global lock
+      // and might call recursively `TClassTable`, so this must be done
+      // outside of the `TClassTable` critical section.
+      TClassEdit::GetNormalizedName(fNormalizedName, cname);
+
+      GetClassTableMutex().lock();
+   }
+
+   ~NormalizeThenLock() {
+      GetClassTableMutex().unlock();
+   }
+
+   const std::string &GetNormalizedName() const {
+      return fNormalizedName;
+   }
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -60,7 +106,7 @@ namespace ROOT {
    class TClassRec {
    public:
       TClassRec(TClassRec *next) :
-        fName(0), fId(0), fDict(0), fInfo(0), fProto(0), fNext(next)
+        fName(nullptr), fId(0), fDict(nullptr), fInfo(nullptr), fProto(nullptr), fNext(next)
       {}
 
       ~TClassRec() {
@@ -120,9 +166,8 @@ namespace ROOT {
       }
 
       mapped_type Find(const key_type &key) const {
-
          IdMap_t::const_iterator iter = fMap.find(key);
-         mapped_type cl = 0;
+         mapped_type cl = nullptr;
          if (iter != fMap.end()) cl = iter->second;
          return cl;
       }
@@ -213,6 +258,12 @@ namespace ROOT {
    }
 }
 
+std::unordered_map<ROOT::TClassRec *, std::vector<ROOT::TClassAlt *>> &GetClassRecToAltMap()
+{
+   static std::unordered_map<ROOT::TClassRec *, std::vector<ROOT::TClassAlt *>> classRecToAltMap;
+   return classRecToAltMap;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// TClassTable is a singleton (i.e. only one can exist per application).
 
@@ -224,8 +275,8 @@ TClassTable::TClassTable()
    fgTable = new TClassRec* [fgSize];
    fgAlternate = new TClassAlt* [fgSize];
    fgIdMap = new IdMap_t;
-   memset(fgTable, 0, fgSize*sizeof(TClassRec*));
-   memset(fgAlternate, 0, fgSize*sizeof(TClassAlt*));
+   memset(fgTable, 0, fgSize * sizeof(TClassRec*));
+   memset(fgAlternate, 0, fgSize * sizeof(TClassAlt *));
    gClassTable = this;
 
    for (auto &&r : GetDelayedAddClass()) {
@@ -250,9 +301,9 @@ TClassTable::~TClassTable()
    for (UInt_t i = 0; i < fgSize; i++) {
       delete fgTable[i]; // Will delete all the elements in the chain.
    }
-   delete [] fgTable; fgTable = 0;
-   delete [] fgSortedTable; fgSortedTable = 0;
-   delete fgIdMap; fgIdMap = 0;
+   delete [] fgTable; fgTable = nullptr;
+   delete [] fgSortedTable; fgSortedTable = nullptr;
+   delete fgIdMap; fgIdMap = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -260,7 +311,10 @@ TClassTable::~TClassTable()
 /// If the table does not exist but the delayed list does, then
 /// create the table and return true.
 
-inline Bool_t TClassTable::CheckClassTableInit() {
+inline Bool_t TClassTable::CheckClassTableInit()
+{
+   // This will be set at the lastest during TROOT construction, so before
+   // any threading could happen.
    if (!gClassTable || !fgTable) {
       if (GetDelayedAddClass().size()) {
          new TClassTable;
@@ -279,6 +333,10 @@ inline Bool_t TClassTable::CheckClassTableInit() {
 
 void TClassTable::Print(Option_t *option) const
 {
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
+
+   // This is the very rare case (i.e. called before any dictionary load)
+   // so we don't need to execute this outside of the critical section.
    if (fgTally == 0 || !fgTable)
       return;
 
@@ -286,6 +344,7 @@ void TClassTable::Print(Option_t *option) const
 
    int n = 0, ninit = 0, nl = 0;
 
+   if (!option) option = "";
    int nch = strlen(option);
    TRegexp re(option, kTRUE);
 
@@ -320,12 +379,15 @@ void TClassTable::Print(Option_t *option) const
 
 char *TClassTable::At(UInt_t index)
 {
-   SortTable();
    if (index < fgTally) {
+      std::lock_guard<std::mutex> lock(GetClassTableMutex());
+
+      SortTable();
       TClassRec *r = fgSortedTable[index];
-      if (r) return r->fName;
+      if (r)
+         return r->fName;
    }
-   return 0;
+   return nullptr;
 }
 
 //______________________________________________________________________________
@@ -342,22 +404,27 @@ namespace ROOT { class TForNamespace {}; } // Dummy class to give a typeid to na
 void TClassTable::Add(const char *cname, Version_t id,  const std::type_info &info,
                       DictFuncPtr_t dict, Int_t pragmabits)
 {
-   if (!gClassTable)
-      new TClassTable;
-
    if (!cname || *cname == 0)
       ::Fatal("TClassTable::Add()", "Failed to deduce type for '%s'", info.name());
 
+   // This will be set at the lastest during TROOT construction, so before
+   // any threading could happen.
+   if (!gClassTable)
+      new TClassTable;
+
+   std::unique_lock<std::mutex> lock(GetClassTableMutex());
+
    // check if already in table, if so return
-   TClassRec *r = FindElementImpl(cname, kTRUE);
+   TClassRec *r = FindElement(cname, kTRUE);
    if (r->fName && r->fInfo) {
-      if ( strcmp(r->fInfo->name(),typeid(ROOT::TForNamespace).name())==0
-           && strcmp(info.name(),typeid(ROOT::TForNamespace).name())==0 ) {
+      if ( strcmp(r->fInfo->name(), typeid(ROOT::TForNamespace).name()) ==0
+           && strcmp(info.name(), typeid(ROOT::TForNamespace).name()) ==0 ) {
          // We have a namespace being reloaded.
          // This okay we just keep the old one.
          return;
       }
       if (!TClassEdit::IsStdClass(cname)) {
+         lock.unlock(); // Warning might recursively call TClassTable during gROOT init
          // Warn only for class that are not STD classes
          ::Warning("TClassTable::Add", "class %s already in TClassTable", cname);
       }
@@ -375,11 +442,12 @@ void TClassTable::Add(const char *cname, Version_t id,  const std::type_info &in
          // was able to make with the library containing the TClass Init.
          // Because it is already known to the interpreter, the update class info
          // will not be triggered, we need to force it.
-         gCling->RegisterTClassUpdate(oldcl,dict);
+         gCling->RegisterTClassUpdate(oldcl, dict);
       }
    }
 
-   if (!r->fName) r->fName = StrDup(cname);
+   if (!r->fName)
+      r->fName = StrDup(cname);
    r->fId   = id;
    r->fBits = pragmabits;
    r->fDict = dict;
@@ -392,22 +460,29 @@ void TClassTable::Add(const char *cname, Version_t id,  const std::type_info &in
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Add a class to the class table (this is a static function).
+/// The caller of this function should be holding the ROOT Write lock.
 
 void TClassTable::Add(TProtoClass *proto)
 {
+   // This will be set at the lastest during TROOT construction, so before
+   // any threading could happen.
    if (!gClassTable)
       new TClassTable;
+
+   std::unique_lock<std::mutex> lock(GetClassTableMutex());
 
    // By definition the name in the TProtoClass is (must be) the normalized
    // name, so there is no need to tweak it.
    const char *cname = proto->GetName();
 
    // check if already in table, if so return
-   TClassRec *r = FindElementImpl(cname, kTRUE);
+   TClassRec *r = FindElement(cname, kTRUE);
    if (r->fName) {
       if (r->fProto) delete r->fProto;
       r->fProto = proto;
       TClass *oldcl = (TClass*)gROOT->GetListOfClasses()->FindObject(cname);
+
+      lock.unlock(); // FillTClass might recursively call TClassTable during gROOT init
       if (oldcl && oldcl->GetState() == TClass::kHasTClassInit)
          proto->FillTClass(oldcl);
       return;
@@ -419,6 +494,7 @@ void TClassTable::Add(TProtoClass *proto)
                    // files loaded by the current dictionary wil also de-activate the update
                    // class info mechanism!
 
+         lock.unlock(); // Warning might recursively call TClassTable during gROOT init
          ::Warning("TClassTable::Add(TProtoClass*)","Called for existing class without a prior call add the dictionary function.");
       }
    }
@@ -426,8 +502,8 @@ void TClassTable::Add(TProtoClass *proto)
    r->fName = StrDup(cname);
    r->fId   = 0;
    r->fBits = 0;
-   r->fDict = 0;
-   r->fInfo = 0;
+   r->fDict = nullptr;
+   r->fInfo = nullptr;
    r->fProto= proto;
 
    fgSorted = kFALSE;
@@ -435,10 +511,14 @@ void TClassTable::Add(TProtoClass *proto)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void TClassTable::AddAlternate(const char *normName, const char *alternate)
+ROOT::TClassAlt* TClassTable::AddAlternate(const char *normName, const char *alternate)
 {
+   // This will be set at the lastest during TROOT construction, so before
+   // any threading could happen.
    if (!gClassTable)
       new TClassTable;
+
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
 
    UInt_t slot = ROOT::ClassTableHash(alternate, fgSize);
 
@@ -448,19 +528,62 @@ void TClassTable::AddAlternate(const char *normName, const char *alternate)
             fprintf(stderr,"Error in TClassTable::AddAlternate: "
                     "Second registration of %s with a different normalized name (old: '%s', new: '%s')\n",
                     alternate, a->fNormName, normName);
-            return;
          }
+         return nullptr;
       }
    }
 
    fgAlternate[slot] = new TClassAlt(alternate,normName,fgAlternate[slot]);
+
+   UInt_t slotNorm = ROOT::ClassTableHash(normName, fgSize);
+   if (fgTable[slotNorm]) {
+      auto &classToAlt = GetClassRecToAltMap();
+      // Let others connect a class record to its class alternative names
+      if (auto it = classToAlt.find(fgTable[slotNorm]); it == classToAlt.end())
+         classToAlt[fgTable[slotNorm]] = std::vector<ROOT::TClassAlt *>{fgAlternate[slot]};
+      else
+         classToAlt[fgTable[slotNorm]].push_back(fgAlternate[slot]);
+   }
+
+   return fgAlternate[slot];
+}
+
+////////////////////////////////////////////////////////////////////////////////
+///
+void TClassTable::RemoveAlternate(ROOT::TClassAlt *alt)
+{
+   if (!alt || !gClassTable)
+      return;
+
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
+
+   UInt_t slot = ROOT::ClassTableHash(alt->fName, fgSize);
+
+   if (!fgAlternate[slot])
+      return;
+
+   if (fgAlternate[slot] == alt)
+      fgAlternate[slot] = alt->fNext.release();
+   else {
+      for (TClassAlt *a = fgAlternate[slot]; a; a = a->fNext.get()) {
+         if (a->fNext.get() == alt) {
+            a->fNext.swap( alt->fNext );
+	    assert( alt == alt->fNext.get());
+	    alt->fNext.release();
+	 }
+      }
+   }
+   delete alt;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 Bool_t TClassTable::Check(const char *cname, std::string &normname)
 {
-   if (!CheckClassTableInit()) return kFALSE;
+   if (!CheckClassTableInit())
+      return kFALSE;
+
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
 
    UInt_t slot = ROOT::ClassTableHash(cname, fgSize);
 
@@ -485,12 +608,15 @@ Bool_t TClassTable::Check(const char *cname, std::string &normname)
 
 void TClassTable::Remove(const char *cname)
 {
-   if (!CheckClassTableInit()) return;
+   if (!CheckClassTableInit())
+      return;
 
-   UInt_t slot = ROOT::ClassTableHash(cname,fgSize);
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
+
+   UInt_t slot = ROOT::ClassTableHash(cname, fgSize);
 
    TClassRec *r;
-   TClassRec *prev = 0;
+   TClassRec *prev = nullptr;
    for (r = fgTable[slot]; r; r = r->fNext) {
       if (!strcmp(r->fName, cname)) {
          if (prev)
@@ -498,7 +624,7 @@ void TClassTable::Remove(const char *cname)
          else
             fgTable[slot] = r->fNext;
          fgIdMap->Remove(r->fInfo->name());
-         r->fNext = 0; // Do not delete the others.
+         r->fNext = nullptr; // Do not delete the others.
          delete r;
          fgTally--;
          fgSorted = kFALSE;
@@ -512,15 +638,20 @@ void TClassTable::Remove(const char *cname)
 /// Find a class by name in the class table (using hash of name). Returns
 /// 0 if the class is not in the table. Unless arguments insert is true in
 /// which case a new entry is created and returned.
+/// `cname` must be the normalized name of the class.
 
-TClassRec *TClassTable::FindElementImpl(const char *cname, Bool_t insert)
+TClassRec *TClassTable::FindElement(const char *cname, Bool_t insert)
 {
-   UInt_t slot = ROOT::ClassTableHash(cname,fgSize);
+   // Internal routine, no explicit lock needed here.
+
+   UInt_t slot = ROOT::ClassTableHash(cname, fgSize);
 
    for (TClassRec *r = fgTable[slot]; r; r = r->fNext)
-      if (strcmp(cname,r->fName)==0) return r;
+      if (strcmp(cname, r->fName) == 0)
+         return r;
 
-   if (!insert) return 0;
+   if (!insert)
+      return nullptr;
 
    fgTable[slot] = new TClassRec(fgTable[slot]);
 
@@ -529,31 +660,15 @@ TClassRec *TClassTable::FindElementImpl(const char *cname, Bool_t insert)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Find a class by name in the class table (using hash of name). Returns
-/// 0 if the class is not in the table. Unless arguments insert is true in
-/// which case a new entry is created and returned.
-/// cname can be any spelling of the class name.  See FindElementImpl if the
-/// name is already normalized.
-
-TClassRec *TClassTable::FindElement(const char *cname, Bool_t insert)
-{
-   if (!CheckClassTableInit()) return nullptr;
-
-   // The recorded name is normalized, let's make sure we convert the
-   // input accordingly.
-   std::string normalized;
-   TClassEdit::GetNormalizedName(normalized,cname);
-
-   return FindElementImpl(normalized.c_str(), insert);
-}
-
-////////////////////////////////////////////////////////////////////////////////
 /// Returns the ID of a class.
 
 Version_t TClassTable::GetID(const char *cname)
 {
-   TClassRec *r = FindElement(cname);
-   if (r) return r->fId;
+   NormalizeThenLock guard(cname);
+
+   TClassRec *r = FindElement(guard.GetNormalizedName().c_str(), kFALSE);
+   if (r)
+      return r->fId;
    return -1;
 }
 
@@ -562,8 +677,11 @@ Version_t TClassTable::GetID(const char *cname)
 
 Int_t TClassTable::GetPragmaBits(const char *cname)
 {
-   TClassRec *r = FindElement(cname);
-   if (r) return r->fBits;
+   NormalizeThenLock guard(cname);
+
+   TClassRec *r = FindElement(guard.GetNormalizedName().c_str(), kFALSE);
+   if (r)
+      return r->fBits;
    return 0;
 }
 
@@ -577,10 +695,12 @@ DictFuncPtr_t TClassTable::GetDict(const char *cname)
       ::Info("GetDict", "searches for %s", cname);
       fgIdMap->Print();
    }
+   NormalizeThenLock guard(cname);
 
-   TClassRec *r = FindElement(cname);
-   if (r) return r->fDict;
-   return 0;
+   TClassRec *r = FindElement(guard.GetNormalizedName().c_str(), kFALSE);
+   if (r)
+      return r->fDict;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -589,7 +709,13 @@ DictFuncPtr_t TClassTable::GetDict(const char *cname)
 
 DictFuncPtr_t TClassTable::GetDict(const std::type_info& info)
 {
-   if (!CheckClassTableInit()) return nullptr;
+   if (!CheckClassTableInit())
+      return nullptr;
+
+   if (gDebug > 9)
+      ROOT::GetROOT(); // Info might recursively call TClassTable during the gROOT init
+
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
 
    if (gDebug > 9) {
       ::Info("GetDict", "searches for %s at 0x%zx", info.name(), (size_t)&info);
@@ -597,8 +723,9 @@ DictFuncPtr_t TClassTable::GetDict(const std::type_info& info)
    }
 
    TClassRec *r = fgIdMap->Find(info.name());
-   if (r) return r->fDict;
-   return 0;
+   if (r)
+      return r->fDict;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -607,16 +734,23 @@ DictFuncPtr_t TClassTable::GetDict(const std::type_info& info)
 
 DictFuncPtr_t TClassTable::GetDictNorm(const char *cname)
 {
-   if (!CheckClassTableInit()) return nullptr;
+   if (!CheckClassTableInit())
+      return nullptr;
+
+   if (gDebug > 9)
+      ROOT::GetROOT(); // Info might recursively call TClassTable during the gROOT init
+
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
 
    if (gDebug > 9) {
       ::Info("GetDict", "searches for %s", cname);
       fgIdMap->Print();
    }
 
-   TClassRec *r = FindElementImpl(cname,kFALSE);
-   if (r) return r->fDict;
-   return 0;
+   TClassRec *r = FindElement(cname, kFALSE);
+   if (r)
+      return r->fDict;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -629,16 +763,22 @@ TProtoClass *TClassTable::GetProto(const char *cname)
       ::Info("GetDict", "searches for %s", cname);
    }
 
-   if (!CheckClassTableInit()) return nullptr;
+   if (!CheckClassTableInit())
+      return nullptr;
+
+   NormalizeThenLock guard(cname);
 
    if (gDebug > 9) {
+      // Because of the early call to Info, gROOT is already initialized
+      // and thus this will not cause a recursive call to TClassTable.
       ::Info("GetDict", "searches for %s", cname);
       fgIdMap->Print();
    }
 
-   TClassRec *r = FindElement(cname);
-   if (r) return r->fProto;
-   return 0;
+   TClassRec *r = FindElement(guard.GetNormalizedName().c_str(), kFALSE);
+   if (r)
+      return r->fProto;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -651,15 +791,19 @@ TProtoClass *TClassTable::GetProtoNorm(const char *cname)
       ::Info("GetDict", "searches for %s", cname);
    }
 
-   if (!CheckClassTableInit()) return nullptr;
+   if (!CheckClassTableInit())
+      return nullptr;
+
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
 
    if (gDebug > 9) {
       fgIdMap->Print();
    }
 
-   TClassRec *r = FindElementImpl(cname,kFALSE);
-   if (r) return r->fProto;
-   return 0;
+   TClassRec *r = FindElement(cname, kFALSE);
+   if (r)
+      return r->fProto;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -680,11 +824,14 @@ extern "C" {
 
 char *TClassTable::Next()
 {
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
+
    if (fgCursor < fgTally) {
       TClassRec *r = fgSortedTable[fgCursor++];
       return r->fName;
-   } else
-      return 0;
+   }
+
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -695,6 +842,8 @@ void TClassTable::PrintTable()
 {
    if (fgTally == 0 || !fgTable)
       return;
+
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
 
    SortTable();
 
@@ -725,6 +874,8 @@ void TClassTable::PrintTable()
 
 void TClassTable::SortTable()
 {
+   // Internal routine.
+
    if (!fgSorted) {
       delete [] fgSortedTable;
       fgSortedTable = new TClassRec* [fgTally];
@@ -748,9 +899,9 @@ void TClassTable::Terminate()
       for (UInt_t i = 0; i < fgSize; i++)
          delete fgTable[i]; // Will delete all the elements in the chain.
 
-      delete [] fgTable; fgTable = 0;
-      delete [] fgSortedTable; fgSortedTable = 0;
-      delete fgIdMap; fgIdMap = 0;
+      delete [] fgTable; fgTable = nullptr;
+      delete [] fgSortedTable; fgSortedTable = nullptr;
+      delete fgIdMap; fgIdMap = nullptr;
       fgSize = 0;
       SafeDelete(gClassTable);
    }
@@ -758,7 +909,7 @@ void TClassTable::Terminate()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Global function called by the ctor of a class's init class
-/// (see the ClassImp macro).
+/// (see the ClassDef macro).
 
 void ROOT::AddClass(const char *cname, Version_t id,
                     const std::type_info& info,
@@ -780,15 +931,26 @@ void ROOT::AddClass(const char *cname, Version_t id,
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Global function called by GenerateInitInstance.
-/// (see the ClassImp macro).
+/// (see the ClassDef macro).
 
-void ROOT::AddClassAlternate(const char *normName, const char *alternate)
+ROOT::TClassAlt* ROOT::AddClassAlternate(const char *normName, const char *alternate)
 {
    if (!TROOT::Initialized() && !gClassTable) {
       GetDelayedAddClassAlternate().emplace_back(normName, alternate);
+      // If a library is loaded before gROOT is initialized we can assume
+      // it is hard linked along side libCore (or is libCore) thus can't
+      // really be unloaded.
+      return nullptr;
    } else {
-      TClassTable::AddAlternate(normName, alternate);
+      return TClassTable::AddAlternate(normName, alternate);
    }
+}
+
+void ROOT::RemoveClassAlternate(TClassAlt *alt)
+{
+   // This routine is meant to be called (indirectly) by dlclose so we
+   // we are guaranteed that the library initialization has completed.
+   TClassTable::RemoveAlternate(alt);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -804,12 +966,13 @@ void ROOT::AddClassAlternate(const char *normName, const char *alternate)
 ///  - The Class Version 0 request the whole object to be transient
 ///  - The Class Version 1, unless specify via ClassDef indicates that the
 ///    I/O should use the TClass checksum to distinguish the layout of the class
-
 void ROOT::ResetClassVersion(TClass *cl, const char *cname, Short_t newid)
 {
-   if (cname && cname!=(void*)-1) {
-      TClassRec *r = TClassTable::FindElement(cname,kFALSE);
-      if (r) r->fId = newid;
+   if (cname && cname != (void*)-1 && TClassTable::CheckClassTableInit()) {
+      TClassTable::NormalizeThenLock guard(cname);
+      TClassRec *r = TClassTable::FindElement(guard.GetNormalizedName().c_str(), kFALSE);
+      if (r)
+         r->fId = newid;
    }
    if (cl) {
       if (cl->fVersionUsed) {
@@ -832,12 +995,12 @@ void ROOT::ResetClassVersion(TClass *cl, const char *cname, Short_t newid)
    }
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Global function called by the dtor of a class's init class
-/// (see the ClassImp macro).
+/// (see the ClassDef macro).
+/// The caller of this function should be holding the ROOT Write lock.
 
-void ROOT::RemoveClass(const char *cname)
+void ROOT::RemoveClass(const char *cname, TClass *oldcl)
 {
    // don't delete class information since it is needed by the I/O system
    // to write the StreamerInfo to file
@@ -847,13 +1010,8 @@ void ROOT::RemoveClass(const char *cname)
       // pointer is now invalid ....
       // We still keep the TClass object around because TFile needs to
       // get to the TStreamerInfo.
-      if (gROOT && gROOT->GetListOfClasses()) {
-         TObject *pcname;
-         if ((pcname=gROOT->GetListOfClasses()->FindObject(cname))) {
-            TClass *cl = dynamic_cast<TClass*>(pcname);
-            if (cl) cl->SetUnloaded();
-         }
-      }
+      if (oldcl)
+         oldcl->SetUnloaded();
       TClassTable::Remove(cname);
    }
 }
@@ -866,21 +1024,47 @@ TNamed *ROOT::RegisterClassTemplate(const char *name, const char *file,
                                     Int_t line)
 {
    static TList table;
-   static Bool_t isInit = kFALSE;
-   if (!isInit) {
+   static Bool_t isInit = []() {
       table.SetOwner(kTRUE);
-      isInit = kTRUE;
-   }
+      table.UseRWLock();
+      return true;
+   }();
+   (void)isInit;
 
    TString classname(name);
    Ssiz_t loc = classname.Index("<");
-   if (loc >= 1) classname.Remove(loc);
+   if (loc >= 1)
+      classname.Remove(loc);
+   TNamed *reg = (TNamed*)table.FindObject(classname);
    if (file) {
-      TNamed *obj = new TNamed((const char*)classname, file);
-      obj->SetUniqueID(line);
-      table.Add(obj);
-      return obj;
-   } else {
-      return (TNamed*)table.FindObject(classname);
+      if (reg)
+         reg->SetTitle(file);
+      else {
+         reg = new TNamed((const char*)classname, file);
+         table.Add(reg);
+      }
+      reg->SetUniqueID(line);
    }
+   return reg;
+}
+
+std::vector<std::string> TClassTable::GetClassAlternativeNames(const char *cname)
+{
+   std::lock_guard<std::mutex> lock(GetClassTableMutex());
+
+   UInt_t slot = ROOT::ClassTableHash(cname, fgSize);
+   if (!fgTable[slot])
+      return {};
+   const auto &classRecToAltMap = GetClassRecToAltMap();
+   if (auto it = classRecToAltMap.find(fgTable[slot]); it == classRecToAltMap.end())
+      return {};
+
+   const auto &classAlts = classRecToAltMap.at(fgTable[slot]);
+   std::vector<std::string> ret;
+   ret.reserve(classAlts.size());
+   for (const auto *classAlt : classAlts) {
+      ret.push_back(classAlt->fName);
+   }
+
+   return ret;
 }

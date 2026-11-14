@@ -14,7 +14,9 @@
 
 #include "TGLScene.h"
 #include "TVirtualViewer3D.h"
-#include "CsgOps.h"
+namespace RootCsg {
+class TBaseMesh;
+}
 #include <vector>
 #include <utility>
 
@@ -33,9 +35,9 @@ protected:
    TVirtualPad*       fPad;
 
    // For building via VV3D
-   Bool_t             fInternalPIDs;          //! using internal physical IDs
-   UInt_t             fNextInternalPID;       //! next internal physical ID (from 1 - 0 reserved)
-   UInt_t             fLastPID;               //! last physical ID that was processed in AddObject()
+   Bool_t             fInternalPIDs;          ///<! using internal physical IDs
+   UInt_t             fNextInternalPID;       ///<! next internal physical ID (from 1 - 0 reserved)
+   UInt_t             fLastPID;               ///<! last physical ID that was processed in AddObject()
    Int_t              fAcceptedPhysicals;
 
    Int_t              ValidateObjectBuffer(const TBuffer3D& buffer, Bool_t includeRaw) const;
@@ -46,24 +48,24 @@ protected:
    void               ComposePolymarker(const TList *padPrimitives);
    // Composite shape specific
    typedef std::pair<UInt_t, RootCsg::TBaseMesh*> CSPart_t;
-   mutable TGLFaceSet     *fComposite; //! Paritally created composite
+   mutable TGLFaceSet     *fComposite; ///<! Paritally created composite
    UInt_t                  fCSLevel;
    std::vector<CSPart_t>   fCSTokens;
    RootCsg::TBaseMesh*     BuildComposite();
 
    TGLLogicalShape* AttemptDirectRenderer(TObject* id);
 
-   Bool_t         fSmartRefresh;   //! cache logicals during scene rebuilds
+   Bool_t         fSmartRefresh;   ///<! cache logicals during scene rebuilds
 
 public:
    TGLScenePad(TVirtualPad* pad);
-   virtual ~TGLScenePad() {}
+   ~TGLScenePad() override {}
 
    TVirtualPad* GetPad() const { return fPad; }
    void SetPad(TVirtualPad* p) { fPad = p; }
 
    // Histo import and Sub-pad traversal
-   void AddHistoPhysical(TGLLogicalShape* log, const Float_t *histColor = 0);
+   void AddHistoPhysical(TGLLogicalShape* log, const Float_t *histColor = nullptr);
    void SubPadPaint(TVirtualPad* pad);
 
    // PadPaint wrapper for calls from TGLViewer:
@@ -75,27 +77,27 @@ public:
 
    // TVirtualViewer3D interface
 
-   virtual Bool_t CanLoopOnPrimitives() const { return kTRUE; }
-   virtual void   PadPaint(TVirtualPad* pad);
-   virtual void   ObjectPaint(TObject* obj, Option_t* opt="");
+   Bool_t CanLoopOnPrimitives() const override { return kTRUE; }
+   void   PadPaint(TVirtualPad* pad) override;
+   void   ObjectPaint(TObject* obj, Option_t* opt="") override;
 
    // For now handled by viewer
-   virtual Int_t  DistancetoPrimitive(Int_t /*px*/, Int_t /*py*/) { return 9999; }
-   virtual void   ExecuteEvent(Int_t /*event*/, Int_t /*px*/, Int_t /*py*/) {}
+   Int_t  DistancetoPrimitive(Int_t /*px*/, Int_t /*py*/) override { return 9999; }
+   void   ExecuteEvent(Int_t /*event*/, Int_t /*px*/, Int_t /*py*/) override {}
 
-   virtual Bool_t PreferLocalFrame() const { return kTRUE; }
+   Bool_t PreferLocalFrame() const override { return kTRUE; }
 
-   virtual void   BeginScene();
-   virtual Bool_t BuildingScene() const { return CurrentLock() == kModifyLock; }
-   virtual void   EndScene();
+   void   BeginScene() override;
+   Bool_t BuildingScene() const override { return CurrentLock() == kModifyLock; }
+   void   EndScene() override;
 
-   virtual Int_t  AddObject(const TBuffer3D& buffer, Bool_t* addChildren = 0);
-   virtual Int_t  AddObject(UInt_t physicalID, const TBuffer3D& buffer, Bool_t* addChildren = 0);
-   virtual Bool_t OpenComposite(const TBuffer3D& buffer, Bool_t* addChildren = 0);
-   virtual void   CloseComposite();
-   virtual void   AddCompositeOp(UInt_t operation);
+   Int_t  AddObject(const TBuffer3D& buffer, Bool_t* addChildren = nullptr) override;
+   Int_t  AddObject(UInt_t physicalID, const TBuffer3D& buffer, Bool_t* addChildren = nullptr) override;
+   Bool_t OpenComposite(const TBuffer3D& buffer, Bool_t* addChildren = nullptr) override;
+   void   CloseComposite() override;
+   void   AddCompositeOp(UInt_t operation) override;
 
-   ClassDef(TGLScenePad, 0); // GL-scene filled via TPad-TVirtualViewer interface.
+   ClassDefOverride(TGLScenePad, 0); // GL-scene filled via TPad-TVirtualViewer interface.
 };
 
 #endif

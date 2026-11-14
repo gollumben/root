@@ -5,7 +5,7 @@
  * Project: TMVA - a Root-integrated toolkit for multivariate data analysis       *
  * Package: TMVA                                                                  *
  * Class  : MethodKNN                                                             *
- * Web    : http://tmva.sourceforge.net                                           *
+ *                                             *
  *                                                                                *
  * Description:                                                                   *
  *      Analysis of k-nearest neighbor                                            *
@@ -20,7 +20,7 @@
  *                                                                                *
  * Redistribution and use in source and binary forms, with or without             *
  * modification, are permitted according to the terms listed in LICENSE           *
- * (http://tmva.sourceforge.net/LICENSE)                                          *
+ * (see tmva/doc/LICENSE)                                          *
  **********************************************************************************/
 
 #ifndef ROOT_TMVA_MethodKNN
@@ -64,41 +64,41 @@ namespace TMVA
 
       virtual ~MethodKNN( void );
 
-      virtual Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets );
+      Bool_t HasAnalysisType( Types::EAnalysisType type, UInt_t numberClasses, UInt_t numberTargets ) override;
 
-      void Train( void );
+      void Train( void ) override;
 
-      Double_t GetMvaValue( Double_t* err = 0, Double_t* errUpper = 0 );
-      const std::vector<Float_t>& GetRegressionValues();
+      Double_t GetMvaValue( Double_t* err = nullptr, Double_t* errUpper = nullptr ) override;
+      const std::vector<Float_t>& GetRegressionValues() override;
 
       using MethodBase::ReadWeightsFromStream;
 
       void WriteWeightsToStream(TFile& rf) const;
-      void AddWeightsXMLTo( void* parent ) const;
-      void ReadWeightsFromXML( void* wghtnode );
+      void AddWeightsXMLTo( void* parent ) const override;
+      void ReadWeightsFromXML( void* wghtnode ) override;
 
-      void ReadWeightsFromStream(std::istream& istr);
-      void ReadWeightsFromStream(TFile &rf);
+      void ReadWeightsFromStream(std::istream& istr) override;
+      void ReadWeightsFromStream(TFile &rf) override;
 
-      const Ranking* CreateRanking();
+      const Ranking* CreateRanking() override;
 
    protected:
 
       // make ROOT-independent C++ class for classifier response (classifier-specific implementation)
-      void MakeClassSpecific( std::ostream&, const TString& ) const;
+      void MakeClassSpecific( std::ostream&, const TString& ) const override;
 
       // get help message text
-      void GetHelpMessage() const;
+      void GetHelpMessage() const override;
 
    private:
 
       // the option handling methods
-      void DeclareOptions();
-      void ProcessOptions();
-      void DeclareCompatibilityOptions();
+      void DeclareOptions() override;
+      void ProcessOptions() override;
+      void DeclareCompatibilityOptions() override;
 
       // default initialisation called by all constructors
-      void Init( void );
+      void Init( void ) override;
 
       // create kd-tree (binary tree) structure
       void MakeKNN( void );
@@ -115,32 +115,32 @@ namespace TMVA
    private:
 
       // number of events (sumOfWeights)
-      Double_t fSumOfWeightsS;        // sum-of-weights for signal training events
-      Double_t fSumOfWeightsB;        // sum-of-weights for background training events
+      Double_t fSumOfWeightsS;        ///< sum-of-weights for signal training events
+      Double_t fSumOfWeightsB;        ///< sum-of-weights for background training events
 
-      kNN::ModulekNN *fModule;        //! module where all work is done
+      kNN::ModulekNN *fModule;        ///<! module where all work is done
 
-      Int_t fnkNN;            // number of k-nearest neighbors
-      Int_t fBalanceDepth;    // number of binary tree levels used for balancing tree
+      Int_t fnkNN;            ///< number of k-nearest neighbors
+      Int_t fBalanceDepth;    ///< number of binary tree levels used for balancing tree
 
-      Float_t fScaleFrac;     // fraction of events used to compute variable width
-      Float_t fSigmaFact;     // scale factor for Gaussian sigma in Gaus. kernel
+      Float_t fScaleFrac;     ///< fraction of events used to compute variable width
+      Float_t fSigmaFact;     ///< scale factor for Gaussian sigma in Gaus. kernel
 
-      TString fKernel;        // ="Gaus","Poln" - kernel type for smoothing
+      TString fKernel;        ///< ="Gaus","Poln" - kernel type for smoothing
 
-      Bool_t fTrim;           // set equal number of signal and background events
-      Bool_t fUseKernel;      // use polynomial kernel weight function
-      Bool_t fUseWeight;      // use weights to count kNN
-      Bool_t fUseLDA;         // use local linear discriminant analysis to compute MVA
+      Bool_t fTrim;           ///< set equal number of signal and background events
+      Bool_t fUseKernel;      ///< use polynomial kernel weight function
+      Bool_t fUseWeight;      ///< use weights to count kNN
+      Bool_t fUseLDA;         ///< use local linear discriminant analysis to compute MVA
 
-      kNN::EventVec fEvent;   //! (untouched) events used for learning
+      kNN::EventVec fEvent;   ///<! (untouched) events used for learning
 
-      LDA fLDA;               //! Experimental feature for local knn analysis
+      LDA fLDA;               ///<! Experimental feature for local knn analysis
 
       // for backward compatibility
-      Int_t fTreeOptDepth;    // number of binary tree levels used for optimization
+      Int_t fTreeOptDepth;    ///< number of binary tree levels used for optimization
 
-      ClassDef(MethodKNN,0); // k Nearest Neighbour classifier
+      ClassDefOverride(MethodKNN,0); // k Nearest Neighbour classifier
    };
 
 } // namespace TMVA

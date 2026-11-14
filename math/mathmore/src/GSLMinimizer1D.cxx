@@ -28,7 +28,7 @@
 // Last update: Wed Dec  1 15:04:51 2004
 //
 
-#include <assert.h>
+#include <cassert>
 
 #include "Math/GSLMinimizer1D.h"
 #include "Math/Error.h"
@@ -51,11 +51,11 @@ namespace Math {
 GSLMinimizer1D::GSLMinimizer1D(Minim1D::Type type) :
     fXmin(0), fXlow(0), fXup(0), fMin(0), fLow(0), fUp(0),
     fIter(0), fStatus(-1), fIsSet(false),
-    fMinimizer(0), fFunction(0)
+    fMinimizer(nullptr), fFunction(nullptr)
 {
    // construct a minimizer passing the algorithm type as an enumeration
 
-   const gsl_min_fminimizer_type* T = 0 ;
+   const gsl_min_fminimizer_type* T = nullptr ;
    switch ( type )
    {
    case Minim1D::kGOLDENSECTION          :
@@ -81,18 +81,6 @@ GSLMinimizer1D::~GSLMinimizer1D()
 
    if (fMinimizer) delete fMinimizer;
    if (fFunction)  delete  fFunction;
-}
-
-GSLMinimizer1D::GSLMinimizer1D(const GSLMinimizer1D &): IMinimizer1D()
-{
-   // dummy copy ctr
-}
-
-GSLMinimizer1D & GSLMinimizer1D::operator = (const GSLMinimizer1D &rhs)
-{
-   // dummy operator =
-   if (this == &rhs) return *this;  // time saving self-test
-   return *this;
 }
 
 void GSLMinimizer1D::SetFunction(  GSLFuncPointer f, void * p, double xmin, double xlow, double xup) {

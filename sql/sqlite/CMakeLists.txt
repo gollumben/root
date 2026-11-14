@@ -5,15 +5,19 @@
 # For the list of contributors see $ROOTSYS/README/CREDITS.
 
 ############################################################################
-# CMakeLists.txt file for building ROOT sql/pgsql package
+# CMakeLists.txt file for building ROOT sql/sqlite package
 ############################################################################
+
+set(RSQLITE_HEADERS
+  TSQLiteResult.h
+  TSQLiteRow.h
+  TSQLiteServer.h
+  TSQLiteStatement.h
+)
 
 ROOT_STANDARD_LIBRARY_PACKAGE(RSQLite
   HEADERS
-    TSQLiteResult.h
-    TSQLiteRow.h
-    TSQLiteServer.h
-    TSQLiteStatement.h
+    ${RSQLITE_HEADERS}
   SOURCES
     src/TSQLiteResult.cxx
     src/TSQLiteRow.cxx
@@ -25,5 +29,18 @@ ROOT_STANDARD_LIBRARY_PACKAGE(RSQLite
     RIO
 )
 
-target_include_directories(RSQLite PUBLIC ${SQLITE_INCLUDE_DIR})
+set(RELATIVE_INC_HEADERS ${RSQLITE_HEADERS})
+list(TRANSFORM RELATIVE_INC_HEADERS PREPEND inc/)
+target_sources(RSQLite
+PRIVATE
+  FILE_SET private_header_files
+  TYPE HEADERS
+  BASE_DIRS inc/
+  FILES
+    ${RELATIVE_INC_HEADERS}
+    inc/LinkDef.h
+)
+
+target_include_directories(RSQLite SYSTEM PUBLIC ${SQLITE_INCLUDE_DIR})
 target_link_libraries(RSQLite PUBLIC ${SQLITE_LIBRARIES})
+ROOT_ADD_TEST_SUBDIRECTORY(test)

@@ -1,7 +1,8 @@
 /// \file
 /// \ingroup tutorial_math
 /// \notebook
-/// Example showing the usage of the major special math functions  (gamma, beta, erf)  in ROOT
+/// Example showing the usage of the major special math functions (gamma, beta, erf) in ROOT.
+///
 /// To execute the macro type in:
 ///
 /// ~~~{.cpp}
@@ -9,7 +10,7 @@
 /// ~~~
 ///
 /// It will create one canvas with the representation
-/// of the tgamma, lgamma, beta, erf and erfc functions
+/// of the tgamma, lgamma, beta, erf and erfc functions.
 ///
 /// \macro_image
 /// \macro_code
@@ -51,7 +52,7 @@ void GammaFun() {
 
    //setting graph
    // draw axis first (use TH1 to draw the frame)
-   TH1F * h = new TH1F("htmp","",500,-2,5);
+   TH1F * h = new TH1F("hTemp","",500,-2,5);
    h->SetMinimum(-20);
    h->SetMaximum(20);
    h->GetXaxis()->SetTitleSize(0.06);

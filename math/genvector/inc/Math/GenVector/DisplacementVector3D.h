@@ -12,7 +12,7 @@
 // Header source file for class DisplacementVector3D
 //
 // Created by: Lorenzo Moneta  at Mon May 30 12:21:43 2005
-// Major rewrite: M. FIschler  at Wed Jun  8  2005
+// Major rewrite: M. Fischler  at Wed Jun  8  2005
 //
 // Last update: $Id$
 //
@@ -50,6 +50,8 @@ namespace ROOT {
      like global or local coordinate systems.
 
      @ingroup GenVector
+
+     @see GenVector
     */
 
     template <class CoordSystem, class Tag = DefaultCoordinateSystemTag >
@@ -66,7 +68,7 @@ namespace ROOT {
       /**
           Default constructor. Construct an empty object with zero values
       */
-      DisplacementVector3D ( ) :   fCoordinates()  { }
+      constexpr DisplacementVector3D ( ) :   fCoordinates()  { }
 
 
       /**
@@ -74,7 +76,7 @@ namespace ROOT {
          In the case of a XYZVector the values are x,y,z
          In the case of  a polar vector they are r,theta, phi
       */
-      DisplacementVector3D(Scalar a, Scalar b, Scalar c) :
+      constexpr DisplacementVector3D(Scalar a, Scalar b, Scalar c) :
         fCoordinates ( a , b,  c )  { }
 
      /**
@@ -82,7 +84,7 @@ namespace ROOT {
           coordinates, or using a different Scalar type, but with same coordinate system tag
       */
       template <class OtherCoords>
-      explicit DisplacementVector3D( const DisplacementVector3D<OtherCoords, Tag> & v) :
+      explicit constexpr DisplacementVector3D( const DisplacementVector3D<OtherCoords, Tag> & v) :
         fCoordinates ( v.Coordinates() ) { }
 
 
@@ -91,7 +93,7 @@ namespace ROOT {
          but with the same coordinate system tag
       */
       template <class OtherCoords>
-      explicit DisplacementVector3D( const PositionVector3D<OtherCoords,Tag> & p) :
+      explicit constexpr DisplacementVector3D( const PositionVector3D<OtherCoords,Tag> & p) :
         fCoordinates ( p.Coordinates() ) { }
 
 
@@ -100,7 +102,7 @@ namespace ROOT {
           Precondition: v must implement methods x(), y() and z()
       */
       template <class ForeignVector>
-      explicit DisplacementVector3D( const ForeignVector & v) :
+      explicit constexpr DisplacementVector3D( const ForeignVector & v) :
         fCoordinates ( Cartesian3D<Scalar>( v.x(), v.y(), v.z() ) ) { }
 
 
@@ -114,7 +116,7 @@ namespace ROOT {
          ( x= v[index0] for Cartesian and r=v[index0] for Polar )
       */
       template <class LAVector>
-      DisplacementVector3D(const LAVector & v, size_t index0 ) {
+      constexpr DisplacementVector3D(const LAVector & v, size_t index0 ) {
         fCoordinates = CoordSystem ( v[index0], v[index0+1], v[index0+2] );
       }
 #endif
@@ -207,6 +209,7 @@ namespace ROOT {
 
       /**
          get internal data into 3 Scalar numbers
+         \note Alternatively, you may use structured bindings: `auto const [a, b, c] = v`.
        */
       void GetCoordinates( Scalar& a, Scalar& b, Scalar& c ) const
                             { fCoordinates.GetCoordinates(a, b, c);  }
@@ -264,6 +267,14 @@ namespace ROOT {
       }
 
       // ------ Individual element access, in various coordinate systems ------
+
+      /**
+          Dimension
+      */
+      unsigned int Dimension() const
+      {
+         return fDimension;
+      };
 
       /**
           Cartesian X, converting if necessary from internal coordinate system.
@@ -334,7 +345,7 @@ namespace ROOT {
       DisplacementVector3D Unit() const
       {
          SCALAR tot            = R();
-         tot(tot == SCALAR(0)) = SCALAR(1);
+         where(tot == SCALAR(0), tot) = SCALAR(1);
          return DisplacementVector3D(*this) / tot;
       }
 
@@ -523,6 +534,7 @@ namespace ROOT {
     private:
 
        CoordSystem fCoordinates;  // internal coordinate system
+       static constexpr unsigned int fDimension = CoordinateType::Dimension;
 
 #ifdef NOT_SURE_THIS_SHOULD_BE_FORBIDDEN
       /**
@@ -536,10 +548,10 @@ namespace ROOT {
 
       // this should not compile (if from a vector or points with different tag
       template <class OtherCoords, class OtherTag>
-      explicit DisplacementVector3D( const DisplacementVector3D<OtherCoords, OtherTag> & ) {}
+      explicit constexpr DisplacementVector3D( const DisplacementVector3D<OtherCoords, OtherTag> & ) {}
 
       template <class OtherCoords, class OtherTag>
-      explicit DisplacementVector3D( const PositionVector3D<OtherCoords, OtherTag> & ) {}
+      explicit constexpr DisplacementVector3D( const PositionVector3D<OtherCoords, OtherTag> & ) {}
 
       template <class OtherCoords, class OtherTag>
       DisplacementVector3D & operator=( const DisplacementVector3D<OtherCoords, OtherTag> & );
@@ -593,8 +605,6 @@ namespace ROOT {
                DisplacementVector3D<CoordSystem2,U> const & v2) {
       return v1 -= v2;
     }
-
-    //#endif // not __CINT__
 
     /**
        Multiplication of a displacement vector by real number  a*v
@@ -650,7 +660,7 @@ namespace ROOT {
     {
        if (os) {
           os << "{ ";
-          for (std::size_t i = 0; i < PositionVector3D<T, U>::Scalar::Size; ++i) {
+          for (std::size_t i = 0; i < PositionVector3D<T, U>::Scalar::size(); ++i) {
              os << "(" << v.x()[i] << "," << v.y()[i] << "," << v.z()[i] << ") ";
           }
           os << "}";
@@ -689,12 +699,35 @@ namespace ROOT {
 
     }  // op>> <>()
 
-
+    // Structured bindings
+    template <std::size_t I, class CoordSystem, class Tag>
+    typename CoordSystem::Scalar get(DisplacementVector3D<CoordSystem, Tag> const& p)
+    {
+       static_assert(I < 3);
+       if constexpr (I == 0) {
+          return p.x();
+       } else if constexpr (I == 1) {
+          return p.y();
+       } else {
+          return p.z();
+       }
+    }
 
   }  // namespace Math
 
 }  // namespace ROOT
 
+// Structured bindings
+#include <tuple>
+namespace std {
+   template <class CoordSystem, class Tag>
+   struct tuple_size<ROOT::Math::DisplacementVector3D<CoordSystem, Tag>> : integral_constant<size_t, 3> {};
+   template <size_t I, class CoordSystem, class Tag>
+   struct tuple_element<I, ROOT::Math::DisplacementVector3D<CoordSystem, Tag>> {
+      static_assert(I < 3);
+      using type = typename CoordSystem::Scalar;
+   };
+}
 
 #endif /* ROOT_Math_GenVector_DisplacementVector3D  */
 

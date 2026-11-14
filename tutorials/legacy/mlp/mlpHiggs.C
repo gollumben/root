@@ -1,6 +1,5 @@
 /// \file
 /// \ingroup tutorial_mlp
-/// \notebook
 /// Example of a Multi Layer Perceptron
 /// For a LEP search for invisible Higgs boson, a neural network
 /// was used to separate the signal from the background passing
@@ -21,8 +20,8 @@ void mlpHiggs(Int_t ntrain=100) {
    } else if (!gSystem->AccessPathName(Form("%s/legacy/mlp/%s", TROOT::GetTutorialDir().Data(), fname))) {
       input = TFile::Open(Form("%s/legacy/mlp/%s", TROOT::GetTutorialDir().Data(), fname));
    } else {
-      printf("accessing %s file from http://root.cern.ch/files\n",fname);
-      input = TFile::Open(Form("http://root.cern.ch/files/%s",fname));
+      printf("accessing %s file from http://root.cern/files\n",fname);
+      input = TFile::Open(Form("http://root.cern/files/%s",fname));
    }
    if (!input) return;
 

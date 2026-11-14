@@ -16,14 +16,9 @@
 #include "TVirtualPad.h"
 #include "TH2D.h"
 #include "TRandom2.h"
+#include "TStyle.h"
 #include "strlcpy.h"
 
-Double_t TCandle::fWhiskerRange  = 1.0;
-Double_t TCandle::fBoxRange      = 0.5;
-Bool_t TCandle::fScaledCandle = false;
-Bool_t TCandle::fScaledViolin = true;
-
-ClassImp(TCandle);
 
 /** \class TCandle
 \ingroup BasicGraphics
@@ -41,8 +36,8 @@ directly to draw a candle.
 
 TCandle::TCandle()
 {
-   fIsCalculated  = 0;
-   fIsRaw         = 0;
+   fIsCalculated  = false;
+   fIsRaw         = false;
    fPosCandleAxis = 0.;
    fCandleWidth   = 1.0;
    fHistoWidth    = 1.0;
@@ -54,7 +49,7 @@ TCandle::TCandle()
    fWhiskerUp     = 0.;
    fWhiskerDown   = 0.;
    fNDatapoints   = 0;
-   fDismiss       = 0;
+   fDismiss       = false;
    fLogX          = 0;
    fLogY          = 0;
    fLogZ          = 0;
@@ -63,8 +58,8 @@ TCandle::TCandle()
    fAxisMin       = 0.;
    fAxisMax       = 0.;
    fOption        = kNoOption;
-   fProj          = NULL;
-   fDatapoints    = 0;
+   fProj          = nullptr;
+   fDatapoints    = nullptr;
 
 }
 
@@ -73,8 +68,8 @@ TCandle::TCandle()
 
 TCandle::TCandle(const char *opt)
 {
-   fIsCalculated  = 0;
-   fIsRaw         = 0;
+   fIsCalculated  = false;
+   fIsRaw         = false;
    fPosCandleAxis = 0.;
    fCandleWidth   = 1.0;
    fHistoWidth    = 1.0;
@@ -86,7 +81,7 @@ TCandle::TCandle(const char *opt)
    fWhiskerUp     = 0.;
    fWhiskerDown   = 0.;
    fNDatapoints   = 0;
-   fDismiss = 0;
+   fDismiss       = false;
    fLogX          = 0;
    fLogY          = 0;
    fLogZ          = 0;
@@ -95,9 +90,8 @@ TCandle::TCandle(const char *opt)
    fAxisMin       = 0.;
    fAxisMax       = 0.;
    fOption        = kNoOption;
-   fProj          = NULL;
-   fDatapoints    = 0;
-
+   fProj          = nullptr;
+   fDatapoints    = nullptr;
 
    // Conversion necessary in order to cast from const char* to char*
    char myopt[128];
@@ -123,14 +117,14 @@ TCandle::TCandle(const Double_t candlePos, const Double_t candleWidth, Long64_t 
    fWhiskerUp     = 0;
    fWhiskerDown   = 0;
    fNDatapoints   = n;
-   fIsCalculated  = 0;
+   fIsCalculated  = false;
    fIsRaw         = true;
    fPosCandleAxis = candlePos;
    fCandleWidth   = candleWidth;
    fHistoWidth    = candleWidth;
    fDatapoints    = points;
-   fProj          = NULL;
-   fDismiss       = 0;
+   fProj          = nullptr;
+   fDismiss       = false;
    fOption        = kNoOption;
    fLogX          = 0;
    fLogY          = 0;
@@ -139,7 +133,6 @@ TCandle::TCandle(const Double_t candlePos, const Double_t candleWidth, Long64_t 
    fNHistoPoints  = 0;
    fAxisMin       = 0.;
    fAxisMax       = 0.;
-   sprintf(fOptionStr," ");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -157,14 +150,14 @@ TCandle::TCandle(const Double_t candlePos, const Double_t candleWidth, TH1D *pro
    fWhiskerUp     = 0;
    fWhiskerDown   = 0;
    fNDatapoints   = 0;
-   fIsCalculated  = 0;
-   fIsRaw         = 0;
+   fIsCalculated  = false;
+   fIsRaw         = false;
    fPosCandleAxis = candlePos;
    fCandleWidth   = candleWidth;
    fHistoWidth    = candleWidth;
-   fDatapoints    = 0;
+   fDatapoints    = nullptr;
    fProj          = proj;
-   fDismiss       = 0;
+   fDismiss       = false;
    fOption        = kNoOption;
    fLogX          = 0;
    fLogY          = 0;
@@ -173,60 +166,64 @@ TCandle::TCandle(const Double_t candlePos, const Double_t candleWidth, TH1D *pro
    fNHistoPoints  = 0;
    fAxisMin       = 0.;
    fAxisMax       = 0.;
-   sprintf(fOptionStr," ");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// TCandle default destructor.
 
-TCandle::~TCandle() {
+TCandle::~TCandle()
+{
    if (fIsRaw && fProj) delete fProj;
 }
 
-Bool_t TCandle::IsCandleScaled()
-{
-   return fScaledCandle;
-}
+////////////////////////////////////////////////////////////////////////////////
+/// Returns true if candle plot should be scaled
 
-Bool_t TCandle::IsViolinScaled()
+Bool_t TCandle::IsCandleScaled() const
 {
-   return fScaledViolin;
+   return gStyle->GetCandleScaled();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Static function to set fWhiskerRange, by setting whisker-range, one can force
+/// Returns true if violin plot should be scaled
+
+Bool_t TCandle::IsViolinScaled() const
+{
+   return gStyle->GetViolinScaled();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Static function to set WhiskerRange, by setting whisker-range, one can force
 /// the whiskers to cover the fraction of the distribution.
 /// Set wRange between 0 and 1. Default is 1
 /// TCandle::SetWhiskerRange(0.95) will set all candle-charts to cover 95% of
 /// the distribution with the whiskers.
 /// Can only be used with the standard-whisker definition
 
-void TCandle::SetWhiskerRange(const Double_t wRange) {
-   if (wRange < 0) fWhiskerRange = 0;
-   else if (wRange > 1) fWhiskerRange = 1;
-   else fWhiskerRange = wRange;
-
+void TCandle::SetWhiskerRange(const Double_t wRange)
+{
+   gStyle->SetCandleWhiskerRange(wRange);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Static function to set fBoxRange, by setting whisker-range, one can force the
+/// Static function to set BoxRange, by setting box-range, one can force the
 /// box of the candle-chart to cover that given fraction of the distribution.
 /// Set bRange between 0 and 1. Default is 0.5
 /// TCandle::SetBoxRange(0.68) will set all candle-charts to cover 68% of the
 /// distribution by the box
 
-void TCandle::SetBoxRange(const Double_t bRange) {
-   if (bRange < 0) fBoxRange = 0;
-   else if (bRange > 1) fBoxRange = 1;
-   else fBoxRange = bRange;
+void TCandle::SetBoxRange(const Double_t bRange)
+{
+   gStyle->SetCandleBoxRange(bRange);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Static function to set scaling between candles-withs. A candle containing
-/// 100 entries with be two times wider than a candle containing 50 entries
+/// 100 entries will be two times wider than a candle containing 50 entries
 
-void TCandle::SetScaledCandle(const Bool_t cScale) {
-   fScaledCandle = cScale;
+void TCandle::SetScaledCandle(const Bool_t cScale)
+{
+   gStyle->SetCandleScaled(cScale);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -234,8 +231,9 @@ void TCandle::SetScaledCandle(const Bool_t cScale) {
 /// with a maximum bin content to 100 will be two times as high as a violin with
 /// a maximum bin content of 50
 
-void TCandle::SetScaledViolin(const Bool_t vScale) {
-   fScaledViolin = vScale;
+void TCandle::SetScaledViolin(const Bool_t vScale)
+{
+   gStyle->SetViolinScaled(vScale);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -290,23 +288,23 @@ int TCandle::ParseOption(char * opt) {
          char indivOption[32];
          if (brOpen && brClose) {
             useIndivOption = true;
-            bool isHorizontal = IsHorizontal();
+            bool wasHorizontal = IsHorizontal();
             strlcpy(indivOption, brOpen, brClose-brOpen+2); //Now the string "(....)" including brackets is in this array
             sscanf(indivOption,"(%d)", (int*) &fOption);
-            if (isHorizontal) {fOption = (CandleOption)(fOption + kHorizontal);}
+            if (wasHorizontal && !IsHorizontal()) {fOption = (CandleOption)(fOption + kHorizontal);}
             memcpy(brOpen,"                ",brClose-brOpen+1); //Cleanup
 
-            snprintf(fOptionStr, sizeof(fOptionStr), "CANDLE%c(%ld)",direction,(long)fOption);
+            fOptionStr.Form("CANDLE%c(%ld)", direction, (long)fOption);
          } else {
             fOption = (CandleOption)(fOption + fallbackCandle);
          }
       } else {
-         snprintf(fOptionStr, sizeof(fOptionStr), "CANDLE%c%c",direction,preset);
+         fOptionStr.Form("CANDLE%c%c",direction,preset);
       }
       //Handle option "CANDLE" ,"CANDLEX" or "CANDLEY" to behave like "CANDLEX1" or "CANDLEY1"
       if (!useIndivOption && !fOption ) {
          fOption = fallbackCandle;
-         snprintf(fOptionStr, sizeof(fOptionStr), "CANDLE%c2",direction);
+         fOptionStr.Form("CANDLE%c2",direction);
       }
    }
 
@@ -347,23 +345,23 @@ int TCandle::ParseOption(char * opt) {
          char indivOption[32];
          if (brOpen && brClose) {
             useIndivOption = true;
-            bool isHorizontal = IsHorizontal();
+            bool wasHorizontal = IsHorizontal();
             strlcpy(indivOption, brOpen, brClose-brOpen +2); //Now the string "(....)" including brackets is in this array
             sscanf(indivOption,"(%d)", (int*) &fOption);
-            if (isHorizontal) {fOption = (CandleOption)(fOption + kHorizontal);}
+            if (wasHorizontal && !IsHorizontal()) {fOption = (CandleOption)(fOption + kHorizontal);}
             memcpy(brOpen,"                ",brClose-brOpen+1); //Cleanup
 
-            snprintf(fOptionStr, sizeof(fOptionStr), "VIOLIN%c(%ld)",direction,(long)fOption);
+            fOptionStr.Form("VIOLIN%c(%ld)", direction, (long)fOption);
          } else {
             fOption = (CandleOption)(fOption + fallbackCandle);
          }
       } else {
-         snprintf(fOptionStr, sizeof(fOptionStr), "VIOLIN%c%c",direction,preset);
+         fOptionStr.Form("VIOLIN%c%c", direction, preset);
       }
       //Handle option "VIOLIN" ,"VIOLINX" or "VIOLINY" to behave like "VIOLINX1" or "VIOLINY1"
       if (!useIndivOption && !fOption ) {
          fOption = fallbackCandle;
-         snprintf(fOptionStr, sizeof(fOptionStr), "VIOLIN%c1",direction);
+         fOptionStr.Form("VIOLIN%c1", direction);
       }
    }
 
@@ -392,28 +390,31 @@ void TCandle::Calculate() {
    Double_t max = -1e15;
 
    // Determining the quantiles
-   Double_t *prob = new Double_t[5];
+   Double_t prob[5];
 
-   if (fWhiskerRange >= 1) {
+   Double_t wRange = gStyle->GetCandleWhiskerRange();
+   Double_t bRange = gStyle->GetCandleBoxRange();
+
+
+   if (wRange >= 1) {
       prob[0] = 1e-15;
       prob[4] = 1-1e-15;
    } else {
-      prob[0] = 0.5 - fWhiskerRange/2.;
-      prob[4] = 0.5 + fWhiskerRange/2.;
+      prob[0] = 0.5 - wRange/2.;
+      prob[4] = 0.5 + wRange/2.;
    }
 
-
-   if (fBoxRange >= 1) {
+   if (bRange >= 1) {
       prob[1] = 1E-14;
       prob[3] = 1-1E-14;
    } else {
-      prob[1] = 0.5 - fBoxRange/2.;
-      prob[3] = 0.5 + fBoxRange/2.;
+      prob[1] = 0.5 - bRange/2.;
+      prob[3] = 0.5 + bRange/2.;
    }
 
-   prob[2]=0.5;
-   Double_t *quantiles = new Double_t[5];
-   quantiles[0]=0.; quantiles[1]=0.; quantiles[2] = 0.; quantiles[3] = 0.; quantiles[4] = 0.;
+   prob[2] = 0.5;
+
+   Double_t quantiles[5] = { 0., 0., 0., 0., 0. };
    if (!fIsRaw && fProj) { //Need a calculation for a projected histo
       if (((IsOption(kHistoLeft)) || (IsOption(kHistoRight)) || (IsOption(kHistoViolin))) && fProj->GetNbinsX() > 500) {
          // When using the histooption the number of bins of the projection is
@@ -432,8 +433,6 @@ void TCandle::Calculate() {
    // into account as well, we need to ignore this!
    if (quantiles[0] >= quantiles[4] ||
        quantiles[1] >= quantiles[3]) {
-      delete [] prob;
-      delete [] quantiles;
       return;
    }
 
@@ -451,11 +450,11 @@ void TCandle::Calculate() {
          int bin = fProj->FindBin(fBoxDown-1.5*iqr);
          // extending only to the lowest data value within this range
          while (fProj->GetBinContent(bin) == 0 && bin <= fProj->GetNbinsX()) bin++;
-         fWhiskerDown = fProj->GetBinCenter(bin);
+         fWhiskerDown = fProj->GetXaxis()->GetBinLowEdge(bin);
 
          bin = fProj->FindBin(fBoxUp+1.5*iqr);
          while (fProj->GetBinContent(bin) == 0 && bin >= 1) bin--;
-         fWhiskerUp = fProj->GetBinCenter(bin);
+         fWhiskerUp = fProj->GetXaxis()->GetBinUpEdge(bin);
       } else { //Need a calculation for a raw-data candle
          fWhiskerUp = fBoxDown;
          fWhiskerDown = fBoxUp;
@@ -486,9 +485,6 @@ void TCandle::Calculate() {
       fMean /= fNDatapoints;
       fMedianErr = 1.57*iqr/sqrt(fNDatapoints);
    }
-
-   delete [] prob;
-   delete [] quantiles;
 
    //Doing the outliers and other single points to show
    if (GetCandleOption(5) > 0) { //Draw outliers
@@ -588,6 +584,7 @@ void TCandle::Calculate() {
       if (fIsRaw) { //This is a raw-data candle
          if (!fProj) {
             fProj = new TH1D("hpa","hpa",100,min,max+0.0001*(max-min));
+            fProj->SetDirectory(nullptr);
             for (Long64_t i = 0; i < fNDatapoints; ++i) {
                fProj->Fill(fDatapoints[i]);
             }
@@ -659,7 +656,6 @@ void TCandle::Calculate() {
       }
    }
 
-
    fIsCalculated = true;
 }
 
@@ -668,6 +664,8 @@ void TCandle::Calculate() {
 
 void TCandle::Paint(Option_t *)
 {
+   if (!gPad) return;
+
    //If something was changed before, we need to recalculate some values
    if (!fIsCalculated) Calculate();
 
@@ -770,8 +768,9 @@ void TCandle::Paint(Option_t *)
       if (doLogY) {
          if (myMedianY[0] > 0) myMedianY[0] = TMath::Log10(myMedianY[0]); else isValid = false;
       }
-
-      SetMarkerStyle(24);
+      Int_t mw = gStyle->GetCandleCircleLineWidth();
+      if (mw == 1) SetMarkerStyle(24);
+      else         SetMarkerStyle(18*mw+17);
       TAttMarker::Modify();
 
       if (isValid) gPad->PaintPolyMarker(1,myMedianX,myMedianY); // A circle for the fMedian
@@ -799,7 +798,9 @@ void TCandle::Paint(Option_t *)
          if (myMeanY[0] > 0) myMeanY[0] = TMath::Log10(myMeanY[0]); else isValid = false;
       }
 
-      SetMarkerStyle(24);
+      Int_t mw = gStyle->GetCandleCircleLineWidth();
+      if (mw == 1) SetMarkerStyle(24);
+      else         SetMarkerStyle(18*mw+17);
       TAttMarker::Modify();
 
       if (isValid) gPad->PaintPolyMarker(1,myMeanX,myMeanY); // A circle for the fMean
@@ -831,7 +832,9 @@ void TCandle::Paint(Option_t *)
       if (IsOption(kPointsAllScat)) { //Draw outliers and "all" values scattered
          SetMarkerStyle(0);
       } else {
-         SetMarkerStyle(5);
+         Int_t mw = gStyle->GetCandleCrossLineWidth();
+         if (mw == 1) SetMarkerStyle(5);
+         else         SetMarkerStyle(18*mw+16);
       }
       TAttMarker::Modify();
       gPad->PaintPolyMarker(fNDrawPoints,fDrawPointsX, fDrawPointsY);
@@ -841,7 +844,7 @@ void TCandle::Paint(Option_t *)
 ////////////////////////////////////////////////////////////////////////////////
 /// Return true is this option is activated in fOption
 
-bool TCandle::IsOption(CandleOption opt) {
+bool TCandle::IsOption(CandleOption opt) const {
    long myOpt = 9;
    int pos = 0;
    for (pos = 0; pos < 16; pos++) {
@@ -851,7 +854,7 @@ bool TCandle::IsOption(CandleOption opt) {
    myOpt /= 9;
    int thisOpt = GetCandleOption(pos);
 
-   return ((thisOpt * myOpt) == opt);
+   return (thisOpt * myOpt) == opt;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -859,6 +862,8 @@ bool TCandle::IsOption(CandleOption opt) {
 
 void TCandle::PaintBox(Int_t nPoints, Double_t *x, Double_t *y, Bool_t swapXY)
 {
+   if (!gPad) return;
+
    Bool_t doLogY = (!(swapXY) && fLogY) || (swapXY && fLogX);
    Bool_t doLogX = (!(swapXY) && fLogX) || (swapXY && fLogY);
    if (doLogY) {
@@ -887,6 +892,8 @@ void TCandle::PaintBox(Int_t nPoints, Double_t *x, Double_t *y, Bool_t swapXY)
 
 void TCandle::PaintLine(Double_t x1, Double_t y1, Double_t x2, Double_t y2, Bool_t swapXY)
 {
+   if (!gPad) return;
+
    Bool_t doLogY = (!(swapXY) && fLogY) || (swapXY && fLogX);
    Bool_t doLogX = (!(swapXY) && fLogX) || (swapXY && fLogY);
    if (doLogY) {

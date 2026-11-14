@@ -29,13 +29,16 @@ class R__CLING_PTRCHECK(off) RColumnReaderBase {
 public:
    virtual ~RColumnReaderBase() = default;
 
-   /// Return the column value for the given entry. Called at most once per entry.
+   /// Return the column value for the given entry.
    /// \tparam T The column type
    /// \param entry The entry number
+   ///
+   /// The caller is responsible for checking that the returned value actually
+   /// exists.
    template <typename T>
-   T &Get(Long64_t entry)
+   T *TryGet(Long64_t entry)
    {
-      return *static_cast<T *>(GetImpl(entry));
+      return static_cast<T *>(GetImpl(entry));
    }
 
 private:

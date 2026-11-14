@@ -1,11 +1,11 @@
 /// \file
 /// \ingroup tutorial_math
 /// \notebook
-/// GoFTest tutorial macro
+/// Example showing usage of goodness of fit tests.
 ///
-/// Using Anderson-Darling and Kolmogorov-Smirnov goodness of fit tests
-/// 1 sample test is performed comparing data with a log-normal distribution
-/// and a 2 sample test is done comparing two gaussian data sets.
+/// Using Anderson-Darling and Kolmogorov-Smirnov goodness of fit tests,
+/// 1st sample test is performed comparing data with a log-normal distribution
+/// and a 2nd sample test is done comparing two gaussian data sets.
 ///
 /// \macro_image
 /// \macro_output
@@ -13,7 +13,6 @@
 ///
 /// \author Bartolomeu Rabacal
 
-#include <cassert>
 #include "TCanvas.h"
 #include "TPaveText.h"
 #include "TH1.h"
@@ -22,6 +21,9 @@
 #include "Math/Functor.h"
 #include "TRandom3.h"
 #include "Math/DistFunc.h"
+
+#include <cassert>
+#include <iostream>
 
 // need to use Functor1D
 double landau(double x) {
@@ -85,7 +87,7 @@ void goftest() {
    Double_t pvalueAD_2 = (*goftest_1)(); // p-value and Anderson - Darling Test are the default choices
    assert(pvalueAD_1 == pvalueAD_2);
 
-   // Rebuild the test using the default 1-sample construtor 
+   // Rebuild the test using the default 1-sample constructor 
    delete goftest_1;
    goftest_1 = new ROOT::Math::GoFTest(nEvents1, sample1 ); // User must then input a distribution type option
    goftest_1->SetDistribution(ROOT::Math::GoFTest::kLogNormal);
@@ -184,7 +186,7 @@ void goftest() {
    assert(pvalueKS_1 == pvalueKS_2);
 
 #ifdef TEST_ERROR_MESSAGE
-   /* Valid but incorrect calls for the 1-sample methods of the 2-samples constucted goftest_2 */
+   /* Valid but incorrect calls for the 1-sample methods of the 2-samples constructed goftest_2 */
    A2 = (*goftest_2)(ROOT::Math::GoFTest::kAD, "t");     // Issues error message
    pvalueKS = (*goftest_2)(ROOT::Math::GoFTest::kKS);    // Issues error message
    assert(A2 == pvalueKS);

@@ -37,74 +37,66 @@
 #include <fstream>
 #include <memory>
 #include <string>
-
-////////////////////////////////////////////////////////////////////////////////
-
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// THttpTimer                                                           //
-//                                                                      //
-// Specialized timer for THttpServer                                    //
-// Provides regular calls of THttpServer::ProcessRequests() method      //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
+#include <thread>
 
 class THttpTimer : public TTimer {
+
 public:
    THttpServer &fServer; ///!< server processing requests
 
    /// constructor
    THttpTimer(Long_t milliSec, Bool_t mode, THttpServer &serv) : TTimer(milliSec, mode), fServer(serv) {}
 
+
    /// timeout handler
    /// used to process http requests in main ROOT thread
-   void Timeout() override { fServer.ProcessRequests(); }
+   void Timeout() override
+   {
+      fServer.ProcessRequests();
+   }
 };
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+\class THttpServer
+\brief Online http server for arbitrary ROOT application
+\note This class provides HTTP access to ROOT objects. The user is entirely responsible for the security of the server.
+It is strongly recommended to use the server only within an isolated network
+or to enable proper authentication to prevent unauthorized remote access.
 
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// THttpServer                                                          //
-//                                                                      //
-// Online http server for arbitrary ROOT application                    //
-//                                                                      //
-// Idea of THttpServer - provide remote http access to running          //
-// ROOT application and enable HTML/JavaScript user interface.          //
-// Any registered object can be requested and displayed in the browser. //
-// There are many benefits of such approach:                            //
-//     * standard http interface to ROOT application                    //
-//     * no any temporary ROOT files when access data                   //
-//     * user interface running in all browsers                         //
-//                                                                      //
-// Starting HTTP server                                                 //
-//                                                                      //
-// To start http server, at any time  create instance                   //
-// of the THttpServer class like:                                       //
-//    serv = new THttpServer("http:8080");                              //
-//                                                                      //
-// This will starts civetweb-based http server with http port 8080.     //
-// Than one should be able to open address "http://localhost:8080"      //
-// in any modern browser (IE, Firefox, Chrome) and browse objects,      //
-// created in application. By default, server can access files,         //
-// canvases and histograms via gROOT pointer. All such objects          //
-// can be displayed with JSROOT graphics.                               //
-//                                                                      //
-// At any time one could register other objects with the command:       //
-//                                                                      //
-// TGraph* gr = new TGraph(10);                                         //
-// gr->SetName("gr1");                                                  //
-// serv->Register("graphs/subfolder", gr);                              //
-//                                                                      //
-// If objects content is changing in the application, one could         //
-// enable monitoring flag in the browser - than objects view            //
-// will be regularly updated.                                           //
-//                                                                      //
-// More information: https://root.cern/root/htmldoc/guides/HttpServer/HttpServer.html  //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
+Idea of THttpServer - provide remote http access to running
+ROOT application and enable HTML/JavaScript user interface.
+Any registered object can be requested and displayed in the browser.
+There are many benefits of such approach:
 
-ClassImp(THttpServer);
+1. standard http interface to ROOT application
+2. no any temporary ROOT files when access data
+3. user interface running in all browsers
+
+To start http server simply create instance
+of the THttpServer class like:
+
+    serv = new THttpServer("http:8080");
+
+This will starts civetweb-based http server with http port 8080.
+Than one should be able to open address "http://localhost:8080"
+in any modern web browser (Firefox, Chrome, Opera, ...) and browse objects,
+created in ROOT application. By default, server can access files,
+canvases and histograms via `gROOT` pointer. All such objects
+can be displayed with JSROOT graphics.
+
+At any time one could register other objects with the command:
+
+    TGraph* gr = new TGraph(10);
+    gr->SetName("gr1");
+    serv->Register("graphs/subfolder", gr);
+
+If objects content is changing in the application, one could
+enable monitoring flag in the browser - than objects view
+will be regularly updated.
+
+More information: https://root.cern/root/htmldoc/guides/HttpServer/HttpServer.html
+*/
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor
@@ -113,8 +105,9 @@ ClassImp(THttpServer);
 /// created like "http:8080". One could specify several engines
 /// at once, separating them with semicolon (";"). Following engines are supported:
 ///
-///       http - TCivetweb, civetweb-based implementation of http protocol
-///       fastcgi - TFastCgi, special protocol for communicating with web servers
+///     http     - TCivetweb, civetweb-based implementation of http protocol
+///     socket   - TCivetweb bound to unix socket
+///     fastcgi  - TFastCgi, special protocol for communicating with web servers
 ///
 /// For each created engine one should provide socket port number like "http:8080" or "fastcgi:9000".
 /// Additional engine-specific options can be supplied with URL syntax like "http:8080?thrds=10".
@@ -161,20 +154,33 @@ THttpServer::THttpServer(const char *engine) : TNamed("http", "ROOT http server"
       }
    }
 
-   AddLocation("currentdir/", ".");
+   Bool_t basic_sniffer = strstr(engine, "basic_sniffer") != nullptr;
+
    AddLocation("jsrootsys/", fJSROOTSYS.Data());
-   AddLocation("rootsys/", TROOT::GetRootSys());
+
+   if (basic_sniffer) {
+      AddLocation("rootsys_fonts/", TString::Format("%s/fonts", TROOT::GetDataDir().Data()));
+   } else {
+      AddLocation("currentdir/", ".");
+      AddLocation("rootsys/", TROOT::GetRootSys());
+   }
 
    fDefaultPage = fJSROOTSYS + "/files/online.htm";
    fDrawPage = fJSROOTSYS + "/files/draw.htm";
 
    TRootSniffer *sniff = nullptr;
-   if (strstr(engine, "basic_sniffer")) {
-      sniff = new TRootSniffer("sniff");
+   if (!basic_sniffer) {
+      static const TClass *snifferClass = TClass::GetClass("TRootSnifferFull");
+      if (snifferClass && snifferClass->IsLoaded())
+         sniff = (TRootSniffer *)snifferClass->New();
+      else
+         ::Warning("THttpServer::THttpServer", "Fail to load TRootSnifferFull class, use basic functionality");
+   }
+
+   if (!sniff) {
+      sniff = new TRootSniffer();
       sniff->SetScanGlobalDir(kFALSE);
       sniff->CreateOwnTopFolder(); // use dedicated folder
-   } else {
-      sniff = (TRootSniffer *)gROOT->ProcessLineSync("new TRootSnifferFull(\"sniff\");");
    }
 
    SetSniffer(sniff);
@@ -211,6 +217,7 @@ THttpServer::THttpServer(const char *engine) : TNamed("http", "ROOT http server"
 
 ////////////////////////////////////////////////////////////////////////////////
 /// destructor
+///
 /// delete all http engines and sniffer
 
 THttpServer::~THttpServer()
@@ -232,6 +239,7 @@ THttpServer::~THttpServer()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set TRootSniffer to the server
+///
 /// Server takes ownership over sniffer
 
 void THttpServer::SetSniffer(TRootSniffer *sniff)
@@ -241,6 +249,7 @@ void THttpServer::SetSniffer(TRootSniffer *sniff)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set termination flag,
+///
 /// No any further requests will be processed, server only can be destroyed afterwards
 
 void THttpServer::SetTerminate()
@@ -258,6 +267,7 @@ Bool_t THttpServer::IsReadOnly() const
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set read-only mode for the server (default on)
+///
 /// In read-only server is not allowed to change any ROOT object, registered to the server
 /// Server also cannot execute objects method via exe.json request
 
@@ -268,7 +278,33 @@ void THttpServer::SetReadOnly(Bool_t readonly)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Returns true if server accept object content in POST reequests
+
+Bool_t THttpServer::IsAllowPostObject() const
+{
+   return fSniffer ? fSniffer->IsAllowPostObject() : kFALSE;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set flag to allow receive and desereilize objects in POST requests
+///
+/// When object methods are executed via exe.json request,
+/// one can supply object as binary/json/xml in the body of POST request
+/// To allow creation of such object, one need to enable this flag
+/// Use of exe.json only possible in not-readonly mode
+///
+/// CAUTION! This is sensitive functionality and therefore should be
+/// used only when server not exposed to publicaly-accessed netowork.
+
+void THttpServer::SetAllowPostObject(Bool_t allow_post_obj)
+{
+   if (fSniffer)
+      fSniffer->SetAllowPostObject(allow_post_obj);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// returns true if only websockets are handled by the server
+///
 /// Typically used by WebGui
 
 Bool_t THttpServer::IsWSOnly() const
@@ -277,7 +313,9 @@ Bool_t THttpServer::IsWSOnly() const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set websocket-only mode. If true, server will only handle websockets connection
+/// Set websocket-only mode.
+///
+/// If true, server will only handle websockets connection
 /// plus serving file requests to access jsroot/ui5 scripts
 
 void THttpServer::SetWSOnly(Bool_t on)
@@ -286,10 +324,13 @@ void THttpServer::SetWSOnly(Bool_t on)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// add files location, which could be used in the server
-/// one could map some system folder to the server like AddLocation("mydir/","/home/user/specials");
-/// Than files from this directory could be addressed via server like
-/// http://localhost:8080/mydir/myfile.root
+/// Add files location, which could be used in the server
+///
+/// One could map some system folder to the server like
+///
+///     serv->AddLocation("mydir/", "/home/user/specials");
+///
+/// Than files from this directory could be addressed via server like `http://localhost:8080/mydir/myfile.root`
 
 void THttpServer::AddLocation(const char *prefix, const char *path)
 {
@@ -304,9 +345,12 @@ void THttpServer::AddLocation(const char *prefix, const char *path)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set location of JSROOT to use with the server
+///
 /// One could specify address like:
-///   https://root.cern.ch/js/5.6.3/
-///   http://jsroot.gsi.de/5.6.3/
+///
+/// * https://root.cern/js/7.12.0/
+/// * https://jsroot.gsi.de/7.12.0/
+///
 /// This allows to get new JSROOT features with old server,
 /// reduce load on THttpServer instance, also startup time can be improved
 /// When empty string specified (default), local copy of JSROOT is used (distributed with ROOT)
@@ -317,8 +361,10 @@ void THttpServer::SetJSROOT(const char *location)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set file name of HTML page, delivered by the server when
-/// http address is opened in the browser.
+/// Set default HTML page
+///
+/// Sets file name, delivered by the server when http address is opened in the browser.
+///
 /// By default, $ROOTSYS/js/files/online.htm page is used
 /// When empty filename is specified, default page will be used
 
@@ -334,6 +380,8 @@ void THttpServer::SetDefaultPage(const std::string &filename)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Set drawing HTML page
+///
 /// Set file name of HTML page, delivered by the server when
 /// objects drawing page is requested from the browser
 /// By default, $ROOTSYS/js/files/draw.htm page is used
@@ -351,14 +399,27 @@ void THttpServer::SetDrawPage(const std::string &filename)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// factory method to create different http engines
+/// Factory method to create different http engines
+///
 /// At the moment two engine kinds are supported:
-///   civetweb (default) and fastcgi
+///
+/// * civetweb or http (default)
+/// * fastcgi
+///
 /// Examples:
-///   "http:8080" or "civetweb:8080" or ":8080"  - creates civetweb web server with http port 8080
-///   "fastcgi:9000" - creates fastcgi server with port 9000
+///
+///     // creates civetweb web server with http port 8080
+///     serv->CreateEngine("http:8080");
+///     serv->CreateEngine("civetweb:8080");
+///     serv->CreateEngine(":8080");
+///     // creates civetweb web server bound with unix socket
+///     serv->CreateEngine("socket:/home/user/server.socket?socket_mode=0700");
+///     // creates fastcgi server with port 9000
+///     serv->CreateEngine("fastcgi:9000");
+///
 /// One could apply additional parameters, using URL syntax:
-///    "http:8080?thrds=10"
+///
+///     serv->CreateEngine("http:8080?thrds=10");
 
 Bool_t THttpServer::CreateEngine(const char *engine)
 {
@@ -369,14 +430,22 @@ Bool_t THttpServer::CreateEngine(const char *engine)
    if (!arg)
       return kFALSE;
 
-   TString clname;
+   TString clname, sarg;
    if (arg != engine)
       clname.Append(engine, arg - engine);
+   arg++; // skip first :
 
    THttpEngine *eng = nullptr;
 
    if ((clname.Length() == 0) || (clname == "http") || (clname == "civetweb")) {
       eng = new TCivetweb(kFALSE);
+#ifndef R__WIN32
+   } else if (clname == "socket") {
+      eng = new TCivetweb(kFALSE);
+      sarg = "x"; // civetweb require x before socket name
+      sarg.Append(arg);
+      arg = sarg.Data();
+#endif
    } else if (clname == "https") {
       eng = new TCivetweb(kTRUE);
    } else if (clname == "fastcgi") {
@@ -396,7 +465,7 @@ Bool_t THttpServer::CreateEngine(const char *engine)
 
    eng->SetServer(this);
 
-   if (!eng->Create(arg + 1)) {
+   if (!eng->Create(arg)) {
       delete eng;
       return kFALSE;
    }
@@ -407,7 +476,8 @@ Bool_t THttpServer::CreateEngine(const char *engine)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// create timer which will invoke ProcessRequests() function periodically
+/// Create timer which will invoke ProcessRequests() function periodically
+///
 /// Timer is required to perform all actions in main ROOT thread
 /// Method arguments are the same as for TTimer constructor
 /// By default, sync timer with 100 ms period is created
@@ -476,6 +546,7 @@ void THttpServer::CreateServerThread()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Stop server thread
+///
 /// Normally called shortly before http server destructor
 
 void THttpServer::StopServerThread()
@@ -490,6 +561,7 @@ void THttpServer::StopServerThread()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Checked that filename does not contains relative path below current directory
+///
 /// Used to prevent access to files below current directory
 
 Bool_t THttpServer::VerifyFilePath(const char *fname)
@@ -499,7 +571,7 @@ Bool_t THttpServer::VerifyFilePath(const char *fname)
 
    Int_t level = 0;
 
-   while (*fname != 0) {
+   while (*fname) {
 
       // find next slash or backslash
       const char *next = strpbrk(fname, "/\\");
@@ -536,6 +608,7 @@ Bool_t THttpServer::VerifyFilePath(const char *fname)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Verifies that request is just file name
+///
 /// File names typically contains prefix like "jsrootsys/"
 /// If true, method returns real name of the file,
 /// which should be delivered to the client
@@ -567,6 +640,7 @@ Bool_t THttpServer::IsFileRequested(const char *uri, TString &res) const
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Executes http request, specified in THttpCallArg structure
+///
 /// Method can be called from any thread
 /// Actual execution will be done in main ROOT thread, where analysis code is running.
 
@@ -585,6 +659,7 @@ Bool_t THttpServer::ExecuteHttp(std::shared_ptr<THttpCallArg> arg)
 
    // add call arg to the list
    std::unique_lock<std::mutex> lk(fMutex);
+   arg->fNotifyFlag = kFALSE;
    fArgs.push(arg);
    // and now wait until request is processed
    arg->fCond.wait(lk);
@@ -594,13 +669,16 @@ Bool_t THttpServer::ExecuteHttp(std::shared_ptr<THttpCallArg> arg)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Submit http request, specified in THttpCallArg structure
+///
 /// Contrary to ExecuteHttp, it will not block calling thread.
-/// User should reimplement THttpCallArg::HttpReplied() method
+/// User should implement THttpCallArg::HttpReplied() method
 /// to react when HTTP request is executed.
+
 /// Method can be called from any thread
 /// Actual execution will be done in main ROOT thread, where analysis code is running.
 /// When called from main thread and can_run_immediately==kTRUE, will be
 /// executed immediately.
+///
 /// Returns kTRUE when was executed.
 
 Bool_t THttpServer::SubmitHttp(std::shared_ptr<THttpCallArg> arg, Bool_t can_run_immediately)
@@ -622,6 +700,7 @@ Bool_t THttpServer::SubmitHttp(std::shared_ptr<THttpCallArg> arg, Bool_t can_run
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Process requests, submitted for execution
+///
 /// Returns number of processed requests
 ///
 /// Normally invoked by THttpTimer, when somewhere in the code
@@ -631,13 +710,27 @@ Bool_t THttpServer::SubmitHttp(std::shared_ptr<THttpCallArg> arg, Bool_t can_run
 
 Int_t THttpServer::ProcessRequests()
 {
-   if (fMainThrdId == 0)
-      fMainThrdId = TThread::SelfId();
+   auto id = TThread::SelfId();
 
-   if (fMainThrdId != TThread::SelfId()) {
-      Error("ProcessRequests", "Should be called only from main ROOT thread");
-      return 0;
+   if (fMainThrdId != id) {
+      if (gDebug > 0 && fMainThrdId)
+         Warning("ProcessRequests", "Changing main thread to %ld", (long)id);
+      fMainThrdId = id;
    }
+
+   Bool_t recursion = kFALSE;
+
+   if (fProcessingThrdId) {
+      if (fProcessingThrdId == id) {
+         recursion = kTRUE;
+      } else {
+         Error("ProcessRequests", "Processing already running from %ld thread", (long) fProcessingThrdId);
+         return 0;
+      }
+   }
+
+   if (!recursion)
+      fProcessingThrdId = id;
 
    Int_t cnt = 0;
 
@@ -662,14 +755,14 @@ Int_t THttpServer::ProcessRequests()
          continue;
       }
 
-      fSniffer->SetCurrentCallArg(arg.get());
+      auto prev = fSniffer->SetCurrentCallArg(arg.get());
 
       try {
          cnt++;
          ProcessRequest(arg);
-         fSniffer->SetCurrentCallArg(nullptr);
+         fSniffer->SetCurrentCallArg(prev);
       } catch (...) {
-         fSniffer->SetCurrentCallArg(nullptr);
+         fSniffer->SetCurrentCallArg(prev);
       }
 
       arg->NotifyCondition();
@@ -677,18 +770,21 @@ Int_t THttpServer::ProcessRequests()
 
    // regularly call Process() method of engine to let perform actions in ROOT context
    TIter iter(&fEngines);
-   THttpEngine *engine = nullptr;
-   while ((engine = (THttpEngine *)iter()) != nullptr) {
+   while (auto engine = static_cast<THttpEngine *>(iter())) {
       if (fTerminated)
          engine->Terminate();
       engine->Process();
    }
+
+   if (!recursion)
+      fProcessingThrdId = 0;
 
    return cnt;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Method called when THttpServer cannot process request
+///
 /// By default such requests replied with 404 code
 /// One could overwrite with method in derived class to process all kinds of such non-standard requests
 
@@ -699,6 +795,7 @@ void THttpServer::MissedRequest(THttpCallArg *arg)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Process special http request for root_batch_holder.js script
+///
 /// This kind of requests used to hold web browser running in headless mode
 /// Intentionally requests does not replied immediately
 
@@ -726,7 +823,7 @@ std::string THttpServer::BuildWSEntryPage()
          if (arr.length() > 1)
             arr.append(", ");
 
-         arr.append(Form("{ name: \"%s\", title: \"%s\" }", ws->GetName(), ws->GetTitle()));
+         arr.append(TString::Format("{ name: \"%s\", title: \"%s\" }", ws->GetName(), ws->GetTitle()).Data());
       }
    }
 
@@ -744,46 +841,137 @@ std::string THttpServer::BuildWSEntryPage()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Replaces all references like "jsrootsys/..."
+/// Replaces all references like "jsrootsys/..." or other pre-configured pathes
+///
 /// Either using pre-configured JSROOT installation from web or
 /// redirect to jsrootsys from the main server path to benefit from browser caching
+/// Creates appropriate importmap instead of <!--jsroot_importmap--> placeholder
 
-void THttpServer::ReplaceJSROOTLinks(std::shared_ptr<THttpCallArg> &arg)
+void THttpServer::ReplaceJSROOTLinks(std::shared_ptr<THttpCallArg> &arg, const std::string &version)
 {
-   std::string repl;
+   const std::string place_holder = "<!--jsroot_importmap-->";
 
-   if (fJSROOT.Length() > 0) {
-      repl = "=\"";
-      repl.append(fJSROOT.Data());
-      if (repl.back() != '/')
-         repl.append("/");
-   } else {
-      Int_t cnt = 0;
-      if (arg->fPathName.Length() > 0) cnt++;
-      for (Int_t n = 1; n < arg->fPathName.Length()-1; ++n)
-         if (arg->fPathName[n] == '/') {
-            if (arg->fPathName[n-1] != '/') {
-               cnt++; // normal slash in the middle, count it
-            } else {
-               cnt = 0; // double slash, do not touch such path
-               break;
-            }
+   auto p = arg->fContent.find(place_holder);
+
+   bool old_format = (p == std::string::npos);
+
+   // count slashes to handler relative paths to jsroot
+   Int_t slash_cnt = 0;
+   if (arg->fPathName.Length() > 0)
+      slash_cnt++;
+   for (Int_t n = 1; n < arg->fPathName.Length()-1; ++n)
+      if (arg->fPathName[n] == '/') {
+         if (arg->fPathName[n-1] != '/') {
+            slash_cnt++; // normal slash in the middle, count it
+         } else {
+            slash_cnt = 0; // double slash, do not touch such path
+            break;
          }
-
-      if (cnt > 0) {
-         repl = "=\"";
-         while (cnt-- >0) repl.append("../");
-         repl.append("jsrootsys/");
       }
+
+
+   if (old_format) {
+      // old functionality
+
+      if (!version.empty()) {
+         // replace link to JSROOT modules in import statements emulating new version for browser
+         std::string search = "from './jsrootsys/";
+         std::string replace = "from './" + version + "/jsrootsys/";
+         arg->ReplaceAllinContent(search, replace);
+         // replace link to ROOT ui5 modules in import statements emulating new version for browser
+         search = "from './rootui5sys/";
+         replace = "from './" + version + "/rootui5sys/";
+         arg->ReplaceAllinContent(search, replace);
+         // replace link on old JSRoot.core.js script - if still appears
+         search = "jsrootsys/scripts/JSRoot.core.";
+         replace = version + "/jsrootsys/scripts/JSRoot.core.";
+         arg->ReplaceAllinContent(search, replace, true);
+         arg->AddNoCacheHeader();
+      }
+
+      std::string repl;
+
+      if (fJSROOT.Length() > 0) {
+         repl = "=\"";
+         repl.append(fJSROOT.Data());
+         if (repl.back() != '/')
+            repl.append("/");
+      } else {
+         if (slash_cnt > 0) {
+            repl = "=\"";
+            while (slash_cnt-- > 0) repl.append("../");
+            repl.append("jsrootsys/");
+         }
+      }
+
+      if (!repl.empty()) {
+         arg->ReplaceAllinContent("=\"jsrootsys/", repl);
+         arg->ReplaceAllinContent("from './jsrootsys/", TString::Format("from '%s", repl.substr(2).c_str()).Data());
+      }
+   } else {
+      // new functionality creating importmap
+
+      std::string path_prefix, jsroot_prefix;
+      if (slash_cnt > 0) {
+         path_prefix = "";
+         while (slash_cnt-- > 0)
+            path_prefix.append("../");
+      } else {
+         path_prefix = "./";
+      }
+
+      if (!version.empty())
+         path_prefix.append(version + "/");
+
+      if (fJSROOT.Length() > 0) {
+         jsroot_prefix = fJSROOT.Data();
+         if (jsroot_prefix.back() != '/')
+            jsroot_prefix.append("/");
+      } else {
+         jsroot_prefix = path_prefix + "jsrootsys/";
+      }
+
+      static std::map<std::string, std::string> modules = {
+         {"jsroot", "main.mjs"}, {"jsroot/core", "core.mjs"},
+         {"jsroot/io", "io.mjs"}, {"jsroot/tree", "tree.mjs"},
+         {"jsroot/draw", "draw.mjs"}, {"jsroot/gui", "gui.mjs"},
+         {"jsroot/d3", "d3.mjs"}, {"jsroot/three", "three.mjs"}, {"jsroot/three_addons", "three_addons.mjs"},
+         {"jsroot/geom", "geom/TGeoPainter.mjs"}, {"jsroot/hpainter", "gui/HierarchyPainter.mjs"},
+         {"jsroot/webwindow", "webwindow.mjs"}
+      };
+
+      TString space_prefix;
+      auto pspace = p;
+      while ((--pspace > 0) && (arg->fContent[pspace] == ' ') && (space_prefix.Length() < 20))
+         space_prefix.Append(" ");
+
+      bool first = true;
+      TString importmap = "<script type=\"importmap\">\n";
+      importmap += space_prefix + "{\n";
+      importmap += space_prefix + "  \"imports\": ";
+      for (auto &entry : modules) {
+         importmap.Append(TString::Format("%s\n%s    \"%s\": \"%smodules/%s\"", first ? "{" : ",", space_prefix.Data(), entry.first.c_str(), jsroot_prefix.c_str(), entry.second.c_str()));
+         first = false;
+      }
+      importmap.Append(TString::Format(",\n%s    \"jsrootsys/\": \"%s\"", space_prefix.Data(), jsroot_prefix.c_str()));
+
+      for (auto &entry : fLocations)
+         if (entry.first != "jsrootsys/")
+            importmap.Append(TString::Format(",\n%s    \"%s\": \"%s%s\"", space_prefix.Data(), entry.first.c_str(), path_prefix.c_str(), entry.first.c_str()));
+      importmap.Append("\n");
+      importmap.Append(space_prefix + "  }\n");
+      importmap.Append(space_prefix + "}\n");
+      importmap.Append(space_prefix + "</script>\n");
+
+      arg->fContent.erase(p, place_holder.length());
+
+      arg->fContent.insert(p, importmap.Data());
    }
-
-   if (!repl.empty())
-      arg->ReplaceAllinContent("=\"jsrootsys/", repl);
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Process single http request
+///
 /// Depending from requested path and filename different actions will be performed.
 /// In most cases information is provided by TRootSniffer class
 
@@ -800,6 +988,8 @@ void THttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
    }
 
    if (arg->fFileName.IsNull() || (arg->fFileName == "index.htm") || (arg->fFileName == "default.htm")) {
+
+      std::string version;
 
       if (arg->fFileName == "default.htm") {
 
@@ -825,12 +1015,19 @@ void THttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
                arg->fContent = ReadFileContent(resolve.Data());
             }
 
+            version = handler->GetCodeVersion();
+
             handler->VerifyDefaultPageContent(arg);
          }
       }
 
       if (arg->fContent.empty() && arg->fFileName.IsNull() && arg->fPathName.IsNull() && IsWSOnly()) {
-         arg->fContent = BuildWSEntryPage();
+         // Creating page with list of available widgets is disabled now for security reasons
+         // Later one can provide functionality back only if explicitly desired by the user
+         //  BuildWSEntryPage();
+
+         arg->SetContent("refused");
+         arg->Set404();
       }
 
       if (arg->fContent.empty() && !IsWSOnly()) {
@@ -846,7 +1043,7 @@ void THttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
          arg->Set404();
       } else if (!arg->Is404()) {
 
-         ReplaceJSROOTLinks(arg);
+         ReplaceJSROOTLinks(arg, version);
 
          const char *hjsontag = "\"$$$h.json$$$\"";
 
@@ -971,9 +1168,8 @@ void THttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       if (arg->fContent.empty())
          arg->Set404();
    } else if ((filename == "h.xml") || (filename == "get.xml")) {
-
-      Bool_t compact = arg->fQuery.Index("compact") != kNPOS;
-
+      Bool_t compact = arg->fQuery.Index("compact") != kNPOS,
+             processed = kFALSE;
       TString res;
 
       res.Form("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -984,20 +1180,22 @@ void THttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
          res.Append("\n");
       {
          TRootSnifferStoreXml store(res, compact);
-
+         auto len0 = res.Length();
          const char *topname = fTopName.Data();
          if (arg->fTopName.Length() > 0)
             topname = arg->fTopName.Data();
          fSniffer->ScanHierarchy(topname, arg->fPathName.Data(), &store, filename == "get.xml");
+         processed = res.Length() > len0;
       }
 
       res.Append("</root>");
       if (!compact)
          res.Append("\n");
-
-      arg->SetContent(std::string(res.Data()));
-
-      arg->SetXml();
+      if (processed) {
+         arg->SetContent(std::string(res.Data()));
+         arg->SetXml();
+      } else
+         MissedRequest(arg.get());
    } else if (filename == "h.json") {
       TString res;
       TRootSnifferStoreJson store(res, arg->fQuery.Index("compact") != kNPOS);
@@ -1005,8 +1203,12 @@ void THttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       if (arg->fTopName.Length() > 0)
          topname = arg->fTopName.Data();
       fSniffer->ScanHierarchy(topname, arg->fPathName.Data(), &store);
-      arg->SetContent(std::string(res.Data()));
-      arg->SetJson();
+
+      if (res.Length() > 0) {
+         arg->SetContent(std::string(res.Data()));
+         arg->SetJson();
+      } else
+         MissedRequest(arg.get());
    } else if (fSniffer->Produce(arg->fPathName.Data(), filename.Data(), arg->fQuery.Data(), arg->fContent)) {
       // define content type base on extension
       arg->SetContentType(GetMimeType(filename.Data()));
@@ -1025,15 +1227,20 @@ void THttpServer::ProcessRequest(std::shared_ptr<THttpCallArg> arg)
       // only for binary data master version is important
       // it allows to detect if streamer info was modified
       const char *parname = fSniffer->IsStreamerInfoItem(arg->fPathName.Data()) ? "BVersion" : "MVersion";
-      arg->AddHeader(parname, Form("%u", (unsigned)fSniffer->GetStreamerInfoHash()));
+      arg->AddHeader(parname, TString::Format("%u", (unsigned)fSniffer->GetStreamerInfoHash()).Data());
    }
 
    // try to avoid caching on the browser
    arg->AddNoCacheHeader();
 
-   // potentially add cors header
+   // potentially add cors headers
    if (IsCors())
       arg->AddHeader("Access-Control-Allow-Origin", GetCors());
+   if (IsCorsCredentials()) {
+      arg->AddHeader("Access-Control-Allow-Credentials", GetCorsCredentials());
+      arg->AddHeader("Access-Control-Expose-Headers", "Content-Range, Content-Length, Date");
+      arg->AddHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1112,6 +1319,7 @@ Bool_t THttpServer::ExecuteWS(std::shared_ptr<THttpCallArg> &arg, Bool_t externa
       handler = dynamic_cast<THttpWSHandler *>(fSniffer->FindTObjectInHierarchy(arg->fPathName.Data()));
 
    if (external_thrd && (!handler || !handler->AllowMTProcess())) {
+
       std::unique_lock<std::mutex> lk(fMutex);
       fArgs.push(arg);
       // and now wait until request is processed
@@ -1121,8 +1329,10 @@ Bool_t THttpServer::ExecuteWS(std::shared_ptr<THttpCallArg> &arg, Bool_t externa
       return kTRUE;
    }
 
-   if (!handler)
+   if (!handler) {
+      arg->Set404();
       return kFALSE;
+   }
 
    Bool_t process = kFALSE;
 
@@ -1155,8 +1365,9 @@ Bool_t THttpServer::ExecuteWS(std::shared_ptr<THttpCallArg> &arg, Bool_t externa
          TUrl url;
          url.SetOptions(arg->fQuery);
          url.ParseOptions();
-         Int_t connid = url.GetIntValueFromOptions("connection");
-         arg->SetWSId((UInt_t)connid);
+         const char *connid = url.GetValueFromOptions("connection");
+         if (connid)
+            arg->SetWSId(std::stoul(connid));
          if (url.HasOption("close")) {
             arg->SetMethod("WS_CLOSE");
             arg->SetTextContent("OK");
@@ -1188,28 +1399,37 @@ void THttpServer::Restrict(const char *path, const char *options)
 /// Register command which can be executed from web interface
 ///
 /// As method one typically specifies string, which is executed with
-/// gROOT->ProcessLine() method. For instance
-///    serv->RegisterCommand("Invoke","InvokeFunction()");
+/// gROOT->ProcessLine() method. For instance:
+///
+///     serv->RegisterCommand("Invoke","InvokeFunction()");
 ///
 /// Or one could specify any method of the object which is already registered
 /// to the server. For instance:
+///
 ///     serv->Register("/", hpx);
 ///     serv->RegisterCommand("/ResetHPX", "/hpx/->Reset()");
+///
 /// Here symbols '/->' separates item name from method to be executed
 ///
 /// One could specify additional arguments in the command with
 /// syntax like %arg1%, %arg2% and so on. For example:
+///
 ///     serv->RegisterCommand("/ResetHPX", "/hpx/->SetTitle(\"%arg1%\")");
 ///     serv->RegisterCommand("/RebinHPXPY", "/hpxpy/->Rebin2D(%arg1%,%arg2%)");
+///
 /// Such parameter(s) will be requested when command clicked in the browser.
 ///
 /// Once command is registered, one could specify icon which will appear in the browser:
+///
 ///     serv->SetIcon("/ResetHPX", "rootsys/icons/ed_execute.png");
 ///
 /// One also can set extra property '_fastcmd', that command appear as
 /// tool button on the top of the browser tree:
+///
 ///     serv->SetItemField("/ResetHPX", "_fastcmd", "true");
+///
 /// Or it is equivalent to specifying extra argument when register command:
+///
 ///     serv->RegisterCommand("/ResetHPX", "/hpx/->Reset()", "button;rootsys/icons/ed_delete.png");
 
 Bool_t THttpServer::RegisterCommand(const char *cmdname, const char *method, const char *icon)
@@ -1218,7 +1438,7 @@ Bool_t THttpServer::RegisterCommand(const char *cmdname, const char *method, con
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// hides folder or element from web gui
+/// Hides folder or element from web gui
 
 Bool_t THttpServer::Hide(const char *foldername, Bool_t hide)
 {
@@ -1226,7 +1446,7 @@ Bool_t THttpServer::Hide(const char *foldername, Bool_t hide)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// set name of icon, used in browser together with the item
+/// Set name of icon, used in browser together with the item
 ///
 /// One could use images from $ROOTSYS directory like:
 ///    serv->SetIcon("/ResetHPX","/rootsys/icons/ed_execute.png");
@@ -1237,6 +1457,7 @@ Bool_t THttpServer::SetIcon(const char *fullname, const char *iconname)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Create item in sniffer
 
 Bool_t THttpServer::CreateItem(const char *fullname, const char *title)
 {
@@ -1244,6 +1465,7 @@ Bool_t THttpServer::CreateItem(const char *fullname, const char *title)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Set item field in sniffer
 
 Bool_t THttpServer::SetItemField(const char *fullname, const char *name, const char *value)
 {
@@ -1251,6 +1473,7 @@ Bool_t THttpServer::SetItemField(const char *fullname, const char *name, const c
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Get item field from sniffer
 
 const char *THttpServer::GetItemField(const char *fullname, const char *name)
 {
@@ -1278,6 +1501,7 @@ const char *THttpServer::GetMimeType(const char *path)
                              {".shtml", 6, "text/html"},
                              {".css", 4, "text/css"},
                              {".js", 3, "application/x-javascript"},
+                             {".mjs", 4, "text/javascript"},
                              {".ico", 4, "image/x-icon"},
                              {".jpeg", 5, "image/jpeg"},
                              {".svg", 4, "image/svg+xml"},
@@ -1333,7 +1557,9 @@ const char *THttpServer::GetMimeType(const char *path)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// \deprecated reads file content
+/// Reads file content
+///
+/// @deprecated
 
 char *THttpServer::ReadFileContent(const char *filename, Int_t &len)
 {
@@ -1359,7 +1585,7 @@ char *THttpServer::ReadFileContent(const char *filename, Int_t &len)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// reads file content, using std::string as container
+/// Reads file content, using std::string as container
 
 std::string THttpServer::ReadFileContent(const std::string &filename)
 {

@@ -45,8 +45,7 @@ namespace {
                       Sema* S) :
       m_Policy(Policy), m_Addresses(Addresses), m_Sema(S) {}
 
-    virtual ~StmtPrinterHelper() {}
-
+    ~StmtPrinterHelper() override {}
 
     // Handle only DeclRefExprs since they are local and the call wrapper
     // won't "see" them. Consequently we don't need to handle:
@@ -54,13 +53,13 @@ namespace {
     // * CallExpr
     // * MemberExpr
     // * CXXDependentScopeMemberExpr
-    virtual bool handledStmt(Stmt* S, llvm::raw_ostream& OS) {
+    bool handledStmt(Stmt* S, llvm::raw_ostream& OS) override {
       if (DeclRefExpr* Node = dyn_cast<DeclRefExpr>(S))
         // Exclude the artificially dependent DeclRefExprs, created by the
         // Lookup
         if (!Node->isTypeDependent()) {
-          if (NestedNameSpecifier* Qualifier = Node->getQualifier())
-            Qualifier->print(OS, m_Policy);
+          if (NestedNameSpecifier Qualifier = Node->getQualifier())
+            Qualifier.print(OS, m_Policy);
           m_Addresses.push_back(Node);
 
           OS << "((";
@@ -153,9 +152,9 @@ namespace cling {
 
   // Constructors
   EvaluateTSynthesizer::EvaluateTSynthesizer(Sema* S)
-    : ASTTransformer(S), m_EvalDecl(0), m_LifetimeHandlerDecl(0),
-      m_LHgetMemoryDecl(0), m_DynamicExprInfoDecl(0), m_DeclContextDecl(0),
-      m_gCling(0), m_CurDeclContext(0), m_Context(&S->getASTContext()),
+    : ASTTransformer(S), m_EvalDecl(nullptr), m_LifetimeHandlerDecl(nullptr),
+      m_LHgetMemoryDecl(nullptr), m_DynamicExprInfoDecl(nullptr), m_DeclContextDecl(nullptr),
+      m_gCling(nullptr), m_CurDeclContext(nullptr), m_Context(&S->getASTContext()),
       m_UniqueNameCounter(0), m_NestedCompoundStmts(0)
   { }
 
@@ -174,7 +173,7 @@ namespace cling {
     DeclarationName Name = &m_Context->Idents.get("EvaluateT");
 
     LookupResult R(*m_Sema, Name, SourceLocation(), Sema::LookupOrdinaryName,
-                     Sema::ForVisibleRedeclaration);
+                   RedeclarationKind::ForVisibleRedeclaration);
     assert(NSD && "There must be a valid namespace.");
     m_Sema->LookupQualifiedName(R, NSD);
     // We have specialized EvaluateT but we don't care because the templated
@@ -257,16 +256,7 @@ namespace cling {
         m_CurDeclContext = FD;
         ASTNodeInfo NewBody = Visit(D->getBody());
         if (NewBody.hasErrorOccurred()) {
-          // Report unsupported feature.
-          DiagnosticsEngine& Diags = m_Sema->getDiagnostics();
-          unsigned diagID
-          = Diags.getCustomDiagID(DiagnosticsEngine::Error,
-                                  "Syntax error");
-          Diags.Report(NewBody.getAsSingleNode()->getBeginLoc(), diagID);
-          D->dump();
-          if (NewBody.hasSingleNode())
-            NewBody.getAs<Expr>()->dump();
-          return Result(0, false); // Signal a fatal error.
+          return Result(nullptr, false); // Signal a fatal error.
         }
         FD->setBody(NewBody.getAsSingleNode());
       }
@@ -389,7 +379,11 @@ namespace cling {
       }
     }
 
-    auto* NewCS = CompoundStmt::Create(*m_Context, NewChildren,
+    FPOptionsOverride FPFeatures;
+    if (Node->hasStoredFPFeatures()) {
+      FPFeatures = Node->getStoredFPFeatures();
+    }
+    auto* NewCS = CompoundStmt::Create(*m_Context, NewChildren, FPFeatures,
                                        Node->getLBracLoc(),
                                        Node->getRBracLoc());
 
@@ -409,7 +403,16 @@ namespace cling {
           continue;
 
         QualType CuredDeclTy = CuredDecl->getType();
+
+        // Handle cases where we have `auto p = expression;` where `expression`
+        // is unknown.
         if (isa<AutoType>(CuredDeclTy)) {
+          DiagnosticsEngine& Diags = m_Sema->getDiagnostics();
+          unsigned DiagID = Diags.getCustomDiagID(
+              DiagnosticsEngine::Error,
+              "cannot deduce 'auto' from unknown expression");
+
+          auto Builder = Diags.Report(InitExpr->getBeginLoc(), DiagID);
           ASTNodeInfo result(Node, false);
           result.setErrorOccurred();
           return result;
@@ -453,7 +456,7 @@ namespace cling {
         // Build Arg0 DynamicExprInfo
         Inits.push_back(BuildDynamicExprInfo(InitExpr));
         // Build Arg1 DeclContext* DC
-        QualType DCTy = m_Context->getTypeDeclType(m_DeclContextDecl);
+        QualType DCTy = m_Context->getCanonicalTagType(m_DeclContextDecl);
         Inits.push_back(utils::Synthesize::CStyleCastPtrExpr(m_Sema, DCTy,
                                                      (uintptr_t)m_CurDeclContext)
                         );
@@ -461,6 +464,7 @@ namespace cling {
         // Get the type of the type without specifiers
         PrintingPolicy Policy(m_Context->getLangOpts());
         Policy.SuppressTagKeyword = 1;
+        Policy.SuppressTagKeywordInAnonNames = 1; // Skip printing tags for anonymous entities
         std::string Res;
         CuredDeclTy.getAsStringInternal(Res, Policy);
         Inits.push_back(ConstructConstCharPtrExpr(Res.c_str()));
@@ -474,7 +478,7 @@ namespace cling {
         Inits.push_back(gClingDRE);
 
         // 2.3 Create a variable from LifetimeHandler.
-        QualType HandlerTy = m_Context->getTypeDeclType(m_LifetimeHandlerDecl);
+        QualType HandlerTy = m_Context->getCanonicalTagType(m_LifetimeHandlerDecl);
         TypeSourceInfo* TSI = m_Context->getTrivialTypeSourceInfo(HandlerTy,
                                                                   m_NoSLoc);
         VarDecl* HandlerInstance = VarDecl::Create(*m_Context,
@@ -527,9 +531,9 @@ namespace cling {
                                               /*IsArrow=*/false,
                                               SS,
                                               m_NoSLoc,
-                                              /*FirstQualifierInScope=*/0,
+                                              /*FirstQualifierInScope=*/nullptr,
                                               MemberLookup,
-                                              /*TemplateArgs=*/0,
+                                              /*TemplateArgs=*/nullptr,
                                               /*Scope*/nullptr).get();
         // 3.3 Build the actual call
         Scope* S = m_Sema->getScopeForContext(m_Sema->CurContext);
@@ -583,6 +587,11 @@ namespace cling {
       Expr* Replacement = ContentTransform.getAs<Expr>();
       return ASTNodeInfo(Replacement, ContentTransform.isForReplacement());
     }
+    // Report unsupported feature.
+    DiagnosticsEngine& Diags = m_Sema->getDiagnostics();
+    unsigned diagID =
+        Diags.getCustomDiagID(DiagnosticsEngine::Error, "Syntax error");
+    Diags.Report(Node->getBeginLoc(), diagID);
     ContentTransform.setErrorOccurred();
     return ContentTransform;
   }
@@ -621,8 +630,7 @@ namespace cling {
         if (!IsArtificiallyDependent(LHSExpr)) {
           const QualType LHSTy = LHSExpr->getType();
           Node->setRHS(SubstituteUnknownSymbol(LHSTy, rhs.castTo<Expr>()));
-          Node->setTypeDependent(false);
-          Node->setValueDependent(false);
+          assert(Node->getDependence() == ExprDependence::None);
           return ASTNodeInfo(Node, /*needs eval*/false);
         }
     }
@@ -676,7 +684,7 @@ namespace cling {
     CallArgs.push_back(Arg0);
 
     // Build Arg1
-    QualType DCTy = m_Context->getTypeDeclType(m_DeclContextDecl);
+    QualType DCTy = m_Context->getCanonicalTagType(m_DeclContextDecl);
     Expr* Arg1 = utils::Synthesize::CStyleCastPtrExpr(m_Sema, DCTy,
                                                     (uintptr_t)m_CurDeclContext);
     CallArgs.push_back(Arg1);
@@ -718,12 +726,11 @@ namespace cling {
     Expr* ExprTemplate = ConstructConstCharPtrExpr(OS.str());
 
     // 3. Build the array of addresses
-    QualType VarAddrTy = m_Sema->BuildArrayType(m_Context->VoidPtrTy,
-                                                ArrayType::Normal,
-                                                /*ArraySize*/0,
-                                                /*IndexTypeQuals*/0,
-                                                m_NoRange,
-                                                DeclarationName() );
+    QualType VarAddrTy =
+        m_Sema->BuildArrayType(m_Context->VoidPtrTy, ArraySizeModifier::Normal,
+                               /*ArraySize*/ nullptr,
+                               /*IndexTypeQuals*/ 0, m_NoRange,
+                               DeclarationName());
 
     llvm::SmallVector<Expr*, 2> Inits;
     Scope* S = m_Sema->getScopeForContext(m_Sema->CurContext);
@@ -735,13 +742,13 @@ namespace cling {
       if (!UnOp) {
         // Not good, return what we had.
         cling::errs() << "Error while creating dynamic expression for:\n  ";
-        SubTree->printPretty(cling::errs(), 0 /*PrinterHelper*/,
+        SubTree->printPretty(cling::errs(), nullptr /*PrinterHelper*/,
                              m_Context->getPrintingPolicy(), 2);
         cling::errs() << "\n";
 #ifndef NDEBUG
         cling::errs() <<
           "with internal representation (look for <dependent type>):\n";
-        SubTree->dump(cling::errs(), m_Sema->getSourceManager());
+        SubTree->dump(cling::errs(), m_Sema->getASTContext());
 #endif
         return SubTree;
       }
@@ -761,7 +768,6 @@ namespace cling {
                                                            TSI,
                                                            m_NoELoc,
                                                            ILE).get();
-    assert (ExprAddresses && "Could not build the void* array");
     if (!ExprAddresses)
        return SubTree;
 
@@ -770,7 +776,7 @@ namespace cling {
                               CK_ArrayToPointerDecay);
 
     // Is the result of the expression to be printed or not
-    Expr* VPReq = 0;
+    Expr* VPReq = nullptr;
     if (ValuePrinterReq)
       VPReq = m_Sema->ActOnCXXBoolLiteral(m_NoSLoc, tok::kw_true).get();
     else
@@ -782,7 +788,7 @@ namespace cling {
     CtorArgs.push_back(VPReq);
 
     // 4. Call the constructor
-    QualType ExprInfoTy = m_Context->getTypeDeclType(m_DynamicExprInfoDecl);
+    QualType ExprInfoTy = m_Context->getCanonicalTagType(m_DynamicExprInfoDecl);
     ExprResult Initializer = m_Sema->ActOnParenListExpr(m_NoSLoc, m_NoELoc,
                                                         CtorArgs);
     TypeSourceInfo* TrivialTSI
@@ -810,12 +816,13 @@ namespace cling {
 
     unsigned bitSize = m_Context->getTypeSize(m_Context->VoidPtrTy);
     llvm::APInt ArraySize(bitSize, Value.size() + 1);
-    const QualType CCArray = m_Context->getConstantArrayType(CChar,
-                                                            ArraySize,
-                                                            ArrayType::Normal,
-                                                          /*IndexTypeQuals=*/0);
+    const QualType CCArray =
+        m_Context->getConstantArrayType(CChar, ArraySize,
+                                        /*SizeExpr=*/nullptr,
+                                        ArraySizeModifier::Normal,
+                                        /*IndexTypeQuals=*/0);
 
-    StringLiteral::StringKind Kind = StringLiteral::Ascii;
+    StringLiteralKind Kind = StringLiteralKind::Ordinary;
     Expr* Result = StringLiteral::Create(*m_Context,
                                          Value,
                                          Kind,
@@ -845,13 +852,13 @@ namespace cling {
     Sema::InstantiatingTemplate Inst(*m_Sema, m_NoSLoc, m_EvalDecl);
     // Before instantiation we need the canonical type
     TemplateArgument Arg(InstTy.getCanonicalType());
-    TemplateArgumentList TemplateArgs(TemplateArgumentList::OnStack, Arg);
+    MultiLevelTemplateArgumentList MLTAL(m_EvalDecl, Arg, /*Final=*/false);
 
     // Substitute the declaration of the templated function, with the
     // specified template argument
     Decl* D = m_Sema->SubstDecl(m_EvalDecl,
                                 m_EvalDecl->getDeclContext(),
-                                MultiLevelTemplateArgumentList(TemplateArgs));
+                                MLTAL);
 
     FunctionDecl* Fn = dyn_cast<FunctionDecl>(D);
 
@@ -878,7 +885,7 @@ namespace cling {
                                                EPI);
     DeclRefExpr* DRE = m_Sema->BuildDeclRefExpr(Fn,
                                                 FnTy,
-                                                VK_RValue,
+                                                VK_PRValue,
                                                 m_NoSLoc
                                                 );
 #if 0
@@ -906,7 +913,7 @@ namespace cling {
   bool EvaluateTSynthesizer::ShouldVisit(FunctionDecl* D) {
     // FIXME: Here we should have our custom attribute.
     if (AnnotateAttr* A = D->getAttr<AnnotateAttr>())
-      if (A->getAnnotation().equals("__ResolveAtRuntime"))
+      if (A->getAnnotation() == "__ResolveAtRuntime")
         return true;
     return false;
   }
@@ -940,7 +947,7 @@ namespace cling {
          << m_UniqueNameCounter++;
     return Strm.str();
   }
-  
+
 
   // end Helpers
 
@@ -959,14 +966,14 @@ namespace cling {
       Value res = Interp->Evaluate(ctor.c_str(), DC,
                                    ExprInfo->isValuePrinterRequested()
                                    );
-      m_Memory = (void*)res.getAs<void*>();
+      m_Memory = res.getPtr();
     }
 
     LifetimeHandler::~LifetimeHandler() {
       ostrstream stream;
       stream << "delete (" << m_Type << "*) " << m_Memory << ";";
       LockCompilationDuringUserCodeExecutionRAII LCDUCER(*m_Interpreter);
-      m_Interpreter->execute(stream.str());
+      m_Interpreter->execute(stream.str().str());
     }
   } // end namespace internal
   } // end namespace runtime
